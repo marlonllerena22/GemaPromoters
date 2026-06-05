@@ -1,0 +1,39 @@
+import jwt from 'jsonwebtoken';
+
+export function createToken(payload) {
+  return jwt.sign(payload, process.env.JWT_SECRET || 'dev-secret', { expiresIn: '8h' });
+}
+
+export function requireAuth(req, res, next) {
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+
+  if (!token) {
+    return res.status(401).json({ message: 'No autorizado' });
+  }
+
+  try {
+    req.user = jwt.verify(token, process.env.JWT_SECRET || 'dev-secret');
+    return next();
+  } catch {
+    return res.status(401).json({ message: 'Sesion expirada' });
+  }
+}
+
+export function requireAdmin(req, res, next) {
+  requireAuth(req, res, () => {
+    if (req.user?.role !== 'admin') {
+      return res.status(403).json({ message: 'Solo administrador' });
+    }
+    return next();
+  });
+}
+
+export function requirePromoter(req, res, next) {
+  requireAuth(req, res, () => {
+    if (req.user?.role !== 'promoter') {
+      return res.status(403).json({ message: 'Solo promotor' });
+    }
+    return next();
+  });
+}
