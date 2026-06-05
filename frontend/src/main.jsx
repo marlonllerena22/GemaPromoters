@@ -77,13 +77,27 @@ function imageFileToDataUrl(file) {
       return;
     }
 
-    if (file.size > 2 * 1024 * 1024) {
-      reject(new Error('La imagen debe pesar maximo 2 MB'));
+    if (file.size > 8 * 1024 * 1024) {
+      reject(new Error('La imagen debe pesar maximo 8 MB'));
       return;
     }
 
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
+    reader.onload = () => {
+      const image = new Image();
+      image.onload = () => {
+        const maxSize = 720;
+        const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext('2d');
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.82));
+      };
+      image.onerror = () => reject(new Error('No se pudo procesar la imagen'));
+      image.src = reader.result;
+    };
     reader.onerror = () => reject(new Error('No se pudo leer la imagen'));
     reader.readAsDataURL(file);
   });
@@ -889,6 +903,7 @@ function PromoterApp({ user, onLogout }) {
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '' });
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  const [profileError, setProfileError] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const activeLocations = locations.filter((location) => location.status === 'active');
   const estimatedTotal = useMemo(() => Number(form.quantity || 0) * Number(form.unit_price || 0), [form]);
@@ -955,7 +970,7 @@ function PromoterApp({ user, onLogout }) {
 
   async function updateProfile(event) {
     event.preventDefault();
-    setPasswordError('');
+    setProfileError('');
     try {
       const nextProfile = await api('/promoter/profile', {
         method: 'PATCH',
@@ -965,17 +980,17 @@ function PromoterApp({ user, onLogout }) {
       setNotice('Foto actualizada');
       setTimeout(() => setNotice(''), 2400);
     } catch (err) {
-      setPasswordError(err.message);
+      setProfileError(err.message);
     }
   }
 
   async function pickProfilePhoto(file) {
-    setPasswordError('');
+    setProfileError('');
     try {
       const photo_url = await imageFileToDataUrl(file);
       setProfileForm({ ...profileForm, photo_url });
     } catch (err) {
-      setPasswordError(err.message);
+      setProfileError(err.message);
     }
   }
 
@@ -1087,6 +1102,7 @@ function PromoterApp({ user, onLogout }) {
               </button>
             </div>
           )}
+          {profileError && <div className="alert error">{profileError}</div>}
           <button className="primary-button" type="submit">
             <UserRound size={18} />
             Guardar foto
@@ -1177,9 +1193,6 @@ function VerifyPage() {
                 <p><UserRound size={17} /> {result.promoter.name}</p>
                 <p>{result.promoter.instagram || 'Sin Instagram'}</p>
                 <p>WhatsApp: {result.promoter.whatsapp}</p>
-                <small>
-                  {result.promoter.level?.levelPoints || 0} puntos · {result.promoter.level?.paidSales || 0} ventas pagadas
-                </small>
               </>
             )}
           </div>

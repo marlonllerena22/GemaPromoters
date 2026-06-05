@@ -661,21 +661,27 @@ td {
   }
 
   .sidebar {
+    gap: 12px;
     position: sticky;
     top: 0;
     z-index: 5;
   }
 
   .sidebar nav {
-    grid-template-columns: repeat(7, minmax(0, 1fr));
+    display: flex;
+    gap: 8px;
     overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: thin;
   }
 
   .sidebar button,
   .public-link,
   .logout {
+    flex: 0 0 auto;
     justify-content: center;
-    min-width: 118px;
+    min-width: 126px;
+    white-space: nowrap;
   }
 
   .public-link {
@@ -715,11 +721,30 @@ td {
   }
 
   .sidebar {
-    padding: 14px;
+    padding: 12px;
   }
 
   .sidebar-brand {
     margin-bottom: 0;
+  }
+
+  .sidebar nav {
+    margin-left: -2px;
+    margin-right: -2px;
+  }
+
+  .sidebar button,
+  .public-link,
+  .logout {
+    font-size: 13px;
+    min-height: 40px;
+    min-width: 104px;
+    padding: 9px 10px;
+  }
+
+  .public-link,
+  .logout {
+    align-self: flex-start;
   }
 
   .metric-grid,
