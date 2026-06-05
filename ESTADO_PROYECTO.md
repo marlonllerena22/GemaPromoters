@@ -16,6 +16,7 @@ Fecha de cierre: 2026-06-05
   - Editar promotor.
   - Activar/desactivar promotor.
   - Codigo, usuario y contrasena generados automaticamente.
+  - Codigo generado con nombre y primer apellido; si se repite, agrega numero al final.
   - Foto de perfil opcional desde archivo del dispositivo.
 - Modulo de ventas:
   - Registrar ventas desde administrador.

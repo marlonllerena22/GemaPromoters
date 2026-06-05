@@ -53,10 +53,15 @@ function findActivePromoterForLogin(username, password) {
     .find((promoter) => normalizeLookup(promoter.username) === lookup || normalizeLookup(promoter.code) === lookup);
 }
 
-function buildPromoterCode(name, cedula) {
-  const cleanName = normalizeLookup(name).slice(0, 8) || 'PROMOTOR';
-  const cleanCedula = normalizeLookup(cedula).slice(-4) || String(Date.now()).slice(-4);
-  const base = `GEMA-${cleanName}-${cleanCedula}`;
+function buildPromoterCode(name) {
+  const parts = String(name || '')
+    .trim()
+    .split(/\s+/)
+    .map((part) => normalizeLookup(part))
+    .filter(Boolean);
+  const firstName = parts[0] || 'PROMOTOR';
+  const firstLastName = parts.length > 1 ? parts[1] : '';
+  const base = `GEMA-${firstName}${firstLastName}`;
   let candidate = base;
   let counter = 2;
 
@@ -217,7 +222,7 @@ app.get('/api/promoters', requireAdmin, (_req, res) => {
 
 app.post('/api/promoters', requireAdmin, (req, res) => {
   const { name, cedula, whatsapp, instagram, photo_url, status = 'active' } = req.body;
-  const normalizedCode = buildPromoterCode(name, cedula);
+  const normalizedCode = buildPromoterCode(name);
   const normalizedUsername = normalizedCode;
   const normalizedPassword = String(cedula || '').trim();
 

@@ -110,7 +110,8 @@ La foto de perfil es opcional.
 
 El sistema genera credenciales iniciales asi:
 
-- Codigo: generado automaticamente con nombre y cedula
+- Codigo: generado automaticamente con nombre y primer apellido, por ejemplo `GEMA-JUANPEREZ`
+- Si ya existe el mismo codigo, agrega un numero, por ejemplo `GEMA-JUANPEREZ-2`
 - Usuario: igual al codigo generado
 - Contrasena: cedula del promotor
 
