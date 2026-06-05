@@ -454,6 +454,10 @@ select:focus {
   gap: 8px;
 }
 
+.compact-actions {
+  flex-wrap: wrap;
+}
+
 .table-wrap {
   overflow-x: auto;
   width: 100%;

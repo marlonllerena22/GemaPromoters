@@ -528,6 +528,18 @@ app.patch('/api/sales/:id/pay', requireAdmin, (req, res) => {
   markSalePaid(res, req.params.id);
 });
 
+app.delete('/api/sales/:id', requireAdmin, (req, res) => {
+  const sale = db.prepare('SELECT id, promoter_id, location FROM sales WHERE id = ?').get(req.params.id);
+
+  if (!sale) {
+    return res.status(404).json({ message: 'Venta no encontrada' });
+  }
+
+  db.prepare('DELETE FROM sales WHERE id = ?').run(req.params.id);
+  recalculateCommissions(sale.promoter_id, sale.location);
+  res.json({ ok: true });
+});
+
 app.get('/api/promoter/me', requirePromoter, (req, res) => {
   const promoter = db.prepare('SELECT id, name, code, whatsapp, instagram, photo_url FROM promoters WHERE id = ?').get(req.user.promoterId);
   res.json({ ...promoter, level: getPromoterLevel(req.user.promoterId) });

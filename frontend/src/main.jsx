@@ -593,6 +593,16 @@ function Sales({ promoters, sales, locations, onRefresh }) {
     onRefresh('Venta marcada como pagada');
   }
 
+  async function removeSale(sale) {
+    const confirmed = window.confirm(`Eliminar definitivamente la venta de ${sale.customer}?`);
+    if (!confirmed) {
+      return;
+    }
+
+    await api(`/sales/${sale.id}`, { method: 'DELETE' });
+    onRefresh('Venta eliminada definitivamente');
+  }
+
   return (
     <div className="two-column">
       <section className="panel">
@@ -662,12 +672,17 @@ function Sales({ promoters, sales, locations, onRefresh }) {
             money(sale.total),
             money(sale.commission),
             sale.payment_status === 'paid' ? 'Pagado' : 'Pendiente',
-            sale.payment_status === 'paid' ? '' : (
-              <button className="ghost-button" onClick={() => markPaid(sale.id)}>
-                <CheckCircle2 size={16} />
-                Pagar
+            <div className="row-actions compact-actions">
+              {sale.payment_status !== 'paid' && (
+                <button className="ghost-button" onClick={() => markPaid(sale.id)}>
+                  <CheckCircle2 size={16} />
+                  Pagar
+                </button>
+              )}
+              <button className="danger-button" onClick={() => removeSale(sale)}>
+                Eliminar
               </button>
-            )
+            </div>
           ])}
         />
       </section>

@@ -87,6 +87,7 @@ PRODUCCION.md
 - Agregar foto de perfil para cada promotor desde archivo del dispositivo
 - Crear y editar localidades con precios
 - Registrar ventas por promotor
+- Eliminar definitivamente ventas desde administrador
 - Comision automatica del 3%
 - Ranking por total vendido
 - Liquidaciones con comisiones pendientes y pagadas
@@ -145,6 +146,7 @@ Tambien puedes eliminar una localidad si todavia no tiene ventas registradas. Si
 - Cuando la venta se marca como pagada, el sistema calcula la comision segun la regla de su localidad.
 - Las reglas son acumuladas por promotor y localidad. Ejemplo: si VIP paga comision desde 5 entradas, el promotor empieza a ganar desde la quinta entrada VIP pagada.
 - El administrador puede marcar ventas como pagadas desde `Ventas`.
+- El administrador puede eliminar definitivamente una venta desde `Ventas`.
 - El promotor puede marcar sus propias ventas como pagadas desde su panel.
 
 ## Niveles

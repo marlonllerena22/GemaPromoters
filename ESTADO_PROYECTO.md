@@ -25,6 +25,7 @@ Fecha de cierre: 2026-06-05
   - Registrar cliente, WhatsApp, localidad, cantidad, precio, total, fecha y estado de pago.
   - Mostrar localidad en reporte de ventas.
   - Marcar ventas pendientes como pagadas.
+  - Eliminar definitivamente ventas desde administrador.
 - Comisiones:
   - Las ventas pendientes no generan comision.
   - Las ventas pagadas generan comision segun regla de localidad.
@@ -154,8 +155,8 @@ Promotores de ejemplo:
 
 - Promotores: 3
 - Promotores activos: 2
-- Ventas registradas: 2
-- Ventas pagadas: 2
+- Ventas registradas: 0
+- Ventas pagadas: 0
 - Ventas pendientes: 0
 - Localidades: 3
 - Configuraciones guardadas: 3
