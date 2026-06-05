@@ -161,7 +161,7 @@ function App() {
 
 function Login({ onLogin }) {
   const [mode, setMode] = useState('admin');
-  const [form, setForm] = useState({ username: 'admin', password: 'admin123' });
+  const [form, setForm] = useState({ username: '', password: '' });
   const [error, setError] = useState('');
 
   async function submit(event) {
@@ -227,7 +227,7 @@ function Login({ onLogin }) {
             className={mode === 'admin' ? 'selected' : ''}
             onClick={() => {
               setMode('admin');
-              setForm({ username: 'admin', password: 'admin123' });
+              setForm({ username: '', password: '' });
             }}
           >
             Admin
