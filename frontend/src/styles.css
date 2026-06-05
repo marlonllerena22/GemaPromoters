@@ -456,6 +456,13 @@ select:focus {
 
 .compact-actions {
   flex-wrap: wrap;
+  min-width: 170px;
+}
+
+.compact-actions .danger-button,
+.compact-actions .ghost-button {
+  min-height: 36px;
+  padding: 7px 10px;
 }
 
 .table-wrap {

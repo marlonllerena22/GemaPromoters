@@ -594,7 +594,9 @@ function Sales({ promoters, sales, locations, onRefresh }) {
   }
 
   async function removeSale(sale) {
-    const confirmed = window.confirm(`Eliminar definitivamente la venta de ${sale.customer}?`);
+    const confirmed = window.confirm(
+      `Seguro quieres eliminar la venta de ${sale.customer}? No se podran recuperar los datos.`
+    );
     if (!confirmed) {
       return;
     }
@@ -663,7 +665,7 @@ function Sales({ promoters, sales, locations, onRefresh }) {
           <h3>Ventas</h3>
         </div>
         <DataTable
-          columns={['Promotor', 'Cliente', 'Localidad', 'Cantidad', 'Total', 'Comision', 'Pago', '']}
+          columns={['Promotor', 'Cliente', 'Localidad', 'Cantidad', 'Total', 'Comision', 'Pago', 'Acciones']}
           rows={sales.map((sale) => [
             sale.promoter_name,
             sale.customer,
