@@ -44,6 +44,18 @@ function findActivePromoterByCode(code) {
     .find((promoter) => normalizeLookup(promoter.code) === lookup);
 }
 
+function findPromoterByCode(code) {
+  const lookup = normalizeLookup(code);
+  if (!lookup) {
+    return null;
+  }
+
+  return db
+    .prepare('SELECT id, name, code FROM promoters')
+    .all()
+    .find((promoter) => normalizeLookup(promoter.code) === lookup);
+}
+
 function findActivePromoterForLogin(username, password) {
   const lookup = normalizeLookup(username);
   const cleanPassword = String(password || '').trim();
@@ -140,7 +152,7 @@ function recalculateAllCommissions() {
 }
 
 function getLevelSettings() {
-  const rows = db.prepare("SELECT key, value FROM app_settings WHERE key LIKE 'level_%'").all();
+  const rows = db.prepare("SELECT key, value FROM app_settings WHERE key LIKE 'level_%' OR key = 'referral_points'").all();
   const settings = Object.fromEntries(rows.map((row) => [row.key, row.value]));
   const benefitsFrom = (key, fallback) =>
     String(settings[key] || fallback)
@@ -152,6 +164,7 @@ function getLevelSettings() {
     bronze: Number(settings.level_bronze_min ?? 1),
     silver: Number(settings.level_silver_min ?? 10),
     diamond: Number(settings.level_diamond_min ?? 25),
+    referralPoints: Number(settings.referral_points ?? 3),
     benefits: {
       bronze: benefitsFrom(
         'level_bronze_benefits',
@@ -198,6 +211,7 @@ function getPromoterLevel(promoterId) {
     .prepare("SELECT quantity, location FROM sales WHERE promoter_id = ? AND payment_status = 'paid'")
     .all(promoterId);
   const promoter = db.prepare('SELECT manual_points FROM promoters WHERE id = ?').get(promoterId);
+  const referralCount = db.prepare('SELECT COUNT(*) AS total FROM promoters WHERE referred_by_promoter_id = ?').get(promoterId).total;
   const locations = db.prepare('SELECT name, level_points FROM event_locations').all();
   const paidSales = paidSalesRows.length;
   const salesPoints = paidSalesRows.reduce((sum, sale) => {
@@ -205,7 +219,8 @@ function getPromoterLevel(promoterId) {
     return sum + Number(sale.quantity || 0) * Number(location?.level_points ?? 1);
   }, 0);
   const manualPoints = Number(promoter?.manual_points || 0);
-  const levelPoints = salesPoints + manualPoints;
+  const referralPoints = referralCount * Number(settings.referralPoints || 0);
+  const levelPoints = salesPoints + manualPoints + referralPoints;
 
   let level = {
     key: 'starter',
@@ -226,8 +241,10 @@ function getPromoterLevel(promoterId) {
   return {
     ...level,
     paidSales,
+    referralCount,
     salesPoints: Math.round(salesPoints * 100) / 100,
     manualPoints: Math.round(manualPoints * 100) / 100,
+    referralPoints: Math.round(referralPoints * 100) / 100,
     levelPoints: Math.round(levelPoints * 100) / 100,
     settings,
     catalog: getLevelCatalog(settings)
@@ -269,24 +286,45 @@ app.get('/api/dashboard', requireAdmin, (_req, res) => {
 });
 
 app.get('/api/promoters', requireAdmin, (_req, res) => {
-  const promoters = db.prepare('SELECT * FROM promoters ORDER BY registered_at DESC, id DESC').all();
-  res.json(promoters);
+  const settings = getLevelSettings();
+  const promoters = db
+    .prepare(
+      `SELECT promoters.*,
+              referrer.code AS referrer_code,
+              referrer.name AS referrer_name,
+              (SELECT COUNT(*) FROM promoters AS referred WHERE referred.referred_by_promoter_id = promoters.id) AS referral_count
+       FROM promoters
+       LEFT JOIN promoters AS referrer ON referrer.id = promoters.referred_by_promoter_id
+       ORDER BY promoters.registered_at DESC, promoters.id DESC`
+    )
+    .all();
+  res.json(
+    promoters.map((promoter) => ({
+      ...promoter,
+      referral_points_earned: toMoney(Number(promoter.referral_count || 0) * Number(settings.referralPoints || 0))
+    }))
+  );
 });
 
 app.post('/api/promoters', requireAdmin, (req, res) => {
-  const { name, cedula, whatsapp, instagram, photo_url, status = 'active' } = req.body;
+  const { name, cedula, whatsapp, instagram, photo_url, referral_code, status = 'active' } = req.body;
   const normalizedCode = buildPromoterCode(name);
   const normalizedUsername = normalizedCode;
   const normalizedPassword = String(cedula || '').trim();
+  const referrer = findPromoterByCode(referral_code);
 
   if (!name || !cedula || !whatsapp || !instagram || !normalizedPassword) {
     return res.status(400).json({ message: 'Nombre, cedula, WhatsApp e Instagram son obligatorios' });
   }
 
+  if (String(referral_code || '').trim() && !referrer) {
+    return res.status(400).json({ message: 'Codigo de referido no registrado' });
+  }
+
   try {
     const result = db
       .prepare(
-        'INSERT INTO promoters (name, cedula, whatsapp, instagram, photo_url, code, username, password, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO promoters (name, cedula, whatsapp, instagram, photo_url, code, username, password, referred_by_promoter_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       )
       .run(
         name.trim(),
@@ -297,6 +335,7 @@ app.post('/api/promoters', requireAdmin, (req, res) => {
         normalizedCode,
         normalizedUsername,
         normalizedPassword,
+        referrer?.id || null,
         status
       );
 
@@ -308,16 +347,25 @@ app.post('/api/promoters', requireAdmin, (req, res) => {
 
 app.put('/api/promoters/:id', requireAdmin, (req, res) => {
   const { id } = req.params;
-  const { name, cedula, whatsapp, instagram, photo_url, status = 'active' } = req.body;
+  const { name, cedula, whatsapp, instagram, photo_url, referral_code, status = 'active' } = req.body;
+  const referrer = findPromoterByCode(referral_code);
 
   if (!name || !cedula || !whatsapp || !instagram) {
     return res.status(400).json({ message: 'Nombre, cedula, WhatsApp e Instagram son obligatorios' });
   }
 
+  if (String(referral_code || '').trim() && !referrer) {
+    return res.status(400).json({ message: 'Codigo de referido no registrado' });
+  }
+
+  if (referrer?.id === Number(id)) {
+    return res.status(400).json({ message: 'Un promotor no puede referirse a si mismo' });
+  }
+
   try {
     const result = db
       .prepare(
-        'UPDATE promoters SET name = ?, cedula = ?, whatsapp = ?, instagram = ?, photo_url = ?, status = ? WHERE id = ?'
+        'UPDATE promoters SET name = ?, cedula = ?, whatsapp = ?, instagram = ?, photo_url = ?, referred_by_promoter_id = ?, status = ? WHERE id = ?'
       )
       .run(
         name.trim(),
@@ -325,6 +373,7 @@ app.put('/api/promoters/:id', requireAdmin, (req, res) => {
         whatsapp.trim(),
         instagram?.trim() || '',
         photo_url?.trim() || '',
+        referrer?.id || null,
         status,
         id
       );
@@ -387,6 +436,7 @@ app.put('/api/level-settings', requireAdmin, (req, res) => {
   const bronze = Math.max(1, Number(req.body.bronze || 1));
   const silver = Math.max(bronze, Number(req.body.silver || bronze));
   const diamond = Math.max(silver, Number(req.body.diamond || silver));
+  const referralPoints = Math.max(0, Number(req.body.referral_points ?? req.body.referralPoints ?? 3));
   const cleanBenefits = (value) =>
     String(value || '')
       .split('\n')
@@ -399,6 +449,7 @@ app.put('/api/level-settings', requireAdmin, (req, res) => {
   save.run('level_bronze_min', String(bronze));
   save.run('level_silver_min', String(silver));
   save.run('level_diamond_min', String(diamond));
+  save.run('referral_points', String(toMoney(referralPoints)));
   save.run('level_bronze_benefits', cleanBenefits(req.body.bronze_benefits));
   save.run('level_silver_benefits', cleanBenefits(req.body.silver_benefits));
   save.run('level_diamond_benefits', cleanBenefits(req.body.diamond_benefits));

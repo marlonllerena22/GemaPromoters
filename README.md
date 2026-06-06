@@ -87,6 +87,8 @@ PRODUCCION.md
 - Agregar foto de perfil para cada promotor desde archivo del dispositivo
 - Habilitar o bloquear la opcion de vender por cada promotor
 - Asignar puntos manuales al promotor que el administrador elija
+- Registrar referidos usando el codigo del promotor que invito
+- Configurar cuantos puntos gana un promotor por cada referido
 - Crear y editar localidades con precios
 - Registrar ventas por promotor
 - Eliminar definitivamente ventas desde administrador
@@ -124,6 +126,8 @@ El promotor puede cambiar su contrasena y su foto desde su panel.
 Cuando un promotor registra una venta, esa venta queda guardada tambien para el administrador, aparece en ventas, ranking, panel y liquidaciones.
 
 El administrador puede bloquear la venta de un promotor especifico sin desactivarlo por completo. Si esta bloqueado, el promotor puede entrar a su panel, pero no puede registrar ventas.
+
+Al crear o editar un promotor, el administrador puede escribir el codigo del promotor que lo invito en el campo de referidos. El sistema valida que ese codigo exista y suma puntos automaticamente al promotor que invito.
 
 Los promotores tambien pueden cambiar su contrasena desde su panel.
 
@@ -165,6 +169,8 @@ En `Niveles`, el administrador define desde cuantas ventas pagadas entra un prom
 Ahora los niveles se calculan por puntos, no solo por numero de ventas. Cada localidad puede sumar puntos distintos por entrada pagada. Ejemplo: BOX puede sumar 3 puntos, VIP 2 puntos y Fan 1 punto.
 
 El administrador tambien puede sumar puntos manuales al promotor que quiera. Esos puntos se agregan al calculo del nivel, junto con los puntos obtenidos por entradas pagadas.
+
+El administrador tambien define cuantos puntos vale cada referido. Ese valor es global para todos los promotores, sin preferencias individuales.
 
 En la misma pantalla de `Niveles`, el administrador puede escribir beneficios para Bronce, Plata y Diamante. Se recomienda escribir un beneficio por linea.
 

@@ -20,6 +20,8 @@ Fecha de cierre: 2026-06-05
   - Foto de perfil opcional desde archivo del dispositivo.
   - Habilitar/deshabilitar la opcion de vender por cada promotor.
   - Asignar puntos manuales por promotor desde el administrador.
+  - Registrar codigo de referido cuando un promotor invita a otro promotor.
+  - Ver cuántos referidos logro cada promotor y cuantos puntos gano por referidos.
 - Modulo de ventas:
   - Registrar ventas desde administrador.
   - Registrar ventas desde promotor.
@@ -55,6 +57,7 @@ Fecha de cierre: 2026-06-05
 - Niveles:
   - Configuracion de Bronce, Plata y Diamante por puntos acumulados.
   - Cada localidad suma puntos distintos por entrada pagada.
+  - Puntos globales por referido configurables por administrador.
   - Beneficios editables por nivel desde el panel administrador.
   - En el perfil del promotor se muestran beneficios desbloqueados y beneficios futuros bloqueados.
   - Nivel visible en la verificacion publica.
@@ -156,6 +159,7 @@ Promotores de ejemplo:
   - VIP: 2 puntos por entrada pagada.
   - Fan: 1 punto por entrada pagada.
 - Los puntos de nivel se calculan con ventas pagadas por localidad mas los puntos manuales que asigne el administrador.
+- Los puntos por referidos se calculan automaticamente multiplicando cantidad de promotores referidos por el valor global configurado.
 - Los beneficios de Bronce, Plata y Diamante se guardan en `app_settings` y pueden editarse escribiendo un beneficio por linea.
 
 ## Estado actual de la base de datos

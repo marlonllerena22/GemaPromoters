@@ -226,6 +226,10 @@ input[type="file"] {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.level-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .level-preview {
   display: grid;
   gap: 12px;

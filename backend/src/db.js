@@ -28,6 +28,7 @@ export function initDb() {
       password TEXT,
       can_sell INTEGER NOT NULL DEFAULT 1 CHECK (can_sell IN (0, 1)),
       manual_points REAL NOT NULL DEFAULT 0 CHECK (manual_points >= 0),
+      referred_by_promoter_id INTEGER,
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
       registered_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
     );
@@ -72,6 +73,7 @@ export function initDb() {
   addColumnIfMissing('promoters', 'photo_url', 'TEXT');
   addColumnIfMissing('promoters', 'can_sell', 'INTEGER NOT NULL DEFAULT 1');
   addColumnIfMissing('promoters', 'manual_points', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing('promoters', 'referred_by_promoter_id', 'INTEGER');
   addColumnIfMissing('event_locations', 'commission_type', "TEXT NOT NULL DEFAULT 'percent'");
   addColumnIfMissing('event_locations', 'commission_value', 'REAL NOT NULL DEFAULT 3');
   addColumnIfMissing('event_locations', 'commission_min_quantity', 'INTEGER NOT NULL DEFAULT 1');
@@ -124,6 +126,7 @@ export function initDb() {
       ('level_bronze_min', '1'),
       ('level_silver_min', '10'),
       ('level_diamond_min', '25'),
+      ('referral_points', '3'),
       ('level_bronze_benefits', 'Acceso a preventas internas\nMaterial digital GEMASHOW\nReconocimiento como promotor Bronce'),
       ('level_silver_benefits', 'Prioridad en localidades de alta demanda\nBonos especiales por metas\nInsignia Plata en el perfil'),
       ('level_diamond_benefits', 'Beneficios VIP de promotor top\nPrioridad maxima en cupos\nReconocimiento Diamante GEMASHOW');

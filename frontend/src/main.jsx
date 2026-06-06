@@ -30,6 +30,7 @@ const emptyPromoter = {
   whatsapp: '',
   instagram: '',
   photo_url: '',
+  referral_code: '',
   code: '',
   username: '',
   password: '',
@@ -44,7 +45,8 @@ const emptyLevels = {
     bronze: ['Acceso a preventas internas', 'Material digital GEMASHOW', 'Reconocimiento como promotor Bronce'],
     silver: ['Prioridad en localidades de alta demanda', 'Bonos especiales por metas', 'Insignia Plata en el perfil'],
     diamond: ['Beneficios VIP de promotor top', 'Prioridad maxima en cupos', 'Reconocimiento Diamante GEMASHOW']
-  }
+  },
+  referralPoints: 3
 };
 
 const levelOrder = {
@@ -88,6 +90,7 @@ function normalizeLevelForm(levels = emptyLevels) {
     bronze: levels.bronze ?? emptyLevels.bronze,
     silver: levels.silver ?? emptyLevels.silver,
     diamond: levels.diamond ?? emptyLevels.diamond,
+    referral_points: levels.referralPoints ?? emptyLevels.referralPoints,
     bronze_benefits: benefitsText(levels.benefits?.bronze || emptyLevels.benefits.bronze),
     silver_benefits: benefitsText(levels.benefits?.silver || emptyLevels.benefits.silver),
     diamond_benefits: benefitsText(levels.benefits?.diamond || emptyLevels.benefits.diamond)
@@ -501,6 +504,7 @@ function Promoters({ promoters, onRefresh }) {
       whatsapp: promoter.whatsapp,
       instagram: promoter.instagram || '',
       photo_url: promoter.photo_url || '',
+      referral_code: promoter.referrer_code || '',
       code: promoter.code,
       username: promoter.username || promoter.code,
       password: promoter.password || promoter.cedula,
@@ -559,6 +563,11 @@ function Promoters({ promoters, onRefresh }) {
           <Input label="Cedula" value={form.cedula} onChange={(cedula) => setForm({ ...form, cedula })} />
           <Input label="WhatsApp" value={form.whatsapp} onChange={(whatsapp) => setForm({ ...form, whatsapp })} />
           <Input label="Instagram" value={form.instagram} onChange={(instagram) => setForm({ ...form, instagram })} />
+          <Input
+            label="Referido por codigo de promotor"
+            value={form.referral_code}
+            onChange={(referral_code) => setForm({ ...form, referral_code })}
+          />
           <label>
             Foto de perfil opcional
             <input type="file" accept="image/*" onChange={(event) => pickPhoto(event.target.files?.[0])} />
@@ -605,6 +614,8 @@ function Promoters({ promoters, onRefresh }) {
                 <small>{promoter.photo_url ? 'Foto configurada' : 'Sin foto de perfil'}</small>
                 <small>Usuario: {promoter.username || promoter.code} · Clave: {promoter.password || promoter.cedula}</small>
                 <small>{promoter.can_sell ? 'Puede vender' : 'Venta deshabilitada'} · {promoter.manual_points || 0} puntos manuales</small>
+                <small>Referido por: {promoter.referrer_code ? `${promoter.referrer_code} - ${promoter.referrer_name}` : 'Sin referido'}</small>
+                <small>Referidos logrados: {promoter.referral_count || 0} · {promoter.referral_points_earned || 0} puntos</small>
                 <small>{promoter.instagram || 'Sin Instagram'} · {promoter.registered_at}</small>
               </div>
               <div className="row-actions">
@@ -957,6 +968,12 @@ function Levels({ levels, onRefresh }) {
         <Input type="number" label="Bronce desde puntos" value={form.bronze} onChange={(bronze) => setForm({ ...form, bronze })} />
         <Input type="number" label="Plata desde puntos" value={form.silver} onChange={(silver) => setForm({ ...form, silver })} />
         <Input type="number" label="Diamante desde puntos" value={form.diamond} onChange={(diamond) => setForm({ ...form, diamond })} />
+        <Input
+          type="number"
+          label="Puntos por referido"
+          value={form.referral_points}
+          onChange={(referral_points) => setForm({ ...form, referral_points })}
+        />
         <label>
           Beneficios Bronce
           <textarea
