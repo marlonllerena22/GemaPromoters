@@ -1075,6 +1075,7 @@ function PromoterApp({ user, onLogout }) {
   const [error, setError] = useState('');
   const [profileError, setProfileError] = useState('');
   const [passwordError, setPasswordError] = useState('');
+  const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const activeLocations = locations.filter((location) => location.status === 'active');
   const estimatedTotal = useMemo(() => Number(form.quantity || 0) * Number(form.unit_price || 0), [form]);
   const estimatedCommission = useMemo(
@@ -1188,7 +1189,58 @@ function PromoterApp({ user, onLogout }) {
             {profile?.level?.name || 'Inicial'} · {profile?.level?.levelPoints || 0} puntos · {profile?.level?.paidSales || 0} ventas pagadas
           </small>
         </div>
+        <button className="ghost-button profile-edit-button" type="button" onClick={() => setProfileEditorOpen(!profileEditorOpen)}>
+          <UserRound size={18} />
+          {profileEditorOpen ? 'Cerrar perfil' : 'Editar perfil'}
+        </button>
       </section>
+      {profileEditorOpen && (
+        <section className="panel profile-editor-panel">
+          <div className="panel-title">
+            <h3>Editar perfil</h3>
+          </div>
+          <div className="profile-editor-grid">
+            <form className="form-grid" onSubmit={updateProfile}>
+              <label>
+                Elegir foto desde el dispositivo
+                <input type="file" accept="image/*" onChange={(event) => pickProfilePhoto(event.target.files?.[0])} />
+              </label>
+              {profileForm.photo_url && (
+                <div className="photo-preview">
+                  <img src={profileForm.photo_url} alt="Vista previa" />
+                  <button type="button" className="ghost-button" onClick={() => setProfileForm({ photo_url: '' })}>
+                    Quitar foto
+                  </button>
+                </div>
+              )}
+              {profileError && <div className="alert error">{profileError}</div>}
+              <button className="primary-button" type="submit">
+                <UserRound size={18} />
+                Guardar foto
+              </button>
+            </form>
+            <form className="form-grid" onSubmit={changePassword}>
+              <Input
+                type="password"
+                label="Contrasena actual"
+                value={passwordForm.currentPassword}
+                onChange={(currentPassword) => setPasswordForm({ ...passwordForm, currentPassword })}
+              />
+              <Input
+                type="password"
+                label="Nueva contrasena"
+                value={passwordForm.newPassword}
+                onChange={(newPassword) => setPasswordForm({ ...passwordForm, newPassword })}
+              />
+              {passwordError && <div className="alert error">{passwordError}</div>}
+              <button className="primary-button" type="submit">
+                <KeyRound size={18} />
+                Guardar contrasena
+              </button>
+            </form>
+          </div>
+        </section>
+      )}
       <PromoterBenefits level={profile?.level} />
       <div className="two-column">
         <section className="panel">
@@ -1259,54 +1311,6 @@ function PromoterApp({ user, onLogout }) {
           />
         </section>
       </div>
-      <section className="panel password-panel">
-        <div className="panel-title">
-          <h3>Perfil del promotor</h3>
-        </div>
-        <form className="form-grid password-grid" onSubmit={updateProfile}>
-          <label>
-            Elegir foto desde el dispositivo
-            <input type="file" accept="image/*" onChange={(event) => pickProfilePhoto(event.target.files?.[0])} />
-          </label>
-          {profileForm.photo_url && (
-            <div className="photo-preview">
-              <img src={profileForm.photo_url} alt="Vista previa" />
-              <button type="button" className="ghost-button" onClick={() => setProfileForm({ photo_url: '' })}>
-                Quitar foto
-              </button>
-            </div>
-          )}
-          {profileError && <div className="alert error">{profileError}</div>}
-          <button className="primary-button" type="submit">
-            <UserRound size={18} />
-            Guardar foto
-          </button>
-        </form>
-      </section>
-      <section className="panel password-panel">
-        <div className="panel-title">
-          <h3>Cambiar contrasena</h3>
-        </div>
-        <form className="form-grid password-grid" onSubmit={changePassword}>
-          <Input
-            type="password"
-            label="Contrasena actual"
-            value={passwordForm.currentPassword}
-            onChange={(currentPassword) => setPasswordForm({ ...passwordForm, currentPassword })}
-          />
-          <Input
-            type="password"
-            label="Nueva contrasena"
-            value={passwordForm.newPassword}
-            onChange={(newPassword) => setPasswordForm({ ...passwordForm, newPassword })}
-          />
-          {passwordError && <div className="alert error">{passwordError}</div>}
-          <button className="primary-button" type="submit">
-            <KeyRound size={18} />
-            Guardar
-          </button>
-        </form>
-      </section>
     </main>
   );
 }
