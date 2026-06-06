@@ -85,6 +85,8 @@ PRODUCCION.md
 - Crear, editar, activar y desactivar promotores
 - Generar automaticamente codigo, usuario y contrasena al crear promotor
 - Agregar foto de perfil para cada promotor desde archivo del dispositivo
+- Habilitar o bloquear la opcion de vender por cada promotor
+- Asignar puntos manuales al promotor que el administrador elija
 - Crear y editar localidades con precios
 - Registrar ventas por promotor
 - Eliminar definitivamente ventas desde administrador
@@ -94,6 +96,7 @@ PRODUCCION.md
 - Verificacion publica de codigo de promotor
 - Verificacion publica premium con foto y nivel del promotor
 - Niveles Bronce, Plata y Diamante configurables por ventas pagadas
+- Beneficios editables por nivel y visibles para promotores segun su progreso
 - Diseno responsive para celular
 
 ## Acceso de promotores
@@ -119,6 +122,8 @@ El sistema genera credenciales iniciales asi:
 El promotor puede cambiar su contrasena y su foto desde su panel.
 
 Cuando un promotor registra una venta, esa venta queda guardada tambien para el administrador, aparece en ventas, ranking, panel y liquidaciones.
+
+El administrador puede bloquear la venta de un promotor especifico sin desactivarlo por completo. Si esta bloqueado, el promotor puede entrar a su panel, pero no puede registrar ventas.
 
 Los promotores tambien pueden cambiar su contrasena desde su panel.
 
@@ -157,7 +162,15 @@ En `Niveles`, el administrador define desde cuantas ventas pagadas entra un prom
 - Plata
 - Diamante
 
-Ahora los niveles se calculan por puntos, no solo por numero de ventas. Cada localidad puede sumar puntos distintos por entrada pagada. Ejemplo: BOX puede sumar 3 puntos, VIP 2 puntos y Fan 1 punto. El nivel aparece en la verificacion publica del promotor junto con su foto.
+Ahora los niveles se calculan por puntos, no solo por numero de ventas. Cada localidad puede sumar puntos distintos por entrada pagada. Ejemplo: BOX puede sumar 3 puntos, VIP 2 puntos y Fan 1 punto.
+
+El administrador tambien puede sumar puntos manuales al promotor que quiera. Esos puntos se agregan al calculo del nivel, junto con los puntos obtenidos por entradas pagadas.
+
+En la misma pantalla de `Niveles`, el administrador puede escribir beneficios para Bronce, Plata y Diamante. Se recomienda escribir un beneficio por linea.
+
+En el perfil del promotor aparecen los beneficios de forma profesional: los beneficios alcanzados se ven desbloqueados y los beneficios de niveles superiores aparecen bloqueados hasta que el promotor llegue a ese nivel.
+
+El nivel aparece en la verificacion publica del promotor junto con su foto, pero los puntos y las ventas pagadas no se muestran publicamente.
 
 ## Estructura
 

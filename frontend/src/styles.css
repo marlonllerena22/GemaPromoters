@@ -245,6 +245,19 @@ input[type="file"] {
   gap: 6px;
 }
 
+.level-card ul {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+
+.level-card li {
+  color: #33423b;
+  font-size: 13px;
+}
+
 .level-card span,
 .promoter-profile span,
 .promoter-profile small {
@@ -326,11 +339,13 @@ label {
 }
 
 input,
-select {
+select,
+textarea {
   background: #fbfcfa;
   border: 1px solid #cfd8d1;
   border-radius: 8px;
   color: #18201d;
+  font: inherit;
   min-height: 44px;
   outline: none;
   padding: 10px 12px;
@@ -338,9 +353,16 @@ select {
 }
 
 input:focus,
-select:focus {
+select:focus,
+textarea:focus {
   border-color: #1b7c52;
   box-shadow: 0 0 0 3px rgba(27, 124, 82, 0.16);
+}
+
+textarea {
+  line-height: 1.45;
+  min-height: 132px;
+  resize: vertical;
 }
 
 .primary-button,
@@ -451,6 +473,7 @@ select:focus {
 .row-actions {
   display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -463,6 +486,11 @@ select:focus {
 .compact-actions .ghost-button {
   min-height: 36px;
   padding: 7px 10px;
+}
+
+.points-input {
+  max-width: 92px;
+  min-height: 42px;
 }
 
 .table-wrap {
@@ -536,7 +564,135 @@ td {
   align-items: center;
   display: flex;
   gap: 16px;
+  margin-bottom: 16px;
+}
+
+.benefits-showcase {
+  background: linear-gradient(135deg, #18201d, #2c463a);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  box-shadow: 0 22px 60px rgba(19, 34, 27, 0.2);
+  color: #ffffff;
   margin-bottom: 22px;
+  overflow: hidden;
+  padding: 18px;
+}
+
+.benefits-heading {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.benefits-heading span {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.benefits-heading h3 {
+  font-size: 23px;
+  margin: 3px 0 0;
+}
+
+.benefits-rank {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  display: inline-flex;
+  font-weight: 900;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 12px;
+  white-space: nowrap;
+}
+
+.benefits-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.benefit-tier {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 8px;
+  color: #18201d;
+  display: grid;
+  gap: 14px;
+  min-height: 100%;
+  padding: 15px;
+}
+
+.benefit-tier.locked {
+  background: rgba(255, 255, 255, 0.58);
+  color: #5e6963;
+}
+
+.benefit-tier-top {
+  align-items: flex-start;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.benefit-tier strong {
+  display: block;
+  font-size: 18px;
+}
+
+.benefit-tier span,
+.benefit-tier small {
+  color: inherit;
+}
+
+.benefit-icon {
+  align-items: center;
+  background: #eef5ef;
+  border-radius: 50%;
+  display: flex;
+  flex: 0 0 auto;
+  height: 38px;
+  justify-content: center;
+  width: 38px;
+}
+
+.benefit-tier.bronze .benefit-icon {
+  background: #ffe1bf;
+  color: #8c4d12;
+}
+
+.benefit-tier.silver .benefit-icon {
+  background: #e7eef5;
+  color: #476274;
+}
+
+.benefit-tier.diamond .benefit-icon {
+  background: #d8fbff;
+  color: #087787;
+}
+
+.benefit-tier ul {
+  display: grid;
+  gap: 9px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.benefit-tier li {
+  align-items: flex-start;
+  display: flex;
+  gap: 8px;
+  line-height: 1.35;
+}
+
+.benefit-tier li svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
 }
 
 .profile-photo,
@@ -787,7 +943,17 @@ td {
 
   .password-grid,
   .level-grid,
-  .level-preview {
+  .level-preview,
+  .benefits-grid {
     grid-template-columns: 1fr;
+  }
+
+  .benefits-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .benefits-rank {
+    white-space: normal;
   }
 }

@@ -140,14 +140,56 @@ function recalculateAllCommissions() {
 }
 
 function getLevelSettings() {
-  const rows = db.prepare("SELECT key, value FROM app_settings WHERE key LIKE 'level_%_min'").all();
-  const settings = Object.fromEntries(rows.map((row) => [row.key, Number(row.value)]));
+  const rows = db.prepare("SELECT key, value FROM app_settings WHERE key LIKE 'level_%'").all();
+  const settings = Object.fromEntries(rows.map((row) => [row.key, row.value]));
+  const benefitsFrom = (key, fallback) =>
+    String(settings[key] || fallback)
+      .split('\n')
+      .map((item) => item.trim())
+      .filter(Boolean);
 
   return {
-    bronze: settings.level_bronze_min ?? 1,
-    silver: settings.level_silver_min ?? 10,
-    diamond: settings.level_diamond_min ?? 25
+    bronze: Number(settings.level_bronze_min ?? 1),
+    silver: Number(settings.level_silver_min ?? 10),
+    diamond: Number(settings.level_diamond_min ?? 25),
+    benefits: {
+      bronze: benefitsFrom(
+        'level_bronze_benefits',
+        'Acceso a preventas internas\nMaterial digital GEMASHOW\nReconocimiento como promotor Bronce'
+      ),
+      silver: benefitsFrom(
+        'level_silver_benefits',
+        'Prioridad en localidades de alta demanda\nBonos especiales por metas\nInsignia Plata en el perfil'
+      ),
+      diamond: benefitsFrom(
+        'level_diamond_benefits',
+        'Beneficios VIP de promotor top\nPrioridad maxima en cupos\nReconocimiento Diamante GEMASHOW'
+      )
+    }
   };
+}
+
+function getLevelCatalog(settings = getLevelSettings()) {
+  return [
+    {
+      key: 'bronze',
+      name: 'Bronce',
+      min: settings.bronze,
+      benefits: settings.benefits.bronze
+    },
+    {
+      key: 'silver',
+      name: 'Plata',
+      min: settings.silver,
+      benefits: settings.benefits.silver
+    },
+    {
+      key: 'diamond',
+      name: 'Diamante',
+      min: settings.diamond,
+      benefits: settings.benefits.diamond
+    }
+  ];
 }
 
 function getPromoterLevel(promoterId) {
@@ -155,12 +197,15 @@ function getPromoterLevel(promoterId) {
   const paidSalesRows = db
     .prepare("SELECT quantity, location FROM sales WHERE promoter_id = ? AND payment_status = 'paid'")
     .all(promoterId);
+  const promoter = db.prepare('SELECT manual_points FROM promoters WHERE id = ?').get(promoterId);
   const locations = db.prepare('SELECT name, level_points FROM event_locations').all();
   const paidSales = paidSalesRows.length;
-  const levelPoints = paidSalesRows.reduce((sum, sale) => {
+  const salesPoints = paidSalesRows.reduce((sum, sale) => {
     const location = locations.find((item) => normalizeLookup(item.name) === normalizeLookup(sale.location));
     return sum + Number(sale.quantity || 0) * Number(location?.level_points ?? 1);
   }, 0);
+  const manualPoints = Number(promoter?.manual_points || 0);
+  const levelPoints = salesPoints + manualPoints;
 
   let level = {
     key: 'starter',
@@ -178,7 +223,15 @@ function getPromoterLevel(promoterId) {
     level = { key: 'diamond', name: 'Diamante', description: 'Promotor top GEMASHOW' };
   }
 
-  return { ...level, paidSales, levelPoints: Math.round(levelPoints * 100) / 100, settings };
+  return {
+    ...level,
+    paidSales,
+    salesPoints: Math.round(salesPoints * 100) / 100,
+    manualPoints: Math.round(manualPoints * 100) / 100,
+    levelPoints: Math.round(levelPoints * 100) / 100,
+    settings,
+    catalog: getLevelCatalog(settings)
+  };
 }
 
 app.get('/api/health', (_req, res) => {
@@ -302,6 +355,30 @@ app.patch('/api/promoters/:id/status', requireAdmin, (req, res) => {
   res.json(db.prepare('SELECT * FROM promoters WHERE id = ?').get(id));
 });
 
+app.patch('/api/promoters/:id/selling', requireAdmin, (req, res) => {
+  const { id } = req.params;
+  const canSell = req.body.can_sell ? 1 : 0;
+  const result = db.prepare('UPDATE promoters SET can_sell = ? WHERE id = ?').run(canSell, id);
+
+  if (!result.changes) {
+    return res.status(404).json({ message: 'Promotor no encontrado' });
+  }
+
+  res.json(db.prepare('SELECT * FROM promoters WHERE id = ?').get(id));
+});
+
+app.patch('/api/promoters/:id/manual-points', requireAdmin, (req, res) => {
+  const { id } = req.params;
+  const manualPoints = Math.max(0, Number(req.body.manual_points || 0));
+  const result = db.prepare('UPDATE promoters SET manual_points = ? WHERE id = ?').run(toMoney(manualPoints), id);
+
+  if (!result.changes) {
+    return res.status(404).json({ message: 'Promotor no encontrado' });
+  }
+
+  res.json(db.prepare('SELECT * FROM promoters WHERE id = ?').get(id));
+});
+
 app.get('/api/level-settings', requireAdmin, (_req, res) => {
   res.json(getLevelSettings());
 });
@@ -310,11 +387,21 @@ app.put('/api/level-settings', requireAdmin, (req, res) => {
   const bronze = Math.max(1, Number(req.body.bronze || 1));
   const silver = Math.max(bronze, Number(req.body.silver || bronze));
   const diamond = Math.max(silver, Number(req.body.diamond || silver));
+  const cleanBenefits = (value) =>
+    String(value || '')
+      .split('\n')
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .slice(0, 8)
+      .join('\n');
   const save = db.prepare('INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
 
   save.run('level_bronze_min', String(bronze));
   save.run('level_silver_min', String(silver));
   save.run('level_diamond_min', String(diamond));
+  save.run('level_bronze_benefits', cleanBenefits(req.body.bronze_benefits));
+  save.run('level_silver_benefits', cleanBenefits(req.body.silver_benefits));
+  save.run('level_diamond_benefits', cleanBenefits(req.body.diamond_benefits));
 
   res.json(getLevelSettings());
 });
@@ -474,9 +561,13 @@ function createSale(req, res, forcedPromoterId = null) {
     return res.status(400).json({ message: 'Completa los datos de la venta' });
   }
 
-  const promoter = db.prepare("SELECT id FROM promoters WHERE id = ? AND status = 'active'").get(selectedPromoterId);
+  const promoter = db.prepare("SELECT id, can_sell FROM promoters WHERE id = ? AND status = 'active'").get(selectedPromoterId);
   if (!promoter) {
     return res.status(400).json({ message: 'Selecciona un promotor activo' });
+  }
+
+  if (!promoter.can_sell) {
+    return res.status(403).json({ message: 'Este promotor no esta habilitado para vender' });
   }
 
   const total = toMoney(amount * price);
@@ -541,14 +632,14 @@ app.delete('/api/sales/:id', requireAdmin, (req, res) => {
 });
 
 app.get('/api/promoter/me', requirePromoter, (req, res) => {
-  const promoter = db.prepare('SELECT id, name, code, whatsapp, instagram, photo_url FROM promoters WHERE id = ?').get(req.user.promoterId);
+  const promoter = db.prepare('SELECT id, name, code, whatsapp, instagram, photo_url, can_sell FROM promoters WHERE id = ?').get(req.user.promoterId);
   res.json({ ...promoter, level: getPromoterLevel(req.user.promoterId) });
 });
 
 app.patch('/api/promoter/profile', requirePromoter, (req, res) => {
   const photoUrl = String(req.body.photo_url || '').trim();
   db.prepare('UPDATE promoters SET photo_url = ? WHERE id = ?').run(photoUrl, req.user.promoterId);
-  const promoter = db.prepare('SELECT id, name, code, whatsapp, instagram, photo_url FROM promoters WHERE id = ?').get(req.user.promoterId);
+  const promoter = db.prepare('SELECT id, name, code, whatsapp, instagram, photo_url, can_sell FROM promoters WHERE id = ?').get(req.user.promoterId);
   res.json({ ...promoter, level: getPromoterLevel(req.user.promoterId) });
 });
 

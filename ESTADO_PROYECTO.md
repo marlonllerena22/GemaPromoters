@@ -18,6 +18,8 @@ Fecha de cierre: 2026-06-05
   - Codigo, usuario y contrasena generados automaticamente.
   - Codigo generado con nombre y primer apellido; si se repite, agrega numero al final.
   - Foto de perfil opcional desde archivo del dispositivo.
+  - Habilitar/deshabilitar la opcion de vender por cada promotor.
+  - Asignar puntos manuales por promotor desde el administrador.
 - Modulo de ventas:
   - Registrar ventas desde administrador.
   - Registrar ventas desde promotor.
@@ -47,14 +49,18 @@ Fecha de cierre: 2026-06-05
 - Verificacion publica en `/verificar`:
   - Verifica codigo del promotor.
   - Tolera mayusculas, minusculas, espacios y guiones.
-  - Muestra foto, nombre, Instagram, WhatsApp, nivel y ventas pagadas.
+  - Muestra foto, nombre, Instagram, WhatsApp y nivel.
+  - No muestra puntos ni cantidad de ventas, porque esa informacion es interna.
   - Interfaz visual premium por nivel.
 - Niveles:
   - Configuracion de Bronce, Plata y Diamante por puntos acumulados.
   - Cada localidad suma puntos distintos por entrada pagada.
+  - Beneficios editables por nivel desde el panel administrador.
+  - En el perfil del promotor se muestran beneficios desbloqueados y beneficios futuros bloqueados.
   - Nivel visible en la verificacion publica.
 - Panel del promotor:
   - Registrar ventas.
+  - No puede registrar ventas si el administrador deshabilita su permiso de venta.
   - Ver sus ventas.
   - Marcar sus ventas como pagadas.
   - Cambiar contrasena.
@@ -71,7 +77,6 @@ Fecha de cierre: 2026-06-05
 - Subir proyecto a GitHub y conectarlo a un hosting.
 - Configurar disco persistente online para SQLite.
 - Definir contrasena segura de administrador en produccion.
-- Subida directa de imagenes desde archivo, no solo URL.
 - Roles/permisos mas avanzados.
 - Recuperacion de contrasena.
 
@@ -150,6 +155,8 @@ Promotores de ejemplo:
   - BOX: 3 puntos por entrada pagada.
   - VIP: 2 puntos por entrada pagada.
   - Fan: 1 punto por entrada pagada.
+- Los puntos de nivel se calculan con ventas pagadas por localidad mas los puntos manuales que asigne el administrador.
+- Los beneficios de Bronce, Plata y Diamante se guardan en `app_settings` y pueden editarse escribiendo un beneficio por linea.
 
 ## Estado actual de la base de datos
 

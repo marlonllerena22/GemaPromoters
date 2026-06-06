@@ -26,6 +26,8 @@ export function initDb() {
       code TEXT NOT NULL UNIQUE,
       username TEXT,
       password TEXT,
+      can_sell INTEGER NOT NULL DEFAULT 1 CHECK (can_sell IN (0, 1)),
+      manual_points REAL NOT NULL DEFAULT 0 CHECK (manual_points >= 0),
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
       registered_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
     );
@@ -68,6 +70,8 @@ export function initDb() {
   addColumnIfMissing('promoters', 'username', 'TEXT');
   addColumnIfMissing('promoters', 'password', 'TEXT');
   addColumnIfMissing('promoters', 'photo_url', 'TEXT');
+  addColumnIfMissing('promoters', 'can_sell', 'INTEGER NOT NULL DEFAULT 1');
+  addColumnIfMissing('promoters', 'manual_points', 'REAL NOT NULL DEFAULT 0');
   addColumnIfMissing('event_locations', 'commission_type', "TEXT NOT NULL DEFAULT 'percent'");
   addColumnIfMissing('event_locations', 'commission_value', 'REAL NOT NULL DEFAULT 3');
   addColumnIfMissing('event_locations', 'commission_min_quantity', 'INTEGER NOT NULL DEFAULT 1');
@@ -82,6 +86,14 @@ export function initDb() {
     UPDATE promoters
     SET password = cedula
     WHERE password IS NULL OR password = '';
+
+    UPDATE promoters
+    SET can_sell = 1
+    WHERE can_sell IS NULL;
+
+    UPDATE promoters
+    SET manual_points = 0
+    WHERE manual_points IS NULL OR manual_points < 0;
 
     UPDATE event_locations
     SET commission_type = 'percent'
@@ -111,7 +123,10 @@ export function initDb() {
     INSERT OR IGNORE INTO app_settings (key, value) VALUES
       ('level_bronze_min', '1'),
       ('level_silver_min', '10'),
-      ('level_diamond_min', '25');
+      ('level_diamond_min', '25'),
+      ('level_bronze_benefits', 'Acceso a preventas internas\nMaterial digital GEMASHOW\nReconocimiento como promotor Bronce'),
+      ('level_silver_benefits', 'Prioridad en localidades de alta demanda\nBonos especiales por metas\nInsignia Plata en el perfil'),
+      ('level_diamond_benefits', 'Beneficios VIP de promotor top\nPrioridad maxima en cupos\nReconocimiento Diamante GEMASHOW');
   `);
 }
 

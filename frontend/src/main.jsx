@@ -7,10 +7,12 @@ import {
   CheckCircle2,
   CircleDollarSign,
   KeyRound,
+  Lock,
   LogOut,
   Medal,
   Plus,
   Search,
+  Sparkles,
   Settings,
   Ticket,
   ToggleLeft,
@@ -37,7 +39,19 @@ const emptyPromoter = {
 const emptyLevels = {
   bronze: 1,
   silver: 10,
-  diamond: 25
+  diamond: 25,
+  benefits: {
+    bronze: ['Acceso a preventas internas', 'Material digital GEMASHOW', 'Reconocimiento como promotor Bronce'],
+    silver: ['Prioridad en localidades de alta demanda', 'Bonos especiales por metas', 'Insignia Plata en el perfil'],
+    diamond: ['Beneficios VIP de promotor top', 'Prioridad maxima en cupos', 'Reconocimiento Diamante GEMASHOW']
+  }
+};
+
+const levelOrder = {
+  starter: 0,
+  bronze: 1,
+  silver: 2,
+  diamond: 3
 };
 
 const emptySale = {
@@ -63,6 +77,34 @@ const emptyLocation = {
 
 function money(value) {
   return `$${Number(value || 0).toFixed(2)}`;
+}
+
+function benefitsText(items) {
+  return Array.isArray(items) ? items.join('\n') : String(items || '');
+}
+
+function normalizeLevelForm(levels = emptyLevels) {
+  return {
+    bronze: levels.bronze ?? emptyLevels.bronze,
+    silver: levels.silver ?? emptyLevels.silver,
+    diamond: levels.diamond ?? emptyLevels.diamond,
+    bronze_benefits: benefitsText(levels.benefits?.bronze || emptyLevels.benefits.bronze),
+    silver_benefits: benefitsText(levels.benefits?.silver || emptyLevels.benefits.silver),
+    diamond_benefits: benefitsText(levels.benefits?.diamond || emptyLevels.benefits.diamond)
+  };
+}
+
+function levelCatalogFromProfile(level) {
+  const catalog = level?.catalog || [];
+  if (catalog.length) {
+    return catalog;
+  }
+
+  return [
+    { key: 'bronze', name: 'Bronce', min: level?.settings?.bronze || 1, benefits: emptyLevels.benefits.bronze },
+    { key: 'silver', name: 'Plata', min: level?.settings?.silver || 10, benefits: emptyLevels.benefits.silver },
+    { key: 'diamond', name: 'Diamante', min: level?.settings?.diamond || 25, benefits: emptyLevels.benefits.diamond }
+  ];
 }
 
 function imageFileToDataUrl(file) {
@@ -490,6 +532,22 @@ function Promoters({ promoters, onRefresh }) {
     onRefresh('Estado actualizado');
   }
 
+  async function toggleSelling(promoter) {
+    await api(`/promoters/${promoter.id}/selling`, {
+      method: 'PATCH',
+      body: JSON.stringify({ can_sell: !promoter.can_sell })
+    });
+    onRefresh(promoter.can_sell ? 'Venta deshabilitada' : 'Venta habilitada');
+  }
+
+  async function updateManualPoints(promoter, value) {
+    await api(`/promoters/${promoter.id}/manual-points`, {
+      method: 'PATCH',
+      body: JSON.stringify({ manual_points: value })
+    });
+    onRefresh('Puntos actualizados');
+  }
+
   return (
     <div className="two-column">
       <section className="panel">
@@ -546,10 +604,22 @@ function Promoters({ promoters, onRefresh }) {
                 <span>{promoter.code} · {promoter.whatsapp}</span>
                 <small>{promoter.photo_url ? 'Foto configurada' : 'Sin foto de perfil'}</small>
                 <small>Usuario: {promoter.username || promoter.code} · Clave: {promoter.password || promoter.cedula}</small>
+                <small>{promoter.can_sell ? 'Puede vender' : 'Venta deshabilitada'} · {promoter.manual_points || 0} puntos manuales</small>
                 <small>{promoter.instagram || 'Sin Instagram'} · {promoter.registered_at}</small>
               </div>
               <div className="row-actions">
                 <button className="ghost-button" onClick={() => edit(promoter)}>Editar</button>
+                <button className="ghost-button" onClick={() => toggleSelling(promoter)}>
+                  {promoter.can_sell ? 'Bloquear venta' : 'Habilitar venta'}
+                </button>
+                <input
+                  className="points-input"
+                  min="0"
+                  type="number"
+                  title="Puntos manuales"
+                  defaultValue={promoter.manual_points || 0}
+                  onBlur={(event) => updateManualPoints(promoter, event.target.value)}
+                />
                 <button className="icon-button" title="Cambiar estado" onClick={() => toggle(promoter)}>
                   {promoter.status === 'active' ? <ToggleRight /> : <ToggleLeft />}
                 </button>
@@ -857,11 +927,11 @@ function Locations({ locations, onRefresh }) {
 }
 
 function Levels({ levels, onRefresh }) {
-  const [form, setForm] = useState(levels || emptyLevels);
+  const [form, setForm] = useState(normalizeLevelForm(levels));
   const [error, setError] = useState('');
 
   useEffect(() => {
-    setForm(levels || emptyLevels);
+    setForm(normalizeLevelForm(levels));
   }, [levels]);
 
   async function submit(event) {
@@ -887,6 +957,33 @@ function Levels({ levels, onRefresh }) {
         <Input type="number" label="Bronce desde puntos" value={form.bronze} onChange={(bronze) => setForm({ ...form, bronze })} />
         <Input type="number" label="Plata desde puntos" value={form.silver} onChange={(silver) => setForm({ ...form, silver })} />
         <Input type="number" label="Diamante desde puntos" value={form.diamond} onChange={(diamond) => setForm({ ...form, diamond })} />
+        <label>
+          Beneficios Bronce
+          <textarea
+            value={form.bronze_benefits}
+            onChange={(e) => setForm({ ...form, bronze_benefits: e.target.value })}
+            rows={5}
+            placeholder="Un beneficio por linea"
+          />
+        </label>
+        <label>
+          Beneficios Plata
+          <textarea
+            value={form.silver_benefits}
+            onChange={(e) => setForm({ ...form, silver_benefits: e.target.value })}
+            rows={5}
+            placeholder="Un beneficio por linea"
+          />
+        </label>
+        <label>
+          Beneficios Diamante
+          <textarea
+            value={form.diamond_benefits}
+            onChange={(e) => setForm({ ...form, diamond_benefits: e.target.value })}
+            rows={5}
+            placeholder="Un beneficio por linea"
+          />
+        </label>
         {error && <div className="alert error">{error}</div>}
         <button className="primary-button" type="submit">
           <BadgeCheck size={18} />
@@ -897,15 +994,71 @@ function Levels({ levels, onRefresh }) {
         <article className="level-card bronze">
           <strong>Bronce</strong>
           <span>Desde {form.bronze} puntos</span>
+          <ul>
+            {benefitsText(form.bronze_benefits).split('\n').filter(Boolean).map((benefit) => <li key={benefit}>{benefit}</li>)}
+          </ul>
         </article>
         <article className="level-card silver">
           <strong>Plata</strong>
           <span>Desde {form.silver} puntos</span>
+          <ul>
+            {benefitsText(form.silver_benefits).split('\n').filter(Boolean).map((benefit) => <li key={benefit}>{benefit}</li>)}
+          </ul>
         </article>
         <article className="level-card diamond">
           <strong>Diamante</strong>
           <span>Desde {form.diamond} puntos</span>
+          <ul>
+            {benefitsText(form.diamond_benefits).split('\n').filter(Boolean).map((benefit) => <li key={benefit}>{benefit}</li>)}
+          </ul>
         </article>
+      </div>
+    </section>
+  );
+}
+
+function PromoterBenefits({ level }) {
+  const catalog = levelCatalogFromProfile(level);
+  const currentRank = levelOrder[level?.key || 'starter'] || 0;
+
+  return (
+    <section className="benefits-showcase">
+      <div className="benefits-heading">
+        <div>
+          <span>Club de beneficios</span>
+          <h3>Tu progreso GEMASHOW</h3>
+        </div>
+        <div className={`benefits-rank ${level?.key || 'starter'}`}>
+          <Sparkles size={18} />
+          {level?.name || 'Inicial'}
+        </div>
+      </div>
+      <div className="benefits-grid">
+        {catalog.map((item) => {
+          const unlocked = currentRank >= (levelOrder[item.key] || 0);
+          return (
+            <article className={`benefit-tier ${item.key} ${unlocked ? 'unlocked' : 'locked'}`} key={item.key}>
+              <div className="benefit-tier-top">
+                <div>
+                  <strong>{item.name}</strong>
+                  <span>Desde {item.min} puntos</span>
+                </div>
+                <div className="benefit-icon">
+                  {unlocked ? <BadgeCheck size={20} /> : <Lock size={20} />}
+                </div>
+              </div>
+              <ul>
+                {(item.benefits || []).map((benefit) => (
+                  <li key={benefit}>
+                    {unlocked ? <CheckCircle2 size={16} /> : <Lock size={15} />}
+                    <span>{unlocked ? benefit : 'Beneficio bloqueado'}</span>
+                  </li>
+                ))}
+              </ul>
+              {!unlocked && <small>Sube de nivel para desbloquear estos beneficios.</small>}
+            </article>
+          );
+        })}
       </div>
     </section>
   );
@@ -1036,11 +1189,15 @@ function PromoterApp({ user, onLogout }) {
           </small>
         </div>
       </section>
+      <PromoterBenefits level={profile?.level} />
       <div className="two-column">
         <section className="panel">
           <div className="panel-title">
             <h3>Registrar venta</h3>
           </div>
+          {!profile?.can_sell && (
+            <div className="alert error">Tu cuenta no esta habilitada para registrar ventas.</div>
+          )}
           <form className="form-grid" onSubmit={submit}>
             <Input label="Cliente" value={form.customer} onChange={(customer) => setForm({ ...form, customer })} />
             <Input label="WhatsApp cliente" value={form.customer_whatsapp} onChange={(customer_whatsapp) => setForm({ ...form, customer_whatsapp })} />
@@ -1073,7 +1230,7 @@ function PromoterApp({ user, onLogout }) {
               <strong>Comision {money(estimatedCommission)}</strong>
             </div>
             {error && <div className="alert error">{error}</div>}
-            <button className="primary-button" type="submit">
+            <button className="primary-button" type="submit" disabled={!profile?.can_sell}>
               <Ticket size={18} />
               Registrar
             </button>
