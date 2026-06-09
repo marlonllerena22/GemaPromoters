@@ -12,8 +12,15 @@ Fecha de cierre: 2026-06-05
 - Establecimientos iniciales:
   - GEMASHOW.
   - Marjorie Botas / Marjorie Promotoras.
+- Cada establecimiento tiene tipo:
+  - Evento o concierto.
+  - Local comercial.
+- Cada establecimiento tiene usuario y contrasena propios para su administrador/dueño.
 - Cada establecimiento tiene sus propios promotores, eventos, localidades, niveles, banners, ventas y reportes.
 - El administrador supremo puede activar o desactivar si los promotores de un establecimiento registran ventas desde su cuenta.
+- Modulo de sucursales:
+  - Crear y editar sucursales por establecimiento.
+  - Asignar sucursal al crear o editar una promotora/promotor.
 - Login de administrador.
 - Login de promotores.
 - Modulo de eventos/conciertos:
@@ -145,6 +152,11 @@ Administrador supremo PROMOTERS:
 
 - Usuario: `promoters`
 - Contrasena: `promoters123`
+
+Administrador Marjorie Botas:
+
+- Usuario: `marjorie`
+- Contrasena: `marjorie123`
 
 Promotores de ejemplo:
 

@@ -43,6 +43,9 @@ Credenciales iniciales:
 - Administrador GEMASHOW:
   - Usuario: `admin`
   - Contrasena: `admin123`
+- Administrador Marjorie Botas:
+  - Usuario: `marjorie`
+  - Contrasena: `marjorie123`
 
 Puedes cambiarlas en `backend/.env`.
 
@@ -87,6 +90,11 @@ PRODUCCION.md
 - Login de administrador supremo PROMOTERS
 - Crear y editar establecimientos
 - Establecimientos iniciales: `GEMASHOW` y `Marjorie Botas`
+- Tipo de establecimiento:
+  - `Evento o concierto`: funciona como GEMASHOW.
+  - `Local comercial`: funciona como Marjorie Botas, con ventas registradas por administrador.
+- Cada establecimiento tiene su propio usuario y contrasena de administrador/dueño.
+- Crear y editar sucursales por establecimiento.
 - Configurar si los promotores de un establecimiento pueden registrar ventas desde su cuenta
 - Login de promotores para registrar sus propias ventas
 - Crear y editar eventos/conciertos desde administrador

@@ -34,6 +34,7 @@ const emptyPromoter = {
   instagram: '',
   photo_url: '',
   referral_code: '',
+  branch_id: '',
   code: '',
   username: '',
   password: '',
@@ -96,8 +97,17 @@ const emptyBanner = {
 const emptyEstablishment = {
   name: '',
   display_name: '',
+  business_type: 'event',
+  admin_username: '',
+  admin_password: '',
   status: 'active',
   promoter_sales_enabled: true
+};
+
+const emptyBranch = {
+  name: '',
+  address: '',
+  status: 'active'
 };
 
 function money(value) {
@@ -350,6 +360,7 @@ function AdminApp({ user, onLogout }) {
   const [data, setData] = useState({
     dashboard: null,
     establishments: [],
+    branches: [],
     events: [],
     promoters: [],
     sales: [],
@@ -382,7 +393,7 @@ function AdminApp({ user, onLogout }) {
       setSelectedEventId(String(eventId));
     }
 
-    const [dashboard, promoters, sales, ranking, settlements, locations, levels, banners] = await Promise.all([
+    const [dashboard, promoters, sales, ranking, settlements, locations, levels, banners, branches] = await Promise.all([
       api(withScope('/dashboard', eventId, establishmentId)),
       api(withScope('/promoters', eventId, establishmentId)),
       api(withScope('/sales', eventId, establishmentId)),
@@ -390,9 +401,10 @@ function AdminApp({ user, onLogout }) {
       api(withScope('/settlements', eventId, establishmentId)),
       api(withScope('/locations', eventId, establishmentId)),
       api(withScope('/level-settings', eventId, establishmentId)),
-      api(withScope('/event-banners', eventId, establishmentId))
+      api(withScope('/event-banners', eventId, establishmentId)),
+      api(withScope('/branches', '', establishmentId))
     ]);
-    setData({ dashboard, establishments, events, promoters, sales, ranking, settlements, locations, levels, banners });
+    setData({ dashboard, establishments, branches, events, promoters, sales, ranking, settlements, locations, levels, banners });
     setLoading(false);
   }
 
@@ -412,6 +424,7 @@ function AdminApp({ user, onLogout }) {
     ...(user?.role === 'supreme' ? [['establishments', 'Establecimientos', Building2]] : []),
     ['dashboard', 'Panel', BarChart3],
     ['events', 'Eventos', CalendarDays],
+    ['branches', 'Sucursales', Building2],
     ['promoters', 'Promotores', UsersRound],
     ['sales', 'Ventas', Ticket],
     ['ranking', 'Ranking', Medal],
@@ -486,11 +499,14 @@ function AdminApp({ user, onLogout }) {
               <Establishments establishments={data.establishments} onRefresh={refresh} />
             )}
             {view === 'dashboard' && <Dashboard stats={data.dashboard} sales={data.sales} />}
+            {view === 'branches' && (
+              <Branches branches={data.branches} establishmentId={selectedEstablishmentId} onRefresh={refresh} />
+            )}
             {view === 'events' && (
               <Events events={data.events} selectedEventId={selectedEventId} establishmentId={selectedEstablishmentId} onSelect={(eventId) => loadAll(eventId)} onRefresh={refresh} />
             )}
             {view === 'promoters' && (
-              <Promoters promoters={data.promoters} establishmentId={selectedEstablishmentId} onRefresh={refresh} />
+              <Promoters promoters={data.promoters} branches={data.branches} establishmentId={selectedEstablishmentId} onRefresh={refresh} />
             )}
             {view === 'sales' && (
               <Sales promoters={data.promoters} sales={data.sales} locations={data.locations} eventId={selectedEventId} establishmentId={selectedEstablishmentId} onRefresh={refresh} />
@@ -564,6 +580,9 @@ function Establishments({ establishments, onRefresh }) {
     setForm({
       name: establishment.name,
       display_name: establishment.display_name || establishment.name,
+      business_type: establishment.business_type || 'event',
+      admin_username: establishment.admin_username || '',
+      admin_password: establishment.admin_password || '',
       status: establishment.status,
       promoter_sales_enabled: Boolean(establishment.promoter_sales_enabled)
     });
@@ -595,6 +614,25 @@ function Establishments({ establishments, onRefresh }) {
           <Input label="Nombre interno" value={form.name} onChange={(name) => setForm({ ...form, name })} />
           <Input label="Nombre visible" value={form.display_name} onChange={(display_name) => setForm({ ...form, display_name })} />
           <label>
+            Tipo de negocio
+            <select
+              value={form.business_type}
+              onChange={(e) => {
+                const business_type = e.target.value;
+                setForm({
+                  ...form,
+                  business_type,
+                  promoter_sales_enabled: business_type === 'event' ? form.promoter_sales_enabled : false
+                });
+              }}
+            >
+              <option value="event">Evento o concierto</option>
+              <option value="commercial">Local comercial</option>
+            </select>
+          </label>
+          <Input label="Usuario administrador del negocio" value={form.admin_username} onChange={(admin_username) => setForm({ ...form, admin_username })} />
+          <Input label="Contrasena administrador del negocio" value={form.admin_password} onChange={(admin_password) => setForm({ ...form, admin_password })} />
+          <label>
             Estado
             <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
               <option value="active">Activo</option>
@@ -605,9 +643,10 @@ function Establishments({ establishments, onRefresh }) {
             <input
               type="checkbox"
               checked={form.promoter_sales_enabled}
+              disabled={form.business_type === 'commercial'}
               onChange={(e) => setForm({ ...form, promoter_sales_enabled: e.target.checked })}
             />
-            Promotores pueden registrar ventas desde su cuenta
+            {form.business_type === 'commercial' ? 'Local comercial: ventas solo por administrador' : 'Promotores pueden registrar ventas desde su cuenta'}
           </label>
           {error && <div className="alert error">{error}</div>}
           <button className="primary-button" type="submit">
@@ -633,6 +672,83 @@ function Establishments({ establishments, onRefresh }) {
               </div>
             </article>
           ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function Branches({ branches, establishmentId, onRefresh }) {
+  const [form, setForm] = useState(emptyBranch);
+  const [editingId, setEditingId] = useState(null);
+  const [error, setError] = useState('');
+
+  function edit(branch) {
+    setEditingId(branch.id);
+    setForm({
+      name: branch.name,
+      address: branch.address || '',
+      status: branch.status
+    });
+  }
+
+  async function submit(event) {
+    event.preventDefault();
+    setError('');
+    try {
+      await api(withScope(editingId ? `/branches/${editingId}` : '/branches', '', establishmentId), {
+        method: editingId ? 'PUT' : 'POST',
+        body: JSON.stringify(form)
+      });
+      setForm(emptyBranch);
+      setEditingId(null);
+      onRefresh(editingId ? 'Sucursal actualizada' : 'Sucursal creada');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  return (
+    <div className="two-column">
+      <section className="panel">
+        <div className="panel-title">
+          <h3>{editingId ? 'Editar sucursal' : 'Nueva sucursal'}</h3>
+        </div>
+        <form className="form-grid" onSubmit={submit}>
+          <Input label="Nombre de sucursal" value={form.name} onChange={(name) => setForm({ ...form, name })} />
+          <Input label="Direccion opcional" value={form.address} onChange={(address) => setForm({ ...form, address })} />
+          <label>
+            Estado
+            <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+              <option value="active">Activa</option>
+              <option value="inactive">Inactiva</option>
+            </select>
+          </label>
+          {error && <div className="alert error">{error}</div>}
+          <button className="primary-button" type="submit">
+            <Building2 size={18} />
+            Guardar sucursal
+          </button>
+        </form>
+      </section>
+      <section className="panel">
+        <div className="panel-title">
+          <h3>Sucursales</h3>
+        </div>
+        <div className="list">
+          {branches.map((branch) => (
+            <article className="person-row" key={branch.id}>
+              <div>
+                <strong>{branch.name}</strong>
+                <span>{branch.status === 'active' ? 'Activa' : 'Inactiva'}</span>
+                <small>{branch.address || 'Sin direccion'}</small>
+              </div>
+              <div className="row-actions">
+                <button className="ghost-button" onClick={() => edit(branch)}>Editar</button>
+              </div>
+            </article>
+          ))}
+          {!branches.length && <div className="empty-state">Sin sucursales registradas</div>}
         </div>
       </section>
     </div>
@@ -728,7 +844,7 @@ function Events({ events, selectedEventId, establishmentId, onSelect, onRefresh 
   );
 }
 
-function Promoters({ promoters, establishmentId, onRefresh }) {
+function Promoters({ promoters, branches, establishmentId, onRefresh }) {
   const [form, setForm] = useState(emptyPromoter);
   const [editingId, setEditingId] = useState(null);
   const [error, setError] = useState('');
@@ -752,6 +868,7 @@ function Promoters({ promoters, establishmentId, onRefresh }) {
       instagram: promoter.instagram || '',
       photo_url: promoter.photo_url || '',
       referral_code: promoter.referrer_code || '',
+      branch_id: promoter.branch_id || '',
       code: promoter.code,
       username: promoter.username || promoter.code,
       password: promoter.password || promoter.cedula,
@@ -815,6 +932,17 @@ function Promoters({ promoters, establishmentId, onRefresh }) {
             value={form.referral_code}
             onChange={(referral_code) => setForm({ ...form, referral_code })}
           />
+          {!!branches.length && (
+            <label>
+              Sucursal
+              <select value={form.branch_id} onChange={(e) => setForm({ ...form, branch_id: e.target.value })}>
+                <option value="">Sin sucursal</option>
+                {branches.map((branch) => (
+                  <option value={branch.id} key={branch.id}>{branch.name}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <label>
             Foto de perfil opcional
             <input type="file" accept="image/*" onChange={(event) => pickPhoto(event.target.files?.[0])} />
@@ -859,6 +987,7 @@ function Promoters({ promoters, establishmentId, onRefresh }) {
                 <strong>{promoter.name}</strong>
                 <span>{promoter.code} · {promoter.whatsapp}</span>
                 <small>{promoter.photo_url ? 'Foto configurada' : 'Sin foto de perfil'}</small>
+                {promoter.branch_name && <small>Sucursal: {promoter.branch_name}</small>}
                 <small>Usuario: {promoter.username || promoter.code} · Clave: {promoter.password || promoter.cedula}</small>
                 <small>{promoter.can_sell ? 'Puede vender' : 'Venta deshabilitada'} · {promoter.manual_points || 0} puntos manuales</small>
                 <small>Referido por: {promoter.referrer_code ? `${promoter.referrer_code} - ${promoter.referrer_name}` : 'Sin referido'}</small>

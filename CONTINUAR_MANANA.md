@@ -88,6 +88,12 @@ http://localhost:4000
 - Contrasena: `promoters123`
 - Desde este usuario se administran los establecimientos bajo PROMOTERS, incluyendo GEMASHOW y Marjorie Botas.
 
+## Usuario administrador Marjorie Botas
+
+- Usuario: `marjorie`
+- Contrasena: `marjorie123`
+- Desde este usuario se gestiona solo Marjorie Botas, sus promotoras, sucursales y reglas.
+
 ## Promotor de prueba activo
 
 - Usuario: `GEMA-CAMI`

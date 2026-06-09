@@ -350,10 +350,26 @@ app.post('/api/auth/login', (req, res) => {
   }
 
   if (username === adminUser && password === adminPassword) {
-    const establishment = getDefaultEstablishment();
+    const establishment = db.prepare("SELECT * FROM establishments WHERE name = 'GEMASHOW'").get() || getDefaultEstablishment();
     return res.json({
       token: createToken({ role: 'admin', username, establishmentId: establishment?.id || 1 }),
-      user: { username, role: 'admin', establishment_id: establishment?.id || 1, establishment_name: establishment?.name || 'GEMASHOW' }
+      user: { username, role: 'admin', establishment_id: establishment?.id || 1, establishment_name: establishment?.name || 'GEMASHOW', establishment_display_name: establishment?.display_name || 'GEMASHOW' }
+    });
+  }
+
+  const owner = db
+    .prepare("SELECT * FROM establishments WHERE status = 'active' AND admin_username = ? AND admin_password = ?")
+    .get(String(username || '').trim(), String(password || '').trim());
+  if (owner) {
+    return res.json({
+      token: createToken({ role: 'admin', username, establishmentId: owner.id }),
+      user: {
+        username,
+        role: 'admin',
+        establishment_id: owner.id,
+        establishment_name: owner.name,
+        establishment_display_name: owner.display_name || owner.name
+      }
     });
   }
 
@@ -374,24 +390,30 @@ app.post('/api/auth/promoter-login', (req, res) => {
   });
 });
 
-app.get('/api/establishments', requireAdmin, (_req, res) => {
-  res.json(db.prepare('SELECT * FROM establishments ORDER BY status ASC, created_at ASC, id ASC').all());
+app.get('/api/establishments', requireAdmin, (req, res) => {
+  if (req.user.role !== 'supreme') {
+    return res.json(db.prepare('SELECT * FROM establishments WHERE id = ?').all(req.user.establishmentId));
+  }
+  return res.json(db.prepare('SELECT * FROM establishments ORDER BY status ASC, created_at ASC, id ASC').all());
 });
 
 app.post('/api/establishments', requireSupreme, (req, res) => {
   const name = String(req.body.name || '').trim();
   const displayName = String(req.body.display_name || '').trim();
+  const businessType = req.body.business_type === 'commercial' ? 'commercial' : 'event';
+  const adminUsername = String(req.body.admin_username || '').trim();
+  const adminPassword = String(req.body.admin_password || '').trim();
   const status = ['active', 'inactive'].includes(req.body.status) ? req.body.status : 'active';
-  const promoterSalesEnabled = req.body.promoter_sales_enabled ? 1 : 0;
+  const promoterSalesEnabled = businessType === 'commercial' ? 0 : req.body.promoter_sales_enabled ? 1 : 0;
 
-  if (!name) {
-    return res.status(400).json({ message: 'Nombre del establecimiento obligatorio' });
+  if (!name || !adminUsername || !adminPassword) {
+    return res.status(400).json({ message: 'Nombre, usuario admin y contrasena admin son obligatorios' });
   }
 
   try {
     const result = db
-      .prepare('INSERT INTO establishments (name, display_name, status, promoter_sales_enabled) VALUES (?, ?, ?, ?)')
-      .run(name, displayName || name, status, promoterSalesEnabled);
+      .prepare('INSERT INTO establishments (name, display_name, business_type, admin_username, admin_password, status, promoter_sales_enabled) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(name, displayName || name, businessType, adminUsername, adminPassword, status, promoterSalesEnabled);
     const eventResult = db
       .prepare('INSERT INTO events (establishment_id, name, description, status, is_active) VALUES (?, ?, ?, ?, 1)')
       .run(result.lastInsertRowid, name.toUpperCase(), `Evento principal ${name}`, 'active');
@@ -405,23 +427,74 @@ app.post('/api/establishments', requireSupreme, (req, res) => {
 app.put('/api/establishments/:id', requireSupreme, (req, res) => {
   const name = String(req.body.name || '').trim();
   const displayName = String(req.body.display_name || '').trim();
+  const businessType = req.body.business_type === 'commercial' ? 'commercial' : 'event';
+  const adminUsername = String(req.body.admin_username || '').trim();
+  const adminPassword = String(req.body.admin_password || '').trim();
   const status = ['active', 'inactive'].includes(req.body.status) ? req.body.status : 'active';
-  const promoterSalesEnabled = req.body.promoter_sales_enabled ? 1 : 0;
+  const promoterSalesEnabled = businessType === 'commercial' ? 0 : req.body.promoter_sales_enabled ? 1 : 0;
 
-  if (!name) {
-    return res.status(400).json({ message: 'Nombre del establecimiento obligatorio' });
+  if (!name || !adminUsername || !adminPassword) {
+    return res.status(400).json({ message: 'Nombre, usuario admin y contrasena admin son obligatorios' });
   }
 
   try {
     const result = db
-      .prepare('UPDATE establishments SET name = ?, display_name = ?, status = ?, promoter_sales_enabled = ? WHERE id = ?')
-      .run(name, displayName || name, status, promoterSalesEnabled, req.params.id);
+      .prepare('UPDATE establishments SET name = ?, display_name = ?, business_type = ?, admin_username = ?, admin_password = ?, status = ?, promoter_sales_enabled = ? WHERE id = ?')
+      .run(name, displayName || name, businessType, adminUsername, adminPassword, status, promoterSalesEnabled, req.params.id);
     if (!result.changes) {
       return res.status(404).json({ message: 'Establecimiento no encontrado' });
     }
     return res.json(db.prepare('SELECT * FROM establishments WHERE id = ?').get(req.params.id));
   } catch {
     return res.status(409).json({ message: 'El establecimiento ya existe' });
+  }
+});
+
+app.get('/api/branches', requireAdmin, (req, res) => {
+  const establishmentId = getRequestEstablishmentId(req);
+  res.json(db.prepare('SELECT * FROM branches WHERE establishment_id = ? ORDER BY status ASC, name ASC').all(establishmentId));
+});
+
+app.post('/api/branches', requireAdmin, (req, res) => {
+  const establishmentId = getRequestEstablishmentId(req);
+  const name = String(req.body.name || '').trim();
+  const address = String(req.body.address || '').trim();
+  const status = ['active', 'inactive'].includes(req.body.status) ? req.body.status : 'active';
+
+  if (!name) {
+    return res.status(400).json({ message: 'Nombre de sucursal obligatorio' });
+  }
+
+  try {
+    const result = db
+      .prepare('INSERT INTO branches (establishment_id, name, address, status) VALUES (?, ?, ?, ?)')
+      .run(establishmentId, name, address, status);
+    return res.status(201).json(db.prepare('SELECT * FROM branches WHERE id = ?').get(result.lastInsertRowid));
+  } catch {
+    return res.status(409).json({ message: 'La sucursal ya existe' });
+  }
+});
+
+app.put('/api/branches/:id', requireAdmin, (req, res) => {
+  const establishmentId = getRequestEstablishmentId(req);
+  const name = String(req.body.name || '').trim();
+  const address = String(req.body.address || '').trim();
+  const status = ['active', 'inactive'].includes(req.body.status) ? req.body.status : 'active';
+
+  if (!name) {
+    return res.status(400).json({ message: 'Nombre de sucursal obligatorio' });
+  }
+
+  try {
+    const result = db
+      .prepare('UPDATE branches SET name = ?, address = ?, status = ? WHERE id = ? AND establishment_id = ?')
+      .run(name, address, status, req.params.id, establishmentId);
+    if (!result.changes) {
+      return res.status(404).json({ message: 'Sucursal no encontrada' });
+    }
+    return res.json(db.prepare('SELECT * FROM branches WHERE id = ? AND establishment_id = ?').get(req.params.id, establishmentId));
+  } catch {
+    return res.status(409).json({ message: 'La sucursal ya existe' });
   }
 });
 
@@ -546,9 +619,11 @@ app.get('/api/promoters', requireAdmin, (req, res) => {
       `SELECT promoters.*,
               referrer.code AS referrer_code,
               referrer.name AS referrer_name,
+              branches.name AS branch_name,
               (SELECT COUNT(*) FROM promoters AS referred WHERE referred.referred_by_promoter_id = promoters.id) AS referral_count
        FROM promoters
        LEFT JOIN promoters AS referrer ON referrer.id = promoters.referred_by_promoter_id
+       LEFT JOIN branches ON branches.id = promoters.branch_id
        WHERE promoters.establishment_id = ?
        ORDER BY promoters.registered_at DESC, promoters.id DESC`
     )
@@ -563,7 +638,7 @@ app.get('/api/promoters', requireAdmin, (req, res) => {
 
 app.post('/api/promoters', requireAdmin, (req, res) => {
   const establishmentId = getRequestEstablishmentId(req);
-  const { name, cedula, whatsapp, instagram, photo_url, referral_code, status = 'active' } = req.body;
+  const { name, cedula, whatsapp, instagram, photo_url, referral_code, branch_id, status = 'active' } = req.body;
   const normalizedCode = buildPromoterCode(name);
   const normalizedUsername = normalizedCode;
   const normalizedPassword = String(cedula || '').trim();
@@ -577,13 +652,22 @@ app.post('/api/promoters', requireAdmin, (req, res) => {
     return res.status(400).json({ message: 'Codigo de referido no registrado' });
   }
 
+  const branchId = branch_id ? Number(branch_id) : null;
+  if (branchId) {
+    const branch = db.prepare('SELECT id FROM branches WHERE id = ? AND establishment_id = ?').get(branchId, establishmentId);
+    if (!branch) {
+      return res.status(400).json({ message: 'Sucursal no registrada para este establecimiento' });
+    }
+  }
+
   try {
     const result = db
       .prepare(
-        'INSERT INTO promoters (establishment_id, name, cedula, whatsapp, instagram, photo_url, code, username, password, referred_by_promoter_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO promoters (establishment_id, branch_id, name, cedula, whatsapp, instagram, photo_url, code, username, password, referred_by_promoter_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       )
       .run(
         establishmentId,
+        branchId,
         name.trim(),
         cedula.trim(),
         whatsapp.trim(),
@@ -605,7 +689,7 @@ app.post('/api/promoters', requireAdmin, (req, res) => {
 app.put('/api/promoters/:id', requireAdmin, (req, res) => {
   const { id } = req.params;
   const establishmentId = getRequestEstablishmentId(req);
-  const { name, cedula, whatsapp, instagram, photo_url, referral_code, status = 'active' } = req.body;
+  const { name, cedula, whatsapp, instagram, photo_url, referral_code, branch_id, status = 'active' } = req.body;
   const referrer = findPromoterByCode(referral_code, establishmentId);
 
   if (!name || !cedula || !whatsapp || !instagram) {
@@ -620,12 +704,21 @@ app.put('/api/promoters/:id', requireAdmin, (req, res) => {
     return res.status(400).json({ message: 'Un promotor no puede referirse a si mismo' });
   }
 
+  const branchId = branch_id ? Number(branch_id) : null;
+  if (branchId) {
+    const branch = db.prepare('SELECT id FROM branches WHERE id = ? AND establishment_id = ?').get(branchId, establishmentId);
+    if (!branch) {
+      return res.status(400).json({ message: 'Sucursal no registrada para este establecimiento' });
+    }
+  }
+
   try {
     const result = db
       .prepare(
-        'UPDATE promoters SET name = ?, cedula = ?, whatsapp = ?, instagram = ?, photo_url = ?, referred_by_promoter_id = ?, status = ? WHERE id = ? AND establishment_id = ?'
+        'UPDATE promoters SET branch_id = ?, name = ?, cedula = ?, whatsapp = ?, instagram = ?, photo_url = ?, referred_by_promoter_id = ?, status = ? WHERE id = ? AND establishment_id = ?'
       )
       .run(
+        branchId,
         name.trim(),
         cedula.trim(),
         whatsapp.trim(),

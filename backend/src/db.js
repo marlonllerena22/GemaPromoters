@@ -22,9 +22,23 @@ export function initDb() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
       display_name TEXT,
+      business_type TEXT NOT NULL DEFAULT 'event' CHECK (business_type IN ('event', 'commercial')),
+      admin_username TEXT,
+      admin_password TEXT,
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
       promoter_sales_enabled INTEGER NOT NULL DEFAULT 1 CHECK (promoter_sales_enabled IN (0, 1)),
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+
+    CREATE TABLE IF NOT EXISTS branches (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      address TEXT,
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      UNIQUE(establishment_id, name)
     );
 
     CREATE TABLE IF NOT EXISTS events (
@@ -41,6 +55,7 @@ export function initDb() {
     CREATE TABLE IF NOT EXISTS promoters (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       establishment_id INTEGER NOT NULL DEFAULT 1,
+      branch_id INTEGER,
       name TEXT NOT NULL,
       cedula TEXT NOT NULL UNIQUE,
       whatsapp TEXT NOT NULL,
@@ -118,9 +133,13 @@ export function initDb() {
     );
   `);
 
+  addColumnIfMissing('establishments', 'business_type', "TEXT NOT NULL DEFAULT 'event'");
+  addColumnIfMissing('establishments', 'admin_username', 'TEXT');
+  addColumnIfMissing('establishments', 'admin_password', 'TEXT');
   const defaultEstablishment = ensureDefaultEstablishments();
   addColumnIfMissing('events', 'establishment_id', `INTEGER NOT NULL DEFAULT ${defaultEstablishment.id}`);
   addColumnIfMissing('promoters', 'establishment_id', `INTEGER NOT NULL DEFAULT ${defaultEstablishment.id}`);
+  addColumnIfMissing('promoters', 'branch_id', 'INTEGER');
   addColumnIfMissing('sales', 'establishment_id', `INTEGER NOT NULL DEFAULT ${defaultEstablishment.id}`);
   const defaultEvent = ensureDefaultEvent(defaultEstablishment.id);
 
@@ -139,6 +158,18 @@ export function initDb() {
 
   db.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_promoters_username ON promoters(username);
+
+    UPDATE establishments
+    SET business_type = 'event'
+    WHERE business_type IS NULL OR business_type = '';
+
+    UPDATE establishments
+    SET admin_username = LOWER(REPLACE(name, ' ', ''))
+    WHERE admin_username IS NULL OR admin_username = '';
+
+    UPDATE establishments
+    SET admin_password = LOWER(REPLACE(name, ' ', '')) || '123'
+    WHERE admin_password IS NULL OR admin_password = '';
 
     UPDATE events
     SET establishment_id = ${defaultEstablishment.id}
@@ -284,9 +315,12 @@ function ensureDefaultEstablishments() {
 
   if (!establishment) {
     const result = db
-      .prepare('INSERT INTO establishments (name, display_name, status, promoter_sales_enabled) VALUES (?, ?, ?, ?)')
-      .run('GEMASHOW', 'GEMASHOW', 'active', 1);
+      .prepare('INSERT INTO establishments (name, display_name, business_type, admin_username, admin_password, status, promoter_sales_enabled) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run('GEMASHOW', 'GEMASHOW', 'event', 'admin', 'admin123', 'active', 1);
     establishment = db.prepare('SELECT * FROM establishments WHERE id = ?').get(result.lastInsertRowid);
+  } else {
+    db.prepare("UPDATE establishments SET business_type = 'event', promoter_sales_enabled = 1, admin_username = COALESCE(NULLIF(admin_username, ''), 'admin'), admin_password = COALESCE(NULLIF(admin_password, ''), 'admin123') WHERE id = ?").run(establishment.id);
+    establishment = db.prepare('SELECT * FROM establishments WHERE id = ?').get(establishment.id);
   }
 
   return establishment;
@@ -296,12 +330,18 @@ function ensureMarjorieEstablishment() {
   let establishment = db.prepare('SELECT * FROM establishments WHERE name = ?').get('Marjorie Promotoras');
   if (!establishment) {
     const result = db
-      .prepare('INSERT INTO establishments (name, display_name, status, promoter_sales_enabled) VALUES (?, ?, ?, ?)')
-      .run('Marjorie Promotoras', 'Marjorie Botas', 'active', 0);
+      .prepare('INSERT INTO establishments (name, display_name, business_type, admin_username, admin_password, status, promoter_sales_enabled) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run('Marjorie Promotoras', 'Marjorie Botas', 'commercial', 'marjorie', 'marjorie123', 'active', 0);
     establishment = db.prepare('SELECT * FROM establishments WHERE id = ?').get(result.lastInsertRowid);
   } else {
-    db.prepare('UPDATE establishments SET promoter_sales_enabled = 0 WHERE id = ?').run(establishment.id);
+    db.prepare("UPDATE establishments SET business_type = 'commercial', promoter_sales_enabled = 0 WHERE id = ?").run(establishment.id);
+    db.prepare("UPDATE establishments SET admin_username = 'marjorie' WHERE id = ? AND (admin_username IS NULL OR admin_username = '' OR admin_username = 'marjoriepromotoras')").run(establishment.id);
+    db.prepare("UPDATE establishments SET admin_password = 'marjorie123' WHERE id = ? AND (admin_password IS NULL OR admin_password = '' OR admin_password = 'marjoriepromotoras123')").run(establishment.id);
+    establishment = db.prepare('SELECT * FROM establishments WHERE id = ?').get(establishment.id);
   }
+
+  db.prepare('INSERT OR IGNORE INTO branches (establishment_id, name, address, status) VALUES (?, ?, ?, ?)')
+    .run(establishment.id, 'Sucursal principal', '', 'active');
 
   let event = db.prepare('SELECT * FROM events WHERE establishment_id = ? ORDER BY is_active DESC, id ASC').get(establishment.id);
   if (!event) {
