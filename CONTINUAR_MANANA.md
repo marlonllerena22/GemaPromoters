@@ -82,6 +82,12 @@ http://localhost:4000
 - Usuario: `admin`
 - Contrasena: `admin123`
 
+## Usuario administrador supremo
+
+- Usuario: `promoters`
+- Contrasena: `promoters123`
+- Desde este usuario se administran los establecimientos bajo PROMOTERS, incluyendo GEMASHOW y Marjorie Botas.
+
 ## Promotor de prueba activo
 
 - Usuario: `GEMA-CAMI`

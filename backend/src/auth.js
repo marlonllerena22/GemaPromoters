@@ -22,8 +22,17 @@ export function requireAuth(req, res, next) {
 
 export function requireAdmin(req, res, next) {
   requireAuth(req, res, () => {
-    if (req.user?.role !== 'admin') {
+    if (!['admin', 'supreme'].includes(req.user?.role)) {
       return res.status(403).json({ message: 'Solo administrador' });
+    }
+    return next();
+  });
+}
+
+export function requireSupreme(req, res, next) {
+  requireAuth(req, res, () => {
+    if (req.user?.role !== 'supreme') {
+      return res.status(403).json({ message: 'Solo administrador supremo' });
     }
     return next();
   });

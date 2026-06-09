@@ -1,6 +1,6 @@
 # GemaPromoters
 
-Aplicacion web sencilla para administrar promotores de eventos de GEMASHOW.
+Aplicacion web sencilla para administrar promotores por establecimientos bajo la empresa PROMOTERS.
 
 ## Tecnologias
 
@@ -37,8 +37,12 @@ Copy-Item backend/.env.example backend/.env
 
 Credenciales iniciales:
 
-- Usuario: `admin`
-- Contrasena: `admin123`
+- Administrador supremo PROMOTERS:
+  - Usuario: `promoters`
+  - Contrasena: `promoters123`
+- Administrador GEMASHOW:
+  - Usuario: `admin`
+  - Contrasena: `admin123`
 
 Puedes cambiarlas en `backend/.env`.
 
@@ -80,10 +84,14 @@ PRODUCCION.md
 ## Funcionalidades incluidas
 
 - Login de administrador con JWT
+- Login de administrador supremo PROMOTERS
+- Crear y editar establecimientos
+- Establecimientos iniciales: `GEMASHOW` y `Marjorie Botas`
+- Configurar si los promotores de un establecimiento pueden registrar ventas desde su cuenta
 - Login de promotores para registrar sus propias ventas
 - Crear y editar eventos/conciertos desde administrador
 - Evento inicial creado: `KRIS R EL TRAP DE KOLOMBIA`
-- Promotores compartidos para todos los eventos
+- Promotores separados por establecimiento
 - Localidades, niveles, beneficios, puntos y banners configurables por evento
 - Panel con totales de promotores activos, ventas, comisiones y ventas del dia
 - Crear, editar, activar y desactivar promotores
@@ -128,7 +136,9 @@ El sistema genera credenciales iniciales asi:
 
 El promotor puede cambiar su contrasena y su foto desde su panel.
 
-Cuando un promotor registra una venta, esa venta queda guardada tambien para el administrador, aparece en ventas, ranking, panel y liquidaciones.
+Cuando el establecimiento permite ventas por promotor, el promotor puede registrar ventas y quedan pendientes hasta que el administrador las confirme.
+
+En establecimientos con ventas por promotor desactivadas, como `Marjorie Botas`, el promotor solo ve perfil, nivel, beneficios y banners. El administrador registra las ventas a su nombre usando su codigo.
 
 El administrador puede bloquear la venta de un promotor especifico sin desactivarlo por completo. Si esta bloqueado, el promotor puede entrar a su panel, pero no puede registrar ventas.
 

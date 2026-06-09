@@ -8,6 +8,12 @@ Fecha de cierre: 2026-06-05
 - Proyecto preparado para publicacion online como un solo servicio Node.js.
 - Backend configurado para servir el frontend compilado en produccion.
 - Base de datos configurable por variable `DB_PATH` para usar disco persistente.
+- Administrador supremo PROMOTERS para manejar varios establecimientos.
+- Establecimientos iniciales:
+  - GEMASHOW.
+  - Marjorie Botas / Marjorie Promotoras.
+- Cada establecimiento tiene sus propios promotores, eventos, localidades, niveles, banners, ventas y reportes.
+- El administrador supremo puede activar o desactivar si los promotores de un establecimiento registran ventas desde su cuenta.
 - Login de administrador.
 - Login de promotores.
 - Modulo de eventos/conciertos:
@@ -32,6 +38,8 @@ Fecha de cierre: 2026-06-05
 - Modulo de ventas:
   - Registrar ventas desde administrador.
   - Registrar ventas desde promotor.
+  - Registrar ventas por codigo de promotor desde administrador.
+  - En Marjorie Botas las promotoras no registran ventas desde su cuenta; solo el administrador registra ventas a su nombre.
   - Asociar venta a promotor.
   - Registrar cliente, WhatsApp, localidad, cantidad, precio, total, fecha y estado de confirmacion.
   - Mostrar localidad en reporte de ventas.
@@ -133,6 +141,11 @@ Administrador:
 - Usuario: `admin`
 - Contrasena: `admin123`
 
+Administrador supremo PROMOTERS:
+
+- Usuario: `promoters`
+- Contrasena: `promoters123`
+
 Promotores de ejemplo:
 
 - Camila Vera
@@ -161,6 +174,8 @@ Promotores de ejemplo:
   - `JWT_SECRET`
   - `ADMIN_USER`
   - `ADMIN_PASSWORD`
+  - `SUPREME_USER`
+  - `SUPREME_PASSWORD`
   - `DB_PATH`
 - Niveles actuales por defecto:
   - Bronce desde 1 punto.
@@ -187,6 +202,9 @@ Promotores de ejemplo:
 - Localidades: 3
 - Banners: 0
 - Configuraciones de evento guardadas: 7
+- Establecimientos actuales:
+  - GEMASHOW: ventas por promotor habilitadas.
+  - Marjorie Botas: ventas por promotora deshabilitadas; ventas solo por administrador.
 - Archivo de base de datos: `backend/data/gemapromoters.sqlite`
 
 ## Notas de cierre

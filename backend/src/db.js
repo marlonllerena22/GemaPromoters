@@ -18,17 +18,29 @@ export function initDb() {
   migrateEventLocationsForEvents();
 
   db.exec(`
+    CREATE TABLE IF NOT EXISTS establishments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      display_name TEXT,
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+      promoter_sales_enabled INTEGER NOT NULL DEFAULT 1 CHECK (promoter_sales_enabled IN (0, 1)),
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL DEFAULT 1,
       name TEXT NOT NULL UNIQUE,
       description TEXT,
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
       is_active INTEGER NOT NULL DEFAULT 0 CHECK (is_active IN (0, 1)),
-      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id)
     );
 
     CREATE TABLE IF NOT EXISTS promoters (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL DEFAULT 1,
       name TEXT NOT NULL,
       cedula TEXT NOT NULL UNIQUE,
       whatsapp TEXT NOT NULL,
@@ -41,7 +53,8 @@ export function initDb() {
       manual_points REAL NOT NULL DEFAULT 0 CHECK (manual_points >= 0),
       referred_by_promoter_id INTEGER,
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
-      registered_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+      registered_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id)
     );
 
     CREATE TABLE IF NOT EXISTS event_locations (
@@ -61,6 +74,7 @@ export function initDb() {
 
     CREATE TABLE IF NOT EXISTS sales (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL DEFAULT 1,
       event_id INTEGER NOT NULL DEFAULT 1,
       promoter_id INTEGER NOT NULL,
       customer TEXT NOT NULL,
@@ -74,6 +88,7 @@ export function initDb() {
       payment_status TEXT NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid')),
       commission_paid INTEGER NOT NULL DEFAULT 0 CHECK (commission_paid IN (0, 1)),
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
       FOREIGN KEY (event_id) REFERENCES events(id),
       FOREIGN KEY (promoter_id) REFERENCES promoters(id)
     );
@@ -103,7 +118,11 @@ export function initDb() {
     );
   `);
 
-  const defaultEvent = ensureDefaultEvent();
+  const defaultEstablishment = ensureDefaultEstablishments();
+  addColumnIfMissing('events', 'establishment_id', `INTEGER NOT NULL DEFAULT ${defaultEstablishment.id}`);
+  addColumnIfMissing('promoters', 'establishment_id', `INTEGER NOT NULL DEFAULT ${defaultEstablishment.id}`);
+  addColumnIfMissing('sales', 'establishment_id', `INTEGER NOT NULL DEFAULT ${defaultEstablishment.id}`);
+  const defaultEvent = ensureDefaultEvent(defaultEstablishment.id);
 
   addColumnIfMissing('promoters', 'username', 'TEXT');
   addColumnIfMissing('promoters', 'password', 'TEXT');
@@ -120,6 +139,18 @@ export function initDb() {
 
   db.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_promoters_username ON promoters(username);
+
+    UPDATE events
+    SET establishment_id = ${defaultEstablishment.id}
+    WHERE establishment_id IS NULL OR establishment_id = 0;
+
+    UPDATE promoters
+    SET establishment_id = ${defaultEstablishment.id}
+    WHERE establishment_id IS NULL OR establishment_id = 0;
+
+    UPDATE sales
+    SET establishment_id = ${defaultEstablishment.id}
+    WHERE establishment_id IS NULL OR establishment_id = 0;
 
     UPDATE promoters
     SET username = UPPER(code)
@@ -181,6 +212,7 @@ export function initDb() {
   `);
 
   seedDefaultEventSettings(defaultEvent.id);
+  ensureMarjorieEstablishment();
 }
 
 export function toMoney(value) {
@@ -247,21 +279,59 @@ function migrateEventLocationsForEvents() {
   `);
 }
 
-function ensureDefaultEvent() {
+function ensureDefaultEstablishments() {
+  let establishment = db.prepare('SELECT * FROM establishments WHERE name = ?').get('GEMASHOW');
+
+  if (!establishment) {
+    const result = db
+      .prepare('INSERT INTO establishments (name, display_name, status, promoter_sales_enabled) VALUES (?, ?, ?, ?)')
+      .run('GEMASHOW', 'GEMASHOW', 'active', 1);
+    establishment = db.prepare('SELECT * FROM establishments WHERE id = ?').get(result.lastInsertRowid);
+  }
+
+  return establishment;
+}
+
+function ensureMarjorieEstablishment() {
+  let establishment = db.prepare('SELECT * FROM establishments WHERE name = ?').get('Marjorie Promotoras');
+  if (!establishment) {
+    const result = db
+      .prepare('INSERT INTO establishments (name, display_name, status, promoter_sales_enabled) VALUES (?, ?, ?, ?)')
+      .run('Marjorie Promotoras', 'Marjorie Botas', 'active', 0);
+    establishment = db.prepare('SELECT * FROM establishments WHERE id = ?').get(result.lastInsertRowid);
+  } else {
+    db.prepare('UPDATE establishments SET promoter_sales_enabled = 0 WHERE id = ?').run(establishment.id);
+  }
+
+  let event = db.prepare('SELECT * FROM events WHERE establishment_id = ? ORDER BY is_active DESC, id ASC').get(establishment.id);
+  if (!event) {
+    const result = db
+      .prepare('INSERT INTO events (establishment_id, name, description, status, is_active) VALUES (?, ?, ?, ?, 1)')
+      .run(establishment.id, 'MARJORIE BOTAS', 'Programa de promotoras Marjorie Botas', 'active');
+    event = db.prepare('SELECT * FROM events WHERE id = ?').get(result.lastInsertRowid);
+  }
+  seedDefaultEventSettings(event.id);
+  return establishment;
+}
+
+function ensureDefaultEvent(establishmentId) {
   const defaultName = 'KRIS R EL TRAP DE KOLOMBIA';
   let event = db.prepare('SELECT * FROM events WHERE name = ?').get(defaultName);
-  const activeEvent = db.prepare('SELECT * FROM events WHERE is_active = 1').get();
+  const activeEvent = db.prepare('SELECT * FROM events WHERE establishment_id = ? AND is_active = 1').get(establishmentId);
 
   if (!event) {
     const result = db
-      .prepare('INSERT INTO events (name, description, status, is_active) VALUES (?, ?, ?, ?)')
-      .run(defaultName, 'Evento principal GEMASHOW', 'active', activeEvent ? 0 : 1);
+      .prepare('INSERT INTO events (establishment_id, name, description, status, is_active) VALUES (?, ?, ?, ?, ?)')
+      .run(establishmentId, defaultName, 'Evento principal GEMASHOW', 'active', activeEvent ? 0 : 1);
     event = db.prepare('SELECT * FROM events WHERE id = ?').get(result.lastInsertRowid);
+  } else if (!event.establishment_id) {
+    db.prepare('UPDATE events SET establishment_id = ? WHERE id = ?').run(establishmentId, event.id);
+    event = db.prepare('SELECT * FROM events WHERE id = ?').get(event.id);
   }
 
   if (!activeEvent) {
     db.prepare('UPDATE events SET is_active = 1, status = ? WHERE id = ?').run('active', event.id);
-    db.prepare('UPDATE events SET is_active = 0 WHERE id <> ?').run(event.id);
+    db.prepare('UPDATE events SET is_active = 0 WHERE establishment_id = ? AND id <> ?').run(establishmentId, event.id);
   }
 
   return event;
