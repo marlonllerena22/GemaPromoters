@@ -1085,7 +1085,6 @@ td {
   .password-grid,
   .level-grid,
   .level-preview,
-  .benefits-grid,
   .profile-editor-grid {
     grid-template-columns: 1fr;
   }
@@ -1106,11 +1105,70 @@ td {
   }
 
   .benefits-heading {
-    align-items: flex-start;
-    flex-direction: column;
+    align-items: center;
+    flex-direction: row;
+    margin-bottom: 10px;
+  }
+
+  .benefits-heading h3 {
+    font-size: 18px;
+  }
+
+  .benefits-heading span {
+    font-size: 11px;
   }
 
   .benefits-rank {
-    white-space: normal;
+    font-size: 12px;
+    min-height: 32px;
+    padding: 6px 9px;
+    white-space: nowrap;
+  }
+
+  .benefits-showcase {
+    margin-bottom: 16px;
+    padding: 12px;
+  }
+
+  .benefits-grid {
+    display: grid;
+    gap: 8px;
+    grid-auto-columns: 178px;
+    grid-auto-flow: column;
+    grid-template-columns: none;
+    margin: 0 -12px;
+    overflow-x: auto;
+    padding: 0 12px 4px;
+    scrollbar-width: thin;
+  }
+
+  .benefit-tier {
+    gap: 8px;
+    min-height: 0;
+    padding: 10px;
+  }
+
+  .benefit-tier strong {
+    font-size: 14px;
+  }
+
+  .benefit-tier span,
+  .benefit-tier small,
+  .benefit-tier li {
+    font-size: 11px;
+  }
+
+  .benefit-icon {
+    height: 30px;
+    width: 30px;
+  }
+
+  .benefit-tier ul {
+    gap: 6px;
+  }
+
+  .benefit-tier li {
+    gap: 6px;
+    line-height: 1.25;
   }
 }
