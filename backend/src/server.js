@@ -457,6 +457,10 @@ app.get('/api/branches', requireAdmin, (req, res) => {
 
 app.post('/api/branches', requireAdmin, (req, res) => {
   const establishmentId = getRequestEstablishmentId(req);
+  const establishment = db.prepare('SELECT business_type FROM establishments WHERE id = ?').get(establishmentId);
+  if (establishment?.business_type !== 'commercial') {
+    return res.status(403).json({ message: 'Las sucursales solo aplican para locales comerciales' });
+  }
   const name = String(req.body.name || '').trim();
   const address = String(req.body.address || '').trim();
   const status = ['active', 'inactive'].includes(req.body.status) ? req.body.status : 'active';
@@ -477,6 +481,10 @@ app.post('/api/branches', requireAdmin, (req, res) => {
 
 app.put('/api/branches/:id', requireAdmin, (req, res) => {
   const establishmentId = getRequestEstablishmentId(req);
+  const establishment = db.prepare('SELECT business_type FROM establishments WHERE id = ?').get(establishmentId);
+  if (establishment?.business_type !== 'commercial') {
+    return res.status(403).json({ message: 'Las sucursales solo aplican para locales comerciales' });
+  }
   const name = String(req.body.name || '').trim();
   const address = String(req.body.address || '').trim();
   const status = ['active', 'inactive'].includes(req.body.status) ? req.body.status : 'active';
@@ -505,6 +513,10 @@ app.get('/api/events', requireAdmin, (req, res) => {
 
 app.post('/api/events', requireAdmin, (req, res) => {
   const establishmentId = getRequestEstablishmentId(req);
+  const establishment = db.prepare('SELECT business_type FROM establishments WHERE id = ?').get(establishmentId);
+  if (establishment?.business_type === 'commercial') {
+    return res.status(403).json({ message: 'Los eventos solo aplican para negocios de eventos o conciertos' });
+  }
   const name = String(req.body.name || '').trim();
   const description = String(req.body.description || '').trim();
   const status = ['active', 'inactive'].includes(req.body.status) ? req.body.status : 'active';
@@ -525,6 +537,10 @@ app.post('/api/events', requireAdmin, (req, res) => {
 app.put('/api/events/:id', requireAdmin, (req, res) => {
   const { id } = req.params;
   const establishmentId = getRequestEstablishmentId(req);
+  const establishment = db.prepare('SELECT business_type FROM establishments WHERE id = ?').get(establishmentId);
+  if (establishment?.business_type === 'commercial') {
+    return res.status(403).json({ message: 'Los eventos solo aplican para negocios de eventos o conciertos' });
+  }
   const name = String(req.body.name || '').trim();
   const description = String(req.body.description || '').trim();
   const status = ['active', 'inactive'].includes(req.body.status) ? req.body.status : 'active';
@@ -546,6 +562,10 @@ app.put('/api/events/:id', requireAdmin, (req, res) => {
 
 app.patch('/api/events/:id/active', requireAdmin, (req, res) => {
   const establishmentId = getRequestEstablishmentId(req);
+  const establishment = db.prepare('SELECT business_type FROM establishments WHERE id = ?').get(establishmentId);
+  if (establishment?.business_type === 'commercial') {
+    return res.status(403).json({ message: 'Los eventos solo aplican para negocios de eventos o conciertos' });
+  }
   const event = db.prepare("SELECT * FROM events WHERE id = ? AND establishment_id = ? AND status = 'active'").get(req.params.id, establishmentId);
   if (!event) {
     return res.status(404).json({ message: 'Evento activo no encontrado' });

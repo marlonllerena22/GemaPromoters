@@ -34,7 +34,7 @@ button:disabled {
 .verify-shell {
   align-items: center;
   background:
-    linear-gradient(rgba(12, 18, 15, 0.42), rgba(12, 18, 15, 0.32)),
+    linear-gradient(120deg, rgba(12, 18, 15, 0.76), rgba(19, 34, 30, 0.46)),
     url("https://images.unsplash.com/photo-1492684223066-81342ee5ff30?auto=format&fit=crop&w=1600&q=80");
   background-position: center;
   background-size: cover;
@@ -45,13 +45,13 @@ button:disabled {
 
 .login-panel,
 .verify-panel {
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid rgba(255, 255, 255, 0.52);
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.68);
   border-radius: 8px;
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.28);
   margin: auto;
-  max-width: 430px;
-  padding: 28px;
+  max-width: 460px;
+  padding: 32px;
   width: 100%;
 }
 
@@ -63,9 +63,9 @@ input[type="file"] {
 
 .login-panel h1,
 .verify-panel h1 {
-  font-size: 31px;
+  font-size: 38px;
   line-height: 1.05;
-  margin: 16px 0 8px;
+  margin: 12px 0 8px;
 }
 
 .login-panel p {
@@ -84,6 +84,16 @@ input[type="file"] {
   height: 54px;
   justify-content: center;
   width: 54px;
+}
+
+.login-eyebrow {
+  color: #6a766e;
+  display: block;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0;
+  margin-top: 18px;
+  text-transform: uppercase;
 }
 
 .brand-mark.small {

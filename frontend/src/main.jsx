@@ -306,9 +306,10 @@ function Login({ onLogin }) {
   return (
     <main className="login-shell">
       <section className="login-panel">
-        <div className="brand-mark">G</div>
-        <h1>GemaPromoters</h1>
-        <p>{mode === 'admin' ? 'Administrador de promotores GEMASHOW' : 'Acceso para registrar ventas'}</p>
+        <div className="brand-mark">P</div>
+        <span className="login-eyebrow">Plataforma oficial</span>
+        <h1>PROMOTERS</h1>
+        <p>{mode === 'admin' ? 'Acceso para administradores de negocio' : 'Acceso para promotores y promotoras'}</p>
         <div className="segmented">
           <button
             type="button"
@@ -318,7 +319,7 @@ function Login({ onLogin }) {
               setForm({ username: '', password: '' });
             }}
           >
-            Admin
+            Administrador
           </button>
           <button
             type="button"
@@ -380,6 +381,13 @@ function AdminApp({ user, onLogout }) {
     const establishments = await api('/establishments');
     const defaultEstablishment = establishments.find((item) => item.name === 'GEMASHOW') || establishments[0];
     const establishmentId = nextEstablishmentId || defaultEstablishment?.id || '';
+    const nextEstablishment = establishments.find((item) => String(item.id) === String(establishmentId));
+    if (nextEstablishment?.business_type === 'commercial' && view === 'events') {
+      setView('branches');
+    }
+    if (nextEstablishment?.business_type !== 'commercial' && view === 'branches') {
+      setView('dashboard');
+    }
     if (establishmentId && String(establishmentId) !== String(selectedEstablishmentId)) {
       setSelectedEstablishmentId(String(establishmentId));
     }
@@ -420,11 +428,14 @@ function AdminApp({ user, onLogout }) {
     setTimeout(() => setNotice(''), 2400);
   }
 
+  const currentEstablishment = data.establishments.find((item) => String(item.id) === String(selectedEstablishmentId));
+  const isCommercialBusiness = currentEstablishment?.business_type === 'commercial';
+  const canSwitchBusiness = user?.role === 'supreme' && data.establishments.length > 1;
   const nav = [
-    ...(user?.role === 'supreme' ? [['establishments', 'Establecimientos', Building2]] : []),
+    ...(user?.role === 'supreme' ? [['establishments', 'Negocios', Building2]] : []),
     ['dashboard', 'Panel', BarChart3],
-    ['events', 'Eventos', CalendarDays],
-    ['branches', 'Sucursales', Building2],
+    ...(!isCommercialBusiness ? [['events', 'Eventos', CalendarDays]] : []),
+    ...(isCommercialBusiness ? [['branches', 'Sucursales', Building2]] : []),
     ['promoters', 'Promotores', UsersRound],
     ['sales', 'Ventas', Ticket],
     ['ranking', 'Ranking', Medal],
@@ -437,11 +448,11 @@ function AdminApp({ user, onLogout }) {
   return (
     <main className="app-shell">
       <aside className="sidebar">
-        <div className="sidebar-brand">
-          <div className="brand-mark small">G</div>
+          <div className="sidebar-brand">
+          <div className="brand-mark small">P</div>
           <div>
-            <strong>GemaPromoters</strong>
-            <span>{user?.role === 'supreme' ? 'PROMOTERS' : 'GEMASHOW'}</span>
+            <strong>PROMOTERS</strong>
+            <span>{user?.role === 'supreme' ? 'Administrador supremo' : user?.establishment_display_name || currentEstablishment?.display_name || 'Negocio'}</span>
           </div>
         </div>
         <nav>
@@ -465,12 +476,12 @@ function AdminApp({ user, onLogout }) {
       <section className="content">
         <header className="topbar">
           <div>
-            <p>{data.establishments.find((item) => String(item.id) === String(selectedEstablishmentId))?.display_name || 'PROMOTERS'}</p>
+            <p>{currentEstablishment?.display_name || 'PROMOTERS'}</p>
             <h2>{nav.find(([key]) => key === view)?.[1]}</h2>
           </div>
-          {user?.role === 'supreme' && (
+          {canSwitchBusiness && (
             <label className="event-selector">
-              Establecimiento
+              Negocio
               <select value={selectedEstablishmentId} onChange={(e) => loadAll('', e.target.value)}>
                 {data.establishments.map((establishment) => (
                   <option value={establishment.id} key={establishment.id}>
@@ -480,14 +491,16 @@ function AdminApp({ user, onLogout }) {
               </select>
             </label>
           )}
-          <label className="event-selector">
-            Evento
-            <select value={selectedEventId} onChange={(e) => loadAll(e.target.value)}>
-              {data.events.map((event) => (
-                <option value={event.id} key={event.id}>{event.name}</option>
-              ))}
-            </select>
-          </label>
+          {!isCommercialBusiness && (
+            <label className="event-selector">
+              Evento
+              <select value={selectedEventId} onChange={(e) => loadAll(e.target.value)}>
+                {data.events.map((event) => (
+                  <option value={event.id} key={event.id}>{event.name}</option>
+                ))}
+              </select>
+            </label>
+          )}
           {notice && <div className="alert success">{notice}</div>}
         </header>
 
@@ -499,10 +512,10 @@ function AdminApp({ user, onLogout }) {
               <Establishments establishments={data.establishments} onRefresh={refresh} />
             )}
             {view === 'dashboard' && <Dashboard stats={data.dashboard} sales={data.sales} />}
-            {view === 'branches' && (
+            {view === 'branches' && isCommercialBusiness && (
               <Branches branches={data.branches} establishmentId={selectedEstablishmentId} onRefresh={refresh} />
             )}
-            {view === 'events' && (
+            {view === 'events' && !isCommercialBusiness && (
               <Events events={data.events} selectedEventId={selectedEventId} establishmentId={selectedEstablishmentId} onSelect={(eventId) => loadAll(eventId)} onRefresh={refresh} />
             )}
             {view === 'promoters' && (
@@ -598,7 +611,7 @@ function Establishments({ establishments, onRefresh }) {
       });
       setForm(emptyEstablishment);
       setEditingId(null);
-      onRefresh(editingId ? 'Establecimiento actualizado' : 'Establecimiento creado');
+      onRefresh(editingId ? 'Negocio actualizado' : 'Negocio creado');
     } catch (err) {
       setError(err.message);
     }
@@ -608,7 +621,7 @@ function Establishments({ establishments, onRefresh }) {
     <div className="two-column">
       <section className="panel">
         <div className="panel-title">
-          <h3>{editingId ? 'Editar establecimiento' : 'Nuevo establecimiento'}</h3>
+          <h3>{editingId ? 'Editar negocio' : 'Nuevo negocio'}</h3>
         </div>
         <form className="form-grid" onSubmit={submit}>
           <Input label="Nombre interno" value={form.name} onChange={(name) => setForm({ ...form, name })} />
@@ -657,7 +670,7 @@ function Establishments({ establishments, onRefresh }) {
       </section>
       <section className="panel">
         <div className="panel-title">
-          <h3>Establecimientos PROMOTERS</h3>
+          <h3>Negocios PROMOTERS</h3>
         </div>
         <div className="list">
           {establishments.map((establishment) => (
