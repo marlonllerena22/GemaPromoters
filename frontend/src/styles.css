@@ -181,6 +181,10 @@ input[type="file"] {
   margin: 2px 0 0;
 }
 
+.event-selector {
+  min-width: min(340px, 100%);
+}
+
 .stack {
   display: grid;
   gap: 22px;
@@ -586,6 +590,33 @@ td {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.commission-summary-card {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #dde5dc;
+  border-radius: 8px;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding: 16px;
+}
+
+.commission-summary-card div {
+  display: grid;
+  gap: 4px;
+}
+
+.commission-summary-card span,
+.commission-summary-card small {
+  color: #64726a;
+}
+
+.commission-summary-card strong {
+  font-size: 28px;
+  line-height: 1.05;
+}
+
 .benefits-showcase {
   background: linear-gradient(135deg, #18201d, #2c463a);
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -752,6 +783,85 @@ td {
   width: 64px;
 }
 
+.banner-preview,
+.banner-admin-card,
+.promoter-banner {
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+}
+
+.banner-preview {
+  aspect-ratio: 16 / 6;
+  background: #eef3ef;
+  border: 1px solid #d6e1da;
+}
+
+.banner-preview img,
+.banner-admin-card img,
+.promoter-banner img {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.banner-preview strong,
+.promoter-banner strong {
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.68));
+  bottom: 0;
+  color: #ffffff;
+  left: 0;
+  padding: 34px 18px 16px;
+  position: absolute;
+  right: 0;
+}
+
+.banner-list {
+  display: grid;
+  gap: 12px;
+}
+
+.banner-admin-card {
+  background: #ffffff;
+  border: 1px solid #dde5dc;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 148px minmax(0, 1fr) auto;
+  padding: 10px;
+}
+
+.banner-admin-card.inactive {
+  opacity: 0.62;
+}
+
+.banner-admin-card img {
+  aspect-ratio: 16 / 9;
+  border-radius: 6px;
+}
+
+.banner-admin-card div {
+  align-content: center;
+  display: grid;
+  gap: 4px;
+}
+
+.banner-admin-card span {
+  color: #64726a;
+}
+
+.promoter-banners {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.promoter-banner {
+  aspect-ratio: 16 / 5;
+  background: #18201d;
+  box-shadow: 0 18px 48px rgba(19, 34, 27, 0.18);
+}
+
 .password-panel {
   margin-top: 22px;
 }
@@ -906,6 +1016,10 @@ td {
     font-size: 24px;
   }
 
+  .event-selector {
+    width: 100%;
+  }
+
   .sidebar {
     padding: 12px;
   }
@@ -956,6 +1070,14 @@ td {
     flex: 1;
   }
 
+  .banner-admin-card {
+    grid-template-columns: 1fr;
+  }
+
+  .promoter-banner {
+    aspect-ratio: 16 / 8;
+  }
+
   .verify-form {
     grid-template-columns: 1fr;
   }
@@ -971,6 +1093,11 @@ td {
   .promoter-profile {
     align-items: flex-start;
     flex-wrap: wrap;
+  }
+
+  .commission-summary-card {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .profile-edit-button {

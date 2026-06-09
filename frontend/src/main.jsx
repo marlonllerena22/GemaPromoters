@@ -6,6 +6,8 @@ import {
   CalendarDays,
   CheckCircle2,
   CircleDollarSign,
+  Eye,
+  EyeOff,
   KeyRound,
   Lock,
   LogOut,
@@ -74,6 +76,19 @@ const emptyLocation = {
   commission_value: 3,
   commission_min_quantity: 1,
   level_points: 1,
+  status: 'active'
+};
+
+const emptyEvent = {
+  name: '',
+  description: '',
+  status: 'active'
+};
+
+const emptyBanner = {
+  image_url: '',
+  title: '',
+  sort_order: 0,
   status: 'active'
 };
 
@@ -155,7 +170,7 @@ function commissionLabel(location) {
 
   const value = Number(location.commission_value || 0);
   const type = location.commission_type === 'fixed' ? `${money(value)} por entrada` : `${value}%`;
-  return `${type} desde ${location.commission_min_quantity || 1} entradas pagadas`;
+  return `${type} desde ${location.commission_min_quantity || 1} entradas confirmadas`;
 }
 
 function estimateCommission(form, locations, sales, promoterId = form.promoter_id) {
@@ -186,6 +201,15 @@ function estimateCommission(form, locations, sales, promoterId = form.promoter_i
   }
 
   return commissionableTickets * Number(form.unit_price || 0) * (Number(location.commission_value || 0) / 100);
+}
+
+function paymentLabel(status) {
+  return status === 'paid' ? 'Confirmada' : 'Por confirmar';
+}
+
+function withEvent(path, eventId) {
+  const separator = path.includes('?') ? '&' : '?';
+  return eventId ? `${path}${separator}event_id=${eventId}` : path;
 }
 
 function App() {
@@ -255,25 +279,6 @@ function Login({ onLogin }) {
     }
   }
 
-  async function remove(location) {
-    const confirmed = window.confirm(`Eliminar la localidad "${location.name}"?`);
-    if (!confirmed) {
-      return;
-    }
-
-    setError('');
-    try {
-      await api(`/locations/${location.id}`, { method: 'DELETE' });
-      if (editingId === location.id) {
-        setEditingId(null);
-        setForm(emptyLocation);
-      }
-      onRefresh('Localidad eliminada');
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
   return (
     <main className="login-shell">
       <section className="login-panel">
@@ -330,28 +335,40 @@ function AdminApp({ onLogout }) {
   const [view, setView] = useState('dashboard');
   const [data, setData] = useState({
     dashboard: null,
+    events: [],
     promoters: [],
     sales: [],
     ranking: [],
     settlements: [],
     locations: [],
-    levels: emptyLevels
+    levels: emptyLevels,
+    banners: []
   });
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState('');
+  const [selectedEventId, setSelectedEventId] = useState('');
 
-  async function loadAll() {
+  async function loadAll(nextEventId = selectedEventId) {
     setLoading(true);
-    const [dashboard, promoters, sales, ranking, settlements, locations, levels] = await Promise.all([
-      api('/dashboard'),
-      api('/promoters'),
-      api('/sales'),
-      api('/ranking'),
-      api('/settlements'),
-      api('/locations'),
-      api('/level-settings')
+    const events = await api('/events');
+    const activeEvent = events.find((event) => event.is_active) || events[0];
+    const eventId = nextEventId || activeEvent?.id || '';
+
+    if (eventId && String(eventId) !== String(selectedEventId)) {
+      setSelectedEventId(String(eventId));
+    }
+
+    const [dashboard, promoters, sales, ranking, settlements, locations, levels, banners] = await Promise.all([
+      api(withEvent('/dashboard', eventId)),
+      api(withEvent('/promoters', eventId)),
+      api(withEvent('/sales', eventId)),
+      api(withEvent('/ranking', eventId)),
+      api(withEvent('/settlements', eventId)),
+      api(withEvent('/locations', eventId)),
+      api(withEvent('/level-settings', eventId)),
+      api(withEvent('/event-banners', eventId))
     ]);
-    setData({ dashboard, promoters, sales, ranking, settlements, locations, levels });
+    setData({ dashboard, events, promoters, sales, ranking, settlements, locations, levels, banners });
     setLoading(false);
   }
 
@@ -369,12 +386,14 @@ function AdminApp({ onLogout }) {
 
   const nav = [
     ['dashboard', 'Panel', BarChart3],
+    ['events', 'Eventos', CalendarDays],
     ['promoters', 'Promotores', UsersRound],
     ['sales', 'Ventas', Ticket],
     ['ranking', 'Ranking', Medal],
     ['settlements', 'Liquidaciones', WalletCards],
     ['settings', 'Localidades', Settings],
-    ['levels', 'Niveles', BadgeCheck]
+    ['levels', 'Niveles', BadgeCheck],
+    ['banners', 'Banners', Sparkles]
   ];
 
   return (
@@ -411,6 +430,14 @@ function AdminApp({ onLogout }) {
             <p>GEMASHOW</p>
             <h2>{nav.find(([key]) => key === view)?.[1]}</h2>
           </div>
+          <label className="event-selector">
+            Evento
+            <select value={selectedEventId} onChange={(e) => loadAll(e.target.value)}>
+              {data.events.map((event) => (
+                <option value={event.id} key={event.id}>{event.name}</option>
+              ))}
+            </select>
+          </label>
           {notice && <div className="alert success">{notice}</div>}
         </header>
 
@@ -419,21 +446,27 @@ function AdminApp({ onLogout }) {
         ) : (
           <>
             {view === 'dashboard' && <Dashboard stats={data.dashboard} sales={data.sales} />}
+            {view === 'events' && (
+              <Events events={data.events} selectedEventId={selectedEventId} onSelect={(eventId) => loadAll(eventId)} onRefresh={refresh} />
+            )}
             {view === 'promoters' && (
               <Promoters promoters={data.promoters} onRefresh={refresh} />
             )}
             {view === 'sales' && (
-              <Sales promoters={data.promoters} sales={data.sales} locations={data.locations} onRefresh={refresh} />
+              <Sales promoters={data.promoters} sales={data.sales} locations={data.locations} eventId={selectedEventId} onRefresh={refresh} />
             )}
             {view === 'ranking' && <Ranking ranking={data.ranking} />}
             {view === 'settlements' && (
-              <Settlements settlements={data.settlements} onRefresh={refresh} />
+              <Settlements settlements={data.settlements} eventId={selectedEventId} onRefresh={refresh} />
             )}
             {view === 'settings' && (
-              <Locations locations={data.locations} onRefresh={refresh} />
+              <Locations locations={data.locations} eventId={selectedEventId} onRefresh={refresh} />
             )}
             {view === 'levels' && (
-              <Levels levels={data.levels} onRefresh={refresh} />
+              <Levels levels={data.levels} eventId={selectedEventId} onRefresh={refresh} />
+            )}
+            {view === 'banners' && (
+              <Banners banners={data.banners} eventId={selectedEventId} onRefresh={refresh} />
             )}
           </>
         )}
@@ -466,16 +499,105 @@ function Dashboard({ stats, sales }) {
           <h3>Ultimas ventas</h3>
         </div>
         <DataTable
-          columns={['Promotor', 'Cliente', 'Localidad', 'Total', 'Comision', 'Pago']}
+          columns={['Promotor', 'Cliente', 'Localidad', 'Total', 'Comision', 'Estado']}
           rows={sales.slice(0, 8).map((sale) => [
             sale.promoter_name,
             sale.customer,
             sale.location,
             money(sale.total),
             money(sale.commission),
-            sale.payment_status === 'paid' ? 'Pagado' : 'Pendiente'
+            paymentLabel(sale.payment_status)
           ])}
         />
+      </section>
+    </div>
+  );
+}
+
+function Events({ events, selectedEventId, onSelect, onRefresh }) {
+  const [form, setForm] = useState(emptyEvent);
+  const [editingId, setEditingId] = useState(null);
+  const [error, setError] = useState('');
+
+  function edit(event) {
+    setEditingId(event.id);
+    setForm({
+      name: event.name,
+      description: event.description || '',
+      status: event.status
+    });
+  }
+
+  async function submit(event) {
+    event.preventDefault();
+    setError('');
+    try {
+      await api(editingId ? `/events/${editingId}` : '/events', {
+        method: editingId ? 'PUT' : 'POST',
+        body: JSON.stringify(form)
+      });
+      setForm(emptyEvent);
+      setEditingId(null);
+      onRefresh(editingId ? 'Evento actualizado' : 'Evento creado');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function activate(eventId) {
+    await api(`/events/${eventId}/active`, { method: 'PATCH' });
+    await onSelect(String(eventId));
+    onRefresh('Evento activo actualizado');
+  }
+
+  return (
+    <div className="two-column">
+      <section className="panel">
+        <div className="panel-title">
+          <h3>{editingId ? 'Editar evento' : 'Nuevo evento'}</h3>
+        </div>
+        <form className="form-grid" onSubmit={submit}>
+          <Input label="Nombre del evento" value={form.name} onChange={(name) => setForm({ ...form, name })} />
+          <label>
+            Descripcion
+            <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={4} />
+          </label>
+          <label>
+            Estado
+            <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+              <option value="active">Activo</option>
+              <option value="inactive">Inactivo</option>
+            </select>
+          </label>
+          {error && <div className="alert error">{error}</div>}
+          <button className="primary-button" type="submit">
+            <CalendarDays size={18} />
+            {editingId ? 'Guardar' : 'Crear evento'}
+          </button>
+        </form>
+      </section>
+      <section className="panel">
+        <div className="panel-title">
+          <h3>Eventos</h3>
+        </div>
+        <div className="list">
+          {events.map((event) => (
+            <article className="person-row" key={event.id}>
+              <div>
+                <strong>{event.name}</strong>
+                <span>{event.status === 'active' ? 'Activo' : 'Inactivo'} · {event.is_active ? 'Evento visible para promotores' : 'No visible'}</span>
+                <small>{event.description || 'Sin descripcion'}</small>
+              </div>
+              <div className="row-actions">
+                <button className="ghost-button" onClick={() => onSelect(String(event.id))}>Seleccionar</button>
+                <button className="ghost-button" onClick={() => edit(event)}>Editar</button>
+                <button className="ghost-button" disabled={event.is_active || event.status !== 'active'} onClick={() => activate(event.id)}>
+                  Activar
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
       </section>
     </div>
   );
@@ -643,7 +765,7 @@ function Promoters({ promoters, onRefresh }) {
   );
 }
 
-function Sales({ promoters, sales, locations, onRefresh }) {
+function Sales({ promoters, sales, locations, eventId, onRefresh }) {
   const [form, setForm] = useState(emptySale);
   const [error, setError] = useState('');
   const activePromoters = promoters.filter((promoter) => promoter.status === 'active');
@@ -658,7 +780,7 @@ function Sales({ promoters, sales, locations, onRefresh }) {
     event.preventDefault();
     setError('');
     try {
-      await api('/sales', {
+      await api(withEvent('/sales', eventId), {
         method: 'POST',
         body: JSON.stringify(form)
       });
@@ -669,9 +791,9 @@ function Sales({ promoters, sales, locations, onRefresh }) {
     }
   }
 
-  async function markPaid(saleId) {
-    await api(`/sales/${saleId}/pay`, { method: 'PATCH' });
-    onRefresh('Venta marcada como pagada');
+  async function confirmSale(saleId) {
+    await api(withEvent(`/sales/${saleId}/pay`, eventId), { method: 'PATCH' });
+    onRefresh('Venta confirmada');
   }
 
   async function removeSale(sale) {
@@ -682,7 +804,7 @@ function Sales({ promoters, sales, locations, onRefresh }) {
       return;
     }
 
-    await api(`/sales/${sale.id}`, { method: 'DELETE' });
+    await api(withEvent(`/sales/${sale.id}`, eventId), { method: 'DELETE' });
     onRefresh('Venta eliminada definitivamente');
   }
 
@@ -723,10 +845,10 @@ function Sales({ promoters, sales, locations, onRefresh }) {
           <Input type="number" label="Precio unitario" value={form.unit_price} onChange={(unit_price) => setForm({ ...form, unit_price })} />
           <Input type="date" label="Fecha" value={form.sale_date} onChange={(sale_date) => setForm({ ...form, sale_date })} />
           <label>
-            Estado de pago
+            Estado
             <select value={form.payment_status} onChange={(e) => setForm({ ...form, payment_status: e.target.value })}>
-              <option value="pending">Pendiente</option>
-              <option value="paid">Pagado</option>
+              <option value="pending">Por confirmar</option>
+              <option value="paid">Confirmada por admin</option>
             </select>
           </label>
           <div className="computed">
@@ -746,7 +868,7 @@ function Sales({ promoters, sales, locations, onRefresh }) {
           <h3>Ventas</h3>
         </div>
         <DataTable
-          columns={['Promotor', 'Cliente', 'Localidad', 'Cantidad', 'Total', 'Comision', 'Pago', 'Acciones']}
+          columns={['Promotor', 'Cliente', 'Localidad', 'Cantidad', 'Total', 'Comision', 'Estado', 'Acciones']}
           rows={sales.map((sale) => [
             sale.promoter_name,
             sale.customer,
@@ -754,12 +876,12 @@ function Sales({ promoters, sales, locations, onRefresh }) {
             sale.quantity,
             money(sale.total),
             money(sale.commission),
-            sale.payment_status === 'paid' ? 'Pagado' : 'Pendiente',
+            paymentLabel(sale.payment_status),
             <div className="row-actions compact-actions">
               {sale.payment_status !== 'paid' && (
-                <button className="ghost-button" onClick={() => markPaid(sale.id)}>
+                <button className="ghost-button" onClick={() => confirmSale(sale.id)}>
                   <CheckCircle2 size={16} />
-                  Pagar
+                  Confirmar
                 </button>
               )}
               <button className="danger-button" onClick={() => removeSale(sale)}>
@@ -798,9 +920,9 @@ function Ranking({ ranking }) {
   );
 }
 
-function Settlements({ settlements, onRefresh }) {
+function Settlements({ settlements, eventId, onRefresh }) {
   async function pay(promoterId) {
-    await api(`/settlements/${promoterId}/pay`, { method: 'PATCH' });
+    await api(withEvent(`/settlements/${promoterId}/pay`, eventId), { method: 'PATCH' });
     onRefresh('Comisiones marcadas como pagadas');
   }
 
@@ -827,7 +949,7 @@ function Settlements({ settlements, onRefresh }) {
   );
 }
 
-function Locations({ locations, onRefresh }) {
+function Locations({ locations, eventId, onRefresh }) {
   const [form, setForm] = useState(emptyLocation);
   const [editingId, setEditingId] = useState(null);
   const [error, setError] = useState('');
@@ -849,13 +971,32 @@ function Locations({ locations, onRefresh }) {
     event.preventDefault();
     setError('');
     try {
-      await api(editingId ? `/locations/${editingId}` : '/locations', {
+      await api(withEvent(editingId ? `/locations/${editingId}` : '/locations', eventId), {
         method: editingId ? 'PUT' : 'POST',
         body: JSON.stringify(form)
       });
       setForm(emptyLocation);
       setEditingId(null);
       onRefresh(editingId ? 'Localidad actualizada' : 'Localidad creada');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function remove(location) {
+    const confirmed = window.confirm(`Eliminar la localidad "${location.name}"?`);
+    if (!confirmed) {
+      return;
+    }
+
+    setError('');
+    try {
+      await api(withEvent(`/locations/${location.id}`, eventId), { method: 'DELETE' });
+      if (editingId === location.id) {
+        setEditingId(null);
+        setForm(emptyLocation);
+      }
+      onRefresh('Localidad eliminada');
     } catch (err) {
       setError(err.message);
     }
@@ -894,7 +1035,7 @@ function Locations({ locations, onRefresh }) {
           />
           <Input
             type="number"
-            label="Puntos para nivel por entrada pagada"
+            label="Puntos para nivel por entrada confirmada"
             value={form.level_points}
             onChange={(level_points) => setForm({ ...form, level_points })}
           />
@@ -923,7 +1064,7 @@ function Locations({ locations, onRefresh }) {
                 <strong>{location.name}</strong>
                 <span>{money(location.price)} · {location.status === 'active' ? 'Activa' : 'Inactiva'}</span>
                 <small>{commissionLabel(location)}</small>
-                <small>{location.level_points ?? 1} puntos de nivel por entrada pagada</small>
+                <small>{location.level_points ?? 1} puntos de nivel por entrada confirmada</small>
               </div>
               <div className="row-actions">
                 <button className="ghost-button" onClick={() => edit(location)}>Editar</button>
@@ -937,7 +1078,7 @@ function Locations({ locations, onRefresh }) {
   );
 }
 
-function Levels({ levels, onRefresh }) {
+function Levels({ levels, eventId, onRefresh }) {
   const [form, setForm] = useState(normalizeLevelForm(levels));
   const [error, setError] = useState('');
 
@@ -949,7 +1090,7 @@ function Levels({ levels, onRefresh }) {
     event.preventDefault();
     setError('');
     try {
-      await api('/level-settings', {
+      await api(withEvent('/level-settings', eventId), {
         method: 'PUT',
         body: JSON.stringify(form)
       });
@@ -1034,6 +1175,115 @@ function Levels({ levels, onRefresh }) {
   );
 }
 
+function Banners({ banners, eventId, onRefresh }) {
+  const [form, setForm] = useState(emptyBanner);
+  const [editingId, setEditingId] = useState(null);
+  const [error, setError] = useState('');
+
+  async function pickBanner(file) {
+    setError('');
+    try {
+      const image_url = await imageFileToDataUrl(file);
+      setForm({ ...form, image_url });
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  function edit(banner) {
+    setEditingId(banner.id);
+    setForm({
+      image_url: banner.image_url,
+      title: banner.title || '',
+      sort_order: banner.sort_order || 0,
+      status: banner.status
+    });
+  }
+
+  async function submit(event) {
+    event.preventDefault();
+    setError('');
+    try {
+      await api(withEvent(editingId ? `/event-banners/${editingId}` : '/event-banners', eventId), {
+        method: editingId ? 'PUT' : 'POST',
+        body: JSON.stringify(form)
+      });
+      setForm(emptyBanner);
+      setEditingId(null);
+      onRefresh(editingId ? 'Banner actualizado' : 'Banner creado');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function remove(banner) {
+    const confirmed = window.confirm('Eliminar este banner?');
+    if (!confirmed) {
+      return;
+    }
+
+    await api(withEvent(`/event-banners/${banner.id}`, eventId), { method: 'DELETE' });
+    onRefresh('Banner eliminado');
+  }
+
+  return (
+    <div className="two-column">
+      <section className="panel">
+        <div className="panel-title">
+          <h3>{editingId ? 'Editar banner' : 'Nuevo banner'}</h3>
+        </div>
+        <form className="form-grid" onSubmit={submit}>
+          <label>
+            Foto del banner
+            <input type="file" accept="image/*" onChange={(event) => pickBanner(event.target.files?.[0])} />
+          </label>
+          <Input label="Titulo opcional" value={form.title} onChange={(title) => setForm({ ...form, title })} />
+          <Input type="number" label="Orden" value={form.sort_order} onChange={(sort_order) => setForm({ ...form, sort_order })} />
+          <label>
+            Estado
+            <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+              <option value="active">Activo</option>
+              <option value="inactive">Inactivo</option>
+            </select>
+          </label>
+          {form.image_url && (
+            <div className="banner-preview">
+              <img src={form.image_url} alt="Vista previa del banner" />
+              {form.title && <strong>{form.title}</strong>}
+            </div>
+          )}
+          {error && <div className="alert error">{error}</div>}
+          <button className="primary-button" type="submit">
+            <Sparkles size={18} />
+            Guardar banner
+          </button>
+        </form>
+      </section>
+      <section className="panel">
+        <div className="panel-title">
+          <h3>Banners del evento</h3>
+        </div>
+        <div className="banner-list">
+          {banners.map((banner) => (
+            <article className={`banner-admin-card ${banner.status}`} key={banner.id}>
+              <img src={banner.image_url} alt={banner.title || 'Banner'} />
+              <div>
+                <strong>{banner.title || 'Banner sin titulo'}</strong>
+                <span>{banner.status === 'active' ? 'Activo' : 'Inactivo'} · Orden {banner.sort_order || 0}</span>
+              </div>
+              <div className="row-actions">
+                <button className="ghost-button" onClick={() => edit(banner)}>Editar</button>
+                <button className="danger-button" onClick={() => remove(banner)}>Eliminar</button>
+              </div>
+            </article>
+          ))}
+          {!banners.length && <div className="empty-state">Sin banners para este evento</div>}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function PromoterBenefits({ level }) {
   const catalog = levelCatalogFromProfile(level);
   const currentRank = levelOrder[level?.key || 'starter'] || 0;
@@ -1084,6 +1334,7 @@ function PromoterBenefits({ level }) {
 function PromoterApp({ user, onLogout }) {
   const [sales, setSales] = useState([]);
   const [locations, setLocations] = useState([]);
+  const [banners, setBanners] = useState([]);
   const [profile, setProfile] = useState(user);
   const [form, setForm] = useState(emptySale);
   const [profileForm, setProfileForm] = useState({ photo_url: '' });
@@ -1093,22 +1344,27 @@ function PromoterApp({ user, onLogout }) {
   const [profileError, setProfileError] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
+  const [showCommission, setShowCommission] = useState(false);
   const activeLocations = locations.filter((location) => location.status === 'active');
   const estimatedTotal = useMemo(() => Number(form.quantity || 0) * Number(form.unit_price || 0), [form]);
-  const estimatedCommission = useMemo(
-    () => estimateCommission(form, locations, sales, user.id),
-    [form, locations, sales, user.id]
+  const confirmedCommission = useMemo(
+    () => sales
+      .filter((sale) => sale.payment_status === 'paid')
+      .reduce((sum, sale) => sum + Number(sale.commission || 0), 0),
+    [sales]
   );
 
   async function loadData() {
-    const [nextSales, nextLocations, nextProfile] = await Promise.all([
+    const [nextSales, nextLocations, nextProfile, nextBanners] = await Promise.all([
       api('/promoter/sales'),
       api('/locations'),
-      api('/promoter/me')
+      api('/promoter/me'),
+      api('/promoter/banners')
     ]);
     setSales(nextSales);
     setLocations(nextLocations);
     setProfile(nextProfile);
+    setBanners(nextBanners);
     setProfileForm({ photo_url: nextProfile.photo_url || '' });
   }
 
@@ -1131,13 +1387,6 @@ function PromoterApp({ user, onLogout }) {
     } catch (err) {
       setError(err.message);
     }
-  }
-
-  async function markPaid(saleId) {
-    await api(`/promoter/sales/${saleId}/pay`, { method: 'PATCH' });
-    await loadData();
-    setNotice('Venta marcada como pagada');
-    setTimeout(() => setNotice(''), 2400);
   }
 
   async function changePassword(event) {
@@ -1187,7 +1436,7 @@ function PromoterApp({ user, onLogout }) {
       <header className="topbar">
         <div>
           <p>Promotor GEMASHOW</p>
-          <h2>{profile?.name || user.name}</h2>
+          <h2>{profile?.activeEvent?.name || 'Evento activo'}</h2>
         </div>
         <button className="ghost-button" onClick={onLogout}>
           <LogOut size={18} />
@@ -1195,6 +1444,16 @@ function PromoterApp({ user, onLogout }) {
         </button>
       </header>
       {notice && <div className="alert success">{notice}</div>}
+      {!!banners.length && (
+        <section className="promoter-banners">
+          {banners.map((banner) => (
+            <article className="promoter-banner" key={banner.id}>
+              <img src={banner.image_url} alt={banner.title || 'Banner del evento'} />
+              {banner.title && <strong>{banner.title}</strong>}
+            </article>
+          ))}
+        </section>
+      )}
       <section className={`promoter-profile ${profile?.level?.key || 'starter'}`}>
         <div className="profile-photo">
           {profile?.photo_url ? <img src={profile.photo_url} alt={profile.name} /> : <UserRound size={42} />}
@@ -1203,12 +1462,23 @@ function PromoterApp({ user, onLogout }) {
           <strong>{profile?.name || user.name}</strong>
           <span>{profile?.code || user.code}</span>
           <small>
-            {profile?.level?.name || 'Inicial'} · {profile?.level?.levelPoints || 0} puntos · {profile?.level?.paidSales || 0} ventas pagadas
+            {profile?.level?.name || 'Inicial'} · {profile?.level?.levelPoints || 0} puntos · {profile?.level?.paidSales || 0} ventas confirmadas
           </small>
         </div>
         <button className="ghost-button profile-edit-button" type="button" onClick={() => setProfileEditorOpen(!profileEditorOpen)}>
           <UserRound size={18} />
           {profileEditorOpen ? 'Cerrar perfil' : 'Editar perfil'}
+        </button>
+      </section>
+      <section className="commission-summary-card">
+        <div>
+          <span>Comision confirmada</span>
+          <strong>{showCommission ? money(confirmedCommission) : '••••••'}</strong>
+          <small>Solo cuenta ventas aprobadas por el administrador.</small>
+        </div>
+        <button className="ghost-button" type="button" onClick={() => setShowCommission(!showCommission)}>
+          {showCommission ? <EyeOff size={18} /> : <Eye size={18} />}
+          {showCommission ? 'Ocultar' : 'Mostrar'}
         </button>
       </section>
       {profileEditorOpen && (
@@ -1287,16 +1557,9 @@ function PromoterApp({ user, onLogout }) {
             </label>
             <Input type="number" label="Cantidad" value={form.quantity} onChange={(quantity) => setForm({ ...form, quantity })} />
             <Input type="date" label="Fecha" value={form.sale_date} onChange={(sale_date) => setForm({ ...form, sale_date })} />
-            <label>
-              Estado de pago
-              <select value={form.payment_status} onChange={(e) => setForm({ ...form, payment_status: e.target.value })}>
-                <option value="pending">Pendiente</option>
-                <option value="paid">Pagado</option>
-              </select>
-            </label>
             <div className="computed">
               <span>Total {money(estimatedTotal)}</span>
-              <strong>Comision {money(estimatedCommission)}</strong>
+              <strong>La comision se genera cuando el admin confirme la venta.</strong>
             </div>
             {error && <div className="alert error">{error}</div>}
             <button className="primary-button" type="submit" disabled={!profile?.can_sell}>
@@ -1310,20 +1573,14 @@ function PromoterApp({ user, onLogout }) {
             <h3>Mis ventas</h3>
           </div>
           <DataTable
-            columns={['Cliente', 'Localidad', 'Cantidad', 'Total', 'Comision', 'Pago', '']}
+            columns={['Cliente', 'Localidad', 'Cantidad', 'Total', 'Comision', 'Estado']}
             rows={sales.map((sale) => [
               sale.customer,
               sale.location,
               sale.quantity,
               money(sale.total),
               money(sale.commission),
-              sale.payment_status === 'paid' ? 'Pagado' : 'Pendiente',
-              sale.payment_status === 'paid' ? '' : (
-                <button className="ghost-button" onClick={() => markPaid(sale.id)}>
-                  <CheckCircle2 size={16} />
-                  Pagar
-                </button>
-              )
+              paymentLabel(sale.payment_status)
             ])}
           />
         </section>

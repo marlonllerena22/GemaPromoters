@@ -17,16 +17,34 @@ const port = Number(process.env.PORT || 4000);
 app.use(cors());
 app.use(express.json({ limit: '6mb' }));
 
-function getDashboard() {
+function getActiveEvent() {
+  return db.prepare("SELECT * FROM events WHERE is_active = 1 AND status = 'active' ORDER BY id DESC").get()
+    || db.prepare("SELECT * FROM events WHERE status = 'active' ORDER BY id DESC").get()
+    || db.prepare('SELECT * FROM events ORDER BY id DESC').get();
+}
+
+function getRequestEventId(req) {
+  const requested = Number(req.query.event_id || req.body?.event_id || 0);
+  if (requested) {
+    const event = db.prepare('SELECT id FROM events WHERE id = ?').get(requested);
+    if (event) {
+      return event.id;
+    }
+  }
+
+  return getActiveEvent()?.id || 1;
+}
+
+function getDashboard(eventId) {
   const activePromoters = db
     .prepare("SELECT COUNT(*) AS total FROM promoters WHERE status = 'active'")
     .get().total;
   const totals = db
-    .prepare('SELECT COALESCE(SUM(total), 0) AS sold, COALESCE(SUM(commission), 0) AS commission FROM sales')
-    .get();
+    .prepare("SELECT COALESCE(SUM(total), 0) AS sold, COALESCE(SUM(commission), 0) AS commission FROM sales WHERE event_id = ? AND payment_status = 'paid'")
+    .get(eventId);
   const todaySales = db
-    .prepare("SELECT COALESCE(SUM(total), 0) AS sold FROM sales WHERE sale_date = date('now', 'localtime')")
-    .get().sold;
+    .prepare("SELECT COALESCE(SUM(total), 0) AS sold FROM sales WHERE event_id = ? AND payment_status = 'paid' AND sale_date = date('now', 'localtime')")
+    .get(eventId).sold;
 
   return {
     activePromoters,
@@ -85,11 +103,11 @@ function buildPromoterCode(name) {
   return candidate;
 }
 
-function getLocationRule(locationName) {
+function getLocationRule(locationName, eventId = getActiveEvent()?.id || 1) {
   const lookup = normalizeLookup(locationName);
   const rule = db
-    .prepare('SELECT * FROM event_locations')
-    .all()
+    .prepare('SELECT * FROM event_locations WHERE event_id = ?')
+    .all(eventId)
     .find((location) => normalizeLookup(location.name) === lookup);
 
   return rule || {
@@ -113,17 +131,17 @@ function calculateCommission(rule, unitPrice, tickets) {
   return toMoney(Number(unitPrice || 0) * tickets * (Number(rule.commission_value || 0) / 100));
 }
 
-function recalculateCommissions(promoterId, locationName) {
-  const rule = getLocationRule(locationName);
+function recalculateCommissions(promoterId, locationName, eventId = getActiveEvent()?.id || 1) {
+  const rule = getLocationRule(locationName, eventId);
   const threshold = Math.max(1, Number(rule.commission_min_quantity || 1));
   const sales = db
     .prepare(
       `SELECT id, quantity, unit_price, payment_status
        FROM sales
-       WHERE promoter_id = ? AND location = ?
+       WHERE promoter_id = ? AND location = ? AND event_id = ?
        ORDER BY sale_date ASC, id ASC`
     )
-    .all(promoterId, locationName);
+    .all(promoterId, locationName, eventId);
 
   let paidTickets = 0;
 
@@ -145,14 +163,15 @@ function recalculateCommissions(promoterId, locationName) {
 }
 
 function recalculateAllCommissions() {
-  const groups = db.prepare('SELECT DISTINCT promoter_id, location FROM sales').all();
+  const groups = db.prepare('SELECT DISTINCT promoter_id, location, event_id FROM sales').all();
   for (const group of groups) {
-    recalculateCommissions(group.promoter_id, group.location);
+    recalculateCommissions(group.promoter_id, group.location, group.event_id);
   }
 }
 
-function getLevelSettings() {
-  const rows = db.prepare("SELECT key, value FROM app_settings WHERE key LIKE 'level_%' OR key = 'referral_points'").all();
+function getLevelSettings(eventId = getActiveEvent()?.id || 1) {
+  seedEventSettingsFromActive(eventId);
+  const rows = db.prepare("SELECT key, value FROM event_settings WHERE event_id = ? AND (key LIKE 'level_%' OR key = 'referral_points')").all(eventId);
   const settings = Object.fromEntries(rows.map((row) => [row.key, row.value]));
   const benefitsFrom = (key, fallback) =>
     String(settings[key] || fallback)
@@ -205,14 +224,14 @@ function getLevelCatalog(settings = getLevelSettings()) {
   ];
 }
 
-function getPromoterLevel(promoterId) {
-  const settings = getLevelSettings();
+function getPromoterLevel(promoterId, eventId = getActiveEvent()?.id || 1) {
+  const settings = getLevelSettings(eventId);
   const paidSalesRows = db
-    .prepare("SELECT quantity, location FROM sales WHERE promoter_id = ? AND payment_status = 'paid'")
-    .all(promoterId);
+    .prepare("SELECT quantity, location FROM sales WHERE promoter_id = ? AND event_id = ? AND payment_status = 'paid'")
+    .all(promoterId, eventId);
   const promoter = db.prepare('SELECT manual_points FROM promoters WHERE id = ?').get(promoterId);
   const referralCount = db.prepare('SELECT COUNT(*) AS total FROM promoters WHERE referred_by_promoter_id = ?').get(promoterId).total;
-  const locations = db.prepare('SELECT name, level_points FROM event_locations').all();
+  const locations = db.prepare('SELECT name, level_points FROM event_locations WHERE event_id = ?').all(eventId);
   const paidSales = paidSalesRows.length;
   const salesPoints = paidSalesRows.reduce((sum, sale) => {
     const location = locations.find((item) => normalizeLookup(item.name) === normalizeLookup(sale.location));
@@ -255,6 +274,32 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, app: 'GemaPromoters' });
 });
 
+function seedEventSettingsFromActive(eventId) {
+  const existing = db.prepare('SELECT COUNT(*) AS total FROM event_settings WHERE event_id = ?').get(eventId).total;
+  if (existing) {
+    return;
+  }
+
+  const sourceEvent = getActiveEvent();
+  const sourceRows = sourceEvent
+    ? db.prepare('SELECT key, value FROM event_settings WHERE event_id = ?').all(sourceEvent.id)
+    : [];
+  const save = db.prepare('INSERT OR IGNORE INTO event_settings (event_id, key, value) VALUES (?, ?, ?)');
+  const defaults = sourceRows.length ? sourceRows : [
+    { key: 'level_bronze_min', value: '1' },
+    { key: 'level_silver_min', value: '10' },
+    { key: 'level_diamond_min', value: '25' },
+    { key: 'referral_points', value: '3' },
+    { key: 'level_bronze_benefits', value: 'Acceso a preventas internas\nMaterial digital GEMASHOW\nReconocimiento como promotor Bronce' },
+    { key: 'level_silver_benefits', value: 'Prioridad en localidades de alta demanda\nBonos especiales por metas\nInsignia Plata en el perfil' },
+    { key: 'level_diamond_benefits', value: 'Beneficios VIP de promotor top\nPrioridad maxima en cupos\nReconocimiento Diamante GEMASHOW' }
+  ];
+
+  for (const row of defaults) {
+    save.run(eventId, row.key, row.value);
+  }
+}
+
 app.post('/api/auth/login', (req, res) => {
   const { username, password } = req.body;
   const adminUser = process.env.ADMIN_USER || 'admin';
@@ -281,12 +326,117 @@ app.post('/api/auth/promoter-login', (req, res) => {
   });
 });
 
-app.get('/api/dashboard', requireAdmin, (_req, res) => {
-  res.json(getDashboard());
+app.get('/api/events', requireAdmin, (_req, res) => {
+  res.json(db.prepare('SELECT * FROM events ORDER BY is_active DESC, created_at DESC, id DESC').all());
 });
 
-app.get('/api/promoters', requireAdmin, (_req, res) => {
-  const settings = getLevelSettings();
+app.post('/api/events', requireAdmin, (req, res) => {
+  const name = String(req.body.name || '').trim();
+  const description = String(req.body.description || '').trim();
+  const status = ['active', 'inactive'].includes(req.body.status) ? req.body.status : 'active';
+
+  if (!name) {
+    return res.status(400).json({ message: 'Nombre del evento obligatorio' });
+  }
+
+  try {
+    const result = db.prepare('INSERT INTO events (name, description, status, is_active) VALUES (?, ?, ?, 0)').run(name, description, status);
+    seedEventSettingsFromActive(result.lastInsertRowid);
+    return res.status(201).json(db.prepare('SELECT * FROM events WHERE id = ?').get(result.lastInsertRowid));
+  } catch {
+    return res.status(409).json({ message: 'El evento ya existe' });
+  }
+});
+
+app.put('/api/events/:id', requireAdmin, (req, res) => {
+  const { id } = req.params;
+  const name = String(req.body.name || '').trim();
+  const description = String(req.body.description || '').trim();
+  const status = ['active', 'inactive'].includes(req.body.status) ? req.body.status : 'active';
+
+  if (!name) {
+    return res.status(400).json({ message: 'Nombre del evento obligatorio' });
+  }
+
+  try {
+    const result = db.prepare('UPDATE events SET name = ?, description = ?, status = ? WHERE id = ?').run(name, description, status, id);
+    if (!result.changes) {
+      return res.status(404).json({ message: 'Evento no encontrado' });
+    }
+    return res.json(db.prepare('SELECT * FROM events WHERE id = ?').get(id));
+  } catch {
+    return res.status(409).json({ message: 'El evento ya existe' });
+  }
+});
+
+app.patch('/api/events/:id/active', requireAdmin, (req, res) => {
+  const event = db.prepare("SELECT * FROM events WHERE id = ? AND status = 'active'").get(req.params.id);
+  if (!event) {
+    return res.status(404).json({ message: 'Evento activo no encontrado' });
+  }
+
+  db.prepare('UPDATE events SET is_active = 0').run();
+  db.prepare('UPDATE events SET is_active = 1 WHERE id = ?').run(req.params.id);
+  res.json(db.prepare('SELECT * FROM events WHERE id = ?').get(req.params.id));
+});
+
+app.get('/api/event-banners', requireAdmin, (req, res) => {
+  const eventId = getRequestEventId(req);
+  res.json(db.prepare('SELECT * FROM event_banners WHERE event_id = ? ORDER BY sort_order ASC, id DESC').all(eventId));
+});
+
+app.post('/api/event-banners', requireAdmin, (req, res) => {
+  const eventId = getRequestEventId(req);
+  const imageUrl = String(req.body.image_url || '').trim();
+  const title = String(req.body.title || '').trim();
+  const status = ['active', 'inactive'].includes(req.body.status) ? req.body.status : 'active';
+  const sortOrder = Number(req.body.sort_order || 0);
+
+  if (!imageUrl) {
+    return res.status(400).json({ message: 'Selecciona una imagen para el banner' });
+  }
+
+  const result = db
+    .prepare('INSERT INTO event_banners (event_id, image_url, title, status, sort_order) VALUES (?, ?, ?, ?, ?)')
+    .run(eventId, imageUrl, title, status, sortOrder);
+  res.status(201).json(db.prepare('SELECT * FROM event_banners WHERE id = ?').get(result.lastInsertRowid));
+});
+
+app.put('/api/event-banners/:id', requireAdmin, (req, res) => {
+  const eventId = getRequestEventId(req);
+  const imageUrl = String(req.body.image_url || '').trim();
+  const title = String(req.body.title || '').trim();
+  const status = ['active', 'inactive'].includes(req.body.status) ? req.body.status : 'active';
+  const sortOrder = Number(req.body.sort_order || 0);
+
+  if (!imageUrl) {
+    return res.status(400).json({ message: 'Selecciona una imagen para el banner' });
+  }
+
+  const result = db
+    .prepare('UPDATE event_banners SET image_url = ?, title = ?, status = ?, sort_order = ? WHERE id = ? AND event_id = ?')
+    .run(imageUrl, title, status, sortOrder, req.params.id, eventId);
+  if (!result.changes) {
+    return res.status(404).json({ message: 'Banner no encontrado' });
+  }
+  res.json(db.prepare('SELECT * FROM event_banners WHERE id = ?').get(req.params.id));
+});
+
+app.delete('/api/event-banners/:id', requireAdmin, (req, res) => {
+  const eventId = getRequestEventId(req);
+  const result = db.prepare('DELETE FROM event_banners WHERE id = ? AND event_id = ?').run(req.params.id, eventId);
+  if (!result.changes) {
+    return res.status(404).json({ message: 'Banner no encontrado' });
+  }
+  res.json({ ok: true });
+});
+
+app.get('/api/dashboard', requireAdmin, (req, res) => {
+  res.json(getDashboard(getRequestEventId(req)));
+});
+
+app.get('/api/promoters', requireAdmin, (req, res) => {
+  const settings = getLevelSettings(getRequestEventId(req));
   const promoters = db
     .prepare(
       `SELECT promoters.*,
@@ -428,11 +578,12 @@ app.patch('/api/promoters/:id/manual-points', requireAdmin, (req, res) => {
   res.json(db.prepare('SELECT * FROM promoters WHERE id = ?').get(id));
 });
 
-app.get('/api/level-settings', requireAdmin, (_req, res) => {
-  res.json(getLevelSettings());
+app.get('/api/level-settings', requireAdmin, (req, res) => {
+  res.json(getLevelSettings(getRequestEventId(req)));
 });
 
 app.put('/api/level-settings', requireAdmin, (req, res) => {
+  const eventId = getRequestEventId(req);
   const bronze = Math.max(1, Number(req.body.bronze || 1));
   const silver = Math.max(bronze, Number(req.body.silver || bronze));
   const diamond = Math.max(silver, Number(req.body.diamond || silver));
@@ -444,25 +595,27 @@ app.put('/api/level-settings', requireAdmin, (req, res) => {
       .filter(Boolean)
       .slice(0, 8)
       .join('\n');
-  const save = db.prepare('INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
+  const save = db.prepare('INSERT INTO event_settings (event_id, key, value) VALUES (?, ?, ?) ON CONFLICT(event_id, key) DO UPDATE SET value = excluded.value');
 
-  save.run('level_bronze_min', String(bronze));
-  save.run('level_silver_min', String(silver));
-  save.run('level_diamond_min', String(diamond));
-  save.run('referral_points', String(toMoney(referralPoints)));
-  save.run('level_bronze_benefits', cleanBenefits(req.body.bronze_benefits));
-  save.run('level_silver_benefits', cleanBenefits(req.body.silver_benefits));
-  save.run('level_diamond_benefits', cleanBenefits(req.body.diamond_benefits));
+  save.run(eventId, 'level_bronze_min', String(bronze));
+  save.run(eventId, 'level_silver_min', String(silver));
+  save.run(eventId, 'level_diamond_min', String(diamond));
+  save.run(eventId, 'referral_points', String(toMoney(referralPoints)));
+  save.run(eventId, 'level_bronze_benefits', cleanBenefits(req.body.bronze_benefits));
+  save.run(eventId, 'level_silver_benefits', cleanBenefits(req.body.silver_benefits));
+  save.run(eventId, 'level_diamond_benefits', cleanBenefits(req.body.diamond_benefits));
 
-  res.json(getLevelSettings());
+  res.json(getLevelSettings(eventId));
 });
 
-app.get('/api/locations', requireAuth, (_req, res) => {
-  const locations = db.prepare('SELECT * FROM event_locations ORDER BY status ASC, name ASC').all();
+app.get('/api/locations', requireAuth, (req, res) => {
+  const eventId = req.user.role === 'admin' ? getRequestEventId(req) : getActiveEvent()?.id || 1;
+  const locations = db.prepare('SELECT * FROM event_locations WHERE event_id = ? ORDER BY status ASC, name ASC').all(eventId);
   res.json(locations);
 });
 
 app.post('/api/locations', requireAdmin, (req, res) => {
+  const eventId = getRequestEventId(req);
   const {
     name,
     price,
@@ -485,10 +638,11 @@ app.post('/api/locations', requireAdmin, (req, res) => {
     const result = db
       .prepare(
         `INSERT INTO event_locations
-         (name, price, commission_type, commission_value, commission_min_quantity, level_points, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+         (event_id, name, price, commission_type, commission_value, commission_min_quantity, level_points, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
+        eventId,
         name.trim(),
         toMoney(parsedPrice),
         commission_type,
@@ -505,6 +659,7 @@ app.post('/api/locations', requireAdmin, (req, res) => {
 
 app.put('/api/locations/:id', requireAdmin, (req, res) => {
   const { id } = req.params;
+  const eventId = getRequestEventId(req);
   const {
     name,
     price,
@@ -524,7 +679,7 @@ app.put('/api/locations/:id', requireAdmin, (req, res) => {
   }
 
   try {
-    const current = db.prepare('SELECT name FROM event_locations WHERE id = ?').get(id);
+    const current = db.prepare('SELECT name FROM event_locations WHERE id = ? AND event_id = ?').get(id, eventId);
     if (!current) {
       return res.status(404).json({ message: 'Localidad no encontrada' });
     }
@@ -533,7 +688,7 @@ app.put('/api/locations/:id', requireAdmin, (req, res) => {
       .prepare(
         `UPDATE event_locations
          SET name = ?, price = ?, commission_type = ?, commission_value = ?, commission_min_quantity = ?, level_points = ?, status = ?
-         WHERE id = ?`
+         WHERE id = ? AND event_id = ?`
       )
       .run(
         name.trim(),
@@ -543,7 +698,8 @@ app.put('/api/locations/:id', requireAdmin, (req, res) => {
         parsedMinQuantity,
         toMoney(parsedLevelPoints),
         status,
-        id
+        id,
+        eventId
       );
 
     if (!result.changes) {
@@ -551,7 +707,7 @@ app.put('/api/locations/:id', requireAdmin, (req, res) => {
     }
 
     if (current.name !== name.trim()) {
-      db.prepare('UPDATE sales SET location = ? WHERE location = ?').run(name.trim(), current.name);
+      db.prepare('UPDATE sales SET location = ? WHERE location = ? AND event_id = ?').run(name.trim(), current.name, eventId);
     }
     recalculateAllCommissions();
 
@@ -563,32 +719,36 @@ app.put('/api/locations/:id', requireAdmin, (req, res) => {
 
 app.delete('/api/locations/:id', requireAdmin, (req, res) => {
   const { id } = req.params;
-  const location = db.prepare('SELECT name FROM event_locations WHERE id = ?').get(id);
+  const eventId = getRequestEventId(req);
+  const location = db.prepare('SELECT name FROM event_locations WHERE id = ? AND event_id = ?').get(id, eventId);
 
   if (!location) {
     return res.status(404).json({ message: 'Localidad no encontrada' });
   }
 
-  const usedSales = db.prepare('SELECT COUNT(*) AS total FROM sales WHERE location = ?').get(location.name).total;
+  const usedSales = db.prepare('SELECT COUNT(*) AS total FROM sales WHERE location = ? AND event_id = ?').get(location.name, eventId).total;
   if (usedSales > 0) {
     return res.status(409).json({
       message: 'Esta localidad ya tiene ventas. Para conservar el historial, dejala inactiva en lugar de eliminarla.'
     });
   }
 
-  db.prepare('DELETE FROM event_locations WHERE id = ?').run(id);
+  db.prepare('DELETE FROM event_locations WHERE id = ? AND event_id = ?').run(id, eventId);
   res.json({ ok: true });
 });
 
-app.get('/api/sales', requireAdmin, (_req, res) => {
+app.get('/api/sales', requireAdmin, (req, res) => {
+  const eventId = getRequestEventId(req);
   const sales = db
     .prepare(
-      `SELECT sales.*, promoters.name AS promoter_name, promoters.code AS promoter_code
+      `SELECT sales.*, promoters.name AS promoter_name, promoters.code AS promoter_code, events.name AS event_name
        FROM sales
        JOIN promoters ON promoters.id = sales.promoter_id
+       JOIN events ON events.id = sales.event_id
+       WHERE sales.event_id = ?
        ORDER BY sales.sale_date DESC, sales.id DESC`
     )
-    .all();
+    .all(eventId);
   res.json(sales);
 });
 
@@ -605,6 +765,7 @@ function createSale(req, res, forcedPromoterId = null) {
   } = req.body;
 
   const selectedPromoterId = forcedPromoterId || promoter_id;
+  const eventId = forcedPromoterId ? getActiveEvent()?.id || 1 : getRequestEventId(req);
   const amount = Number(quantity);
   const price = Number(unit_price);
 
@@ -622,17 +783,18 @@ function createSale(req, res, forcedPromoterId = null) {
   }
 
   const total = toMoney(amount * price);
-  const normalizedPaymentStatus = payment_status === 'paid' ? 'paid' : 'pending';
+  const normalizedPaymentStatus = forcedPromoterId ? 'pending' : payment_status === 'paid' ? 'paid' : 'pending';
   const normalizedDate = sale_date || new Date().toISOString().slice(0, 10);
   const normalizedLocation = location.trim();
 
   const result = db
     .prepare(
       `INSERT INTO sales
-       (promoter_id, customer, customer_whatsapp, location, quantity, unit_price, total, commission, sale_date, payment_status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       (event_id, promoter_id, customer, customer_whatsapp, location, quantity, unit_price, total, commission, sale_date, payment_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
+      eventId,
       selectedPromoterId,
       customer.trim(),
       customer_whatsapp.trim(),
@@ -645,7 +807,7 @@ function createSale(req, res, forcedPromoterId = null) {
       normalizedPaymentStatus
     );
 
-  recalculateCommissions(selectedPromoterId, normalizedLocation);
+  recalculateCommissions(selectedPromoterId, normalizedLocation, eventId);
 
   return res.status(201).json(db.prepare('SELECT * FROM sales WHERE id = ?').get(result.lastInsertRowid));
 }
@@ -654,15 +816,15 @@ app.post('/api/sales', requireAdmin, (req, res) => createSale(req, res));
 
 function markSalePaid(res, saleId, promoterId = null) {
   const sale = promoterId
-    ? db.prepare('SELECT id, promoter_id, location FROM sales WHERE id = ? AND promoter_id = ?').get(saleId, promoterId)
-    : db.prepare('SELECT id, promoter_id, location FROM sales WHERE id = ?').get(saleId);
+    ? db.prepare('SELECT id, promoter_id, location, event_id FROM sales WHERE id = ? AND promoter_id = ?').get(saleId, promoterId)
+    : db.prepare('SELECT id, promoter_id, location, event_id FROM sales WHERE id = ?').get(saleId);
 
   if (!sale) {
     return res.status(404).json({ message: 'Venta no encontrada' });
   }
 
-  db.prepare("UPDATE sales SET payment_status = 'paid', commission = 0 WHERE id = ?").run(saleId);
-  recalculateCommissions(sale.promoter_id, sale.location);
+  db.prepare("UPDATE sales SET payment_status = 'paid', commission = 0, commission_paid = 0 WHERE id = ?").run(saleId);
+  recalculateCommissions(sale.promoter_id, sale.location, sale.event_id);
   return res.json(db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId));
 }
 
@@ -671,40 +833,52 @@ app.patch('/api/sales/:id/pay', requireAdmin, (req, res) => {
 });
 
 app.delete('/api/sales/:id', requireAdmin, (req, res) => {
-  const sale = db.prepare('SELECT id, promoter_id, location FROM sales WHERE id = ?').get(req.params.id);
+  const sale = db.prepare('SELECT id, promoter_id, location, event_id FROM sales WHERE id = ?').get(req.params.id);
 
   if (!sale) {
     return res.status(404).json({ message: 'Venta no encontrada' });
   }
 
   db.prepare('DELETE FROM sales WHERE id = ?').run(req.params.id);
-  recalculateCommissions(sale.promoter_id, sale.location);
+  recalculateCommissions(sale.promoter_id, sale.location, sale.event_id);
   res.json({ ok: true });
 });
 
 app.get('/api/promoter/me', requirePromoter, (req, res) => {
+  const activeEvent = getActiveEvent();
   const promoter = db.prepare('SELECT id, name, code, whatsapp, instagram, photo_url, can_sell FROM promoters WHERE id = ?').get(req.user.promoterId);
-  res.json({ ...promoter, level: getPromoterLevel(req.user.promoterId) });
+  res.json({ ...promoter, activeEvent, level: getPromoterLevel(req.user.promoterId, activeEvent?.id || 1) });
 });
 
 app.patch('/api/promoter/profile', requirePromoter, (req, res) => {
+  const activeEvent = getActiveEvent();
   const photoUrl = String(req.body.photo_url || '').trim();
   db.prepare('UPDATE promoters SET photo_url = ? WHERE id = ?').run(photoUrl, req.user.promoterId);
   const promoter = db.prepare('SELECT id, name, code, whatsapp, instagram, photo_url, can_sell FROM promoters WHERE id = ?').get(req.user.promoterId);
-  res.json({ ...promoter, level: getPromoterLevel(req.user.promoterId) });
+  res.json({ ...promoter, activeEvent, level: getPromoterLevel(req.user.promoterId, activeEvent?.id || 1) });
 });
 
 app.get('/api/promoter/sales', requirePromoter, (req, res) => {
+  const eventId = getActiveEvent()?.id || 1;
   const sales = db
-    .prepare('SELECT * FROM sales WHERE promoter_id = ? ORDER BY sale_date DESC, id DESC')
-    .all(req.user.promoterId);
+    .prepare('SELECT * FROM sales WHERE promoter_id = ? AND event_id = ? ORDER BY sale_date DESC, id DESC')
+    .all(req.user.promoterId, eventId);
   res.json(sales);
+});
+
+app.get('/api/promoter/banners', requirePromoter, (_req, res) => {
+  const eventId = getActiveEvent()?.id || 1;
+  res.json(
+    db
+      .prepare("SELECT * FROM event_banners WHERE event_id = ? AND status = 'active' ORDER BY sort_order ASC, id DESC")
+      .all(eventId)
+  );
 });
 
 app.post('/api/promoter/sales', requirePromoter, (req, res) => createSale(req, res, req.user.promoterId));
 
-app.patch('/api/promoter/sales/:id/pay', requirePromoter, (req, res) => {
-  markSalePaid(res, req.params.id, req.user.promoterId);
+app.patch('/api/promoter/sales/:id/pay', requirePromoter, (_req, res) => {
+  res.status(403).json({ message: 'La venta debe ser confirmada por el administrador' });
 });
 
 app.patch('/api/promoter/password', requirePromoter, (req, res) => {
@@ -725,19 +899,20 @@ app.patch('/api/promoter/password', requirePromoter, (req, res) => {
   res.json({ ok: true, message: 'Contrasena actualizada' });
 });
 
-app.get('/api/ranking', requireAdmin, (_req, res) => {
+app.get('/api/ranking', requireAdmin, (req, res) => {
+  const eventId = getRequestEventId(req);
   const ranking = db
     .prepare(
       `SELECT promoters.id, promoters.name, promoters.code,
-              COUNT(sales.id) AS sales_count,
-              COALESCE(SUM(sales.total), 0) AS total_sold,
-              COALESCE(SUM(sales.commission), 0) AS total_commission
+              COUNT(CASE WHEN sales.payment_status = 'paid' THEN sales.id END) AS sales_count,
+              COALESCE(SUM(CASE WHEN sales.payment_status = 'paid' THEN sales.total ELSE 0 END), 0) AS total_sold,
+              COALESCE(SUM(CASE WHEN sales.payment_status = 'paid' THEN sales.commission ELSE 0 END), 0) AS total_commission
        FROM promoters
-       LEFT JOIN sales ON sales.promoter_id = promoters.id
+       LEFT JOIN sales ON sales.promoter_id = promoters.id AND sales.event_id = ?
        GROUP BY promoters.id
        ORDER BY total_sold DESC, sales_count DESC, promoters.name ASC`
     )
-    .all()
+    .all(eventId)
     .map((row) => ({
       ...row,
       total_sold: toMoney(row.total_sold),
@@ -747,19 +922,20 @@ app.get('/api/ranking', requireAdmin, (_req, res) => {
   res.json(ranking);
 });
 
-app.get('/api/settlements', requireAdmin, (_req, res) => {
+app.get('/api/settlements', requireAdmin, (req, res) => {
+  const eventId = getRequestEventId(req);
   const settlements = db
     .prepare(
       `SELECT promoters.id, promoters.name, promoters.code,
-              COALESCE(SUM(sales.total), 0) AS total_sold,
+              COALESCE(SUM(CASE WHEN sales.payment_status = 'paid' THEN sales.total ELSE 0 END), 0) AS total_sold,
               COALESCE(SUM(CASE WHEN sales.commission_paid = 0 THEN sales.commission ELSE 0 END), 0) AS pending_commission,
               COALESCE(SUM(CASE WHEN sales.commission_paid = 1 THEN sales.commission ELSE 0 END), 0) AS paid_commission
        FROM promoters
-       LEFT JOIN sales ON sales.promoter_id = promoters.id
+       LEFT JOIN sales ON sales.promoter_id = promoters.id AND sales.event_id = ?
        GROUP BY promoters.id
        ORDER BY pending_commission DESC, total_sold DESC`
     )
-    .all()
+    .all(eventId)
     .map((row) => ({
       ...row,
       total_sold: toMoney(row.total_sold),
@@ -773,12 +949,16 @@ app.get('/api/settlements', requireAdmin, (_req, res) => {
 
 app.patch('/api/settlements/:promoterId/pay', requireAdmin, (req, res) => {
   const { promoterId } = req.params;
-  const result = db.prepare('UPDATE sales SET commission_paid = 1 WHERE promoter_id = ? AND commission_paid = 0').run(promoterId);
+  const eventId = getRequestEventId(req);
+  const result = db
+    .prepare("UPDATE sales SET commission_paid = 1 WHERE promoter_id = ? AND event_id = ? AND payment_status = 'paid' AND commission > 0 AND commission_paid = 0")
+    .run(promoterId, eventId);
   res.json({ updatedSales: result.changes });
 });
 
 app.get('/api/verify/:code', (req, res) => {
   const promoter = findActivePromoterByCode(req.params.code);
+  const eventId = getActiveEvent()?.id || 1;
 
   if (!promoter) {
     return res.status(404).json({ registered: false, message: 'Codigo no registrado' });
@@ -789,13 +969,14 @@ app.get('/api/verify/:code', (req, res) => {
     message: 'Promotor oficial GEMASHOW',
     promoter: {
       ...promoter,
-      level: getPromoterLevel(promoter.id)
+      level: getPromoterLevel(promoter.id, eventId)
     }
   });
 });
 
 app.post('/api/verify', (req, res) => {
   const promoter = findActivePromoterByCode(req.body.code);
+  const eventId = getActiveEvent()?.id || 1;
 
   if (!promoter) {
     return res.status(404).json({ registered: false, message: 'Codigo no registrado' });
@@ -806,7 +987,7 @@ app.post('/api/verify', (req, res) => {
     message: 'Promotor oficial GEMASHOW',
     promoter: {
       ...promoter,
-      level: getPromoterLevel(promoter.id)
+      level: getPromoterLevel(promoter.id, eventId)
     }
   });
 });

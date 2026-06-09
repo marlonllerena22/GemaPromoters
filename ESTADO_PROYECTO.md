@@ -10,6 +10,13 @@ Fecha de cierre: 2026-06-05
 - Base de datos configurable por variable `DB_PATH` para usar disco persistente.
 - Login de administrador.
 - Login de promotores.
+- Modulo de eventos/conciertos:
+  - Crear evento.
+  - Editar evento.
+  - Activar evento visible para promotores.
+  - Evento inicial: `KRIS R EL TRAP DE KOLOMBIA`.
+  - Promotores compartidos entre todos los eventos.
+  - Localidades, niveles, beneficios y banners separados por evento.
 - Panel principal con resumen de promotores activos, total vendido, comisiones y ventas del dia.
 - Modulo de promotores:
   - Crear promotor.
@@ -26,16 +33,16 @@ Fecha de cierre: 2026-06-05
   - Registrar ventas desde administrador.
   - Registrar ventas desde promotor.
   - Asociar venta a promotor.
-  - Registrar cliente, WhatsApp, localidad, cantidad, precio, total, fecha y estado de pago.
+  - Registrar cliente, WhatsApp, localidad, cantidad, precio, total, fecha y estado de confirmacion.
   - Mostrar localidad en reporte de ventas.
-  - Marcar ventas pendientes como pagadas.
+  - Confirmar ventas pendientes desde administrador.
   - Eliminar definitivamente ventas desde administrador.
 - Comisiones:
-  - Las ventas pendientes no generan comision.
-  - Las ventas pagadas generan comision segun regla de localidad.
+  - Las ventas pendientes de confirmacion no generan comision.
+  - Las ventas confirmadas por administrador generan comision segun regla de localidad.
   - Comision configurable por localidad.
   - Tipo de comision: porcentaje o valor fijo por entrada.
-  - Comision desde X entradas pagadas por promotor y localidad.
+  - Comision desde X entradas confirmadas por promotor y localidad.
   - Puntos de nivel configurables por localidad.
 - Localidades:
   - Crear localidad.
@@ -61,11 +68,16 @@ Fecha de cierre: 2026-06-05
   - Beneficios editables por nivel desde el panel administrador.
   - En el perfil del promotor se muestran beneficios desbloqueados y beneficios futuros bloqueados.
   - Nivel visible en la verificacion publica.
+- Banners:
+  - Crear banners por evento desde administrador.
+  - Activar/desactivar banners.
+  - Mostrar banners activos en el inicio del promotor.
 - Panel del promotor:
   - Registrar ventas.
+  - Sus ventas quedan pendientes hasta confirmacion del administrador.
+  - Ver comision confirmada con opcion de ocultar el valor.
   - No puede registrar ventas si el administrador deshabilita su permiso de venta.
   - Ver sus ventas.
-  - Marcar sus ventas como pagadas.
   - Cambiar contrasena.
   - Actualizar foto de perfil.
 
@@ -155,10 +167,11 @@ Promotores de ejemplo:
   - Plata desde 10 puntos.
   - Diamante desde 25 puntos.
 - Localidades actuales:
-  - BOX: 3 puntos por entrada pagada.
-  - VIP: 2 puntos por entrada pagada.
-  - Fan: 1 punto por entrada pagada.
-- Los puntos de nivel se calculan con ventas pagadas por localidad mas los puntos manuales que asigne el administrador.
+  - Asociadas al evento `KRIS R EL TRAP DE KOLOMBIA`.
+  - BOX: 3 puntos por entrada confirmada.
+  - VIP: 2 puntos por entrada confirmada.
+  - Fan: 1 punto por entrada confirmada.
+- Los puntos de nivel se calculan con ventas confirmadas por localidad mas los puntos manuales que asigne el administrador.
 - Los puntos por referidos se calculan automaticamente multiplicando cantidad de promotores referidos por el valor global configurado.
 - Los beneficios de Bronce, Plata y Diamante se guardan en `app_settings` y pueden editarse escribiendo un beneficio por linea.
 
@@ -166,11 +179,14 @@ Promotores de ejemplo:
 
 - Promotores: 3
 - Promotores activos: 2
+- Eventos: 1
+- Evento activo: `KRIS R EL TRAP DE KOLOMBIA`
 - Ventas registradas: 0
 - Ventas pagadas: 0
 - Ventas pendientes: 0
 - Localidades: 3
-- Configuraciones guardadas: 3
+- Banners: 0
+- Configuraciones de evento guardadas: 7
 - Archivo de base de datos: `backend/data/gemapromoters.sqlite`
 
 ## Notas de cierre
