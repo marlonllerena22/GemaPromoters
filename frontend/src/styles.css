@@ -332,6 +332,7 @@ input[type="file"] {
   background: linear-gradient(135deg, #f8fbff, #dce7f0);
 }
 
+.gold,
 .diamond {
   background: linear-gradient(135deg, #eefcff, #bdebf2);
 }
@@ -772,6 +773,7 @@ td {
   color: #476274;
 }
 
+.benefit-tier.gold .benefit-icon,
 .benefit-tier.diamond .benefit-icon {
   background: #d8fbff;
   color: #087787;
@@ -1225,7 +1227,7 @@ td {
 .premium-rank-strip {
   display: grid;
   gap: 8px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-top: 18px;
 }
 
@@ -1273,6 +1275,39 @@ td {
   margin: 0 auto 18px;
   max-width: 1180px;
   padding: 12px 14px;
+}
+
+.withdrawal-panel {
+  margin: 0 auto;
+  max-width: 1180px;
+  width: 100%;
+}
+
+.withdrawal-panel p {
+  color: #b8b3ca;
+  line-height: 1.6;
+  margin: 0 0 18px;
+}
+
+.withdrawal-summary {
+  background: rgba(127, 247, 208, 0.1);
+  border: 1px solid rgba(127, 247, 208, 0.22);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  padding: 14px;
+}
+
+.withdrawal-summary span {
+  color: #a9a4ba;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.withdrawal-summary strong {
+  color: #caffef;
+  font-size: 24px;
 }
 
 .premium-sales-layout {
@@ -1355,6 +1390,7 @@ td {
   border-color: #aebbc7;
 }
 
+.verify-result.premium.gold,
 .verify-result.premium.diamond {
   background: linear-gradient(135deg, #f7feff, #8bdce9);
   border-color: #5fc8d6;
@@ -1499,7 +1535,7 @@ td {
   }
 
   .premium-rank-strip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .topbar {

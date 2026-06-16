@@ -48,11 +48,11 @@ const emptyPromoter = {
 const emptyLevels = {
   bronze: 1,
   silver: 10,
-  diamond: 25,
+  gold: 25,
   benefits: {
-    bronze: ['Acceso a preventas internas', 'Material digital GEMASHOW', 'Reconocimiento como promotor Bronce'],
-    silver: ['Prioridad en localidades de alta demanda', 'Bonos especiales por metas', 'Insignia Plata en el perfil'],
-    diamond: ['Beneficios VIP de promotor top', 'Prioridad maxima en cupos', 'Reconocimiento Diamante GEMASHOW']
+    bronze: ['Acceso a preventas internas', 'Material digital GEMASHOW', 'Reconocimiento como Bronze promoter'],
+    silver: ['Prioridad en localidades de alta demanda', 'Bonos especiales por metas', 'Insignia Silver en el perfil'],
+    gold: ['Beneficios VIP de promotor top', 'Prioridad maxima en cupos', 'Reconocimiento Gold GEMASHOW']
   },
   referralPoints: 3
 };
@@ -61,6 +61,7 @@ const levelOrder = {
   starter: 0,
   bronze: 1,
   silver: 2,
+  gold: 3,
   diamond: 3
 };
 
@@ -98,6 +99,13 @@ const emptyBanner = {
   status: 'active'
 };
 
+const emptyWithdrawal = {
+  bank: '',
+  account_holder: '',
+  account_number: '',
+  cedula: ''
+};
+
 const emptyEstablishment = {
   name: '',
   display_name: '',
@@ -126,11 +134,11 @@ function normalizeLevelForm(levels = emptyLevels) {
   return {
     bronze: levels.bronze ?? emptyLevels.bronze,
     silver: levels.silver ?? emptyLevels.silver,
-    diamond: levels.diamond ?? emptyLevels.diamond,
+    gold: levels.gold ?? levels.diamond ?? emptyLevels.gold,
     referral_points: levels.referralPoints ?? emptyLevels.referralPoints,
     bronze_benefits: benefitsText(levels.benefits?.bronze || emptyLevels.benefits.bronze),
     silver_benefits: benefitsText(levels.benefits?.silver || emptyLevels.benefits.silver),
-    diamond_benefits: benefitsText(levels.benefits?.diamond || emptyLevels.benefits.diamond)
+    gold_benefits: benefitsText(levels.benefits?.gold || levels.benefits?.diamond || emptyLevels.benefits.gold)
   };
 }
 
@@ -141,9 +149,9 @@ function levelCatalogFromProfile(level) {
   }
 
   return [
-    { key: 'bronze', name: 'Bronce', min: level?.settings?.bronze || 1, benefits: emptyLevels.benefits.bronze },
-    { key: 'silver', name: 'Plata', min: level?.settings?.silver || 10, benefits: emptyLevels.benefits.silver },
-    { key: 'diamond', name: 'Diamante', min: level?.settings?.diamond || 25, benefits: emptyLevels.benefits.diamond }
+    { key: 'bronze', name: 'Bronze', min: level?.settings?.bronze || 1, benefits: emptyLevels.benefits.bronze },
+    { key: 'silver', name: 'Silver', min: level?.settings?.silver || 10, benefits: emptyLevels.benefits.silver },
+    { key: 'gold', name: 'Gold', min: level?.settings?.gold || level?.settings?.diamond || 25, benefits: emptyLevels.benefits.gold }
   ];
 }
 
@@ -356,6 +364,7 @@ function AdminApp({ user, onLogout }) {
     sales: [],
     ranking: [],
     settlements: [],
+    withdrawals: [],
     locations: [],
     levels: emptyLevels,
     banners: []
@@ -390,18 +399,19 @@ function AdminApp({ user, onLogout }) {
       setSelectedEventId(String(eventId));
     }
 
-    const [dashboard, promoters, sales, ranking, settlements, locations, levels, banners, branches] = await Promise.all([
+    const [dashboard, promoters, sales, ranking, settlements, withdrawals, locations, levels, banners, branches] = await Promise.all([
       api(withScope('/dashboard', eventId, establishmentId)),
       api(withScope('/promoters', eventId, establishmentId)),
       api(withScope('/sales', eventId, establishmentId)),
       api(withScope('/ranking', eventId, establishmentId)),
       api(withScope('/settlements', eventId, establishmentId)),
+      api(withScope('/withdrawals', eventId, establishmentId)),
       api(withScope('/locations', eventId, establishmentId)),
       api(withScope('/level-settings', eventId, establishmentId)),
       api(withScope('/event-banners', eventId, establishmentId)),
       api(withScope('/branches', '', establishmentId))
     ]);
-    setData({ dashboard, establishments, branches, events, promoters, sales, ranking, settlements, locations, levels, banners });
+    setData({ dashboard, establishments, branches, events, promoters, sales, ranking, settlements, withdrawals, locations, levels, banners });
     setLoading(false);
   }
 
@@ -429,6 +439,7 @@ function AdminApp({ user, onLogout }) {
     ['sales', 'Ventas', Ticket],
     ['ranking', 'Ranking', Medal],
     ['settlements', 'Liquidaciones', WalletCards],
+    ['withdrawals', 'Retiros', CreditCard],
     ['settings', 'Localidades', Settings],
     ['levels', 'Niveles', BadgeCheck],
     ['banners', 'Banners', Sparkles]
@@ -516,6 +527,9 @@ function AdminApp({ user, onLogout }) {
             {view === 'ranking' && <Ranking ranking={data.ranking} />}
             {view === 'settlements' && (
               <Settlements settlements={data.settlements} eventId={selectedEventId} establishmentId={selectedEstablishmentId} onRefresh={refresh} />
+            )}
+            {view === 'withdrawals' && (
+              <Withdrawals withdrawals={data.withdrawals} eventId={selectedEventId} establishmentId={selectedEstablishmentId} onRefresh={refresh} />
             )}
             {view === 'settings' && (
               <Locations locations={data.locations} eventId={selectedEventId} establishmentId={selectedEstablishmentId} onRefresh={refresh} />
@@ -1217,6 +1231,41 @@ function Settlements({ settlements, eventId, establishmentId, onRefresh }) {
   );
 }
 
+function Withdrawals({ withdrawals, eventId, establishmentId, onRefresh }) {
+  async function markPaid(withdrawalId) {
+    const confirmed = window.confirm('Seguro quieres marcar este retiro como realizado? Se marcaran las comisiones del promotor como pagadas.');
+    if (!confirmed) {
+      return;
+    }
+    await api(withScope(`/withdrawals/${withdrawalId}/pay`, eventId, establishmentId), { method: 'PATCH' });
+    onRefresh('Retiro marcado como realizado');
+  }
+
+  return (
+    <section className="panel">
+      <div className="panel-title">
+        <h3>Solicitudes de retiro</h3>
+      </div>
+      <DataTable
+        columns={['Promotor', 'Monto', 'Banco', 'Titular', 'Cuenta', 'Cedula', 'Estado', 'Accion']}
+        rows={withdrawals.map((row) => [
+          `${row.promoter_name} (${row.promoter_code})`,
+          money(row.amount),
+          row.bank,
+          row.account_holder,
+          row.account_number,
+          row.cedula,
+          row.status === 'paid' ? 'Realizado' : 'Pendiente',
+          <button className="ghost-button" disabled={row.status === 'paid'} onClick={() => markPaid(row.id)}>
+            <CheckCircle2 size={16} />
+            Realizado
+          </button>
+        ])}
+      />
+    </section>
+  );
+}
+
 function Locations({ locations, eventId, establishmentId, onRefresh }) {
   const [form, setForm] = useState(emptyLocation);
   const [editingId, setEditingId] = useState(null);
@@ -1374,9 +1423,9 @@ function Levels({ levels, eventId, establishmentId, onRefresh }) {
         <h3>Niveles de promotores</h3>
       </div>
       <form className="form-grid level-grid" onSubmit={submit}>
-        <Input type="number" label="Bronce desde puntos" value={form.bronze} onChange={(bronze) => setForm({ ...form, bronze })} />
-        <Input type="number" label="Plata desde puntos" value={form.silver} onChange={(silver) => setForm({ ...form, silver })} />
-        <Input type="number" label="Diamante desde puntos" value={form.diamond} onChange={(diamond) => setForm({ ...form, diamond })} />
+        <Input type="number" label="Bronze desde puntos" value={form.bronze} onChange={(bronze) => setForm({ ...form, bronze })} />
+        <Input type="number" label="Silver desde puntos" value={form.silver} onChange={(silver) => setForm({ ...form, silver })} />
+        <Input type="number" label="Gold desde puntos" value={form.gold} onChange={(gold) => setForm({ ...form, gold })} />
         <Input
           type="number"
           label="Puntos por referido"
@@ -1384,7 +1433,7 @@ function Levels({ levels, eventId, establishmentId, onRefresh }) {
           onChange={(referral_points) => setForm({ ...form, referral_points })}
         />
         <label>
-          Beneficios Bronce
+          Beneficios Bronze
           <textarea
             value={form.bronze_benefits}
             onChange={(e) => setForm({ ...form, bronze_benefits: e.target.value })}
@@ -1393,7 +1442,7 @@ function Levels({ levels, eventId, establishmentId, onRefresh }) {
           />
         </label>
         <label>
-          Beneficios Plata
+          Beneficios Silver
           <textarea
             value={form.silver_benefits}
             onChange={(e) => setForm({ ...form, silver_benefits: e.target.value })}
@@ -1402,10 +1451,10 @@ function Levels({ levels, eventId, establishmentId, onRefresh }) {
           />
         </label>
         <label>
-          Beneficios Diamante
+          Beneficios Gold
           <textarea
-            value={form.diamond_benefits}
-            onChange={(e) => setForm({ ...form, diamond_benefits: e.target.value })}
+            value={form.gold_benefits}
+            onChange={(e) => setForm({ ...form, gold_benefits: e.target.value })}
             rows={5}
             placeholder="Un beneficio por linea"
           />
@@ -1418,24 +1467,24 @@ function Levels({ levels, eventId, establishmentId, onRefresh }) {
       </form>
       <div className="level-preview">
         <article className="level-card bronze">
-          <strong>Bronce</strong>
+          <strong>Bronze</strong>
           <span>Desde {form.bronze} puntos</span>
           <ul>
             {benefitsText(form.bronze_benefits).split('\n').filter(Boolean).map((benefit) => <li key={benefit}>{benefit}</li>)}
           </ul>
         </article>
         <article className="level-card silver">
-          <strong>Plata</strong>
+          <strong>Silver</strong>
           <span>Desde {form.silver} puntos</span>
           <ul>
             {benefitsText(form.silver_benefits).split('\n').filter(Boolean).map((benefit) => <li key={benefit}>{benefit}</li>)}
           </ul>
         </article>
-        <article className="level-card diamond">
-          <strong>Diamante</strong>
-          <span>Desde {form.diamond} puntos</span>
+        <article className="level-card gold">
+          <strong>Gold</strong>
+          <span>Desde {form.gold} puntos</span>
           <ul>
-            {benefitsText(form.diamond_benefits).split('\n').filter(Boolean).map((benefit) => <li key={benefit}>{benefit}</li>)}
+            {benefitsText(form.gold_benefits).split('\n').filter(Boolean).map((benefit) => <li key={benefit}>{benefit}</li>)}
           </ul>
         </article>
       </div>
@@ -1603,15 +1652,19 @@ function PromoterApp({ user, onLogout }) {
   const [sales, setSales] = useState([]);
   const [locations, setLocations] = useState([]);
   const [banners, setBanners] = useState([]);
+  const [withdrawals, setWithdrawals] = useState([]);
   const [profile, setProfile] = useState(user);
   const [form, setForm] = useState(emptySale);
   const [profileForm, setProfileForm] = useState({ photo_url: '' });
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '' });
+  const [withdrawalForm, setWithdrawalForm] = useState(emptyWithdrawal);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [profileError, setProfileError] = useState('');
   const [passwordError, setPasswordError] = useState('');
+  const [withdrawalError, setWithdrawalError] = useState('');
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
+  const [withdrawalPanelOpen, setWithdrawalPanelOpen] = useState(false);
   const [showCommission, setShowCommission] = useState(false);
   const canRegisterSales = Boolean(profile?.establishment?.promoter_sales_enabled && profile?.can_sell);
   const activeLocations = locations.filter((location) => location.status === 'active');
@@ -1624,16 +1677,18 @@ function PromoterApp({ user, onLogout }) {
   );
 
   async function loadData() {
-    const [nextSales, nextLocations, nextProfile, nextBanners] = await Promise.all([
+    const [nextSales, nextLocations, nextProfile, nextBanners, nextWithdrawals] = await Promise.all([
       api('/promoter/sales'),
       api('/locations'),
       api('/promoter/me'),
-      api('/promoter/banners')
+      api('/promoter/banners'),
+      api('/promoter/withdrawals')
     ]);
     setSales(nextSales);
     setLocations(nextLocations);
     setProfile(nextProfile);
     setBanners(nextBanners);
+    setWithdrawals(nextWithdrawals);
     setProfileForm({ photo_url: nextProfile.photo_url || '' });
   }
 
@@ -1690,6 +1745,24 @@ function PromoterApp({ user, onLogout }) {
     }
   }
 
+  async function submitWithdrawal(event) {
+    event.preventDefault();
+    setWithdrawalError('');
+    try {
+      const response = await api('/promoter/withdrawals', {
+        method: 'POST',
+        body: JSON.stringify(withdrawalForm)
+      });
+      setWithdrawalForm(emptyWithdrawal);
+      setWithdrawalPanelOpen(false);
+      await loadData();
+      setNotice(response.message || 'Solicitud enviada. Sera acreditado en 24 a 48 horas.');
+      setTimeout(() => setNotice(''), 4200);
+    } catch (err) {
+      setWithdrawalError(err.message);
+    }
+  }
+
   async function pickProfilePhoto(file) {
     setProfileError('');
     try {
@@ -1730,17 +1803,15 @@ function PromoterApp({ user, onLogout }) {
   const settings = profile?.level?.settings || {};
   const bronzeMin = Number(settings.bronze || 1);
   const silverMin = Number(settings.silver || 10);
-  const diamondMin = Number(settings.diamond || 25);
-  const goldMin = Math.max(silverMin + 1, Math.round((silverMin + diamondMin) / 2));
+  const goldMin = Number(settings.gold || settings.diamond || 25);
   const premiumRanks = [
-    { key: 'bronze', name: 'Bronce', min: bronzeMin, benefits: profile?.level?.settings?.benefits?.bronze || ['Acceso a beneficios iniciales', 'Material oficial GEMASHOW'] },
-    { key: 'silver', name: 'Plata', min: silverMin, benefits: profile?.level?.settings?.benefits?.silver || ['Prioridad en campanas', 'Bonos especiales por metas'] },
-    { key: 'gold', name: 'Oro', min: goldMin, benefits: ['Acceso preferente a promociones', 'Reconocimiento destacado GEMASHOW'] },
-    { key: 'diamond', name: 'Diamante', min: diamondMin, benefits: profile?.level?.settings?.benefits?.diamond || ['Beneficios VIP', 'Prioridad maxima en cupos'] }
+    { key: 'bronze', name: 'Bronze', min: bronzeMin, benefits: profile?.level?.settings?.benefits?.bronze || ['Acceso a beneficios iniciales', 'Material oficial GEMASHOW'] },
+    { key: 'silver', name: 'Silver', min: silverMin, benefits: profile?.level?.settings?.benefits?.silver || ['Prioridad en campanas', 'Bonos especiales por metas'] },
+    { key: 'gold', name: 'Gold', min: goldMin, benefits: profile?.level?.settings?.benefits?.gold || profile?.level?.settings?.benefits?.diamond || ['Beneficios VIP', 'Prioridad maxima en cupos'] }
   ];
   const currentRank = premiumRanks.reduce(
     (rank, item) => (levelPoints >= item.min ? item : rank),
-    { key: 'starter', name: 'Inicial', min: 0, benefits: ['Completa tus primeras ventas confirmadas'] }
+    { key: 'starter', name: 'Starter', min: 0, benefits: ['Completa tus primeras ventas confirmadas'] }
   );
   const nextRank = premiumRanks.find((item) => levelPoints < item.min);
   const previousMin = currentRank.min || 0;
@@ -1922,15 +1993,19 @@ function PromoterAppPremium({ user, onLogout }) {
   const [sales, setSales] = useState([]);
   const [locations, setLocations] = useState([]);
   const [banners, setBanners] = useState([]);
+  const [withdrawals, setWithdrawals] = useState([]);
   const [profile, setProfile] = useState(user);
   const [form, setForm] = useState(emptySale);
   const [profileForm, setProfileForm] = useState({ photo_url: '' });
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '' });
+  const [withdrawalForm, setWithdrawalForm] = useState(emptyWithdrawal);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [profileError, setProfileError] = useState('');
   const [passwordError, setPasswordError] = useState('');
+  const [withdrawalError, setWithdrawalError] = useState('');
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
+  const [withdrawalPanelOpen, setWithdrawalPanelOpen] = useState(false);
   const [showCommission, setShowCommission] = useState(false);
   const canRegisterSales = Boolean(profile?.establishment?.promoter_sales_enabled && profile?.can_sell);
   const activeLocations = locations.filter((location) => location.status === 'active');
@@ -1943,16 +2018,18 @@ function PromoterAppPremium({ user, onLogout }) {
   );
 
   async function loadData() {
-    const [nextSales, nextLocations, nextProfile, nextBanners] = await Promise.all([
+    const [nextSales, nextLocations, nextProfile, nextBanners, nextWithdrawals] = await Promise.all([
       api('/promoter/sales'),
       api('/locations'),
       api('/promoter/me'),
-      api('/promoter/banners')
+      api('/promoter/banners'),
+      api('/promoter/withdrawals')
     ]);
     setSales(nextSales);
     setLocations(nextLocations);
     setProfile(nextProfile);
     setBanners(nextBanners);
+    setWithdrawals(nextWithdrawals);
     setProfileForm({ photo_url: nextProfile.photo_url || '' });
   }
 
@@ -2009,6 +2086,24 @@ function PromoterAppPremium({ user, onLogout }) {
     }
   }
 
+  async function submitWithdrawal(event) {
+    event.preventDefault();
+    setWithdrawalError('');
+    try {
+      const response = await api('/promoter/withdrawals', {
+        method: 'POST',
+        body: JSON.stringify(withdrawalForm)
+      });
+      setWithdrawalForm(emptyWithdrawal);
+      setWithdrawalPanelOpen(false);
+      await loadData();
+      setNotice(response.message || 'Solicitud enviada. Sera acreditado en 24 a 48 horas.');
+      setTimeout(() => setNotice(''), 4200);
+    } catch (err) {
+      setWithdrawalError(err.message);
+    }
+  }
+
   async function pickProfilePhoto(file) {
     setProfileError('');
     try {
@@ -2045,17 +2140,15 @@ function PromoterAppPremium({ user, onLogout }) {
   const settings = profile?.level?.settings || {};
   const bronzeMin = Number(settings.bronze || 1);
   const silverMin = Number(settings.silver || 10);
-  const diamondMin = Number(settings.diamond || 25);
-  const goldMin = Math.max(silverMin + 1, Math.round((silverMin + diamondMin) / 2));
+  const goldMin = Number(settings.gold || settings.diamond || 25);
   const premiumRanks = [
-    { key: 'bronze', name: 'Bronce', min: bronzeMin, benefits: settings.benefits?.bronze || ['Acceso a beneficios iniciales', 'Material oficial GEMASHOW'] },
-    { key: 'silver', name: 'Plata', min: silverMin, benefits: settings.benefits?.silver || ['Prioridad en campanas', 'Bonos especiales por metas'] },
-    { key: 'gold', name: 'Oro', min: goldMin, benefits: ['Acceso preferente a promociones', 'Reconocimiento destacado GEMASHOW'] },
-    { key: 'diamond', name: 'Diamante', min: diamondMin, benefits: settings.benefits?.diamond || ['Beneficios VIP', 'Prioridad maxima en cupos'] }
+    { key: 'bronze', name: 'Bronze', min: bronzeMin, benefits: settings.benefits?.bronze || ['Acceso a beneficios iniciales', 'Material oficial GEMASHOW'] },
+    { key: 'silver', name: 'Silver', min: silverMin, benefits: settings.benefits?.silver || ['Prioridad en campanas', 'Bonos especiales por metas'] },
+    { key: 'gold', name: 'Gold', min: goldMin, benefits: settings.benefits?.gold || settings.benefits?.diamond || ['Beneficios VIP', 'Prioridad maxima en cupos'] }
   ];
   const currentRank = premiumRanks.reduce(
     (rank, item) => (levelPoints >= item.min ? item : rank),
-    { key: 'starter', name: 'Inicial', min: 0, benefits: ['Completa tus primeras ventas confirmadas'] }
+    { key: 'starter', name: 'Starter', min: 0, benefits: ['Completa tus primeras ventas confirmadas'] }
   );
   const nextRank = premiumRanks.find((item) => levelPoints < item.min);
   const previousMin = currentRank.min || 0;
@@ -2068,7 +2161,12 @@ function PromoterAppPremium({ user, onLogout }) {
   const nextCut = new Date();
   nextCut.setMonth(nextCut.getMonth() + 1, 0);
   const nextCutText = nextCut.toLocaleDateString('es-EC', { day: '2-digit', month: 'long' });
-  const paymentStatus = confirmedCommission > 0 ? 'Pendiente' : 'Al dia';
+  const pendingWithdrawal = withdrawals.find((item) => item.status === 'pending');
+  const latestPaidWithdrawal = withdrawals.find((item) => item.status === 'paid');
+  const paymentStatus = pendingWithdrawal ? 'Pendiente' : confirmedCommission > 0 ? 'Disponible' : 'Al dia';
+  const lastWithdrawalText = latestPaidWithdrawal
+    ? `${money(latestPaidWithdrawal.amount)} el ${latestPaidWithdrawal.paid_at || latestPaidWithdrawal.requested_at}`
+    : 'sin retiros registrados';
   const featuredBanner = banners[0];
 
   return (
@@ -2137,9 +2235,9 @@ function PromoterAppPremium({ user, onLogout }) {
                 {showCommission ? <EyeOff size={17} /> : <Eye size={17} />}
                 {showCommission ? 'Ocultar' : 'Mostrar'}
               </button>
-              <button className="premium-primary-button" type="button" disabled={confirmedCommission <= 0}>
+              <button className="premium-primary-button" type="button" disabled={confirmedCommission <= 0 || Boolean(pendingWithdrawal)} onClick={() => setWithdrawalPanelOpen(true)}>
                 <CreditCard size={17} />
-                Retiro
+                {pendingWithdrawal ? 'Retiro pendiente' : 'Retiro'}
               </button>
             </div>
           </article>
@@ -2161,10 +2259,39 @@ function PromoterAppPremium({ user, onLogout }) {
         <article className="premium-payment-card">
           <span>Estado de pagos</span>
           <strong>{paymentStatus}</strong>
-          <small>Ultimo retiro: sin retiros registrados</small>
+          <small>Ultimo retiro: {lastWithdrawalText}</small>
           <small>Proximo corte: {nextCutText}</small>
         </article>
       </section>
+
+      {withdrawalPanelOpen && (
+        <section className="premium-card withdrawal-panel">
+          <div className="panel-title">
+            <h3>Solicitar retiro</h3>
+          </div>
+          <p>Completa los datos de tu cuenta. El administrador revisara la solicitud y la acreditacion se realizara en 24 a 48 horas.</p>
+          <form className="form-grid" onSubmit={submitWithdrawal}>
+            <Input label="Banco" value={withdrawalForm.bank} onChange={(bank) => setWithdrawalForm({ ...withdrawalForm, bank })} />
+            <Input label="Nombre del titular" value={withdrawalForm.account_holder} onChange={(account_holder) => setWithdrawalForm({ ...withdrawalForm, account_holder })} />
+            <Input label="Numero de cuenta" value={withdrawalForm.account_number} onChange={(account_number) => setWithdrawalForm({ ...withdrawalForm, account_number })} />
+            <Input label="Cedula" value={withdrawalForm.cedula} onChange={(cedula) => setWithdrawalForm({ ...withdrawalForm, cedula })} />
+            <div className="withdrawal-summary">
+              <span>Monto solicitado</span>
+              <strong>{money(confirmedCommission)}</strong>
+            </div>
+            {withdrawalError && <div className="alert error">{withdrawalError}</div>}
+            <div className="premium-inline-actions">
+              <button className="premium-primary-button" type="submit">
+                <CreditCard size={17} />
+                Enviar solicitud
+              </button>
+              <button className="premium-secondary-button" type="button" onClick={() => setWithdrawalPanelOpen(false)}>
+                Cancelar
+              </button>
+            </div>
+          </form>
+        </section>
+      )}
 
       {profileEditorOpen && (
         <section className="premium-card profile-editor-panel">

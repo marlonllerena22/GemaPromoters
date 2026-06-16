@@ -207,30 +207,34 @@ function getLevelSettings(eventId = getActiveEvent()?.id || 1) {
   seedEventSettingsFromActive(eventId);
   const rows = db.prepare("SELECT key, value FROM event_settings WHERE event_id = ? AND (key LIKE 'level_%' OR key = 'referral_points')").all(eventId);
   const settings = Object.fromEntries(rows.map((row) => [row.key, row.value]));
+  const goldMin = Number(settings.level_gold_min ?? settings.level_diamond_min ?? 25);
   const benefitsFrom = (key, fallback) =>
     String(settings[key] || fallback)
       .split('\n')
       .map((item) => item.trim())
       .filter(Boolean);
+  const goldBenefits = benefitsFrom(
+    settings.level_gold_benefits ? 'level_gold_benefits' : 'level_diamond_benefits',
+    'Beneficios VIP de promotor top\nPrioridad maxima en cupos\nReconocimiento Gold GEMASHOW'
+  );
 
   return {
     bronze: Number(settings.level_bronze_min ?? 1),
     silver: Number(settings.level_silver_min ?? 10),
-    diamond: Number(settings.level_diamond_min ?? 25),
+    gold: goldMin,
+    diamond: goldMin,
     referralPoints: Number(settings.referral_points ?? 3),
     benefits: {
       bronze: benefitsFrom(
         'level_bronze_benefits',
-        'Acceso a preventas internas\nMaterial digital GEMASHOW\nReconocimiento como promotor Bronce'
+        'Acceso a preventas internas\nMaterial digital GEMASHOW\nReconocimiento como Bronze promoter'
       ),
       silver: benefitsFrom(
         'level_silver_benefits',
-        'Prioridad en localidades de alta demanda\nBonos especiales por metas\nInsignia Plata en el perfil'
+        'Prioridad en localidades de alta demanda\nBonos especiales por metas\nInsignia Silver en el perfil'
       ),
-      diamond: benefitsFrom(
-        'level_diamond_benefits',
-        'Beneficios VIP de promotor top\nPrioridad maxima en cupos\nReconocimiento Diamante GEMASHOW'
-      )
+      gold: goldBenefits,
+      diamond: goldBenefits
     }
   };
 }
@@ -239,21 +243,21 @@ function getLevelCatalog(settings = getLevelSettings()) {
   return [
     {
       key: 'bronze',
-      name: 'Bronce',
+      name: 'Bronze',
       min: settings.bronze,
       benefits: settings.benefits.bronze
     },
     {
       key: 'silver',
-      name: 'Plata',
+      name: 'Silver',
       min: settings.silver,
       benefits: settings.benefits.silver
     },
     {
-      key: 'diamond',
-      name: 'Diamante',
-      min: settings.diamond,
-      benefits: settings.benefits.diamond
+      key: 'gold',
+      name: 'Gold',
+      min: settings.gold,
+      benefits: settings.benefits.gold
     }
   ];
 }
@@ -277,18 +281,18 @@ function getPromoterLevel(promoterId, eventId = getActiveEvent()?.id || 1) {
 
   let level = {
     key: 'starter',
-    name: 'Inicial',
+    name: 'Starter',
     description: 'Promotor oficial GEMASHOW'
   };
 
   if (levelPoints >= settings.bronze) {
-    level = { key: 'bronze', name: 'Bronce', description: 'Promotor destacado GEMASHOW' };
+    level = { key: 'bronze', name: 'Bronze', description: 'Promotor destacado GEMASHOW' };
   }
   if (levelPoints >= settings.silver) {
-    level = { key: 'silver', name: 'Plata', description: 'Promotor elite GEMASHOW' };
+    level = { key: 'silver', name: 'Silver', description: 'Promotor elite GEMASHOW' };
   }
-  if (levelPoints >= settings.diamond) {
-    level = { key: 'diamond', name: 'Diamante', description: 'Promotor top GEMASHOW' };
+  if (levelPoints >= settings.gold) {
+    level = { key: 'gold', name: 'Gold', description: 'Promotor top GEMASHOW' };
   }
 
   return {
@@ -325,9 +329,9 @@ function seedEventSettingsFromActive(eventId) {
     { key: 'level_silver_min', value: '10' },
     { key: 'level_diamond_min', value: '25' },
     { key: 'referral_points', value: '3' },
-    { key: 'level_bronze_benefits', value: 'Acceso a preventas internas\nMaterial digital GEMASHOW\nReconocimiento como promotor Bronce' },
-    { key: 'level_silver_benefits', value: 'Prioridad en localidades de alta demanda\nBonos especiales por metas\nInsignia Plata en el perfil' },
-    { key: 'level_diamond_benefits', value: 'Beneficios VIP de promotor top\nPrioridad maxima en cupos\nReconocimiento Diamante GEMASHOW' }
+    { key: 'level_bronze_benefits', value: 'Acceso a preventas internas\nMaterial digital GEMASHOW\nReconocimiento como Bronze promoter' },
+    { key: 'level_silver_benefits', value: 'Prioridad en localidades de alta demanda\nBonos especiales por metas\nInsignia Silver en el perfil' },
+    { key: 'level_diamond_benefits', value: 'Beneficios VIP de promotor top\nPrioridad maxima en cupos\nReconocimiento Gold GEMASHOW' }
   ];
 
   for (const row of defaults) {
@@ -811,7 +815,7 @@ app.put('/api/level-settings', requireAdmin, (req, res) => {
   const eventId = getRequestEventId(req);
   const bronze = Math.max(1, Number(req.body.bronze || 1));
   const silver = Math.max(bronze, Number(req.body.silver || bronze));
-  const diamond = Math.max(silver, Number(req.body.diamond || silver));
+  const gold = Math.max(silver, Number(req.body.gold ?? req.body.diamond ?? silver));
   const referralPoints = Math.max(0, Number(req.body.referral_points ?? req.body.referralPoints ?? 3));
   const cleanBenefits = (value) =>
     String(value || '')
@@ -824,11 +828,11 @@ app.put('/api/level-settings', requireAdmin, (req, res) => {
 
   save.run(eventId, 'level_bronze_min', String(bronze));
   save.run(eventId, 'level_silver_min', String(silver));
-  save.run(eventId, 'level_diamond_min', String(diamond));
+  save.run(eventId, 'level_diamond_min', String(gold));
   save.run(eventId, 'referral_points', String(toMoney(referralPoints)));
   save.run(eventId, 'level_bronze_benefits', cleanBenefits(req.body.bronze_benefits));
   save.run(eventId, 'level_silver_benefits', cleanBenefits(req.body.silver_benefits));
-  save.run(eventId, 'level_diamond_benefits', cleanBenefits(req.body.diamond_benefits));
+  save.run(eventId, 'level_diamond_benefits', cleanBenefits(req.body.gold_benefits ?? req.body.diamond_benefits));
 
   res.json(getLevelSettings(eventId));
 });
@@ -1045,6 +1049,22 @@ function createSale(req, res, forcedPromoterId = null) {
 
 app.post('/api/sales', requireAdmin, (req, res) => createSale(req, res));
 
+function getAvailableCommission(promoterId, eventId, establishmentId) {
+  const row = db
+    .prepare(
+      `SELECT COALESCE(SUM(commission), 0) AS total
+       FROM sales
+       WHERE promoter_id = ?
+         AND event_id = ?
+         AND establishment_id = ?
+         AND payment_status = 'paid'
+         AND commission > 0
+         AND commission_paid = 0`
+    )
+    .get(promoterId, eventId, establishmentId);
+  return toMoney(row?.total || 0);
+}
+
 function markSalePaid(res, saleId, promoterId = null) {
   const sale = promoterId
     ? db.prepare('SELECT id, promoter_id, location, event_id FROM sales WHERE id = ? AND promoter_id = ?').get(saleId, promoterId)
@@ -1109,6 +1129,62 @@ app.get('/api/promoter/banners', requirePromoter, (req, res) => {
 });
 
 app.post('/api/promoter/sales', requirePromoter, (req, res) => createSale(req, res, req.user.promoterId));
+
+app.get('/api/promoter/withdrawals', requirePromoter, (req, res) => {
+  const eventId = getActiveEvent(req.user.establishmentId)?.id || 1;
+  const rows = db
+    .prepare(
+      `SELECT *
+       FROM withdrawal_requests
+       WHERE promoter_id = ? AND establishment_id = ? AND event_id = ?
+       ORDER BY requested_at DESC, id DESC`
+    )
+    .all(req.user.promoterId, req.user.establishmentId, eventId)
+    .map((row) => ({ ...row, amount: toMoney(row.amount) }));
+  res.json(rows);
+});
+
+app.post('/api/promoter/withdrawals', requirePromoter, (req, res) => {
+  const eventId = getActiveEvent(req.user.establishmentId)?.id || 1;
+  const bank = String(req.body.bank || '').trim();
+  const accountHolder = String(req.body.account_holder || req.body.accountHolder || '').trim();
+  const accountNumber = String(req.body.account_number || req.body.accountNumber || '').trim();
+  const cedula = String(req.body.cedula || '').trim();
+  const amount = getAvailableCommission(req.user.promoterId, eventId, req.user.establishmentId);
+
+  if (!bank || !accountHolder || !accountNumber || !cedula) {
+    return res.status(400).json({ message: 'Completa los datos bancarios para solicitar el retiro' });
+  }
+
+  if (amount <= 0) {
+    return res.status(400).json({ message: 'No tienes comision disponible para retirar' });
+  }
+
+  const pending = db
+    .prepare(
+      `SELECT id
+       FROM withdrawal_requests
+       WHERE promoter_id = ? AND establishment_id = ? AND event_id = ? AND status = 'pending'`
+    )
+    .get(req.user.promoterId, req.user.establishmentId, eventId);
+
+  if (pending) {
+    return res.status(400).json({ message: 'Ya tienes una solicitud de retiro pendiente' });
+  }
+
+  const result = db
+    .prepare(
+      `INSERT INTO withdrawal_requests
+       (establishment_id, event_id, promoter_id, amount, bank, account_holder, account_number, cedula)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(req.user.establishmentId, eventId, req.user.promoterId, amount, bank, accountHolder, accountNumber, cedula);
+
+  res.status(201).json({
+    ...db.prepare('SELECT * FROM withdrawal_requests WHERE id = ?').get(result.lastInsertRowid),
+    message: 'Solicitud enviada. Sera acreditado en 24 a 48 horas.'
+  });
+});
 
 app.patch('/api/promoter/sales/:id/pay', requirePromoter, (_req, res) => {
   res.status(403).json({ message: 'La venta debe ser confirmada por el administrador' });
@@ -1191,6 +1267,60 @@ app.patch('/api/settlements/:promoterId/pay', requireAdmin, (req, res) => {
     .prepare("UPDATE sales SET commission_paid = 1 WHERE promoter_id = ? AND event_id = ? AND payment_status = 'paid' AND commission > 0 AND commission_paid = 0")
     .run(promoterId, eventId);
   res.json({ updatedSales: result.changes });
+});
+
+app.get('/api/withdrawals', requireAdmin, (req, res) => {
+  const eventId = getRequestEventId(req);
+  const establishmentId = getRequestEstablishmentId(req);
+  const rows = db
+    .prepare(
+      `SELECT withdrawal_requests.*,
+              promoters.name AS promoter_name,
+              promoters.code AS promoter_code
+       FROM withdrawal_requests
+       JOIN promoters ON promoters.id = withdrawal_requests.promoter_id
+       WHERE withdrawal_requests.event_id = ?
+         AND withdrawal_requests.establishment_id = ?
+       ORDER BY withdrawal_requests.status ASC, withdrawal_requests.requested_at DESC, withdrawal_requests.id DESC`
+    )
+    .all(eventId, establishmentId)
+    .map((row) => ({ ...row, amount: toMoney(row.amount) }));
+  res.json(rows);
+});
+
+app.patch('/api/withdrawals/:id/pay', requireAdmin, (req, res) => {
+  const eventId = getRequestEventId(req);
+  const establishmentId = getRequestEstablishmentId(req);
+  const withdrawal = db
+    .prepare('SELECT * FROM withdrawal_requests WHERE id = ? AND event_id = ? AND establishment_id = ?')
+    .get(req.params.id, eventId, establishmentId);
+
+  if (!withdrawal) {
+    return res.status(404).json({ message: 'Solicitud de retiro no encontrada' });
+  }
+
+  if (withdrawal.status === 'paid') {
+    return res.json({ ok: true, message: 'Retiro ya estaba marcado como realizado' });
+  }
+
+  const transaction = db.transaction(() => {
+    db.prepare("UPDATE withdrawal_requests SET status = 'paid', paid_at = datetime('now', 'localtime') WHERE id = ?").run(withdrawal.id);
+    return db
+      .prepare(
+        `UPDATE sales
+         SET commission_paid = 1
+         WHERE promoter_id = ?
+           AND event_id = ?
+           AND establishment_id = ?
+           AND payment_status = 'paid'
+           AND commission > 0
+           AND commission_paid = 0`
+      )
+      .run(withdrawal.promoter_id, eventId, establishmentId);
+  });
+
+  const result = transaction();
+  res.json({ ok: true, updatedSales: result.changes });
 });
 
 app.get('/api/verify/:code', (req, res) => {

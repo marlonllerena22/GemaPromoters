@@ -108,6 +108,24 @@ export function initDb() {
       FOREIGN KEY (promoter_id) REFERENCES promoters(id)
     );
 
+    CREATE TABLE IF NOT EXISTS withdrawal_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      event_id INTEGER NOT NULL,
+      promoter_id INTEGER NOT NULL,
+      amount REAL NOT NULL DEFAULT 0 CHECK (amount >= 0),
+      bank TEXT NOT NULL,
+      account_holder TEXT NOT NULL,
+      account_number TEXT NOT NULL,
+      cedula TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'paid')),
+      requested_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      paid_at TEXT,
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (event_id) REFERENCES events(id),
+      FOREIGN KEY (promoter_id) REFERENCES promoters(id)
+    );
+
     CREATE TABLE IF NOT EXISTS app_settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -237,10 +255,13 @@ export function initDb() {
       ('level_silver_min', '10'),
       ('level_diamond_min', '25'),
       ('referral_points', '3'),
-      ('level_bronze_benefits', 'Acceso a preventas internas\nMaterial digital GEMASHOW\nReconocimiento como promotor Bronce'),
-      ('level_silver_benefits', 'Prioridad en localidades de alta demanda\nBonos especiales por metas\nInsignia Plata en el perfil'),
-      ('level_diamond_benefits', 'Beneficios VIP de promotor top\nPrioridad maxima en cupos\nReconocimiento Diamante GEMASHOW');
+      ('level_bronze_benefits', 'Acceso a preventas internas\nMaterial digital GEMASHOW\nReconocimiento como Bronze promoter'),
+      ('level_silver_benefits', 'Prioridad en localidades de alta demanda\nBonos especiales por metas\nInsignia Silver en el perfil'),
+      ('level_diamond_benefits', 'Beneficios VIP de promotor top\nPrioridad maxima en cupos\nReconocimiento Gold GEMASHOW');
   `);
+
+  db.prepare("UPDATE app_settings SET value = REPLACE(REPLACE(REPLACE(value, 'Diamante', 'Gold'), 'Bronce', 'Bronze'), 'Plata', 'Silver') WHERE key LIKE 'level_%_benefits'").run();
+  db.prepare("UPDATE event_settings SET value = REPLACE(REPLACE(REPLACE(value, 'Diamante', 'Gold'), 'Bronce', 'Bronze'), 'Plata', 'Silver') WHERE key LIKE 'level_%_benefits'").run();
 
   seedDefaultEventSettings(defaultEvent.id);
   ensureMarjorieEstablishment();
@@ -390,9 +411,9 @@ function seedDefaultEventSettings(eventId) {
     ['level_silver_min', '10'],
     ['level_diamond_min', '25'],
     ['referral_points', '3'],
-    ['level_bronze_benefits', 'Acceso a preventas internas\nMaterial digital GEMASHOW\nReconocimiento como promotor Bronce'],
-    ['level_silver_benefits', 'Prioridad en localidades de alta demanda\nBonos especiales por metas\nInsignia Plata en el perfil'],
-    ['level_diamond_benefits', 'Beneficios VIP de promotor top\nPrioridad maxima en cupos\nReconocimiento Diamante GEMASHOW']
+    ['level_bronze_benefits', 'Acceso a preventas internas\nMaterial digital GEMASHOW\nReconocimiento como Bronze promoter'],
+    ['level_silver_benefits', 'Prioridad en localidades de alta demanda\nBonos especiales por metas\nInsignia Silver en el perfil'],
+    ['level_diamond_benefits', 'Beneficios VIP de promotor top\nPrioridad maxima en cupos\nReconocimiento Gold GEMASHOW']
   ]);
 
   for (const row of globalSettings) {
