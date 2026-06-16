@@ -7,14 +7,19 @@ import {
   CalendarDays,
   CheckCircle2,
   CircleDollarSign,
+  Copy,
+  CreditCard,
   Eye,
   EyeOff,
   KeyRound,
+  Link as LinkIcon,
   Lock,
   LogOut,
+  MapPin,
   Medal,
   Plus,
   Search,
+  Share2,
   Sparkles,
   Settings,
   Ticket,
@@ -252,7 +257,7 @@ function App() {
   }
 
   if (user?.role === 'promoter') {
-    return <PromoterApp user={user} onLogout={() => {
+    return <PromoterAppPremium user={user} onLogout={() => {
       clearToken();
       saveToken(null);
       saveUser(null);
@@ -1711,6 +1716,62 @@ function PromoterApp({ user, onLogout }) {
     }
   }
 
+  async function copyText(text, message) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setNotice(message);
+      setTimeout(() => setNotice(''), 2200);
+    } catch {
+      setNotice('No se pudo copiar automaticamente');
+      setTimeout(() => setNotice(''), 2200);
+    }
+  }
+
+  async function shareReferral() {
+    const shareData = {
+      title: 'Promotor oficial GEMASHOW',
+      text: `Codigo de promotor: ${profile?.code || user.code}`,
+      url: referralLink
+    };
+
+    if (navigator.share) {
+      await navigator.share(shareData);
+      return;
+    }
+
+    await copyText(referralLink, 'Link copiado para compartir');
+  }
+
+  const levelPoints = Number(profile?.level?.levelPoints || 0);
+  const settings = profile?.level?.settings || {};
+  const bronzeMin = Number(settings.bronze || 1);
+  const silverMin = Number(settings.silver || 10);
+  const diamondMin = Number(settings.diamond || 25);
+  const goldMin = Math.max(silverMin + 1, Math.round((silverMin + diamondMin) / 2));
+  const premiumRanks = [
+    { key: 'bronze', name: 'Bronce', min: bronzeMin, benefits: profile?.level?.settings?.benefits?.bronze || ['Acceso a beneficios iniciales', 'Material oficial GEMASHOW'] },
+    { key: 'silver', name: 'Plata', min: silverMin, benefits: profile?.level?.settings?.benefits?.silver || ['Prioridad en campanas', 'Bonos especiales por metas'] },
+    { key: 'gold', name: 'Oro', min: goldMin, benefits: ['Acceso preferente a promociones', 'Reconocimiento destacado GEMASHOW'] },
+    { key: 'diamond', name: 'Diamante', min: diamondMin, benefits: profile?.level?.settings?.benefits?.diamond || ['Beneficios VIP', 'Prioridad maxima en cupos'] }
+  ];
+  const currentRank = premiumRanks.reduce(
+    (rank, item) => (levelPoints >= item.min ? item : rank),
+    { key: 'starter', name: 'Inicial', min: 0, benefits: ['Completa tus primeras ventas confirmadas'] }
+  );
+  const nextRank = premiumRanks.find((item) => levelPoints < item.min);
+  const previousMin = currentRank.min || 0;
+  const nextMin = nextRank?.min || currentRank.min || 1;
+  const progress = nextRank ? Math.min(100, Math.round(((levelPoints - previousMin) / Math.max(1, nextMin - previousMin)) * 100)) : 100;
+  const progressText = nextRank
+    ? `Te faltan ${Math.max(0, nextRank.min - levelPoints)} puntos para llegar a ${nextRank.name}.`
+    : 'Ya estas en el rango mas alto disponible.';
+  const referralLink = `${window.location.origin}/verificar?codigo=${encodeURIComponent(profile?.code || user.code || '')}`;
+  const nextCut = new Date();
+  nextCut.setMonth(nextCut.getMonth() + 1, 0);
+  const nextCutText = nextCut.toLocaleDateString('es-EC', { day: '2-digit', month: 'long' });
+  const paymentStatus = confirmedCommission > 0 ? 'Pendiente' : 'Al dia';
+  const featuredBanner = banners[0];
+
   return (
     <main className="content promoter-content">
       <header className="topbar">
@@ -1868,6 +1929,410 @@ function PromoterApp({ user, onLogout }) {
           />
         </section>
       </div>
+      )}
+    </main>
+  );
+}
+
+function PromoterAppPremium({ user, onLogout }) {
+  const [sales, setSales] = useState([]);
+  const [locations, setLocations] = useState([]);
+  const [banners, setBanners] = useState([]);
+  const [profile, setProfile] = useState(user);
+  const [form, setForm] = useState(emptySale);
+  const [profileForm, setProfileForm] = useState({ photo_url: '' });
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '' });
+  const [notice, setNotice] = useState('');
+  const [error, setError] = useState('');
+  const [profileError, setProfileError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [profileEditorOpen, setProfileEditorOpen] = useState(false);
+  const [showCommission, setShowCommission] = useState(false);
+  const canRegisterSales = Boolean(profile?.establishment?.promoter_sales_enabled && profile?.can_sell);
+  const activeLocations = locations.filter((location) => location.status === 'active');
+  const estimatedTotal = useMemo(() => Number(form.quantity || 0) * Number(form.unit_price || 0), [form]);
+  const confirmedCommission = useMemo(
+    () => sales
+      .filter((sale) => sale.payment_status === 'paid')
+      .reduce((sum, sale) => sum + Number(sale.commission || 0), 0),
+    [sales]
+  );
+
+  async function loadData() {
+    const [nextSales, nextLocations, nextProfile, nextBanners] = await Promise.all([
+      api('/promoter/sales'),
+      api('/locations'),
+      api('/promoter/me'),
+      api('/promoter/banners')
+    ]);
+    setSales(nextSales);
+    setLocations(nextLocations);
+    setProfile(nextProfile);
+    setBanners(nextBanners);
+    setProfileForm({ photo_url: nextProfile.photo_url || '' });
+  }
+
+  useEffect(() => {
+    loadData().catch(() => onLogout());
+  }, []);
+
+  async function submit(event) {
+    event.preventDefault();
+    setError('');
+    try {
+      await api('/promoter/sales', {
+        method: 'POST',
+        body: JSON.stringify(form)
+      });
+      setForm(emptySale);
+      await loadData();
+      setNotice('Venta registrada');
+      setTimeout(() => setNotice(''), 2400);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function changePassword(event) {
+    event.preventDefault();
+    setPasswordError('');
+    try {
+      await api('/promoter/password', {
+        method: 'PATCH',
+        body: JSON.stringify(passwordForm)
+      });
+      setPasswordForm({ currentPassword: '', newPassword: '' });
+      setNotice('Contrasena actualizada');
+      setTimeout(() => setNotice(''), 2400);
+    } catch (err) {
+      setPasswordError(err.message);
+    }
+  }
+
+  async function updateProfile(event) {
+    event.preventDefault();
+    setProfileError('');
+    try {
+      const nextProfile = await api('/promoter/profile', {
+        method: 'PATCH',
+        body: JSON.stringify(profileForm)
+      });
+      setProfile(nextProfile);
+      setNotice('Foto actualizada');
+      setTimeout(() => setNotice(''), 2400);
+    } catch (err) {
+      setProfileError(err.message);
+    }
+  }
+
+  async function pickProfilePhoto(file) {
+    setProfileError('');
+    try {
+      const photo_url = await imageFileToDataUrl(file);
+      setProfileForm({ ...profileForm, photo_url });
+    } catch (err) {
+      setProfileError(err.message);
+    }
+  }
+
+  async function copyText(text, message) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setNotice(message);
+    } catch {
+      setNotice('No se pudo copiar automaticamente');
+    }
+    setTimeout(() => setNotice(''), 2200);
+  }
+
+  async function shareReferral() {
+    if (navigator.share) {
+      await navigator.share({
+        title: 'Promotor oficial GEMASHOW',
+        text: `Codigo de promotor: ${profile?.code || user.code}`,
+        url: referralLink
+      });
+      return;
+    }
+    await copyText(referralLink, 'Link copiado para compartir');
+  }
+
+  const levelPoints = Number(profile?.level?.levelPoints || 0);
+  const settings = profile?.level?.settings || {};
+  const bronzeMin = Number(settings.bronze || 1);
+  const silverMin = Number(settings.silver || 10);
+  const diamondMin = Number(settings.diamond || 25);
+  const goldMin = Math.max(silverMin + 1, Math.round((silverMin + diamondMin) / 2));
+  const premiumRanks = [
+    { key: 'bronze', name: 'Bronce', min: bronzeMin, benefits: settings.benefits?.bronze || ['Acceso a beneficios iniciales', 'Material oficial GEMASHOW'] },
+    { key: 'silver', name: 'Plata', min: silverMin, benefits: settings.benefits?.silver || ['Prioridad en campanas', 'Bonos especiales por metas'] },
+    { key: 'gold', name: 'Oro', min: goldMin, benefits: ['Acceso preferente a promociones', 'Reconocimiento destacado GEMASHOW'] },
+    { key: 'diamond', name: 'Diamante', min: diamondMin, benefits: settings.benefits?.diamond || ['Beneficios VIP', 'Prioridad maxima en cupos'] }
+  ];
+  const currentRank = premiumRanks.reduce(
+    (rank, item) => (levelPoints >= item.min ? item : rank),
+    { key: 'starter', name: 'Inicial', min: 0, benefits: ['Completa tus primeras ventas confirmadas'] }
+  );
+  const nextRank = premiumRanks.find((item) => levelPoints < item.min);
+  const previousMin = currentRank.min || 0;
+  const nextMin = nextRank?.min || currentRank.min || 1;
+  const progress = nextRank ? Math.min(100, Math.round(((levelPoints - previousMin) / Math.max(1, nextMin - previousMin)) * 100)) : 100;
+  const progressText = nextRank
+    ? `Te faltan ${Math.max(0, nextRank.min - levelPoints)} puntos para llegar a ${nextRank.name}.`
+    : 'Ya estas en el rango mas alto disponible.';
+  const referralLink = `${window.location.origin}/verificar?codigo=${encodeURIComponent(profile?.code || user.code || '')}`;
+  const nextCut = new Date();
+  nextCut.setMonth(nextCut.getMonth() + 1, 0);
+  const nextCutText = nextCut.toLocaleDateString('es-EC', { day: '2-digit', month: 'long' });
+  const paymentStatus = confirmedCommission > 0 ? 'Pendiente' : 'Al dia';
+  const featuredBanner = banners[0];
+
+  return (
+    <main className="promoter-premium">
+      <header className="promoter-premium-topbar">
+        <div>
+          <span>PROMOTERS / GEMASHOW</span>
+          <h1>Perfil de promotor</h1>
+        </div>
+        <button className="premium-ghost-button" onClick={onLogout}>
+          <LogOut size={18} />
+          Salir
+        </button>
+      </header>
+      {notice && <div className="premium-alert">{notice}</div>}
+
+      <section className="promoter-premium-hero">
+        <article className="premium-profile-card">
+          <div className="premium-profile-main">
+            <div className="premium-profile-photo">
+              {profile?.photo_url ? <img src={profile.photo_url} alt={profile.name} /> : <UserRound size={48} />}
+            </div>
+            <div>
+              <span className="premium-kicker">Promotor oficial</span>
+              <h2>{profile?.name || user.name}</h2>
+              <div className="premium-profile-meta">
+                <span><MapPin size={15} /> Guayaquil, EC</span>
+                <span className={profile?.can_sell ? 'status-pill active' : 'status-pill inactive'}>
+                  {profile?.can_sell ? 'Activo' : 'Inactivo'}
+                </span>
+              </div>
+            </div>
+          </div>
+          <button className="premium-secondary-button" type="button" onClick={() => setProfileEditorOpen(!profileEditorOpen)}>
+            <UserRound size={18} />
+            {profileEditorOpen ? 'Cerrar perfil' : 'Editar perfil'}
+          </button>
+        </article>
+
+        <article className="premium-ad-card">
+          {featuredBanner ? (
+            <>
+              <img src={featuredBanner.image_url} alt={featuredBanner.title || 'Anuncio GEMASHOW'} />
+              <div>
+                <span>Anuncio destacado</span>
+                <strong>{featuredBanner.title || profile?.activeEvent?.name || 'Evento activo GEMASHOW'}</strong>
+              </div>
+            </>
+          ) : (
+            <div>
+              <span>Anuncio destacado</span>
+              <strong>{profile?.activeEvent?.name || 'Campana activa GEMASHOW'}</strong>
+              <small>Promociones, avisos y eventos importantes para tu equipo.</small>
+            </div>
+          )}
+        </article>
+      </section>
+
+      <section className="premium-action-grid">
+        {canRegisterSales && (
+          <article className="premium-commission-card">
+            <span>Comision disponible</span>
+            <strong>{showCommission ? money(confirmedCommission) : '••••••'}</strong>
+            <small>Solo cuenta ventas confirmadas por el administrador.</small>
+            <div className="premium-inline-actions">
+              <button className="premium-secondary-button" type="button" onClick={() => setShowCommission(!showCommission)}>
+                {showCommission ? <EyeOff size={17} /> : <Eye size={17} />}
+                {showCommission ? 'Ocultar' : 'Mostrar'}
+              </button>
+              <button className="premium-primary-button" type="button" disabled={confirmedCommission <= 0}>
+                <CreditCard size={17} />
+                Retiro
+              </button>
+            </div>
+          </article>
+        )}
+
+        {canRegisterSales && (
+          <article className="premium-main-actions">
+            <button className="premium-primary-button large" type="button" onClick={() => document.getElementById('registrar-venta')?.scrollIntoView({ behavior: 'smooth' })}>
+              <Ticket size={20} />
+              Registrar venta
+            </button>
+            <button className="premium-secondary-button large" type="button" onClick={() => document.getElementById('mis-ventas')?.scrollIntoView({ behavior: 'smooth' })}>
+              <WalletCards size={20} />
+              Ver mis ventas
+            </button>
+          </article>
+        )}
+
+        <article className="premium-payment-card">
+          <span>Estado de pagos</span>
+          <strong>{paymentStatus}</strong>
+          <small>Ultimo retiro: sin retiros registrados</small>
+          <small>Proximo corte: {nextCutText}</small>
+        </article>
+      </section>
+
+      {profileEditorOpen && (
+        <section className="premium-card profile-editor-panel">
+          <div className="panel-title">
+            <h3>Editar perfil</h3>
+          </div>
+          <div className="profile-editor-grid">
+            <form className="form-grid" onSubmit={updateProfile}>
+              <label>
+                Elegir foto desde el dispositivo
+                <input type="file" accept="image/*" onChange={(event) => pickProfilePhoto(event.target.files?.[0])} />
+              </label>
+              {profileForm.photo_url && (
+                <div className="photo-preview">
+                  <img src={profileForm.photo_url} alt="Vista previa" />
+                  <button type="button" className="ghost-button" onClick={() => setProfileForm({ photo_url: '' })}>
+                    Quitar foto
+                  </button>
+                </div>
+              )}
+              {profileError && <div className="alert error">{profileError}</div>}
+              <button className="primary-button" type="submit">
+                <UserRound size={18} />
+                Guardar foto
+              </button>
+            </form>
+            <form className="form-grid" onSubmit={changePassword}>
+              <Input type="password" label="Contrasena actual" value={passwordForm.currentPassword} onChange={(currentPassword) => setPasswordForm({ ...passwordForm, currentPassword })} />
+              <Input type="password" label="Nueva contrasena" value={passwordForm.newPassword} onChange={(newPassword) => setPasswordForm({ ...passwordForm, newPassword })} />
+              {passwordError && <div className="alert error">{passwordError}</div>}
+              <button className="primary-button" type="submit">
+                <KeyRound size={18} />
+                Guardar contrasena
+              </button>
+            </form>
+          </div>
+        </section>
+      )}
+
+      <section className="premium-rank-layout">
+        <article className={`premium-rank-card ${currentRank.key}`}>
+          <div className="premium-rank-header">
+            <div>
+              <span>Nivel actual</span>
+              <h3>{currentRank.name}</h3>
+            </div>
+            <Medal size={34} />
+          </div>
+          <ul>
+            {currentRank.benefits.map((benefit) => (
+              <li key={benefit}><CheckCircle2 size={16} /> {benefit}</li>
+            ))}
+          </ul>
+        </article>
+
+        <article className="premium-progress-card">
+          <div className="premium-progress-top">
+            <span>Progreso al siguiente rango</span>
+            <strong>{levelPoints} puntos</strong>
+          </div>
+          <div className="premium-progress-bar">
+            <span style={{ width: `${progress}%` }} />
+          </div>
+          <small>{progressText}</small>
+          <div className="premium-rank-strip">
+            {premiumRanks.map((rank) => (
+              <span className={currentRank.key === rank.key ? 'current' : ''} key={rank.key}>{rank.name}</span>
+            ))}
+          </div>
+        </article>
+      </section>
+
+      <section className="premium-code-card">
+        <div>
+          <span>Codigo personal</span>
+          <strong>{profile?.code || user.code}</strong>
+        </div>
+        <div>
+          <span>Link de referido</span>
+          <p>{referralLink}</p>
+        </div>
+        <div className="premium-inline-actions">
+          <button className="premium-secondary-button" type="button" onClick={() => copyText(profile?.code || user.code, 'Codigo copiado')}>
+            <Copy size={17} />
+            Copiar codigo
+          </button>
+          <button className="premium-primary-button" type="button" onClick={shareReferral}>
+            <Share2 size={17} />
+            Compartir
+          </button>
+          <button className="premium-secondary-button" type="button" onClick={() => copyText(referralLink, 'Link copiado')}>
+            <LinkIcon size={17} />
+            Copiar link
+          </button>
+        </div>
+      </section>
+
+      {canRegisterSales && (
+        <div className="premium-sales-layout">
+          <section className="premium-card" id="registrar-venta">
+            <div className="panel-title">
+              <h3>Registrar venta</h3>
+            </div>
+            <form className="form-grid" onSubmit={submit}>
+              <Input label="Cliente" value={form.customer} onChange={(customer) => setForm({ ...form, customer })} />
+              <Input label="WhatsApp cliente" value={form.customer_whatsapp} onChange={(customer_whatsapp) => setForm({ ...form, customer_whatsapp })} />
+              <label>
+                Localidad
+                <select
+                  value={form.location}
+                  onChange={(e) => {
+                    const selected = activeLocations.find((location) => location.name === e.target.value);
+                    setForm({ ...form, location: e.target.value, unit_price: selected ? selected.price : form.unit_price });
+                  }}
+                >
+                  <option value="">Seleccionar</option>
+                  {activeLocations.map((location) => (
+                    <option value={location.name} key={location.id}>{location.name} - {money(location.price)}</option>
+                  ))}
+                </select>
+              </label>
+              <Input type="number" label="Cantidad" value={form.quantity} onChange={(quantity) => setForm({ ...form, quantity })} />
+              <Input type="date" label="Fecha" value={form.sale_date} onChange={(sale_date) => setForm({ ...form, sale_date })} />
+              <div className="computed">
+                <span>Total {money(estimatedTotal)}</span>
+                <strong>La comision se genera cuando el admin confirme la venta.</strong>
+              </div>
+              {error && <div className="alert error">{error}</div>}
+              <button className="primary-button" type="submit" disabled={!profile?.can_sell}>
+                <Ticket size={18} />
+                Registrar
+              </button>
+            </form>
+          </section>
+          <section className="premium-card" id="mis-ventas">
+            <div className="panel-title">
+              <h3>Mis ventas</h3>
+            </div>
+            <DataTable
+              columns={['Cliente', 'Localidad', 'Cantidad', 'Total', 'Comision', 'Estado']}
+              rows={sales.map((sale) => [
+                sale.customer,
+                sale.location,
+                sale.quantity,
+                money(sale.total),
+                money(sale.commission),
+                paymentLabel(sale.payment_status)
+              ])}
+            />
+          </section>
+        </div>
       )}
     </main>
   );

@@ -872,6 +872,390 @@ td {
   box-shadow: 0 18px 48px rgba(19, 34, 27, 0.18);
 }
 
+.promoter-premium {
+  background:
+    radial-gradient(circle at top left, rgba(142, 93, 255, 0.28), transparent 30%),
+    radial-gradient(circle at top right, rgba(38, 198, 218, 0.18), transparent 28%),
+    linear-gradient(135deg, #090a12 0%, #11131f 48%, #0b1019 100%);
+  color: #f7f4ff;
+  min-height: 100vh;
+  padding: 28px;
+}
+
+.promoter-premium-topbar,
+.promoter-premium-hero,
+.premium-action-grid,
+.premium-rank-layout,
+.premium-sales-layout {
+  margin: 0 auto 20px;
+  max-width: 1180px;
+  width: 100%;
+}
+
+.promoter-premium-topbar {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.promoter-premium-topbar span,
+.premium-kicker,
+.premium-commission-card span,
+.premium-payment-card span,
+.premium-rank-header span,
+.premium-progress-top span,
+.premium-code-card span,
+.premium-ad-card span {
+  color: #b9a7ff;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.promoter-premium-topbar h1 {
+  font-size: 32px;
+  margin: 4px 0 0;
+}
+
+.premium-ghost-button,
+.premium-secondary-button,
+.premium-primary-button {
+  align-items: center;
+  border: 0;
+  border-radius: 8px;
+  display: inline-flex;
+  font-weight: 900;
+  gap: 8px;
+  justify-content: center;
+  min-height: 42px;
+  padding: 11px 14px;
+}
+
+.premium-ghost-button,
+.premium-secondary-button {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f7f4ff;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.premium-primary-button {
+  background: linear-gradient(135deg, #8e5dff, #26c6da);
+  color: #ffffff;
+  box-shadow: 0 14px 34px rgba(113, 88, 255, 0.28);
+}
+
+.premium-primary-button.large,
+.premium-secondary-button.large {
+  min-height: 58px;
+  width: 100%;
+}
+
+.promoter-premium-hero {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
+}
+
+.premium-profile-card,
+.premium-ad-card,
+.premium-commission-card,
+.premium-payment-card,
+.premium-main-actions,
+.premium-card,
+.premium-rank-card,
+.premium-progress-card,
+.premium-code-card {
+  background: rgba(18, 20, 34, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+}
+
+.premium-profile-card {
+  align-items: center;
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+  padding: 24px;
+}
+
+.premium-profile-main {
+  align-items: center;
+  display: flex;
+  gap: 18px;
+}
+
+.premium-profile-photo {
+  align-items: center;
+  background: linear-gradient(135deg, #251f46, #101725);
+  border: 2px solid rgba(185, 167, 255, 0.42);
+  border-radius: 50%;
+  display: flex;
+  flex: 0 0 auto;
+  height: 96px;
+  justify-content: center;
+  overflow: hidden;
+  width: 96px;
+}
+
+.premium-profile-photo img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.premium-profile-card h2 {
+  font-size: 34px;
+  margin: 6px 0 10px;
+}
+
+.premium-profile-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.premium-profile-meta span,
+.status-pill {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  color: #d8d3ea;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 800;
+  gap: 6px;
+  min-height: 32px;
+  padding: 7px 10px;
+}
+
+.status-pill.active {
+  color: #7ff7d0;
+}
+
+.status-pill.inactive {
+  color: #ffb4c2;
+}
+
+.premium-ad-card {
+  min-height: 210px;
+  position: relative;
+}
+
+.premium-ad-card img {
+  height: 100%;
+  object-fit: cover;
+  position: absolute;
+  width: 100%;
+}
+
+.premium-ad-card > div {
+  background: linear-gradient(transparent, rgba(8, 9, 18, 0.92));
+  bottom: 0;
+  display: grid;
+  gap: 8px;
+  left: 0;
+  padding: 24px;
+  position: absolute;
+  right: 0;
+}
+
+.premium-ad-card strong {
+  font-size: 22px;
+}
+
+.premium-ad-card small,
+.premium-payment-card small,
+.premium-progress-card small {
+  color: #a9a4ba;
+}
+
+.premium-action-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.72fr) minmax(260px, 0.72fr);
+}
+
+.premium-commission-card,
+.premium-payment-card,
+.premium-main-actions,
+.premium-card,
+.premium-progress-card,
+.premium-code-card {
+  padding: 20px;
+}
+
+.premium-commission-card strong {
+  display: block;
+  font-size: 38px;
+  margin: 8px 0 4px;
+}
+
+.premium-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.premium-main-actions {
+  align-content: center;
+  display: grid;
+  gap: 12px;
+}
+
+.premium-payment-card {
+  display: grid;
+  gap: 8px;
+}
+
+.premium-payment-card strong {
+  color: #7ff7d0;
+  font-size: 24px;
+}
+
+.premium-rank-layout {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(280px, 0.85fr) minmax(0, 1.15fr);
+}
+
+.premium-rank-card {
+  background:
+    linear-gradient(135deg, rgba(142, 93, 255, 0.34), rgba(38, 198, 218, 0.14)),
+    rgba(18, 20, 34, 0.8);
+  padding: 22px;
+}
+
+.premium-rank-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.premium-rank-header h3 {
+  font-size: 30px;
+  margin: 4px 0 0;
+}
+
+.premium-rank-card ul {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  margin: 18px 0 0;
+  padding: 0;
+}
+
+.premium-rank-card li {
+  align-items: center;
+  color: #ebe7ff;
+  display: flex;
+  gap: 8px;
+}
+
+.premium-progress-top {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.premium-progress-top strong {
+  color: #ffffff;
+}
+
+.premium-progress-bar {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  height: 12px;
+  margin: 18px 0 10px;
+  overflow: hidden;
+}
+
+.premium-progress-bar span {
+  background: linear-gradient(90deg, #8e5dff, #26c6da, #7ff7d0);
+  display: block;
+  height: 100%;
+}
+
+.premium-rank-strip {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 18px;
+}
+
+.premium-rank-strip span {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  color: #b8b3ca;
+  font-size: 12px;
+  font-weight: 900;
+  padding: 8px;
+  text-align: center;
+}
+
+.premium-rank-strip span.current {
+  background: rgba(142, 93, 255, 0.28);
+  color: #ffffff;
+}
+
+.premium-code-card {
+  align-items: center;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 0.55fr minmax(0, 1fr) auto;
+  margin: 0 auto 20px;
+  max-width: 1180px;
+  width: 100%;
+}
+
+.premium-code-card strong {
+  font-size: 24px;
+}
+
+.premium-code-card p {
+  color: #d8d3ea;
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.premium-alert {
+  background: rgba(127, 247, 208, 0.12);
+  border: 1px solid rgba(127, 247, 208, 0.28);
+  border-radius: 8px;
+  color: #caffef;
+  margin: 0 auto 18px;
+  max-width: 1180px;
+  padding: 12px 14px;
+}
+
+.premium-sales-layout {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(320px, 0.82fr) minmax(0, 1.18fr);
+}
+
+.promoter-premium .panel-title h3,
+.promoter-premium label {
+  color: #f7f4ff;
+}
+
+.promoter-premium input,
+.promoter-premium select,
+.promoter-premium textarea {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+}
+
+.promoter-premium option {
+  color: #18201d;
+}
+
 .password-panel {
   margin-top: 22px;
 }
@@ -966,6 +1350,18 @@ td {
     grid-template-columns: 1fr;
   }
 
+  .promoter-premium-hero,
+  .premium-action-grid,
+  .premium-rank-layout,
+  .premium-code-card,
+  .premium-sales-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .premium-code-card {
+    align-items: stretch;
+  }
+
   .sidebar {
     gap: 12px;
     position: sticky;
@@ -1015,6 +1411,53 @@ td {
 
   .content {
     padding: 18px;
+  }
+
+  .promoter-premium {
+    padding: 16px;
+  }
+
+  .promoter-premium-topbar {
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .promoter-premium-topbar h1 {
+    font-size: 24px;
+  }
+
+  .premium-profile-card,
+  .premium-profile-main,
+  .premium-inline-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .premium-profile-card h2 {
+    font-size: 28px;
+  }
+
+  .premium-profile-photo {
+    height: 86px;
+    width: 86px;
+  }
+
+  .premium-ad-card {
+    min-height: 180px;
+  }
+
+  .premium-commission-card strong {
+    font-size: 32px;
+  }
+
+  .premium-primary-button,
+  .premium-secondary-button,
+  .premium-ghost-button {
+    width: 100%;
+  }
+
+  .premium-rank-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .topbar {
