@@ -15,7 +15,6 @@ import {
   Link as LinkIcon,
   Lock,
   LogOut,
-  MapPin,
   Medal,
   Plus,
   Search,
@@ -272,7 +271,6 @@ function App() {
 }
 
 function Login({ onLogin }) {
-  const [mode, setMode] = useState('admin');
   const [form, setForm] = useState({ username: '', password: '' });
   const [error, setError] = useState('');
 
@@ -280,7 +278,7 @@ function Login({ onLogin }) {
     event.preventDefault();
     setError('');
     try {
-      const paths = mode === 'admin' ? ['/auth/login', '/auth/promoter-login'] : ['/auth/promoter-login', '/auth/login'];
+      const paths = ['/auth/login', '/auth/promoter-login'];
       let data = null;
       let lastError = null;
 
@@ -311,31 +309,17 @@ function Login({ onLogin }) {
   return (
     <main className="login-shell">
       <section className="login-panel">
-        <div className="brand-mark">P</div>
-        <span className="login-eyebrow">Plataforma oficial</span>
-        <h1>PROMOTERS</h1>
-        <p>{mode === 'admin' ? 'Acceso para administradores de negocio' : 'Acceso para promotores y promotoras'}</p>
-        <div className="segmented">
-          <button
-            type="button"
-            className={mode === 'admin' ? 'selected' : ''}
-            onClick={() => {
-              setMode('admin');
-              setForm({ username: '', password: '' });
-            }}
-          >
-            Administrador
-          </button>
-          <button
-            type="button"
-            className={mode === 'promoter' ? 'selected' : ''}
-            onClick={() => {
-              setMode('promoter');
-              setForm({ username: '', password: '' });
-            }}
-          >
-            Promotor
-          </button>
+        <div className="login-brand-row">
+          <div className="brand-mark">P</div>
+          <div>
+            <span className="login-eyebrow">Plataforma oficial</span>
+            <h1>PROMOTERS</h1>
+          </div>
+        </div>
+        <p>Acceso unificado para administradores, promotores y negocios aliados.</p>
+        <div className="login-premium-note">
+          <Sparkles size={18} />
+          El sistema reconoce tu cuenta y abre tu espacio automaticamente.
         </div>
         <form onSubmit={submit} className="form-grid">
           <label>
@@ -352,7 +336,7 @@ function Login({ onLogin }) {
           </label>
           {error && <div className="alert error">{error}</div>}
           <button className="primary-button" type="submit">
-            {mode === 'admin' ? <BadgeCheck size={18} /> : <KeyRound size={18} />}
+            <KeyRound size={18} />
             Entrar
           </button>
         </form>
@@ -2111,7 +2095,6 @@ function PromoterAppPremium({ user, onLogout }) {
               <span className="premium-kicker">Promotor oficial</span>
               <h2>{profile?.name || user.name}</h2>
               <div className="premium-profile-meta">
-                <span><MapPin size={15} /> Guayaquil, EC</span>
                 <span className={profile?.can_sell ? 'status-pill active' : 'status-pill inactive'}>
                   {profile?.can_sell ? 'Activo' : 'Inactivo'}
                 </span>

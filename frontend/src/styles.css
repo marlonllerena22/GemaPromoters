@@ -34,7 +34,9 @@ button:disabled {
 .verify-shell {
   align-items: center;
   background:
-    linear-gradient(120deg, rgba(12, 18, 15, 0.76), rgba(19, 34, 30, 0.46)),
+    radial-gradient(circle at top left, rgba(142, 93, 255, 0.34), transparent 30%),
+    radial-gradient(circle at bottom right, rgba(38, 198, 218, 0.18), transparent 34%),
+    linear-gradient(135deg, rgba(8, 9, 18, 0.94), rgba(16, 19, 32, 0.86)),
     url("https://images.unsplash.com/photo-1492684223066-81342ee5ff30?auto=format&fit=crop&w=1600&q=80");
   background-position: center;
   background-size: cover;
@@ -45,13 +47,14 @@ button:disabled {
 
 .login-panel,
 .verify-panel {
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid rgba(255, 255, 255, 0.68);
+  background: rgba(14, 16, 28, 0.84);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 8px;
-  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 34px 100px rgba(0, 0, 0, 0.38);
   margin: auto;
   max-width: 460px;
   padding: 32px;
+  color: #f7f4ff;
   width: 100%;
 }
 
@@ -69,16 +72,16 @@ input[type="file"] {
 }
 
 .login-panel p {
-  color: #59635d;
+  color: #b8b3ca;
   margin: 0 0 24px;
 }
 
 .brand-mark {
   align-items: center;
-  background: #d7f36a;
-  border: 2px solid #18201d;
+  background: linear-gradient(135deg, #8e5dff, #26c6da);
+  border: 1px solid rgba(255, 255, 255, 0.3);
   border-radius: 8px;
-  box-shadow: 5px 5px 0 #18201d;
+  box-shadow: 0 18px 40px rgba(142, 93, 255, 0.28);
   display: flex;
   font-weight: 900;
   height: 54px;
@@ -87,13 +90,52 @@ input[type="file"] {
 }
 
 .login-eyebrow {
-  color: #6a766e;
+  color: #b9a7ff;
   display: block;
   font-size: 12px;
   font-weight: 900;
   letter-spacing: 0;
   margin-top: 18px;
   text-transform: uppercase;
+}
+
+.login-brand-row {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.login-brand-row h1 {
+  margin: 4px 0 0;
+}
+
+.login-premium-note {
+  align-items: center;
+  background: rgba(142, 93, 255, 0.13);
+  border: 1px solid rgba(185, 167, 255, 0.22);
+  border-radius: 8px;
+  color: #e7ddff;
+  display: flex;
+  gap: 10px;
+  margin-bottom: 22px;
+  padding: 12px;
+}
+
+.login-panel label {
+  color: #f7f4ff;
+}
+
+.login-panel input {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+}
+
+.login-panel .primary-button {
+  background: linear-gradient(135deg, #8e5dff, #26c6da);
+  border: 0;
+  box-shadow: 0 16px 36px rgba(142, 93, 255, 0.28);
 }
 
 .brand-mark.small {
