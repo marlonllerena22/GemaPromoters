@@ -1671,7 +1671,7 @@ function PromoterApp({ user, onLogout }) {
   const estimatedTotal = useMemo(() => Number(form.quantity || 0) * Number(form.unit_price || 0), [form]);
   const confirmedCommission = useMemo(
     () => sales
-      .filter((sale) => sale.payment_status === 'paid')
+      .filter((sale) => sale.payment_status === 'paid' && Number(sale.commission_paid || 0) === 0)
       .reduce((sum, sale) => sum + Number(sale.commission || 0), 0),
     [sales]
   );
@@ -2012,7 +2012,7 @@ function PromoterAppPremium({ user, onLogout }) {
   const estimatedTotal = useMemo(() => Number(form.quantity || 0) * Number(form.unit_price || 0), [form]);
   const confirmedCommission = useMemo(
     () => sales
-      .filter((sale) => sale.payment_status === 'paid')
+      .filter((sale) => sale.payment_status === 'paid' && Number(sale.commission_paid || 0) === 0)
       .reduce((sum, sale) => sum + Number(sale.commission || 0), 0),
     [sales]
   );
