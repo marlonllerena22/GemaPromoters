@@ -1042,6 +1042,8 @@ function createSale(req, res, forcedPromoterId = null) {
       normalizedPaymentStatus
     );
 
+  const orderNumber = `PED-${String(result.lastInsertRowid).padStart(6, '0')}`;
+  db.prepare('UPDATE sales SET order_number = ? WHERE id = ?').run(orderNumber, result.lastInsertRowid);
   recalculateCommissions(selectedPromoterId, normalizedLocation, eventId);
 
   return res.status(201).json(db.prepare('SELECT * FROM sales WHERE id = ?').get(result.lastInsertRowid));

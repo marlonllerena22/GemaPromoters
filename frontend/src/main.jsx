@@ -237,6 +237,15 @@ function paymentLabel(status) {
   return status === 'paid' ? 'Confirmada' : 'Por confirmar';
 }
 
+function saleOrderNumber(sale) {
+  return sale.order_number || `PED-${String(sale.id || '').padStart(6, '0')}`;
+}
+
+function receiptWhatsappUrl(promoterName, sale) {
+  const message = `Hola, soy *${promoterName}*. Envio el comprobante de pago del pedido *${saleOrderNumber(sale)}*. Quedo atento/a a la confirmacion del administrador. Muchas gracias.`;
+  return `https://wa.me/593990465362?text=${encodeURIComponent(message)}`;
+}
+
 function withEvent(path, eventId) {
   const separator = path.includes('?') ? '&' : '?';
   return eventId ? `${path}${separator}event_id=${eventId}` : path;
@@ -571,8 +580,9 @@ function Dashboard({ stats, sales }) {
           <h3>Ultimas ventas</h3>
         </div>
         <DataTable
-          columns={['Promotor', 'Cliente', 'Localidad', 'Total', 'Comision', 'Estado']}
+          columns={['Pedido', 'Promotor', 'Cliente', 'Localidad', 'Total', 'Comision', 'Estado']}
           rows={sales.slice(0, 8).map((sale) => [
+            saleOrderNumber(sale),
             sale.promoter_name,
             sale.customer,
             sale.location,
@@ -1150,8 +1160,9 @@ function Sales({ promoters, sales, locations, eventId, establishmentId, onRefres
           <h3>Ventas</h3>
         </div>
         <DataTable
-          columns={['Promotor', 'Cliente', 'Localidad', 'Cantidad', 'Total', 'Comision', 'Estado', 'Acciones']}
+          columns={['Pedido', 'Promotor', 'Cliente', 'Localidad', 'Cantidad', 'Total', 'Comision', 'Estado', 'Acciones']}
           rows={sales.map((sale) => [
+            saleOrderNumber(sale),
             sale.promoter_name,
             sale.customer,
             sale.location,
@@ -1700,13 +1711,13 @@ function PromoterApp({ user, onLogout }) {
     event.preventDefault();
     setError('');
     try {
-      await api('/promoter/sales', {
+      const createdSale = await api('/promoter/sales', {
         method: 'POST',
         body: JSON.stringify(form)
       });
       setForm(emptySale);
       await loadData();
-      setNotice('Venta registrada');
+      setNotice(`Venta registrada. Pedido ${saleOrderNumber(createdSale)}`);
       setTimeout(() => setNotice(''), 2400);
     } catch (err) {
       setError(err.message);
@@ -1972,14 +1983,21 @@ function PromoterApp({ user, onLogout }) {
             <h3>Mis ventas</h3>
           </div>
           <DataTable
-            columns={['Cliente', 'Localidad', 'Cantidad', 'Total', 'Comision', 'Estado']}
+            columns={['Pedido', 'Cliente', 'Localidad', 'Cantidad', 'Total', 'Comision', 'Estado', 'Comprobante']}
             rows={sales.map((sale) => [
+              saleOrderNumber(sale),
               sale.customer,
               sale.location,
               sale.quantity,
               money(sale.total),
               money(sale.commission),
-              paymentLabel(sale.payment_status)
+              paymentLabel(sale.payment_status),
+              sale.payment_status !== 'paid' ? (
+                <a className="ghost-button" href={receiptWhatsappUrl(profile?.name || user.name, sale)} target="_blank" rel="noreferrer">
+                  <Share2 size={16} />
+                  Enviar comprobante
+                </a>
+              ) : 'Confirmado'
             ])}
           />
         </section>
@@ -2041,13 +2059,13 @@ function PromoterAppPremium({ user, onLogout }) {
     event.preventDefault();
     setError('');
     try {
-      await api('/promoter/sales', {
+      const createdSale = await api('/promoter/sales', {
         method: 'POST',
         body: JSON.stringify(form)
       });
       setForm(emptySale);
       await loadData();
-      setNotice('Venta registrada');
+      setNotice(`Venta registrada. Pedido ${saleOrderNumber(createdSale)}`);
       setTimeout(() => setNotice(''), 2400);
     } catch (err) {
       setError(err.message);
@@ -2431,14 +2449,21 @@ function PromoterAppPremium({ user, onLogout }) {
               <h3>Mis ventas</h3>
             </div>
             <DataTable
-              columns={['Cliente', 'Localidad', 'Cantidad', 'Total', 'Comision', 'Estado']}
+              columns={['Pedido', 'Cliente', 'Localidad', 'Cantidad', 'Total', 'Comision', 'Estado', 'Comprobante']}
               rows={sales.map((sale) => [
+                saleOrderNumber(sale),
                 sale.customer,
                 sale.location,
                 sale.quantity,
                 money(sale.total),
                 money(sale.commission),
-                paymentLabel(sale.payment_status)
+                paymentLabel(sale.payment_status),
+                sale.payment_status !== 'paid' ? (
+                  <a className="ghost-button" href={receiptWhatsappUrl(profile?.name || user.name, sale)} target="_blank" rel="noreferrer">
+                    <Share2 size={16} />
+                    Enviar comprobante
+                  </a>
+                ) : 'Confirmado'
               ])}
             />
           </section>

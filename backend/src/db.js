@@ -91,6 +91,7 @@ export function initDb() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       establishment_id INTEGER NOT NULL DEFAULT 1,
       event_id INTEGER NOT NULL DEFAULT 1,
+      order_number TEXT,
       promoter_id INTEGER NOT NULL,
       customer TEXT NOT NULL,
       customer_whatsapp TEXT NOT NULL,
@@ -173,6 +174,7 @@ export function initDb() {
   addColumnIfMissing('event_locations', 'commission_min_quantity', 'INTEGER NOT NULL DEFAULT 1');
   addColumnIfMissing('event_locations', 'level_points', 'REAL NOT NULL DEFAULT 1');
   addColumnIfMissing('sales', 'event_id', `INTEGER NOT NULL DEFAULT ${defaultEvent.id}`);
+  addColumnIfMissing('sales', 'order_number', 'TEXT');
 
   db.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_promoters_username ON promoters(username);
@@ -244,6 +246,10 @@ export function initDb() {
     UPDATE event_locations SET level_points = 3 WHERE UPPER(name) = 'BOX';
     UPDATE event_locations SET level_points = 2 WHERE UPPER(name) = 'VIP';
     UPDATE event_locations SET level_points = 1 WHERE UPPER(name) = 'FAN';
+
+    UPDATE sales
+    SET order_number = 'PED-' || printf('%06d', id)
+    WHERE order_number IS NULL OR order_number = '';
 
     INSERT OR IGNORE INTO event_locations
       (event_id, name, price, commission_type, commission_value, commission_min_quantity, level_points, status)
