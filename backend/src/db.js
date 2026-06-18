@@ -68,6 +68,7 @@ export function initDb() {
       can_sell INTEGER NOT NULL DEFAULT 1 CHECK (can_sell IN (0, 1)),
       manual_points REAL NOT NULL DEFAULT 0 CHECK (manual_points >= 0),
       referred_by_promoter_id INTEGER,
+      deleted_at TEXT,
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
       registered_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       FOREIGN KEY (establishment_id) REFERENCES establishments(id)
@@ -104,6 +105,9 @@ export function initDb() {
       sale_date TEXT NOT NULL DEFAULT (date('now', 'localtime')),
       payment_status TEXT NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid')),
       commission_paid INTEGER NOT NULL DEFAULT 0 CHECK (commission_paid IN (0, 1)),
+      deleted_at TEXT,
+      deleted_by TEXT,
+      deletion_reason TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       FOREIGN KEY (establishment_id) REFERENCES establishments(id),
       FOREIGN KEY (event_id) REFERENCES events(id),
@@ -170,6 +174,7 @@ export function initDb() {
   addColumnIfMissing('promoters', 'can_sell', 'INTEGER NOT NULL DEFAULT 1');
   addColumnIfMissing('promoters', 'manual_points', 'REAL NOT NULL DEFAULT 0');
   addColumnIfMissing('promoters', 'referred_by_promoter_id', 'INTEGER');
+  addColumnIfMissing('promoters', 'deleted_at', 'TEXT');
   addColumnIfMissing('event_locations', 'event_id', `INTEGER NOT NULL DEFAULT ${defaultEvent.id}`);
   addColumnIfMissing('event_locations', 'commission_type', "TEXT NOT NULL DEFAULT 'percent'");
   addColumnIfMissing('event_locations', 'commission_value', 'REAL NOT NULL DEFAULT 3');
@@ -177,6 +182,9 @@ export function initDb() {
   addColumnIfMissing('event_locations', 'level_points', 'REAL NOT NULL DEFAULT 1');
   addColumnIfMissing('sales', 'event_id', `INTEGER NOT NULL DEFAULT ${defaultEvent.id}`);
   addColumnIfMissing('sales', 'order_number', 'TEXT');
+  addColumnIfMissing('sales', 'deleted_at', 'TEXT');
+  addColumnIfMissing('sales', 'deleted_by', 'TEXT');
+  addColumnIfMissing('sales', 'deletion_reason', 'TEXT');
 
   db.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_promoters_username ON promoters(username);

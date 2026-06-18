@@ -448,7 +448,6 @@ function AdminApp({ user, onLogout }) {
     promoters: [],
     sales: [],
     ranking: [],
-    settlements: [],
     withdrawals: [],
     locations: [],
     levels: emptyLevels,
@@ -484,19 +483,18 @@ function AdminApp({ user, onLogout }) {
       setSelectedEventId(String(eventId));
     }
 
-    const [dashboard, promoters, sales, ranking, settlements, withdrawals, locations, levels, banners, branches] = await Promise.all([
+    const [dashboard, promoters, sales, ranking, withdrawals, locations, levels, banners, branches] = await Promise.all([
       api(withScope('/dashboard', eventId, establishmentId)),
       api(withScope('/promoters', eventId, establishmentId)),
       api(withScope('/sales', eventId, establishmentId)),
       api(withScope('/ranking', eventId, establishmentId)),
-      api(withScope('/settlements', eventId, establishmentId)),
       api(withScope('/withdrawals', eventId, establishmentId)),
       api(withScope('/locations', eventId, establishmentId)),
       api(withScope('/level-settings', eventId, establishmentId)),
       api(withScope('/event-banners', eventId, establishmentId)),
       api(withScope('/branches', '', establishmentId))
     ]);
-    setData({ dashboard, establishments, branches, events, promoters, sales, ranking, settlements, withdrawals, locations, levels, banners });
+    setData({ dashboard, establishments, branches, events, promoters, sales, ranking, withdrawals, locations, levels, banners });
     setLoading(false);
   }
 
@@ -523,7 +521,6 @@ function AdminApp({ user, onLogout }) {
     ['promoters', 'Promotores', UsersRound],
     ['sales', 'Ventas', Ticket],
     ['ranking', 'Ranking', Medal],
-    ['settlements', 'Liquidaciones', WalletCards],
     ['withdrawals', 'Retiros', CreditCard],
     ['settings', 'Localidades', Settings],
     ['levels', 'Niveles', BadgeCheck],
@@ -610,11 +607,8 @@ function AdminApp({ user, onLogout }) {
               <Sales promoters={data.promoters} sales={data.sales} locations={data.locations} eventId={selectedEventId} establishmentId={selectedEstablishmentId} onRefresh={refresh} />
             )}
             {view === 'ranking' && <Ranking ranking={data.ranking} />}
-            {view === 'settlements' && (
-              <Settlements settlements={data.settlements} eventId={selectedEventId} establishmentId={selectedEstablishmentId} onRefresh={refresh} />
-            )}
             {view === 'withdrawals' && (
-              <Withdrawals withdrawals={data.withdrawals} eventId={selectedEventId} establishmentId={selectedEstablishmentId} onRefresh={refresh} />
+              <Withdrawals withdrawals={data.withdrawals} promoters={data.promoters} eventId={selectedEventId} establishmentId={selectedEstablishmentId} onRefresh={refresh} />
             )}
             {view === 'settings' && (
               <Locations locations={data.locations} eventId={selectedEventId} establishmentId={selectedEstablishmentId} onRefresh={refresh} />
@@ -664,7 +658,7 @@ function Dashboard({ stats, sales }) {
             sale.location,
             money(sale.total),
             money(sale.commission),
-            paymentLabel(sale.payment_status)
+            sale.deleted_at ? 'Eliminada' : paymentLabel(sale.payment_status)
           ])}
         />
       </section>
@@ -1018,6 +1012,16 @@ function Promoters({ promoters, branches, establishmentId, onRefresh }) {
     onRefresh('Puntos actualizados');
   }
 
+  async function removePromoter(promoter) {
+    const confirmed = window.confirm(`Seguro quieres eliminar la cuenta de ${promoter.name}? El promotor no podra ingresar ni vender, pero el historial se conserva.`);
+    if (!confirmed) {
+      return;
+    }
+
+    await api(withScope(`/promoters/${promoter.id}`, '', establishmentId), { method: 'DELETE' });
+    onRefresh('Promotor eliminado');
+  }
+
   return (
     <div className="two-column">
       <section className="panel">
@@ -1098,6 +1102,7 @@ function Promoters({ promoters, branches, establishmentId, onRefresh }) {
               </div>
               <div className="row-actions">
                 <button className="ghost-button" onClick={() => edit(promoter)}>Editar</button>
+                <button className="danger-button" onClick={() => removePromoter(promoter)}>Eliminar</button>
                 <button className="ghost-button" onClick={() => toggleSelling(promoter)}>
                   {promoter.can_sell ? 'Bloquear venta' : 'Habilitar venta'}
                 </button>
@@ -1124,8 +1129,10 @@ function Promoters({ promoters, branches, establishmentId, onRefresh }) {
 function Sales({ promoters, sales, locations, eventId, establishmentId, onRefresh }) {
   const [form, setForm] = useState(emptySale);
   const [promoterCode, setPromoterCode] = useState('');
+  const [promoterFilter, setPromoterFilter] = useState('');
   const [error, setError] = useState('');
   const activePromoters = promoters.filter((promoter) => promoter.status === 'active');
+  const filteredSales = promoterFilter ? sales.filter((sale) => String(sale.promoter_id) === String(promoterFilter)) : sales;
   const estimatedTotal = useMemo(() => Number(form.quantity || 0) * Number(form.unit_price || 0), [form]);
   const estimatedCommission = useMemo(
     () => estimateCommission(form, locations, sales, form.promoter_id),
@@ -1165,14 +1172,14 @@ function Sales({ promoters, sales, locations, eventId, establishmentId, onRefres
 
   async function removeSale(sale) {
     const confirmed = window.confirm(
-      `Seguro quieres eliminar la venta de ${sale.customer}? No se podran recuperar los datos.`
+      `Seguro quieres eliminar la venta de ${sale.customer}? La venta quedara archivada y sus datos se conservaran en la base.`
     );
     if (!confirmed) {
       return;
     }
 
     await api(withScope(`/sales/${sale.id}`, eventId, establishmentId), { method: 'DELETE' });
-    onRefresh('Venta eliminada definitivamente');
+    onRefresh('Venta archivada');
   }
 
   return (
@@ -1235,9 +1242,18 @@ function Sales({ promoters, sales, locations, eventId, establishmentId, onRefres
         <div className="panel-title">
           <h3>Ventas</h3>
         </div>
+        <label className="filter-control">
+          Filtrar por promotor
+          <select value={promoterFilter} onChange={(event) => setPromoterFilter(event.target.value)}>
+            <option value="">Todos los promotores</option>
+            {promoters.map((promoter) => (
+              <option value={promoter.id} key={promoter.id}>{promoter.name} - {promoter.code}</option>
+            ))}
+          </select>
+        </label>
         <DataTable
           columns={['Pedido', 'Promotor', 'Cliente', 'Localidad', 'Cantidad', 'Total', 'Comision', 'Estado', 'Acciones']}
-          rows={sales.map((sale) => [
+          rows={filteredSales.map((sale) => [
             saleOrderNumber(sale),
             sale.promoter_name,
             sale.customer,
@@ -1245,17 +1261,21 @@ function Sales({ promoters, sales, locations, eventId, establishmentId, onRefres
             sale.quantity,
             money(sale.total),
             money(sale.commission),
-            paymentLabel(sale.payment_status),
+            sale.deleted_at ? 'Eliminada' : paymentLabel(sale.payment_status),
             <div className="row-actions compact-actions">
-              {sale.payment_status !== 'paid' && (
+              {!sale.deleted_at && sale.payment_status !== 'paid' && (
                 <button className="ghost-button" onClick={() => confirmSale(sale.id)}>
                   <CheckCircle2 size={16} />
                   Confirmar
                 </button>
               )}
-              <button className="danger-button" onClick={() => removeSale(sale)}>
-                Eliminar
-              </button>
+              {sale.deleted_at ? (
+                <small>Archivada: {sale.deleted_at}</small>
+              ) : (
+                <button className="danger-button" onClick={() => removeSale(sale)}>
+                  Eliminar
+                </button>
+              )}
             </div>
           ])}
         />
@@ -1289,36 +1309,12 @@ function Ranking({ ranking }) {
   );
 }
 
-function Settlements({ settlements, eventId, establishmentId, onRefresh }) {
-  async function pay(promoterId) {
-    await api(withScope(`/settlements/${promoterId}/pay`, eventId, establishmentId), { method: 'PATCH' });
-    onRefresh('Comisiones marcadas como pagadas');
-  }
+function Withdrawals({ withdrawals, promoters, eventId, establishmentId, onRefresh }) {
+  const [promoterFilter, setPromoterFilter] = useState('');
+  const filteredWithdrawals = promoterFilter
+    ? withdrawals.filter((row) => String(row.promoter_id) === String(promoterFilter))
+    : withdrawals;
 
-  return (
-    <section className="panel">
-      <div className="panel-title">
-        <h3>Liquidaciones</h3>
-      </div>
-      <DataTable
-        columns={['Promotor', 'Vendido', 'Debe entregar', 'Por pagar', 'Pagado', '']}
-        rows={settlements.map((row) => [
-          `${row.name} (${row.code})`,
-          money(row.total_sold),
-          money(row.amount_to_deliver),
-          money(row.pending_commission),
-          money(row.paid_commission),
-          <button className="ghost-button" disabled={row.pending_commission <= 0} onClick={() => pay(row.id)}>
-            <CheckCircle2 size={16} />
-            Pagar
-          </button>
-        ])}
-      />
-    </section>
-  );
-}
-
-function Withdrawals({ withdrawals, eventId, establishmentId, onRefresh }) {
   async function markPaid(withdrawalId) {
     const confirmed = window.confirm('Seguro quieres marcar este retiro como realizado? Se marcaran las comisiones del promotor como pagadas.');
     if (!confirmed) {
@@ -1333,9 +1329,18 @@ function Withdrawals({ withdrawals, eventId, establishmentId, onRefresh }) {
       <div className="panel-title">
         <h3>Solicitudes de retiro</h3>
       </div>
+      <label className="filter-control">
+        Filtrar por promotor
+        <select value={promoterFilter} onChange={(event) => setPromoterFilter(event.target.value)}>
+          <option value="">Todos los promotores</option>
+          {promoters.map((promoter) => (
+            <option value={promoter.id} key={promoter.id}>{promoter.name} - {promoter.code}</option>
+          ))}
+        </select>
+      </label>
       <DataTable
         columns={['Promotor', 'Monto', 'Banco', 'Titular', 'Cuenta', 'Cedula', 'Estado', 'Accion']}
-        rows={withdrawals.map((row) => [
+        rows={filteredWithdrawals.map((row) => [
           `${row.promoter_name} (${row.promoter_code})`,
           money(row.amount),
           row.bank,
@@ -1809,6 +1814,7 @@ function PromoterApp({ user, onLogout }) {
         body: JSON.stringify(passwordForm)
       });
       setPasswordForm({ currentPassword: '', newPassword: '' });
+      setProfileEditorOpen(false);
       setNotice('Contrasena actualizada');
       setTimeout(() => setNotice(''), 2400);
     } catch (err) {
@@ -1825,6 +1831,7 @@ function PromoterApp({ user, onLogout }) {
         body: JSON.stringify(profileForm)
       });
       setProfile(nextProfile);
+      setProfileEditorOpen(false);
       setNotice('Foto actualizada');
       setTimeout(() => setNotice(''), 2400);
     } catch (err) {
@@ -2293,7 +2300,17 @@ function PromoterAppPremium({ user, onLogout }) {
               </div>
             </div>
           </div>
-          <button className="premium-secondary-button" type="button" onClick={() => setProfileEditorOpen(!profileEditorOpen)}>
+          <button
+            className="premium-secondary-button"
+            type="button"
+            onClick={() => {
+              const nextOpen = !profileEditorOpen;
+              setProfileEditorOpen(nextOpen);
+              if (nextOpen) {
+                setTimeout(() => document.getElementById('editar-perfil')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+              }
+            }}
+          >
             <UserRound size={18} />
             {profileEditorOpen ? 'Cerrar perfil' : 'Editar perfil'}
           </button>
@@ -2388,7 +2405,7 @@ function PromoterAppPremium({ user, onLogout }) {
       )}
 
       {profileEditorOpen && (
-        <section className="premium-card profile-editor-panel">
+        <section className="premium-card profile-editor-panel" id="editar-perfil">
           <div className="panel-title">
             <h3>Editar perfil</h3>
           </div>
@@ -2463,22 +2480,18 @@ function PromoterAppPremium({ user, onLogout }) {
           <span>Codigo personal</span>
           <strong>{profile?.code || user.code}</strong>
         </div>
-        <div>
-          <span>Link de referido</span>
-          <p>{referralLink}</p>
-        </div>
         <div className="premium-inline-actions">
           <button className="premium-secondary-button" type="button" onClick={() => copyText(profile?.code || user.code, 'Codigo copiado')}>
             <Copy size={17} />
             Copiar codigo
           </button>
-          <button className="premium-primary-button" type="button" onClick={shareReferral}>
+          <button className="premium-primary-button" type="button" onClick={() => copyText(referralLink, 'Enlace de verificacion copiado')}>
+            <LinkIcon size={17} />
+            Copiar enlace de verificacion
+          </button>
+          <button className="premium-secondary-button" type="button" onClick={shareReferral}>
             <Share2 size={17} />
             Compartir
-          </button>
-          <button className="premium-secondary-button" type="button" onClick={() => copyText(referralLink, 'Link copiado')}>
-            <LinkIcon size={17} />
-            Copiar link
           </button>
         </div>
       </section>
@@ -2589,25 +2602,36 @@ function VerifyPage() {
           </button>
         </form>
         {result && (
-          <div className={result.registered ? `verify-result ok premium ${result.promoter.level?.key || 'starter'}` : 'verify-result bad'}>
-            {result.registered && (
-              <div className="verify-photo">
-                {result.promoter.photo_url ? <img src={result.promoter.photo_url} alt={result.promoter.name} /> : <UserRound size={48} />}
-              </div>
-            )}
-            <h2>{result.message}</h2>
-            {result.registered && (
-              <>
-                <div className="verify-level">
-                  <strong>{result.promoter.level?.name || 'Inicial'}</strong>
-                  <span>{result.promoter.level?.description || 'Promotor oficial GEMASHOW'}</span>
+          result.registered ? (
+            <div className={`verify-member-card ${result.promoter.level?.key || 'starter'}`}>
+              <div className="verify-card-top">
+                <div>
+                  <span>PROMOTERS / GEMASHOW</span>
+                  <h2>{result.message}</h2>
                 </div>
-                <p><UserRound size={17} /> {result.promoter.name}</p>
+                <BadgeCheck size={30} />
+              </div>
+              <div className="verify-card-main">
+                <div className="verify-photo">
+                  {result.promoter.photo_url ? <img src={result.promoter.photo_url} alt={result.promoter.name} /> : <UserRound size={48} />}
+                </div>
+                <div>
+                  <small>Afiliado verificado</small>
+                  <strong>{result.promoter.name}</strong>
+                  <span>{result.promoter.level?.name || 'Starter'}</span>
+                </div>
+              </div>
+              <div className="verify-card-details">
                 <p>{result.promoter.instagram || 'Sin Instagram'}</p>
                 <p>WhatsApp: {result.promoter.whatsapp}</p>
-              </>
-            )}
-          </div>
+                <p>Codigo: {result.promoter.code}</p>
+              </div>
+            </div>
+          ) : (
+            <div className="verify-result bad">
+              <h2>{result.message}</h2>
+            </div>
+          )
         )}
       </section>
     </main>

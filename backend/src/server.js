@@ -65,13 +65,13 @@ function getRequestEventId(req) {
 
 function getDashboard(eventId, establishmentId) {
   const activePromoters = db
-    .prepare("SELECT COUNT(*) AS total FROM promoters WHERE establishment_id = ? AND status = 'active'")
+    .prepare("SELECT COUNT(*) AS total FROM promoters WHERE establishment_id = ? AND status = 'active' AND deleted_at IS NULL")
     .get(establishmentId).total;
   const totals = db
-    .prepare("SELECT COALESCE(SUM(total), 0) AS sold, COALESCE(SUM(commission), 0) AS commission FROM sales WHERE event_id = ? AND payment_status = 'paid'")
+    .prepare("SELECT COALESCE(SUM(total), 0) AS sold, COALESCE(SUM(commission), 0) AS commission FROM sales WHERE event_id = ? AND payment_status = 'paid' AND deleted_at IS NULL")
     .get(eventId);
   const todaySales = db
-    .prepare("SELECT COALESCE(SUM(total), 0) AS sold FROM sales WHERE event_id = ? AND payment_status = 'paid' AND sale_date = date('now', 'localtime')")
+    .prepare("SELECT COALESCE(SUM(total), 0) AS sold FROM sales WHERE event_id = ? AND payment_status = 'paid' AND sale_date = date('now', 'localtime') AND deleted_at IS NULL")
     .get(eventId).sold;
 
   return {
@@ -90,7 +90,7 @@ function findActivePromoterByCode(code) {
               establishments.name AS establishment_name, establishments.display_name AS establishment_display_name
        FROM promoters
        JOIN establishments ON establishments.id = promoters.establishment_id
-       WHERE promoters.status = 'active' AND establishments.status = 'active'`
+       WHERE promoters.status = 'active' AND promoters.deleted_at IS NULL AND establishments.status = 'active'`
     )
     .all()
     .find((promoter) => normalizeLookup(promoter.code) === lookup);
@@ -103,8 +103,8 @@ function findPromoterByCode(code, establishmentId = null) {
   }
 
   const rows = establishmentId
-    ? db.prepare('SELECT id, name, code FROM promoters WHERE establishment_id = ?').all(establishmentId)
-    : db.prepare('SELECT id, name, code FROM promoters').all();
+    ? db.prepare('SELECT id, name, code FROM promoters WHERE establishment_id = ? AND deleted_at IS NULL').all(establishmentId)
+    : db.prepare('SELECT id, name, code FROM promoters WHERE deleted_at IS NULL').all();
   return rows
     .find((promoter) => normalizeLookup(promoter.code) === lookup);
 }
@@ -113,9 +113,29 @@ function findActivePromoterForLogin(username, password) {
   const lookup = normalizeLookup(username);
   const cleanPassword = String(password || '').trim();
   return db
-    .prepare("SELECT id, establishment_id, name, username, code FROM promoters WHERE status = 'active' AND password = ?")
+    .prepare("SELECT id, establishment_id, name, username, code FROM promoters WHERE status = 'active' AND deleted_at IS NULL AND password = ?")
     .all(cleanPassword)
     .find((promoter) => normalizeLookup(promoter.username) === lookup || normalizeLookup(promoter.code) === lookup);
+}
+
+function containsBlockedWords(...values) {
+  const blocked = [
+    'puta',
+    'puto',
+    'mierda',
+    'verga',
+    'pendejo',
+    'pendeja',
+    'imbecil',
+    'idiota',
+    'cabron',
+    'maricon',
+    'hp'
+  ];
+  const text = values
+    .map((value) => normalizeLookup(value))
+    .join(' ');
+  return blocked.some((word) => text.includes(normalizeLookup(word)));
 }
 
 function buildPromoterCode(name) {
@@ -232,7 +252,7 @@ function recalculateCommissions(promoterId, locationName, eventId = getActiveEve
     .prepare(
       `SELECT id, quantity, unit_price, payment_status
        FROM sales
-       WHERE promoter_id = ? AND location = ? AND event_id = ?
+       WHERE promoter_id = ? AND location = ? AND event_id = ? AND deleted_at IS NULL
        ORDER BY sale_date ASC, id ASC`
     )
     .all(promoterId, locationName, eventId);
@@ -257,7 +277,7 @@ function recalculateCommissions(promoterId, locationName, eventId = getActiveEve
 }
 
 function recalculateAllCommissions() {
-  const groups = db.prepare('SELECT DISTINCT promoter_id, location, event_id FROM sales').all();
+  const groups = db.prepare('SELECT DISTINCT promoter_id, location, event_id FROM sales WHERE deleted_at IS NULL').all();
   for (const group of groups) {
     recalculateCommissions(group.promoter_id, group.location, group.event_id);
   }
@@ -325,10 +345,10 @@ function getLevelCatalog(settings = getLevelSettings()) {
 function getPromoterLevel(promoterId, eventId = getActiveEvent()?.id || 1) {
   const settings = getLevelSettings(eventId);
   const paidSalesRows = db
-    .prepare("SELECT quantity, location FROM sales WHERE promoter_id = ? AND event_id = ? AND payment_status = 'paid'")
+    .prepare("SELECT quantity, location FROM sales WHERE promoter_id = ? AND event_id = ? AND payment_status = 'paid' AND deleted_at IS NULL")
     .all(promoterId, eventId);
   const promoter = db.prepare('SELECT manual_points FROM promoters WHERE id = ?').get(promoterId);
-  const referralCount = db.prepare('SELECT COUNT(*) AS total FROM promoters WHERE referred_by_promoter_id = ?').get(promoterId).total;
+  const referralCount = db.prepare('SELECT COUNT(*) AS total FROM promoters WHERE referred_by_promoter_id = ? AND deleted_at IS NULL').get(promoterId).total;
   const locations = db.prepare('SELECT name, level_points FROM event_locations WHERE event_id = ?').all(eventId);
   const paidSales = paidSalesRows.length;
   const salesPoints = paidSalesRows.reduce((sum, sale) => {
@@ -478,6 +498,10 @@ app.post('/api/promoter-register', async (req, res) => {
 
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
     return res.status(400).json({ message: 'Ingresa un correo valido' });
+  }
+
+  if (containsBlockedWords(cleanName, cleanEmail, cleanWhatsapp, cleanInstagram)) {
+    return res.status(400).json({ message: 'El registro contiene palabras no permitidas. Revisa tus datos.' });
   }
 
   if (String(referral_code || '').trim() && !referrer) {
@@ -794,11 +818,11 @@ app.get('/api/promoters', requireAdmin, (req, res) => {
               referrer.code AS referrer_code,
               referrer.name AS referrer_name,
               branches.name AS branch_name,
-              (SELECT COUNT(*) FROM promoters AS referred WHERE referred.referred_by_promoter_id = promoters.id) AS referral_count
+              (SELECT COUNT(*) FROM promoters AS referred WHERE referred.referred_by_promoter_id = promoters.id AND referred.deleted_at IS NULL) AS referral_count
        FROM promoters
        LEFT JOIN promoters AS referrer ON referrer.id = promoters.referred_by_promoter_id
        LEFT JOIN branches ON branches.id = promoters.branch_id
-       WHERE promoters.establishment_id = ?
+       WHERE promoters.establishment_id = ? AND promoters.deleted_at IS NULL
        ORDER BY promoters.registered_at DESC, promoters.id DESC`
     )
     .all(establishmentId);
@@ -929,6 +953,19 @@ app.patch('/api/promoters/:id/status', requireAdmin, (req, res) => {
   }
 
   res.json(db.prepare('SELECT * FROM promoters WHERE id = ? AND establishment_id = ?').get(id, establishmentId));
+});
+
+app.delete('/api/promoters/:id', requireAdmin, (req, res) => {
+  const { id } = req.params;
+  const establishmentId = getRequestEstablishmentId(req);
+  const promoter = db.prepare('SELECT id, name FROM promoters WHERE id = ? AND establishment_id = ? AND deleted_at IS NULL').get(id, establishmentId);
+
+  if (!promoter) {
+    return res.status(404).json({ message: 'Promotor no encontrado' });
+  }
+
+  db.prepare("UPDATE promoters SET status = 'inactive', deleted_at = datetime('now', 'localtime') WHERE id = ? AND establishment_id = ?").run(id, establishmentId);
+  res.json({ ok: true });
 });
 
 app.patch('/api/promoters/:id/selling', requireAdmin, (req, res) => {
@@ -1156,7 +1193,7 @@ function createSale(req, res, forcedPromoterId = null) {
     return res.status(400).json({ message: 'Completa los datos de la venta' });
   }
 
-  const promoter = db.prepare("SELECT id, can_sell FROM promoters WHERE id = ? AND establishment_id = ? AND status = 'active'").get(selectedPromoterId, establishmentId);
+  const promoter = db.prepare("SELECT id, can_sell FROM promoters WHERE id = ? AND establishment_id = ? AND status = 'active' AND deleted_at IS NULL").get(selectedPromoterId, establishmentId);
   if (!promoter) {
     return res.status(400).json({ message: 'Selecciona un promotor activo' });
   }
@@ -1211,7 +1248,8 @@ function getAvailableCommission(promoterId, eventId, establishmentId) {
          AND establishment_id = ?
          AND payment_status = 'paid'
          AND commission > 0
-         AND commission_paid = 0`
+         AND commission_paid = 0
+         AND deleted_at IS NULL`
     )
     .get(promoterId, eventId, establishmentId);
   return toMoney(row?.total || 0);
@@ -1219,8 +1257,8 @@ function getAvailableCommission(promoterId, eventId, establishmentId) {
 
 function markSalePaid(res, saleId, promoterId = null) {
   const sale = promoterId
-    ? db.prepare('SELECT id, promoter_id, location, event_id FROM sales WHERE id = ? AND promoter_id = ?').get(saleId, promoterId)
-    : db.prepare('SELECT id, promoter_id, location, event_id FROM sales WHERE id = ?').get(saleId);
+    ? db.prepare('SELECT id, promoter_id, location, event_id FROM sales WHERE id = ? AND promoter_id = ? AND deleted_at IS NULL').get(saleId, promoterId)
+    : db.prepare('SELECT id, promoter_id, location, event_id FROM sales WHERE id = ? AND deleted_at IS NULL').get(saleId);
 
   if (!sale) {
     return res.status(404).json({ message: 'Venta no encontrada' });
@@ -1236,15 +1274,17 @@ app.patch('/api/sales/:id/pay', requireAdmin, (req, res) => {
 });
 
 app.delete('/api/sales/:id', requireAdmin, (req, res) => {
-  const sale = db.prepare('SELECT id, promoter_id, location, event_id FROM sales WHERE id = ?').get(req.params.id);
+  const eventId = getRequestEventId(req);
+  const establishmentId = getRequestEstablishmentId(req);
+  const sale = db.prepare('SELECT id, promoter_id, location, event_id FROM sales WHERE id = ? AND event_id = ? AND establishment_id = ? AND deleted_at IS NULL').get(req.params.id, eventId, establishmentId);
 
   if (!sale) {
     return res.status(404).json({ message: 'Venta no encontrada' });
   }
 
-  db.prepare('DELETE FROM sales WHERE id = ?').run(req.params.id);
+  db.prepare("UPDATE sales SET deleted_at = datetime('now', 'localtime'), deleted_by = ?, deletion_reason = ? WHERE id = ?").run(req.user.username || req.user.role || 'admin', 'Eliminada por administrador', req.params.id);
   recalculateCommissions(sale.promoter_id, sale.location, sale.event_id);
-  res.json({ ok: true });
+  res.json({ ok: true, archived: true });
 });
 
 app.get('/api/promoter/me', requirePromoter, (req, res) => {
@@ -1266,7 +1306,7 @@ app.patch('/api/promoter/profile', requirePromoter, (req, res) => {
 app.get('/api/promoter/sales', requirePromoter, (req, res) => {
   const eventId = getActiveEvent(req.user.establishmentId)?.id || 1;
   const sales = db
-    .prepare('SELECT * FROM sales WHERE promoter_id = ? AND establishment_id = ? AND event_id = ? ORDER BY sale_date DESC, id DESC')
+    .prepare('SELECT * FROM sales WHERE promoter_id = ? AND establishment_id = ? AND event_id = ? AND deleted_at IS NULL ORDER BY sale_date DESC, id DESC')
     .all(req.user.promoterId, req.user.establishmentId, eventId);
   res.json(sales);
 });
@@ -1370,8 +1410,8 @@ app.get('/api/ranking', requireAdmin, (req, res) => {
               COALESCE(SUM(CASE WHEN sales.payment_status = 'paid' THEN sales.total ELSE 0 END), 0) AS total_sold,
               COALESCE(SUM(CASE WHEN sales.payment_status = 'paid' THEN sales.commission ELSE 0 END), 0) AS total_commission
        FROM promoters
-       LEFT JOIN sales ON sales.promoter_id = promoters.id AND sales.event_id = ?
-       WHERE promoters.establishment_id = ?
+       LEFT JOIN sales ON sales.promoter_id = promoters.id AND sales.event_id = ? AND sales.deleted_at IS NULL
+       WHERE promoters.establishment_id = ? AND promoters.deleted_at IS NULL
        GROUP BY promoters.id
        ORDER BY total_sold DESC, sales_count DESC, promoters.name ASC`
     )
@@ -1395,8 +1435,8 @@ app.get('/api/settlements', requireAdmin, (req, res) => {
               COALESCE(SUM(CASE WHEN sales.commission_paid = 0 THEN sales.commission ELSE 0 END), 0) AS pending_commission,
               COALESCE(SUM(CASE WHEN sales.commission_paid = 1 THEN sales.commission ELSE 0 END), 0) AS paid_commission
        FROM promoters
-       LEFT JOIN sales ON sales.promoter_id = promoters.id AND sales.event_id = ?
-       WHERE promoters.establishment_id = ?
+       LEFT JOIN sales ON sales.promoter_id = promoters.id AND sales.event_id = ? AND sales.deleted_at IS NULL
+       WHERE promoters.establishment_id = ? AND promoters.deleted_at IS NULL
        GROUP BY promoters.id
        ORDER BY pending_commission DESC, total_sold DESC`
     )
@@ -1416,7 +1456,7 @@ app.patch('/api/settlements/:promoterId/pay', requireAdmin, (req, res) => {
   const { promoterId } = req.params;
   const eventId = getRequestEventId(req);
   const result = db
-    .prepare("UPDATE sales SET commission_paid = 1 WHERE promoter_id = ? AND event_id = ? AND payment_status = 'paid' AND commission > 0 AND commission_paid = 0")
+    .prepare("UPDATE sales SET commission_paid = 1 WHERE promoter_id = ? AND event_id = ? AND payment_status = 'paid' AND commission > 0 AND commission_paid = 0 AND deleted_at IS NULL")
     .run(promoterId, eventId);
   res.json({ updatedSales: result.changes });
 });
@@ -1464,9 +1504,10 @@ app.patch('/api/withdrawals/:id/pay', requireAdmin, (req, res) => {
          WHERE promoter_id = ?
            AND event_id = ?
            AND establishment_id = ?
-           AND payment_status = 'paid'
-           AND commission > 0
-           AND commission_paid = 0`
+            AND payment_status = 'paid'
+            AND commission > 0
+            AND commission_paid = 0
+            AND deleted_at IS NULL`
       )
       .run(withdrawal.promoter_id, eventId, establishmentId);
   });
