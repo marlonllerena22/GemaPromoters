@@ -1,6 +1,7 @@
 import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
+import nodemailer from 'nodemailer';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createToken, requireAdmin, requireAuth, requirePromoter, requireSupreme } from './auth.js';
@@ -135,6 +136,65 @@ function buildPromoterCode(name) {
   }
 
   return candidate;
+}
+
+function generatePromoterPassword() {
+  const random = Math.random().toString(36).slice(2, 8).toUpperCase();
+  return `PROMO${random}`;
+}
+
+function emailTransportConfigured() {
+  return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+}
+
+async function sendPromoterCredentialsEmail({ to, name, username, password, code }) {
+  if (!emailTransportConfigured()) {
+    return { sent: false, reason: 'SMTP no configurado' };
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: String(process.env.SMTP_SECURE || '').toLowerCase() === 'true',
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS
+    }
+  });
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER;
+  const loginUrl = process.env.PUBLIC_APP_URL || 'https://promoters.onrender.com';
+
+  await transporter.sendMail({
+    from,
+    to,
+    subject: 'Tus accesos a PROMOTERS / GEMASHOW',
+    text: `Hola ${name},
+
+Tu cuenta de promotor GEMASHOW fue creada correctamente.
+
+Usuario: ${username}
+Contrasena: ${password}
+Codigo de promotor: ${code}
+
+Ingresa aqui: ${loginUrl}
+
+Por seguridad, cambia tu contrasena desde tu perfil cuando ingreses.`,
+    html: `
+      <div style="font-family:Arial,sans-serif;background:#0f1020;color:#f7f4ff;padding:24px;border-radius:12px">
+        <h2 style="margin-top:0">Bienvenido/a a PROMOTERS</h2>
+        <p>Hola <strong>${name}</strong>, tu cuenta de promotor GEMASHOW fue creada correctamente.</p>
+        <div style="background:#181a2f;border:1px solid #343856;padding:16px;border-radius:10px">
+          <p><strong>Usuario:</strong> ${username}</p>
+          <p><strong>Contrasena:</strong> ${password}</p>
+          <p><strong>Codigo de promotor:</strong> ${code}</p>
+        </div>
+        <p><a href="${loginUrl}" style="color:#8bdcff">Ingresar a PROMOTERS</a></p>
+        <p style="color:#b8b3ca;font-size:13px">Por seguridad, cambia tu contrasena desde tu perfil cuando ingreses.</p>
+      </div>
+    `
+  });
+
+  return { sent: true };
 }
 
 function getLocationRule(locationName, eventId = getActiveEvent()?.id || 1) {
@@ -392,6 +452,96 @@ app.post('/api/auth/promoter-login', (req, res) => {
     token: createToken({ role: 'promoter', promoterId: promoter.id, establishmentId: promoter.establishment_id, username: promoter.username }),
     user: { role: 'promoter', id: promoter.id, name: promoter.name, code: promoter.code, establishment_id: promoter.establishment_id }
   });
+});
+
+app.post('/api/promoter-register', async (req, res) => {
+  const establishment = db.prepare("SELECT * FROM establishments WHERE name = 'GEMASHOW'").get() || getDefaultEstablishment();
+  const establishmentId = establishment?.id || 1;
+  const {
+    name,
+    cedula,
+    email,
+    whatsapp,
+    instagram,
+    referral_code
+  } = req.body;
+  const cleanName = String(name || '').trim();
+  const cleanCedula = String(cedula || '').trim();
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  const cleanWhatsapp = String(whatsapp || '').trim();
+  const cleanInstagram = String(instagram || '').trim();
+  const referrer = findPromoterByCode(referral_code, establishmentId);
+
+  if (!cleanName || !cleanCedula || !cleanEmail || !cleanWhatsapp || !cleanInstagram) {
+    return res.status(400).json({ message: 'Nombre, cedula, correo, WhatsApp e Instagram son obligatorios' });
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    return res.status(400).json({ message: 'Ingresa un correo valido' });
+  }
+
+  if (String(referral_code || '').trim() && !referrer) {
+    return res.status(400).json({ message: 'Codigo de referido no registrado' });
+  }
+
+  const existing = db
+    .prepare('SELECT id FROM promoters WHERE cedula = ? OR email = ?')
+    .get(cleanCedula, cleanEmail);
+  if (existing) {
+    return res.status(409).json({ message: 'Ya existe un promotor registrado con esa cedula o correo' });
+  }
+
+  const code = buildPromoterCode(cleanName);
+  const username = code;
+  const password = generatePromoterPassword();
+
+  try {
+    const result = db
+      .prepare(
+        `INSERT INTO promoters
+         (establishment_id, name, cedula, email, whatsapp, instagram, photo_url, code, username, password, referred_by_promoter_id, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`
+      )
+      .run(
+        establishmentId,
+        cleanName,
+        cleanCedula,
+        cleanEmail,
+        cleanWhatsapp,
+        cleanInstagram,
+        '',
+        code,
+        username,
+        password,
+        referrer?.id || null
+      );
+
+    let emailResult = { sent: false };
+    try {
+      emailResult = await sendPromoterCredentialsEmail({
+        to: cleanEmail,
+        name: cleanName,
+        username,
+        password,
+        code
+      });
+    } catch (error) {
+      emailResult = { sent: false, reason: error.message };
+    }
+
+    return res.status(201).json({
+      ok: true,
+      promoter_id: result.lastInsertRowid,
+      username,
+      code,
+      email_sent: Boolean(emailResult.sent),
+      message: emailResult.sent
+        ? 'Registro creado. Enviamos tus accesos al correo.'
+        : 'Registro creado. El correo aun no esta configurado o no pudo enviarse.'
+    });
+  } catch (error) {
+    return res.status(400).json({ message: 'No se pudo crear el registro del promotor' });
+  }
 });
 
 app.get('/api/establishments', requireAdmin, (req, res) => {

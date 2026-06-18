@@ -58,6 +58,7 @@ export function initDb() {
       branch_id INTEGER,
       name TEXT NOT NULL,
       cedula TEXT NOT NULL UNIQUE,
+      email TEXT,
       whatsapp TEXT NOT NULL,
       instagram TEXT,
       photo_url TEXT,
@@ -164,6 +165,7 @@ export function initDb() {
 
   addColumnIfMissing('promoters', 'username', 'TEXT');
   addColumnIfMissing('promoters', 'password', 'TEXT');
+  addColumnIfMissing('promoters', 'email', 'TEXT');
   addColumnIfMissing('promoters', 'photo_url', 'TEXT');
   addColumnIfMissing('promoters', 'can_sell', 'INTEGER NOT NULL DEFAULT 1');
   addColumnIfMissing('promoters', 'manual_points', 'REAL NOT NULL DEFAULT 0');

@@ -122,6 +122,15 @@ const emptyBranch = {
   status: 'active'
 };
 
+const emptyRegister = {
+  name: '',
+  cedula: '',
+  email: '',
+  whatsapp: '',
+  instagram: '',
+  referral_code: ''
+};
+
 function money(value) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
@@ -265,6 +274,10 @@ function App() {
     return <VerifyPage />;
   }
 
+  if (window.location.pathname === '/registro') {
+    return <RegisterPage />;
+  }
+
   if (!token) {
     return <Login onLogin={(nextToken, nextUser) => {
       saveToken(nextToken);
@@ -357,6 +370,69 @@ function Login({ onLogin }) {
             Entrar
           </button>
         </form>
+        <div className="login-secondary-actions">
+          <a href="/registro">Quiero registrarme como promotor</a>
+          <a href="/verificar">Verificar codigo de promotor</a>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function RegisterPage() {
+  const [form, setForm] = useState(emptyRegister);
+  const [error, setError] = useState('');
+  const [result, setResult] = useState(null);
+
+  async function submit(event) {
+    event.preventDefault();
+    setError('');
+    setResult(null);
+    try {
+      const response = await api('/promoter-register', {
+        method: 'POST',
+        body: JSON.stringify(form)
+      });
+      setResult(response);
+      setForm(emptyRegister);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  return (
+    <main className="register-shell">
+      <section className="register-panel">
+        <div className="login-brand-row">
+          <div className="brand-mark">P</div>
+          <div>
+            <span className="login-eyebrow">Registro oficial</span>
+            <h1>PROMOTERS</h1>
+          </div>
+        </div>
+        <p>Crea tu cuenta de promotor GEMASHOW. Tus accesos se enviaran al correo registrado.</p>
+        <form className="form-grid" onSubmit={submit}>
+          <Input label="Nombre completo" value={form.name} onChange={(name) => setForm({ ...form, name })} />
+          <Input label="Cedula" value={form.cedula} onChange={(cedula) => setForm({ ...form, cedula })} />
+          <Input type="email" label="Correo electronico" value={form.email} onChange={(email) => setForm({ ...form, email })} />
+          <Input label="WhatsApp" value={form.whatsapp} onChange={(whatsapp) => setForm({ ...form, whatsapp })} />
+          <Input label="Instagram" value={form.instagram} onChange={(instagram) => setForm({ ...form, instagram })} />
+          <Input label="Codigo de referido (opcional)" value={form.referral_code} onChange={(referral_code) => setForm({ ...form, referral_code })} />
+          {error && <div className="alert error">{error}</div>}
+          {result && (
+            <div className={result.email_sent ? 'alert success' : 'alert warning'}>
+              {result.message} Usuario generado: {result.username}
+            </div>
+          )}
+          <button className="primary-button" type="submit">
+            <UserRound size={18} />
+            Crear mi cuenta
+          </button>
+        </form>
+        <div className="login-secondary-actions">
+          <a href="/">Ya tengo cuenta</a>
+          <a href="/verificar">Verificar codigo</a>
+        </div>
       </section>
     </main>
   );

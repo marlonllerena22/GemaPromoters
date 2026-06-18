@@ -31,6 +31,7 @@ button:disabled {
 }
 
 .login-shell,
+.register-shell,
 .verify-shell {
   align-items: center;
   background:
@@ -46,6 +47,7 @@ button:disabled {
 }
 
 .login-panel,
+.register-panel,
 .verify-panel {
   background: rgba(14, 16, 28, 0.84);
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -65,13 +67,15 @@ input[type="file"] {
 }
 
 .login-panel h1,
+.register-panel h1,
 .verify-panel h1 {
   font-size: 38px;
   line-height: 1.05;
   margin: 12px 0 8px;
 }
 
-.login-panel p {
+.login-panel p,
+.register-panel p {
   color: #b8b3ca;
   margin: 0 0 24px;
 }
@@ -122,20 +126,38 @@ input[type="file"] {
   padding: 12px;
 }
 
-.login-panel label {
+.login-panel label,
+.register-panel label {
   color: #f7f4ff;
 }
 
-.login-panel input {
+.login-panel input,
+.register-panel input {
   background: rgba(255, 255, 255, 0.08);
   border-color: rgba(255, 255, 255, 0.16);
   color: #ffffff;
 }
 
-.login-panel .primary-button {
+.login-panel .primary-button,
+.register-panel .primary-button {
   background: linear-gradient(135deg, #8e5dff, #26c6da);
   border: 0;
   box-shadow: 0 16px 36px rgba(142, 93, 255, 0.28);
+}
+
+.login-secondary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  margin-top: 18px;
+}
+
+.login-secondary-actions a {
+  color: #b9a7ff;
+  font-size: 13px;
+  font-weight: 850;
+  text-decoration: none;
 }
 
 .brand-mark.small {
@@ -489,6 +511,11 @@ textarea {
 .alert.success {
   background: #e7f8d2;
   color: #325f13;
+}
+
+.alert.warning {
+  background: #fff4c2;
+  color: #765500;
 }
 
 .computed {
@@ -1476,12 +1503,14 @@ td {
 
 @media (max-width: 680px) {
   .login-shell,
+  .register-shell,
   .verify-shell {
     align-items: stretch;
     padding: 14px;
   }
 
   .login-panel,
+  .register-panel,
   .verify-panel {
     margin: auto 0;
     padding: 22px;

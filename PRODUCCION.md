@@ -27,7 +27,16 @@ JWT_SECRET=una-clave-larga-y-secreta
 ADMIN_USER=admin
 ADMIN_PASSWORD=tu-clave-segura
 DB_PATH=/var/data/gemapromoters.sqlite
+PUBLIC_APP_URL=https://tu-app.onrender.com
+SMTP_HOST=smtp.tu-proveedor.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=tu-correo@dominio.com
+SMTP_PASS=tu-clave-smtp
+SMTP_FROM=tu-correo@dominio.com
 ```
+
+Las variables `SMTP_*` son necesarias para que el registro publico envie al promotor su usuario y contrasena por correo. Si no estan configuradas, el promotor se crea igual, pero el correo no saldra.
 
 ## Comandos de produccion
 
@@ -79,6 +88,12 @@ Verificacion publica:
 
 ```text
 https://gemapromoters.onrender.com/verificar
+```
+
+Registro publico de promotores:
+
+```text
+https://gemapromoters.onrender.com/registro
 ```
 
 ## Nota sobre datos actuales
