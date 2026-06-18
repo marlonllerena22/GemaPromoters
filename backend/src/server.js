@@ -233,31 +233,18 @@ function getLocationRule(locationName, eventId = getActiveEvent()?.id || 1) {
   };
 }
 
-function calculateCommission(rule, unitPrice, tickets) {
-  if (tickets <= 0) {
-    return 0;
-  }
-
-  if (rule.commission_type === 'fixed') {
-    return toMoney(Number(rule.commission_value || 0) * tickets);
-  }
-
-  return toMoney(Number(unitPrice || 0) * tickets * (Number(rule.commission_value || 0) / 100));
-}
-
 function recalculateCommissions(promoterId, locationName, eventId = getActiveEvent()?.id || 1) {
-  const rule = getLocationRule(locationName, eventId);
-  const threshold = Math.max(1, Number(rule.commission_min_quantity || 1));
+  const settings = getLevelSettings(eventId);
+  const level = getPromoterLevel(promoterId, eventId);
+  const rate = Number(settings.commissions?.[level.key] || 0);
   const sales = db
     .prepare(
-      `SELECT id, quantity, unit_price, payment_status
+      `SELECT id, total, payment_status
        FROM sales
-       WHERE promoter_id = ? AND location = ? AND event_id = ? AND deleted_at IS NULL
+       WHERE promoter_id = ? AND event_id = ? AND deleted_at IS NULL
        ORDER BY sale_date ASC, id ASC`
     )
-    .all(promoterId, locationName, eventId);
-
-  let paidTickets = 0;
+    .all(promoterId, eventId);
 
   for (const sale of sales) {
     if (sale.payment_status !== 'paid') {
@@ -265,12 +252,7 @@ function recalculateCommissions(promoterId, locationName, eventId = getActiveEve
       continue;
     }
 
-    const before = paidTickets;
-    paidTickets += Number(sale.quantity || 0);
-    const commissionableBefore = Math.max(0, before - threshold + 1);
-    const commissionableAfter = Math.max(0, paidTickets - threshold + 1);
-    const commissionableTickets = commissionableAfter - commissionableBefore;
-    const commission = calculateCommission(rule, sale.unit_price, commissionableTickets);
+    const commission = toMoney(Number(sale.total || 0) * (rate / 100));
 
     db.prepare('UPDATE sales SET commission = ? WHERE id = ?').run(commission, sale.id);
   }
@@ -304,6 +286,13 @@ function getLevelSettings(eventId = getActiveEvent()?.id || 1) {
     gold: goldMin,
     diamond: goldMin,
     referralPoints: Number(settings.referral_points ?? 3),
+    commissions: {
+      starter: 0,
+      bronze: Number(settings.level_bronze_commission ?? 2),
+      silver: Number(settings.level_silver_commission ?? 5),
+      gold: Number(settings.level_gold_commission ?? settings.level_diamond_commission ?? 10),
+      diamond: Number(settings.level_gold_commission ?? settings.level_diamond_commission ?? 10)
+    },
     benefits: {
       bronze: benefitsFrom(
         'level_bronze_benefits',
@@ -409,6 +398,9 @@ function seedEventSettingsFromActive(eventId) {
     { key: 'level_silver_min', value: '10' },
     { key: 'level_diamond_min', value: '25' },
     { key: 'referral_points', value: '3' },
+    { key: 'level_bronze_commission', value: '2' },
+    { key: 'level_silver_commission', value: '5' },
+    { key: 'level_diamond_commission', value: '10' },
     { key: 'level_bronze_benefits', value: 'Acceso a preventas internas\nMaterial digital GEMASHOW\nReconocimiento como Bronze promoter' },
     { key: 'level_silver_benefits', value: 'Prioridad en localidades de alta demanda\nBonos especiales por metas\nInsignia Silver en el perfil' },
     { key: 'level_diamond_benefits', value: 'Beneficios VIP de promotor top\nPrioridad maxima en cupos\nReconocimiento Gold GEMASHOW' }
@@ -829,6 +821,7 @@ app.get('/api/promoters', requireAdmin, (req, res) => {
   res.json(
     promoters.map((promoter) => ({
       ...promoter,
+      level: getPromoterLevel(promoter.id, getRequestEventId(req)),
       referral_points_earned: toMoney(Number(promoter.referral_count || 0) * Number(settings.referralPoints || 0))
     }))
   );
@@ -952,6 +945,8 @@ app.patch('/api/promoters/:id/status', requireAdmin, (req, res) => {
     return res.status(404).json({ message: 'Promotor no encontrado' });
   }
 
+  recalculateAllCommissions();
+
   res.json(db.prepare('SELECT * FROM promoters WHERE id = ? AND establishment_id = ?').get(id, establishmentId));
 });
 
@@ -978,6 +973,8 @@ app.patch('/api/promoters/:id/selling', requireAdmin, (req, res) => {
     return res.status(404).json({ message: 'Promotor no encontrado' });
   }
 
+  recalculateAllCommissions();
+
   res.json(db.prepare('SELECT * FROM promoters WHERE id = ? AND establishment_id = ?').get(id, establishmentId));
 });
 
@@ -990,6 +987,8 @@ app.patch('/api/promoters/:id/manual-points', requireAdmin, (req, res) => {
   if (!result.changes) {
     return res.status(404).json({ message: 'Promotor no encontrado' });
   }
+
+  recalculateAllCommissions();
 
   res.json(db.prepare('SELECT * FROM promoters WHERE id = ? AND establishment_id = ?').get(id, establishmentId));
 });
@@ -1004,6 +1003,9 @@ app.put('/api/level-settings', requireAdmin, (req, res) => {
   const silver = Math.max(bronze, Number(req.body.silver || bronze));
   const gold = Math.max(silver, Number(req.body.gold ?? req.body.diamond ?? silver));
   const referralPoints = Math.max(0, Number(req.body.referral_points ?? req.body.referralPoints ?? 3));
+  const bronzeCommission = Math.max(0, Number(req.body.bronze_commission ?? 2));
+  const silverCommission = Math.max(0, Number(req.body.silver_commission ?? 5));
+  const goldCommission = Math.max(0, Number(req.body.gold_commission ?? req.body.diamond_commission ?? 10));
   const cleanBenefits = (value) =>
     String(value || '')
       .split('\n')
@@ -1017,9 +1019,14 @@ app.put('/api/level-settings', requireAdmin, (req, res) => {
   save.run(eventId, 'level_silver_min', String(silver));
   save.run(eventId, 'level_diamond_min', String(gold));
   save.run(eventId, 'referral_points', String(toMoney(referralPoints)));
+  save.run(eventId, 'level_bronze_commission', String(toMoney(bronzeCommission)));
+  save.run(eventId, 'level_silver_commission', String(toMoney(silverCommission)));
+  save.run(eventId, 'level_diamond_commission', String(toMoney(goldCommission)));
   save.run(eventId, 'level_bronze_benefits', cleanBenefits(req.body.bronze_benefits));
   save.run(eventId, 'level_silver_benefits', cleanBenefits(req.body.silver_benefits));
   save.run(eventId, 'level_diamond_benefits', cleanBenefits(req.body.gold_benefits ?? req.body.diamond_benefits));
+
+  recalculateAllCommissions();
 
   res.json(getLevelSettings(eventId));
 });
@@ -1049,7 +1056,7 @@ app.post('/api/locations', requireAdmin, (req, res) => {
   const parsedLevelPoints = Math.max(0, Number(level_points || 0));
 
   if (!name || parsedPrice < 0 || parsedCommission < 0 || !['percent', 'fixed'].includes(commission_type)) {
-    return res.status(400).json({ message: 'Completa la localidad, precio y comision' });
+    return res.status(400).json({ message: 'Completa la localidad y precio' });
   }
 
   try {
@@ -1093,7 +1100,7 @@ app.put('/api/locations/:id', requireAdmin, (req, res) => {
   const parsedLevelPoints = Math.max(0, Number(level_points || 0));
 
   if (!name || parsedPrice < 0 || parsedCommission < 0 || !['percent', 'fixed'].includes(commission_type)) {
-    return res.status(400).json({ message: 'Completa la localidad, precio y comision' });
+    return res.status(400).json({ message: 'Completa la localidad y precio' });
   }
 
   try {

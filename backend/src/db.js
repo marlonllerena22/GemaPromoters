@@ -271,6 +271,9 @@ export function initDb() {
       ('level_silver_min', '10'),
       ('level_diamond_min', '25'),
       ('referral_points', '3'),
+      ('level_bronze_commission', '2'),
+      ('level_silver_commission', '5'),
+      ('level_diamond_commission', '10'),
       ('level_bronze_benefits', 'Acceso a preventas internas\nMaterial digital GEMASHOW\nReconocimiento como Bronze promoter'),
       ('level_silver_benefits', 'Prioridad en localidades de alta demanda\nBonos especiales por metas\nInsignia Silver en el perfil'),
       ('level_diamond_benefits', 'Beneficios VIP de promotor top\nPrioridad maxima en cupos\nReconocimiento Gold GEMASHOW');
@@ -427,6 +430,9 @@ function seedDefaultEventSettings(eventId) {
     ['level_silver_min', '10'],
     ['level_diamond_min', '25'],
     ['referral_points', '3'],
+    ['level_bronze_commission', '2'],
+    ['level_silver_commission', '5'],
+    ['level_diamond_commission', '10'],
     ['level_bronze_benefits', 'Acceso a preventas internas\nMaterial digital GEMASHOW\nReconocimiento como Bronze promoter'],
     ['level_silver_benefits', 'Prioridad en localidades de alta demanda\nBonos especiales por metas\nInsignia Silver en el perfil'],
     ['level_diamond_benefits', 'Beneficios VIP de promotor top\nPrioridad maxima en cupos\nReconocimiento Gold GEMASHOW']

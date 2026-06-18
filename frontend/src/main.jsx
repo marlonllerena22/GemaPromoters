@@ -54,6 +54,12 @@ const emptyLevels = {
     silver: ['Prioridad en localidades de alta demanda', 'Bonos especiales por metas', 'Insignia Silver en el perfil'],
     gold: ['Beneficios VIP de promotor top', 'Prioridad maxima en cupos', 'Reconocimiento Gold GEMASHOW']
   },
+  commissions: {
+    starter: 0,
+    bronze: 2,
+    silver: 5,
+    gold: 10
+  },
   referralPoints: 3
 };
 
@@ -145,6 +151,9 @@ function normalizeLevelForm(levels = emptyLevels) {
     silver: levels.silver ?? emptyLevels.silver,
     gold: levels.gold ?? levels.diamond ?? emptyLevels.gold,
     referral_points: levels.referralPoints ?? emptyLevels.referralPoints,
+    bronze_commission: levels.commissions?.bronze ?? emptyLevels.commissions.bronze,
+    silver_commission: levels.commissions?.silver ?? emptyLevels.commissions.silver,
+    gold_commission: levels.commissions?.gold ?? levels.commissions?.diamond ?? emptyLevels.commissions.gold,
     bronze_benefits: benefitsText(levels.benefits?.bronze || emptyLevels.benefits.bronze),
     silver_benefits: benefitsText(levels.benefits?.silver || emptyLevels.benefits.silver),
     gold_benefits: benefitsText(levels.benefits?.gold || levels.benefits?.diamond || emptyLevels.benefits.gold)
@@ -202,44 +211,15 @@ function imageFileToDataUrl(file) {
   });
 }
 
-function commissionLabel(location) {
-  if (!location) {
-    return 'Sin regla';
-  }
-
-  const value = Number(location.commission_value || 0);
-  const type = location.commission_type === 'fixed' ? `${money(value)} por entrada` : `${value}%`;
-  return `${type} desde ${location.commission_min_quantity || 1} entradas confirmadas`;
-}
-
-function estimateCommission(form, locations, sales, promoterId = form.promoter_id) {
+function estimateCommission(form, promoters, levels, promoterId = form.promoter_id) {
   if (form.payment_status !== 'paid') {
     return 0;
   }
 
-  const location = locations.find((item) => item.name === form.location);
-  if (!location) {
-    return Number(form.quantity || 0) * Number(form.unit_price || 0) * 0.03;
-  }
-
-  const threshold = Math.max(1, Number(location.commission_min_quantity || 1));
-  const previousPaidTickets = sales
-    .filter((sale) =>
-      sale.payment_status === 'paid' &&
-      sale.location === form.location &&
-      (!promoterId || String(sale.promoter_id) === String(promoterId))
-    )
-    .reduce((sum, sale) => sum + Number(sale.quantity || 0), 0);
-  const nextPaidTickets = previousPaidTickets + Number(form.quantity || 0);
-  const before = Math.max(0, previousPaidTickets - threshold + 1);
-  const after = Math.max(0, nextPaidTickets - threshold + 1);
-  const commissionableTickets = after - before;
-
-  if (location.commission_type === 'fixed') {
-    return commissionableTickets * Number(location.commission_value || 0);
-  }
-
-  return commissionableTickets * Number(form.unit_price || 0) * (Number(location.commission_value || 0) / 100);
+  const promoter = promoters.find((item) => String(item.id) === String(promoterId));
+  const levelKey = promoter?.level?.key || 'starter';
+  const rate = Number(levels?.commissions?.[levelKey] || 0);
+  return Number(form.quantity || 0) * Number(form.unit_price || 0) * (rate / 100);
 }
 
 function paymentLabel(status) {
@@ -625,7 +605,7 @@ function AdminApp({ user, onLogout }) {
               <Promoters promoters={data.promoters} branches={data.branches} establishmentId={selectedEstablishmentId} onRefresh={refresh} />
             )}
             {view === 'sales' && (
-              <Sales promoters={data.promoters} sales={data.sales} locations={data.locations} eventId={selectedEventId} establishmentId={selectedEstablishmentId} onRefresh={refresh} />
+              <Sales promoters={data.promoters} sales={data.sales} locations={data.locations} levels={data.levels} eventId={selectedEventId} establishmentId={selectedEstablishmentId} onRefresh={refresh} />
             )}
             {view === 'ranking' && <Ranking ranking={data.ranking} />}
             {view === 'withdrawals' && (
@@ -1147,7 +1127,7 @@ function Promoters({ promoters, branches, establishmentId, onRefresh }) {
   );
 }
 
-function Sales({ promoters, sales, locations, eventId, establishmentId, onRefresh }) {
+function Sales({ promoters, sales, locations, levels, eventId, establishmentId, onRefresh }) {
   const [form, setForm] = useState(emptySale);
   const [promoterCode, setPromoterCode] = useState('');
   const [promoterFilter, setPromoterFilter] = useState('');
@@ -1156,8 +1136,8 @@ function Sales({ promoters, sales, locations, eventId, establishmentId, onRefres
   const filteredSales = promoterFilter ? sales.filter((sale) => String(sale.promoter_id) === String(promoterFilter)) : sales;
   const estimatedTotal = useMemo(() => Number(form.quantity || 0) * Number(form.unit_price || 0), [form]);
   const estimatedCommission = useMemo(
-    () => estimateCommission(form, locations, sales, form.promoter_id),
-    [form, locations, sales]
+    () => estimateCommission(form, promoters, levels, form.promoter_id),
+    [form, promoters, levels]
   );
   const activeLocations = locations.filter((location) => location.status === 'active');
 
@@ -1441,28 +1421,6 @@ function Locations({ locations, eventId, establishmentId, onRefresh }) {
         <form className="form-grid" onSubmit={submit}>
           <Input label="Localidad" value={form.name} onChange={(name) => setForm({ ...form, name })} />
           <Input type="number" label="Precio" value={form.price} onChange={(price) => setForm({ ...form, price })} />
-          <label>
-            Tipo de comision
-            <select
-              value={form.commission_type}
-              onChange={(e) => setForm({ ...form, commission_type: e.target.value })}
-            >
-              <option value="percent">Porcentaje</option>
-              <option value="fixed">Valor por entrada</option>
-            </select>
-          </label>
-          <Input
-            type="number"
-            label={form.commission_type === 'fixed' ? 'Comision por entrada' : 'Porcentaje de comision'}
-            value={form.commission_value}
-            onChange={(commission_value) => setForm({ ...form, commission_value })}
-          />
-          <Input
-            type="number"
-            label="Comision desde cuantas entradas"
-            value={form.commission_min_quantity}
-            onChange={(commission_min_quantity) => setForm({ ...form, commission_min_quantity })}
-          />
           <Input
             type="number"
             label="Puntos para nivel por entrada confirmada"
@@ -1493,7 +1451,6 @@ function Locations({ locations, eventId, establishmentId, onRefresh }) {
               <div>
                 <strong>{location.name}</strong>
                 <span>{money(location.price)} · {location.status === 'active' ? 'Activa' : 'Inactiva'}</span>
-                <small>{commissionLabel(location)}</small>
                 <small>{location.level_points ?? 1} puntos de nivel por entrada confirmada</small>
               </div>
               <div className="row-actions">
@@ -1539,6 +1496,9 @@ function Levels({ levels, eventId, establishmentId, onRefresh }) {
         <Input type="number" label="Bronze desde puntos" value={form.bronze} onChange={(bronze) => setForm({ ...form, bronze })} />
         <Input type="number" label="Silver desde puntos" value={form.silver} onChange={(silver) => setForm({ ...form, silver })} />
         <Input type="number" label="Gold desde puntos" value={form.gold} onChange={(gold) => setForm({ ...form, gold })} />
+        <Input type="number" label="Comision Bronze %" value={form.bronze_commission} onChange={(bronze_commission) => setForm({ ...form, bronze_commission })} />
+        <Input type="number" label="Comision Silver %" value={form.silver_commission} onChange={(silver_commission) => setForm({ ...form, silver_commission })} />
+        <Input type="number" label="Comision Gold %" value={form.gold_commission} onChange={(gold_commission) => setForm({ ...form, gold_commission })} />
         <Input
           type="number"
           label="Puntos por referido"
@@ -1582,6 +1542,7 @@ function Levels({ levels, eventId, establishmentId, onRefresh }) {
         <article className="level-card bronze">
           <strong>Bronze</strong>
           <span>Desde {form.bronze} puntos</span>
+          <span>{form.bronze_commission}% de comision</span>
           <ul>
             {benefitsText(form.bronze_benefits).split('\n').filter(Boolean).map((benefit) => <li key={benefit}>{benefit}</li>)}
           </ul>
@@ -1589,6 +1550,7 @@ function Levels({ levels, eventId, establishmentId, onRefresh }) {
         <article className="level-card silver">
           <strong>Silver</strong>
           <span>Desde {form.silver} puntos</span>
+          <span>{form.silver_commission}% de comision</span>
           <ul>
             {benefitsText(form.silver_benefits).split('\n').filter(Boolean).map((benefit) => <li key={benefit}>{benefit}</li>)}
           </ul>
@@ -1596,6 +1558,7 @@ function Levels({ levels, eventId, establishmentId, onRefresh }) {
         <article className="level-card gold">
           <strong>Gold</strong>
           <span>Desde {form.gold} puntos</span>
+          <span>{form.gold_commission}% de comision</span>
           <ul>
             {benefitsText(form.gold_benefits).split('\n').filter(Boolean).map((benefit) => <li key={benefit}>{benefit}</li>)}
           </ul>
