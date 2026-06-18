@@ -82,15 +82,15 @@ function getDashboard(eventId, establishmentId) {
   };
 }
 
-function findActivePromoterByCode(code) {
+function findPromoterForVerification(code) {
   const lookup = normalizeLookup(code);
   return db
     .prepare(
-      `SELECT promoters.id, promoters.name, promoters.instagram, promoters.whatsapp, promoters.photo_url, promoters.code,
+      `SELECT promoters.id, promoters.name, promoters.instagram, promoters.whatsapp, promoters.photo_url, promoters.code, promoters.status,
               establishments.name AS establishment_name, establishments.display_name AS establishment_display_name
        FROM promoters
        JOIN establishments ON establishments.id = promoters.establishment_id
-       WHERE promoters.status = 'active' AND promoters.deleted_at IS NULL AND establishments.status = 'active'`
+       WHERE promoters.deleted_at IS NULL AND establishments.status = 'active'`
     )
     .all()
     .find((promoter) => normalizeLookup(promoter.code) === lookup);
@@ -210,6 +210,52 @@ Por seguridad, cambia tu contrasena desde tu perfil cuando ingreses.`,
         </div>
         <p><a href="${loginUrl}" style="color:#8bdcff">Ingresar a PROMOTERS</a></p>
         <p style="color:#b8b3ca;font-size:13px">Por seguridad, cambia tu contrasena desde tu perfil cuando ingreses.</p>
+      </div>
+    `
+  });
+
+  return { sent: true };
+}
+
+async function sendWithdrawalPaidEmail({ to, name, withdrawal }) {
+  if (!emailTransportConfigured() || !to) {
+    return { sent: false, reason: 'SMTP no configurado o promotor sin correo' };
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: String(process.env.SMTP_SECURE || '').toLowerCase() === 'true',
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS
+    }
+  });
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER;
+  const requestNumber = `RET-${String(withdrawal.id).padStart(6, '0')}`;
+  const amount = `$${toMoney(withdrawal.amount).toFixed(2)}`;
+
+  await transporter.sendMail({
+    from,
+    to,
+    subject: `Pago confirmado - ${requestNumber}`,
+    text: `Hola ${name},
+
+Tu retiro fue marcado como pagado.
+
+Solicitud: ${requestNumber}
+Valor pagado: ${amount}
+
+Gracias por formar parte de PROMOTERS.`,
+    html: `
+      <div style="font-family:Arial,sans-serif;background:#0f1020;color:#f7f4ff;padding:24px;border-radius:12px">
+        <h2 style="margin-top:0">Pago de retiro confirmado</h2>
+        <p>Hola <strong>${name}</strong>, tu retiro fue marcado como pagado.</p>
+        <div style="background:#181a2f;border:1px solid #343856;padding:16px;border-radius:10px">
+          <p><strong>Solicitud:</strong> ${requestNumber}</p>
+          <p><strong>Valor pagado:</strong> ${amount}</p>
+        </div>
+        <p style="color:#b8b3ca;font-size:13px">Gracias por formar parte de PROMOTERS.</p>
       </div>
     `
   });
@@ -516,7 +562,7 @@ app.post('/api/promoter-register', async (req, res) => {
       .prepare(
         `INSERT INTO promoters
          (establishment_id, name, cedula, email, whatsapp, instagram, photo_url, code, username, password, referred_by_promoter_id, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'inactive')`
       )
       .run(
         establishmentId,
@@ -552,8 +598,8 @@ app.post('/api/promoter-register', async (req, res) => {
       code,
       email_sent: Boolean(emailResult.sent),
       message: emailResult.sent
-        ? 'Registro creado. Enviamos tus accesos al correo.'
-        : 'Registro creado. El correo aun no esta configurado o no pudo enviarse.'
+        ? 'Registro creado. Enviamos tus accesos al correo. Tu cuenta queda pendiente de activacion por el administrador.'
+        : 'Registro creado. Tu cuenta queda pendiente de activacion por el administrador, pero el correo aun no esta configurado o no pudo enviarse.'
     });
   } catch (error) {
     return res.status(400).json({ message: 'No se pudo crear el registro del promotor' });
@@ -1487,11 +1533,20 @@ app.get('/api/withdrawals', requireAdmin, (req, res) => {
   res.json(rows);
 });
 
-app.patch('/api/withdrawals/:id/pay', requireAdmin, (req, res) => {
+app.patch('/api/withdrawals/:id/pay', requireAdmin, async (req, res) => {
   const eventId = getRequestEventId(req);
   const establishmentId = getRequestEstablishmentId(req);
   const withdrawal = db
-    .prepare('SELECT * FROM withdrawal_requests WHERE id = ? AND event_id = ? AND establishment_id = ?')
+    .prepare(
+      `SELECT withdrawal_requests.*,
+              promoters.name AS promoter_name,
+              promoters.email AS promoter_email
+       FROM withdrawal_requests
+       JOIN promoters ON promoters.id = withdrawal_requests.promoter_id
+       WHERE withdrawal_requests.id = ?
+         AND withdrawal_requests.event_id = ?
+         AND withdrawal_requests.establishment_id = ?`
+    )
     .get(req.params.id, eventId, establishmentId);
 
   if (!withdrawal) {
@@ -1520,41 +1575,56 @@ app.patch('/api/withdrawals/:id/pay', requireAdmin, (req, res) => {
   });
 
   const result = transaction();
-  res.json({ ok: true, updatedSales: result.changes });
+  let emailResult = { sent: false };
+  try {
+    emailResult = await sendWithdrawalPaidEmail({
+      to: withdrawal.promoter_email,
+      name: withdrawal.promoter_name,
+      withdrawal
+    });
+  } catch (error) {
+    emailResult = { sent: false, reason: error.message };
+  }
+
+  res.json({ ok: true, updatedSales: result.changes, email_sent: Boolean(emailResult.sent) });
 });
 
 app.get('/api/verify/:code', (req, res) => {
-  const promoter = findActivePromoterByCode(req.params.code);
+  const promoter = findPromoterForVerification(req.params.code);
   const eventId = getActiveEvent()?.id || 1;
 
   if (!promoter) {
     return res.status(404).json({ registered: false, message: 'Codigo no registrado' });
   }
 
+  const isActive = promoter.status === 'active';
   return res.json({
     registered: true,
-    message: 'Promotor oficial GEMASHOW',
+    active: isActive,
+    message: isActive ? 'Promotor oficial GEMASHOW' : 'Promotor inactivo',
     promoter: {
       ...promoter,
-      level: getPromoterLevel(promoter.id, eventId)
+      level: isActive ? getPromoterLevel(promoter.id, eventId) : { key: 'inactive', name: 'Inactive' }
     }
   });
 });
 
 app.post('/api/verify', (req, res) => {
-  const promoter = findActivePromoterByCode(req.body.code);
+  const promoter = findPromoterForVerification(req.body.code);
   const eventId = getActiveEvent()?.id || 1;
 
   if (!promoter) {
     return res.status(404).json({ registered: false, message: 'Codigo no registrado' });
   }
 
+  const isActive = promoter.status === 'active';
   return res.json({
     registered: true,
-    message: 'Promotor oficial GEMASHOW',
+    active: isActive,
+    message: isActive ? 'Promotor oficial GEMASHOW' : 'Promotor inactivo',
     promoter: {
       ...promoter,
-      level: getPromoterLevel(promoter.id, eventId)
+      level: isActive ? getPromoterLevel(promoter.id, eventId) : { key: 'inactive', name: 'Inactive' }
     }
   });
 });

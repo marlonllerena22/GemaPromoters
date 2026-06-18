@@ -1494,6 +1494,12 @@ td {
   background: linear-gradient(135deg, #221c35, #4e3b7f);
 }
 
+.verify-member-card.inactive {
+  background: linear-gradient(135deg, #4a0e18, #b91c1c);
+  border-color: rgba(255, 216, 216, 0.6);
+  box-shadow: 0 28px 65px rgba(92, 8, 18, 0.44);
+}
+
 .verify-member-card.bronze {
   background: linear-gradient(135deg, #3b2416, #a86428);
 }

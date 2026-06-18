@@ -2148,6 +2148,7 @@ function PromoterAppPremium({ user, onLogout }) {
         body: JSON.stringify(passwordForm)
       });
       setPasswordForm({ currentPassword: '', newPassword: '' });
+      setProfileEditorOpen(false);
       setNotice('Contrasena actualizada');
       setTimeout(() => setNotice(''), 2400);
     } catch (err) {
@@ -2164,6 +2165,7 @@ function PromoterAppPremium({ user, onLogout }) {
         body: JSON.stringify(profileForm)
       });
       setProfile(nextProfile);
+      setProfileEditorOpen(false);
       setNotice('Foto actualizada');
       setTimeout(() => setNotice(''), 2400);
     } catch (err) {
@@ -2207,6 +2209,12 @@ function PromoterAppPremium({ user, onLogout }) {
       setNotice('No se pudo copiar automaticamente');
     }
     setTimeout(() => setNotice(''), 2200);
+  }
+
+  function openWithdrawalPanel() {
+    setWithdrawalError('');
+    setWithdrawalPanelOpen(true);
+    setTimeout(() => document.getElementById('solicitar-retiro')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
   }
 
   async function shareReferral() {
@@ -2330,7 +2338,7 @@ function PromoterAppPremium({ user, onLogout }) {
                 {showCommission ? <EyeOff size={17} /> : <Eye size={17} />}
                 {showCommission ? 'Ocultar' : 'Mostrar'}
               </button>
-              <button className="premium-primary-button" type="button" disabled={confirmedCommission <= 0 || Boolean(pendingWithdrawal)} onClick={() => setWithdrawalPanelOpen(true)}>
+              <button className="premium-primary-button" type="button" disabled={confirmedCommission <= 0 || Boolean(pendingWithdrawal)} onClick={openWithdrawalPanel}>
                 <CreditCard size={17} />
                 {pendingWithdrawal ? 'Retiro pendiente' : 'Retiro'}
               </button>
@@ -2360,7 +2368,7 @@ function PromoterAppPremium({ user, onLogout }) {
       </section>
 
       {withdrawalPanelOpen && (
-        <section className="premium-card withdrawal-panel">
+        <section className="premium-card withdrawal-panel" id="solicitar-retiro">
           <div className="panel-title">
             <h3>Solicitar retiro</h3>
           </div>
@@ -2587,28 +2595,29 @@ function VerifyPage() {
         </form>
         {result && (
           result.registered ? (
-            <div className={`verify-member-card ${result.promoter.level?.key || 'starter'}`}>
+            <div className={`verify-member-card ${result.active === false ? 'inactive' : result.promoter.level?.key || 'starter'}`}>
               <div className="verify-card-top">
                 <div>
                   <span>PROMOTERS / GEMASHOW</span>
                   <h2>{result.message}</h2>
                 </div>
-                <BadgeCheck size={30} />
+                {result.active === false ? <Lock size={30} /> : <BadgeCheck size={30} />}
               </div>
               <div className="verify-card-main">
                 <div className="verify-photo">
                   {result.promoter.photo_url ? <img src={result.promoter.photo_url} alt={result.promoter.name} /> : <UserRound size={48} />}
                 </div>
                 <div>
-                  <small>Afiliado verificado</small>
+                  <small>{result.active === false ? 'Afiliado pendiente de activacion' : 'Afiliado verificado'}</small>
                   <strong>{result.promoter.name}</strong>
-                  <span>{result.promoter.level?.name || 'Starter'}</span>
+                  <span>{result.active === false ? 'Promotor inactivo' : result.promoter.level?.name || 'Starter'}</span>
                 </div>
               </div>
               <div className="verify-card-details">
                 <p>{result.promoter.instagram || 'Sin Instagram'}</p>
                 <p>WhatsApp: {result.promoter.whatsapp}</p>
                 <p>Codigo: {result.promoter.code}</p>
+                {result.active === false && <p>Este codigo existe, pero aun no esta autorizado para vender.</p>}
               </div>
             </div>
           ) : (
