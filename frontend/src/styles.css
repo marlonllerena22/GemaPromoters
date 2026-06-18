@@ -138,6 +138,22 @@ input[type="file"] {
   color: #ffffff;
 }
 
+.login-panel .remember-control {
+  align-items: center;
+  color: #d8d3ea;
+  display: flex;
+  flex-direction: row;
+  font-size: 13px;
+  font-weight: 800;
+  gap: 10px;
+}
+
+.login-panel .remember-control input {
+  accent-color: #8e5dff;
+  height: 16px;
+  width: 16px;
+}
+
 .login-panel .primary-button,
 .register-panel .primary-button {
   background: linear-gradient(135deg, #8e5dff, #26c6da);

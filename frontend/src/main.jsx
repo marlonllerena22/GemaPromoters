@@ -301,7 +301,15 @@ function App() {
 }
 
 function Login({ onLogin }) {
-  const [form, setForm] = useState({ username: '', password: '' });
+  const savedCredentials = (() => {
+    try {
+      return JSON.parse(localStorage.getItem('promoters_remember_credentials') || '{}');
+    } catch {
+      return {};
+    }
+  })();
+  const [form, setForm] = useState({ username: savedCredentials.username || '', password: savedCredentials.password || '' });
+  const [rememberMe, setRememberMe] = useState(Boolean(savedCredentials.username && savedCredentials.password));
   const [error, setError] = useState('');
 
   async function submit(event) {
@@ -330,6 +338,11 @@ function Login({ onLogin }) {
 
       setToken(data.token);
       setUser(data.user);
+      if (rememberMe) {
+        localStorage.setItem('promoters_remember_credentials', JSON.stringify(form));
+      } else {
+        localStorage.removeItem('promoters_remember_credentials');
+      }
       onLogin(data.token, data.user);
     } catch (err) {
       setError(err.message);
@@ -363,6 +376,14 @@ function Login({ onLogin }) {
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
             />
+          </label>
+          <label className="remember-control">
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(event) => setRememberMe(event.target.checked)}
+            />
+            Recordar mis datos en este dispositivo
           </label>
           {error && <div className="alert error">{error}</div>}
           <button className="primary-button" type="submit">
