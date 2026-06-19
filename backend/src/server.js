@@ -875,10 +875,11 @@ app.get('/api/promoters', requireAdmin, (req, res) => {
 
 app.post('/api/promoters', requireAdmin, (req, res) => {
   const establishmentId = getRequestEstablishmentId(req);
-  const { name, cedula, whatsapp, instagram, photo_url, referral_code, branch_id, status = 'active' } = req.body;
+  const { name, cedula, email, whatsapp, instagram, photo_url, referral_code, branch_id, status = 'active' } = req.body;
   const normalizedCode = buildPromoterCode(name);
   const normalizedUsername = normalizedCode;
   const normalizedPassword = String(cedula || '').trim();
+  const cleanEmail = String(email || '').trim().toLowerCase();
   const referrer = findPromoterByCode(referral_code, establishmentId);
 
   if (!name || !cedula || !whatsapp || !instagram || !normalizedPassword) {
@@ -887,6 +888,10 @@ app.post('/api/promoters', requireAdmin, (req, res) => {
 
   if (String(referral_code || '').trim() && !referrer) {
     return res.status(400).json({ message: 'Codigo de referido no registrado' });
+  }
+
+  if (cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    return res.status(400).json({ message: 'Ingresa un correo valido' });
   }
 
   const branchId = branch_id ? Number(branch_id) : null;
@@ -900,13 +905,14 @@ app.post('/api/promoters', requireAdmin, (req, res) => {
   try {
     const result = db
       .prepare(
-        'INSERT INTO promoters (establishment_id, branch_id, name, cedula, whatsapp, instagram, photo_url, code, username, password, referred_by_promoter_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO promoters (establishment_id, branch_id, name, cedula, email, whatsapp, instagram, photo_url, code, username, password, referred_by_promoter_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       )
       .run(
         establishmentId,
         branchId,
         name.trim(),
         cedula.trim(),
+        cleanEmail,
         whatsapp.trim(),
         instagram?.trim() || '',
         photo_url?.trim() || '',
@@ -926,7 +932,8 @@ app.post('/api/promoters', requireAdmin, (req, res) => {
 app.put('/api/promoters/:id', requireAdmin, (req, res) => {
   const { id } = req.params;
   const establishmentId = getRequestEstablishmentId(req);
-  const { name, cedula, whatsapp, instagram, photo_url, referral_code, branch_id, status = 'active' } = req.body;
+  const { name, cedula, email, whatsapp, instagram, photo_url, referral_code, branch_id, status = 'active' } = req.body;
+  const cleanEmail = String(email || '').trim().toLowerCase();
   const referrer = findPromoterByCode(referral_code, establishmentId);
 
   if (!name || !cedula || !whatsapp || !instagram) {
@@ -935,6 +942,10 @@ app.put('/api/promoters/:id', requireAdmin, (req, res) => {
 
   if (String(referral_code || '').trim() && !referrer) {
     return res.status(400).json({ message: 'Codigo de referido no registrado' });
+  }
+
+  if (cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    return res.status(400).json({ message: 'Ingresa un correo valido' });
   }
 
   if (referrer?.id === Number(id)) {
@@ -952,12 +963,13 @@ app.put('/api/promoters/:id', requireAdmin, (req, res) => {
   try {
     const result = db
       .prepare(
-        'UPDATE promoters SET branch_id = ?, name = ?, cedula = ?, whatsapp = ?, instagram = ?, photo_url = ?, referred_by_promoter_id = ?, status = ? WHERE id = ? AND establishment_id = ?'
+        'UPDATE promoters SET branch_id = ?, name = ?, cedula = ?, email = ?, whatsapp = ?, instagram = ?, photo_url = ?, referred_by_promoter_id = ?, status = ? WHERE id = ? AND establishment_id = ?'
       )
       .run(
         branchId,
         name.trim(),
         cedula.trim(),
+        cleanEmail,
         whatsapp.trim(),
         instagram?.trim() || '',
         photo_url?.trim() || '',

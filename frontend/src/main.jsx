@@ -34,6 +34,7 @@ import './styles.css';
 const emptyPromoter = {
   name: '',
   cedula: '',
+  email: '',
   whatsapp: '',
   instagram: '',
   photo_url: '',
@@ -961,6 +962,7 @@ function Promoters({ promoters, branches, establishmentId, onRefresh }) {
     setForm({
       name: promoter.name,
       cedula: promoter.cedula,
+      email: promoter.email || '',
       whatsapp: promoter.whatsapp,
       instagram: promoter.instagram || '',
       photo_url: promoter.photo_url || '',
@@ -1032,6 +1034,7 @@ function Promoters({ promoters, branches, establishmentId, onRefresh }) {
         <form className="form-grid" onSubmit={submit}>
           <Input label="Nombre" value={form.name} onChange={(name) => setForm({ ...form, name })} />
           <Input label="Cedula" value={form.cedula} onChange={(cedula) => setForm({ ...form, cedula })} />
+          <Input type="email" label="Correo electronico" value={form.email} onChange={(email) => setForm({ ...form, email })} />
           <Input label="WhatsApp" value={form.whatsapp} onChange={(whatsapp) => setForm({ ...form, whatsapp })} />
           <Input label="Instagram" value={form.instagram} onChange={(instagram) => setForm({ ...form, instagram })} />
           <Input
@@ -1093,6 +1096,7 @@ function Promoters({ promoters, branches, establishmentId, onRefresh }) {
               <div>
                 <strong>{promoter.name}</strong>
                 <span>{promoter.code} · {promoter.whatsapp}</span>
+                <small>{promoter.email || 'Sin correo registrado'}</small>
                 <small>{promoter.photo_url ? 'Foto configurada' : 'Sin foto de perfil'}</small>
                 {promoter.branch_name && <small>Sucursal: {promoter.branch_name}</small>}
                 <small>Usuario: {promoter.username || promoter.code} · Clave: {promoter.password || promoter.cedula}</small>
