@@ -1332,6 +1332,12 @@ td {
   padding: 12px 14px;
 }
 
+.premium-alert.warning {
+  background: rgba(250, 204, 21, 0.12);
+  border-color: rgba(250, 204, 21, 0.34);
+  color: #fde68a;
+}
+
 .withdrawal-panel {
   margin: 0 auto;
   max-width: 1180px;

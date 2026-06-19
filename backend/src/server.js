@@ -109,11 +109,11 @@ function findPromoterByCode(code, establishmentId = null) {
     .find((promoter) => normalizeLookup(promoter.code) === lookup);
 }
 
-function findActivePromoterForLogin(username, password) {
+function findPromoterForLogin(username, password) {
   const lookup = normalizeLookup(username);
   const cleanPassword = String(password || '').trim();
   return db
-    .prepare("SELECT id, establishment_id, name, username, code FROM promoters WHERE status = 'active' AND deleted_at IS NULL AND password = ?")
+    .prepare('SELECT id, establishment_id, name, username, code, status, can_sell FROM promoters WHERE deleted_at IS NULL AND password = ?')
     .all(cleanPassword)
     .find((promoter) => normalizeLookup(promoter.username) === lookup || normalizeLookup(promoter.code) === lookup);
 }
@@ -500,7 +500,7 @@ app.post('/api/auth/login', (req, res) => {
 
 app.post('/api/auth/promoter-login', (req, res) => {
   const { username, password } = req.body;
-  const promoter = findActivePromoterForLogin(username, password);
+  const promoter = findPromoterForLogin(username, password);
 
   if (!promoter) {
     return res.status(401).json({ message: 'Usuario o contrasena incorrectos' });
@@ -508,7 +508,7 @@ app.post('/api/auth/promoter-login', (req, res) => {
 
   return res.json({
     token: createToken({ role: 'promoter', promoterId: promoter.id, establishmentId: promoter.establishment_id, username: promoter.username }),
-    user: { role: 'promoter', id: promoter.id, name: promoter.name, code: promoter.code, establishment_id: promoter.establishment_id }
+    user: { role: 'promoter', id: promoter.id, name: promoter.name, code: promoter.code, status: promoter.status, can_sell: promoter.can_sell, establishment_id: promoter.establishment_id }
   });
 });
 
@@ -1343,7 +1343,7 @@ app.delete('/api/sales/:id', requireAdmin, (req, res) => {
 app.get('/api/promoter/me', requirePromoter, (req, res) => {
   const establishment = db.prepare('SELECT * FROM establishments WHERE id = ?').get(req.user.establishmentId);
   const activeEvent = getActiveEvent(req.user.establishmentId);
-  const promoter = db.prepare('SELECT id, name, code, whatsapp, instagram, photo_url, can_sell FROM promoters WHERE id = ?').get(req.user.promoterId);
+  const promoter = db.prepare('SELECT id, name, code, whatsapp, instagram, photo_url, status, can_sell FROM promoters WHERE id = ?').get(req.user.promoterId);
   res.json({ ...promoter, establishment, activeEvent, level: getPromoterLevel(req.user.promoterId, activeEvent?.id || 1) });
 });
 
@@ -1352,7 +1352,7 @@ app.patch('/api/promoter/profile', requirePromoter, (req, res) => {
   const activeEvent = getActiveEvent(req.user.establishmentId);
   const photoUrl = String(req.body.photo_url || '').trim();
   db.prepare('UPDATE promoters SET photo_url = ? WHERE id = ?').run(photoUrl, req.user.promoterId);
-  const promoter = db.prepare('SELECT id, name, code, whatsapp, instagram, photo_url, can_sell FROM promoters WHERE id = ?').get(req.user.promoterId);
+  const promoter = db.prepare('SELECT id, name, code, whatsapp, instagram, photo_url, status, can_sell FROM promoters WHERE id = ?').get(req.user.promoterId);
   res.json({ ...promoter, establishment, activeEvent, level: getPromoterLevel(req.user.promoterId, activeEvent?.id || 1) });
 });
 

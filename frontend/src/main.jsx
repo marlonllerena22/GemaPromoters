@@ -1742,7 +1742,7 @@ function PromoterApp({ user, onLogout }) {
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const [withdrawalPanelOpen, setWithdrawalPanelOpen] = useState(false);
   const [showCommission, setShowCommission] = useState(false);
-  const canRegisterSales = Boolean(profile?.establishment?.promoter_sales_enabled && profile?.can_sell);
+  const canRegisterSales = Boolean(profile?.status === 'active' && profile?.establishment?.promoter_sales_enabled && profile?.can_sell);
   const activeLocations = locations.filter((location) => location.status === 'active');
   const estimatedTotal = useMemo(() => Number(form.quantity || 0) * Number(form.unit_price || 0), [form]);
   const confirmedCommission = useMemo(
@@ -2092,7 +2092,7 @@ function PromoterAppPremium({ user, onLogout }) {
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const [withdrawalPanelOpen, setWithdrawalPanelOpen] = useState(false);
   const [showCommission, setShowCommission] = useState(false);
-  const canRegisterSales = Boolean(profile?.establishment?.promoter_sales_enabled && profile?.can_sell);
+  const canRegisterSales = Boolean(profile?.status === 'active' && profile?.establishment?.promoter_sales_enabled && profile?.can_sell);
   const activeLocations = locations.filter((location) => location.status === 'active');
   const estimatedTotal = useMemo(() => Number(form.quantity || 0) * Number(form.unit_price || 0), [form]);
   const confirmedCommission = useMemo(
@@ -2275,6 +2275,11 @@ function PromoterAppPremium({ user, onLogout }) {
         </button>
       </header>
       {notice && <div className="premium-alert">{notice}</div>}
+      {profile?.status !== 'active' && (
+        <div className="premium-alert warning">
+          Tu cuenta esta pendiente de aprobacion. Puedes revisar tu perfil, beneficios y codigo, pero aun no puedes registrar ventas.
+        </div>
+      )}
 
       <section className="promoter-premium-hero">
         <article className="premium-profile-card">
@@ -2286,8 +2291,8 @@ function PromoterAppPremium({ user, onLogout }) {
               <span className="premium-kicker">Promotor oficial</span>
               <h2>{profile?.name || user.name}</h2>
               <div className="premium-profile-meta">
-                <span className={profile?.can_sell ? 'status-pill active' : 'status-pill inactive'}>
-                  {profile?.can_sell ? 'Activo' : 'Inactivo'}
+                <span className={profile?.status === 'active' ? 'status-pill active' : 'status-pill inactive'}>
+                  {profile?.status === 'active' ? 'Activo' : 'Pendiente'}
                 </span>
               </div>
             </div>
