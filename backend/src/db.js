@@ -23,6 +23,9 @@ export function initDb() {
       name TEXT NOT NULL UNIQUE,
       display_name TEXT,
       business_type TEXT NOT NULL DEFAULT 'event' CHECK (business_type IN ('event', 'commercial')),
+      code_prefix TEXT NOT NULL DEFAULT 'GEMA',
+      theme TEXT NOT NULL DEFAULT 'gemashow',
+      logo_url TEXT,
       admin_username TEXT,
       admin_password TEXT,
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
@@ -44,12 +47,13 @@ export function initDb() {
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       establishment_id INTEGER NOT NULL DEFAULT 1,
-      name TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
       description TEXT,
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
       is_active INTEGER NOT NULL DEFAULT 0 CHECK (is_active IN (0, 1)),
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-      FOREIGN KEY (establishment_id) REFERENCES establishments(id)
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      UNIQUE(establishment_id, name)
     );
 
     CREATE TABLE IF NOT EXISTS promoters (
@@ -157,7 +161,11 @@ export function initDb() {
     );
   `);
 
+  migrateEventsForEstablishments();
   addColumnIfMissing('establishments', 'business_type', "TEXT NOT NULL DEFAULT 'event'");
+  addColumnIfMissing('establishments', 'code_prefix', "TEXT NOT NULL DEFAULT 'GEMA'");
+  addColumnIfMissing('establishments', 'theme', "TEXT NOT NULL DEFAULT 'gemashow'");
+  addColumnIfMissing('establishments', 'logo_url', 'TEXT');
   addColumnIfMissing('establishments', 'admin_username', 'TEXT');
   addColumnIfMissing('establishments', 'admin_password', 'TEXT');
   const defaultEstablishment = ensureDefaultEstablishments();
@@ -284,6 +292,7 @@ export function initDb() {
 
   seedDefaultEventSettings(defaultEvent.id);
   ensureMarjorieEstablishment();
+  ensureDigitalesClubEstablishment();
 }
 
 export function toMoney(value) {
@@ -350,16 +359,93 @@ function migrateEventLocationsForEvents() {
   `);
 }
 
+function migrateEventsForEstablishments() {
+  const interruptedTable = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'events_old'").get();
+  if (interruptedTable) {
+    db.pragma('foreign_keys = OFF');
+    db.pragma('legacy_alter_table = OFF');
+    try {
+      db.exec(`
+        DROP TABLE IF EXISTS events;
+        ALTER TABLE events_old RENAME TO events;
+      `);
+    } finally {
+      db.pragma('foreign_keys = ON');
+    }
+  }
+
+  const table = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'events'").get();
+  if (!table) {
+    return;
+  }
+
+  const indexes = db.prepare('PRAGMA index_list(events)').all();
+  const hasLegacyUniqueName = indexes.some((item) => {
+    if (item.origin !== 'u') {
+      return false;
+    }
+    const columns = db.prepare(`PRAGMA index_info(${item.name})`).all();
+    return columns.length === 1 && columns[0].name === 'name';
+  });
+  if (!hasLegacyUniqueName) {
+    return;
+  }
+
+  db.pragma('foreign_keys = OFF');
+  db.pragma('legacy_alter_table = ON');
+  try {
+    db.exec(`
+      BEGIN;
+      ALTER TABLE events RENAME TO events_old;
+
+      CREATE TABLE events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        establishment_id INTEGER NOT NULL DEFAULT 1,
+        name TEXT NOT NULL,
+        description TEXT,
+        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+        is_active INTEGER NOT NULL DEFAULT 0 CHECK (is_active IN (0, 1)),
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+        UNIQUE(establishment_id, name)
+      );
+
+      INSERT INTO events
+        (id, establishment_id, name, description, status, is_active, created_at)
+      SELECT
+        id,
+        COALESCE(establishment_id, 1),
+        name,
+        description,
+        COALESCE(status, 'active'),
+        COALESCE(is_active, 0),
+        COALESCE(created_at, datetime('now', 'localtime'))
+      FROM events_old;
+
+      DROP TABLE events_old;
+      COMMIT;
+    `);
+  } catch (error) {
+    if (db.inTransaction) {
+      db.exec('ROLLBACK');
+    }
+    throw error;
+  } finally {
+    db.pragma('legacy_alter_table = OFF');
+    db.pragma('foreign_keys = ON');
+  }
+}
+
 function ensureDefaultEstablishments() {
   let establishment = db.prepare('SELECT * FROM establishments WHERE name = ?').get('GEMASHOW');
 
   if (!establishment) {
     const result = db
-      .prepare('INSERT INTO establishments (name, display_name, business_type, admin_username, admin_password, status, promoter_sales_enabled) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run('GEMASHOW', 'GEMASHOW', 'event', 'admin', 'admin123', 'active', 1);
+      .prepare('INSERT INTO establishments (name, display_name, business_type, code_prefix, theme, logo_url, admin_username, admin_password, status, promoter_sales_enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run('GEMASHOW', 'GEMASHOW', 'event', 'GEMA', 'gemashow', '', 'admin', 'admin123', 'active', 1);
     establishment = db.prepare('SELECT * FROM establishments WHERE id = ?').get(result.lastInsertRowid);
   } else {
-    db.prepare("UPDATE establishments SET business_type = 'event', promoter_sales_enabled = 1, admin_username = COALESCE(NULLIF(admin_username, ''), 'admin'), admin_password = COALESCE(NULLIF(admin_password, ''), 'admin123') WHERE id = ?").run(establishment.id);
+    db.prepare("UPDATE establishments SET business_type = 'event', promoter_sales_enabled = 1, code_prefix = COALESCE(NULLIF(code_prefix, ''), 'GEMA'), theme = COALESCE(NULLIF(theme, ''), 'gemashow'), admin_username = COALESCE(NULLIF(admin_username, ''), 'admin'), admin_password = COALESCE(NULLIF(admin_password, ''), 'admin123') WHERE id = ?").run(establishment.id);
     establishment = db.prepare('SELECT * FROM establishments WHERE id = ?').get(establishment.id);
   }
 
@@ -370,11 +456,11 @@ function ensureMarjorieEstablishment() {
   let establishment = db.prepare('SELECT * FROM establishments WHERE name = ?').get('Marjorie Promotoras');
   if (!establishment) {
     const result = db
-      .prepare('INSERT INTO establishments (name, display_name, business_type, admin_username, admin_password, status, promoter_sales_enabled) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run('Marjorie Promotoras', 'Marjorie Botas', 'commercial', 'marjorie', 'marjorie123', 'active', 0);
+      .prepare('INSERT INTO establishments (name, display_name, business_type, code_prefix, theme, logo_url, admin_username, admin_password, status, promoter_sales_enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run('Marjorie Promotoras', 'Marjorie Botas', 'commercial', 'MARJ', 'marjorie', '', 'marjorie', 'marjorie123', 'active', 0);
     establishment = db.prepare('SELECT * FROM establishments WHERE id = ?').get(result.lastInsertRowid);
   } else {
-    db.prepare("UPDATE establishments SET business_type = 'commercial', promoter_sales_enabled = 0 WHERE id = ?").run(establishment.id);
+    db.prepare("UPDATE establishments SET business_type = 'commercial', promoter_sales_enabled = 0, code_prefix = COALESCE(NULLIF(code_prefix, ''), 'MARJ'), theme = COALESCE(NULLIF(theme, ''), 'marjorie') WHERE id = ?").run(establishment.id);
     db.prepare("UPDATE establishments SET admin_username = 'marjorie' WHERE id = ? AND (admin_username IS NULL OR admin_username = '' OR admin_username = 'marjoriepromotoras')").run(establishment.id);
     db.prepare("UPDATE establishments SET admin_password = 'marjorie123' WHERE id = ? AND (admin_password IS NULL OR admin_password = '' OR admin_password = 'marjoriepromotoras123')").run(establishment.id);
     establishment = db.prepare('SELECT * FROM establishments WHERE id = ?').get(establishment.id);
@@ -394,9 +480,90 @@ function ensureMarjorieEstablishment() {
   return establishment;
 }
 
+function ensureDigitalesClubEstablishment() {
+  let establishment = db.prepare('SELECT * FROM establishments WHERE name = ?').get('DigitalesClub');
+  if (!establishment) {
+    const result = db
+      .prepare('INSERT INTO establishments (name, display_name, business_type, code_prefix, theme, logo_url, admin_username, admin_password, status, promoter_sales_enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run('DigitalesClub', 'DigitalesClub', 'event', 'DGCLUB', 'digitalesclub', '/digitalesclub-logo.jpeg', 'digitales', 'digitales123', 'active', 1);
+    establishment = db.prepare('SELECT * FROM establishments WHERE id = ?').get(result.lastInsertRowid);
+  } else {
+    db.prepare(
+      `UPDATE establishments
+       SET business_type = 'event',
+           promoter_sales_enabled = 1,
+           code_prefix = 'DGCLUB',
+           theme = 'digitalesclub',
+           logo_url = COALESCE(NULLIF(logo_url, ''), '/digitalesclub-logo.jpeg'),
+           admin_username = COALESCE(NULLIF(admin_username, ''), 'digitales'),
+           admin_password = COALESCE(NULLIF(admin_password, ''), 'digitales123')
+       WHERE id = ?`
+    ).run(establishment.id);
+    establishment = db.prepare('SELECT * FROM establishments WHERE id = ?').get(establishment.id);
+  }
+
+  const eventName = 'KRIS R EL TRAP DE KOLOMBIA';
+  let event = db.prepare('SELECT * FROM events WHERE establishment_id = ? AND name = ?').get(establishment.id, eventName);
+  if (!event) {
+    const result = db
+      .prepare('INSERT INTO events (establishment_id, name, description, status, is_active) VALUES (?, ?, ?, ?, 1)')
+      .run(establishment.id, eventName, 'Evento principal DigitalesClub', 'active');
+    event = db.prepare('SELECT * FROM events WHERE id = ?').get(result.lastInsertRowid);
+  } else {
+    db.prepare("UPDATE events SET status = 'active', is_active = 1 WHERE id = ?").run(event.id);
+  }
+
+  seedDefaultEventSettings(event.id);
+
+  const gemashow = db.prepare("SELECT id FROM establishments WHERE name = 'GEMASHOW'").get();
+  const sourceEvent = gemashow
+    ? db.prepare('SELECT id FROM events WHERE establishment_id = ? AND is_active = 1 ORDER BY id DESC').get(gemashow.id)
+    : null;
+  const alreadySeeded = db
+    .prepare("SELECT value FROM event_settings WHERE event_id = ? AND key = 'digitalesclub_seed_complete'")
+    .get(event.id);
+
+  if (sourceEvent && !alreadySeeded) {
+    const locationCount = db.prepare('SELECT COUNT(*) AS total FROM event_locations WHERE event_id = ?').get(event.id).total;
+    if (!locationCount) {
+      const locations = db.prepare('SELECT name, price, commission_type, commission_value, commission_min_quantity, level_points, status FROM event_locations WHERE event_id = ?').all(sourceEvent.id);
+      const insertLocation = db.prepare(
+        `INSERT OR IGNORE INTO event_locations
+         (event_id, name, price, commission_type, commission_value, commission_min_quantity, level_points, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      for (const location of locations) {
+        insertLocation.run(
+          event.id,
+          location.name,
+          location.price,
+          location.commission_type,
+          location.commission_value,
+          location.commission_min_quantity,
+          location.level_points,
+          location.status
+        );
+      }
+    }
+
+    const sourceSettings = db.prepare('SELECT key, value FROM event_settings WHERE event_id = ?').all(sourceEvent.id);
+    const saveSetting = db.prepare(
+      `INSERT INTO event_settings (event_id, key, value)
+       VALUES (?, ?, ?)
+       ON CONFLICT(event_id, key) DO UPDATE SET value = excluded.value`
+    );
+    for (const setting of sourceSettings) {
+      saveSetting.run(event.id, setting.key, String(setting.value).replaceAll('GEMASHOW', 'DigitalesClub'));
+    }
+    saveSetting.run(event.id, 'digitalesclub_seed_complete', '1');
+  }
+
+  return establishment;
+}
+
 function ensureDefaultEvent(establishmentId) {
   const defaultName = 'KRIS R EL TRAP DE KOLOMBIA';
-  let event = db.prepare('SELECT * FROM events WHERE name = ?').get(defaultName);
+  let event = db.prepare('SELECT * FROM events WHERE establishment_id = ? AND name = ?').get(establishmentId, defaultName);
   const activeEvent = db.prepare('SELECT * FROM events WHERE establishment_id = ? AND is_active = 1').get(establishmentId);
 
   if (!event) {

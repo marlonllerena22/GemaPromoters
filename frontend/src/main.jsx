@@ -117,6 +117,9 @@ const emptyEstablishment = {
   name: '',
   display_name: '',
   business_type: 'event',
+  code_prefix: '',
+  theme: '',
+  logo_url: '',
   admin_username: '',
   admin_password: '',
   status: 'active',
@@ -130,6 +133,7 @@ const emptyBranch = {
 };
 
 const emptyRegister = {
+  establishment_id: '',
   name: '',
   cedula: '',
   email: '',
@@ -383,8 +387,21 @@ function Login({ onLogin }) {
 
 function RegisterPage() {
   const [form, setForm] = useState(emptyRegister);
+  const [establishments, setEstablishments] = useState([]);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
+  const selectedEstablishment = establishments.find((item) => String(item.id) === String(form.establishment_id)) || establishments[0];
+
+  useEffect(() => {
+    api('/public-establishments')
+      .then((rows) => {
+        setEstablishments(rows);
+        if (rows.length) {
+          setForm((current) => ({ ...current, establishment_id: current.establishment_id || String(rows[0].id) }));
+        }
+      })
+      .catch(() => setEstablishments([]));
+  }, []);
 
   async function submit(event) {
     event.preventDefault();
@@ -396,7 +413,7 @@ function RegisterPage() {
         body: JSON.stringify(form)
       });
       setResult(response);
-      setForm(emptyRegister);
+      setForm({ ...emptyRegister, establishment_id: form.establishment_id });
     } catch (err) {
       setError(err.message);
     }
@@ -412,8 +429,20 @@ function RegisterPage() {
             <h1>PROMOTERS</h1>
           </div>
         </div>
-        <p>Crea tu cuenta de promotor GEMASHOW. Tus accesos se enviaran al correo registrado.</p>
+        <p>Crea tu cuenta de promotor {selectedEstablishment?.display_name || selectedEstablishment?.name || 'PROMOTERS'}. Tus accesos se enviaran al correo registrado.</p>
         <form className="form-grid" onSubmit={submit}>
+          {establishments.length > 1 && (
+            <label>
+              Marca
+              <select value={form.establishment_id} onChange={(event) => setForm({ ...form, establishment_id: event.target.value })}>
+                {establishments.map((establishment) => (
+                  <option value={establishment.id} key={establishment.id}>
+                    {establishment.display_name || establishment.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <Input label="Nombre completo" value={form.name} onChange={(name) => setForm({ ...form, name })} />
           <Input label="Cedula" value={form.cedula} onChange={(cedula) => setForm({ ...form, cedula })} />
           <Input type="email" label="Correo electronico" value={form.email} onChange={(email) => setForm({ ...form, email })} />
@@ -679,6 +708,9 @@ function Establishments({ establishments, onRefresh }) {
       name: establishment.name,
       display_name: establishment.display_name || establishment.name,
       business_type: establishment.business_type || 'event',
+      code_prefix: establishment.code_prefix || '',
+      theme: establishment.theme || '',
+      logo_url: establishment.logo_url || '',
       admin_username: establishment.admin_username || '',
       admin_password: establishment.admin_password || '',
       status: establishment.status,
@@ -711,6 +743,9 @@ function Establishments({ establishments, onRefresh }) {
         <form className="form-grid" onSubmit={submit}>
           <Input label="Nombre interno" value={form.name} onChange={(name) => setForm({ ...form, name })} />
           <Input label="Nombre visible" value={form.display_name} onChange={(display_name) => setForm({ ...form, display_name })} />
+          <Input label="Prefijo de usuarios" value={form.code_prefix} onChange={(code_prefix) => setForm({ ...form, code_prefix })} />
+          <Input label="Tema visual" value={form.theme} onChange={(theme) => setForm({ ...form, theme })} />
+          <Input label="Logo URL" value={form.logo_url} onChange={(logo_url) => setForm({ ...form, logo_url })} />
           <label>
             Tipo de negocio
             <select
@@ -763,7 +798,7 @@ function Establishments({ establishments, onRefresh }) {
               <div>
                 <strong>{establishment.display_name || establishment.name}</strong>
                 <span>{establishment.status === 'active' ? 'Activo' : 'Inactivo'} · {establishment.promoter_sales_enabled ? 'Promotores venden' : 'Ventas solo por admin'}</span>
-                <small>{establishment.name}</small>
+                <small>{establishment.name} · Prefijo {establishment.code_prefix || 'PROMO'}</small>
               </div>
               <div className="row-actions">
                 <button className="ghost-button" onClick={() => edit(establishment)}>Editar</button>
@@ -2224,7 +2259,7 @@ function PromoterAppPremium({ user, onLogout }) {
   async function shareReferral() {
     if (navigator.share) {
       await navigator.share({
-        title: 'Promotor oficial GEMASHOW',
+        title: `Promotor oficial ${brandName}`,
         text: `Codigo de promotor: ${profile?.code || user.code}`,
         url: referralLink
       });
@@ -2235,11 +2270,14 @@ function PromoterAppPremium({ user, onLogout }) {
 
   const levelPoints = Number(profile?.level?.levelPoints || 0);
   const settings = profile?.level?.settings || {};
+  const brandName = profile?.establishment?.display_name || profile?.establishment?.name || 'PROMOTERS';
+  const brandTheme = profile?.establishment?.theme || 'gemashow';
+  const brandLogo = profile?.establishment?.logo_url || '';
   const bronzeMin = Number(settings.bronze || 1);
   const silverMin = Number(settings.silver || 10);
   const goldMin = Number(settings.gold || settings.diamond || 25);
   const premiumRanks = [
-    { key: 'bronze', name: 'Bronze', min: bronzeMin, benefits: settings.benefits?.bronze || ['Acceso a beneficios iniciales', 'Material oficial GEMASHOW'] },
+    { key: 'bronze', name: 'Bronze', min: bronzeMin, benefits: settings.benefits?.bronze || ['Acceso a beneficios iniciales', `Material oficial ${brandName}`] },
     { key: 'silver', name: 'Silver', min: silverMin, benefits: settings.benefits?.silver || ['Prioridad en campanas', 'Bonos especiales por metas'] },
     { key: 'gold', name: 'Gold', min: goldMin, benefits: settings.benefits?.gold || settings.benefits?.diamond || ['Beneficios VIP', 'Prioridad maxima en cupos'] }
   ];
@@ -2267,11 +2305,14 @@ function PromoterAppPremium({ user, onLogout }) {
   const featuredBanner = banners[0];
 
   return (
-    <main className="promoter-premium">
+    <main className={`promoter-premium theme-${brandTheme}`}>
       <header className="promoter-premium-topbar">
-        <div>
-          <span>PROMOTERS / GEMASHOW</span>
-          <h1>Perfil de promotor</h1>
+        <div className="promoter-brand-lockup">
+          {brandLogo && <img src={brandLogo} alt={brandName} />}
+          <div>
+            <span>PROMOTERS / {brandName}</span>
+            <h1>Perfil de promotor</h1>
+          </div>
         </div>
         <button className="premium-ghost-button" onClick={onLogout}>
           <LogOut size={18} />
@@ -2320,16 +2361,16 @@ function PromoterAppPremium({ user, onLogout }) {
         <article className="premium-ad-card">
           {featuredBanner ? (
             <>
-              <img src={featuredBanner.image_url} alt={featuredBanner.title || 'Anuncio GEMASHOW'} />
+              <img src={featuredBanner.image_url} alt={featuredBanner.title || `Anuncio ${brandName}`} />
               <div>
                 <span>Anuncio destacado</span>
-                <strong>{featuredBanner.title || profile?.activeEvent?.name || 'Evento activo GEMASHOW'}</strong>
+                <strong>{featuredBanner.title || profile?.activeEvent?.name || `Evento activo ${brandName}`}</strong>
               </div>
             </>
           ) : (
             <div>
               <span>Anuncio destacado</span>
-              <strong>{profile?.activeEvent?.name || 'Campana activa GEMASHOW'}</strong>
+              <strong>{profile?.activeEvent?.name || `Campana activa ${brandName}`}</strong>
               <small>Promociones, avisos y eventos importantes para tu equipo.</small>
             </div>
           )}
@@ -2588,8 +2629,8 @@ function VerifyPage() {
   return (
     <main className="verify-shell">
       <section className="verify-panel">
-        <div className="brand-mark">G</div>
-        <h1>Verificacion GEMASHOW</h1>
+        <div className="brand-mark">P</div>
+        <h1>Verificacion PROMOTERS</h1>
         <form onSubmit={verify} className="verify-form">
           <input
             placeholder="Codigo de promotor"
@@ -2604,13 +2645,15 @@ function VerifyPage() {
         </form>
         {result && (
           result.registered ? (
-            <div className={`verify-member-card ${result.active === false ? 'inactive' : result.promoter.level?.key || 'starter'}`}>
+            <div className={`verify-member-card theme-${result.promoter.establishment_theme || 'gemashow'} ${result.active === false ? 'inactive' : result.promoter.level?.key || 'starter'}`}>
               <div className="verify-card-top">
                 <div>
-                  <span>PROMOTERS / GEMASHOW</span>
+                  <span>PROMOTERS / {result.promoter.establishment_display_name || result.promoter.establishment_name}</span>
                   <h2>{result.message}</h2>
                 </div>
-                {result.active === false ? <Lock size={30} /> : <BadgeCheck size={30} />}
+                {result.promoter.establishment_logo_url ? (
+                  <img className="verify-brand-logo" src={result.promoter.establishment_logo_url} alt={result.promoter.establishment_display_name || result.promoter.establishment_name} />
+                ) : result.active === false ? <Lock size={30} /> : <BadgeCheck size={30} />}
               </div>
               <div className="verify-card-main">
                 <div className="verify-photo">

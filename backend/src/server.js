@@ -86,8 +86,11 @@ function findPromoterForVerification(code) {
   const lookup = normalizeLookup(code);
   return db
     .prepare(
-      `SELECT promoters.id, promoters.name, promoters.instagram, promoters.whatsapp, promoters.photo_url, promoters.code, promoters.status,
-              establishments.name AS establishment_name, establishments.display_name AS establishment_display_name
+      `SELECT promoters.id, promoters.establishment_id, promoters.name, promoters.instagram, promoters.whatsapp, promoters.photo_url, promoters.code, promoters.status,
+              establishments.name AS establishment_name,
+              establishments.display_name AS establishment_display_name,
+              establishments.theme AS establishment_theme,
+              establishments.logo_url AS establishment_logo_url
        FROM promoters
        JOIN establishments ON establishments.id = promoters.establishment_id
        WHERE promoters.deleted_at IS NULL AND establishments.status = 'active'`
@@ -138,7 +141,12 @@ function containsBlockedWords(...values) {
   return blocked.some((word) => text.includes(normalizeLookup(word)));
 }
 
-function buildPromoterCode(name) {
+function getEstablishmentCodePrefix(establishmentId) {
+  const establishment = db.prepare('SELECT code_prefix FROM establishments WHERE id = ?').get(establishmentId);
+  return normalizeLookup(establishment?.code_prefix || 'GEMA') || 'GEMA';
+}
+
+function buildPromoterCode(name, establishmentId = null) {
   const parts = String(name || '')
     .trim()
     .split(/\s+/)
@@ -146,7 +154,8 @@ function buildPromoterCode(name) {
     .filter(Boolean);
   const firstName = parts[0] || 'PROMOTOR';
   const firstLastName = parts.length > 1 ? parts[1] : '';
-  const base = `GEMA-${firstName}${firstLastName}`;
+  const prefix = establishmentId ? getEstablishmentCodePrefix(establishmentId) : 'GEMA';
+  const base = `${prefix}-${firstName}${firstLastName}`;
   let candidate = base;
   let counter = 2;
 
@@ -167,7 +176,7 @@ function emailTransportConfigured() {
   return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 }
 
-async function sendPromoterCredentialsEmail({ to, name, username, password, code }) {
+async function sendPromoterCredentialsEmail({ to, name, username, password, code, brandName = 'GEMASHOW' }) {
   if (!emailTransportConfigured()) {
     return { sent: false, reason: 'SMTP no configurado' };
   }
@@ -187,10 +196,10 @@ async function sendPromoterCredentialsEmail({ to, name, username, password, code
   await transporter.sendMail({
     from,
     to,
-    subject: 'Tus accesos a PROMOTERS / GEMASHOW',
+    subject: `Tus accesos a PROMOTERS / ${brandName}`,
     text: `Hola ${name},
 
-Tu cuenta de promotor GEMASHOW fue creada correctamente.
+Tu cuenta de promotor ${brandName} fue creada correctamente.
 
 Usuario: ${username}
 Contrasena: ${password}
@@ -202,7 +211,7 @@ Por seguridad, cambia tu contrasena desde tu perfil cuando ingreses.`,
     html: `
       <div style="font-family:Arial,sans-serif;background:#0f1020;color:#f7f4ff;padding:24px;border-radius:12px">
         <h2 style="margin-top:0">Bienvenido/a a PROMOTERS</h2>
-        <p>Hola <strong>${name}</strong>, tu cuenta de promotor GEMASHOW fue creada correctamente.</p>
+        <p>Hola <strong>${name}</strong>, tu cuenta de promotor <strong>${brandName}</strong> fue creada correctamente.</p>
         <div style="background:#181a2f;border:1px solid #343856;padding:16px;border-radius:10px">
           <p><strong>Usuario:</strong> ${username}</p>
           <p><strong>Contrasena:</strong> ${password}</p>
@@ -382,7 +391,15 @@ function getPromoterLevel(promoterId, eventId = getActiveEvent()?.id || 1) {
   const paidSalesRows = db
     .prepare("SELECT quantity, location FROM sales WHERE promoter_id = ? AND event_id = ? AND payment_status = 'paid' AND deleted_at IS NULL")
     .all(promoterId, eventId);
-  const promoter = db.prepare('SELECT manual_points FROM promoters WHERE id = ?').get(promoterId);
+  const promoter = db
+    .prepare(
+      `SELECT promoters.manual_points,
+              COALESCE(establishments.display_name, establishments.name, 'PROMOTERS') AS brand_name
+       FROM promoters
+       LEFT JOIN establishments ON establishments.id = promoters.establishment_id
+       WHERE promoters.id = ?`
+    )
+    .get(promoterId);
   const referralCount = db.prepare('SELECT COUNT(*) AS total FROM promoters WHERE referred_by_promoter_id = ? AND deleted_at IS NULL').get(promoterId).total;
   const locations = db.prepare('SELECT name, level_points FROM event_locations WHERE event_id = ?').all(eventId);
   const paidSales = paidSalesRows.length;
@@ -397,17 +414,17 @@ function getPromoterLevel(promoterId, eventId = getActiveEvent()?.id || 1) {
   let level = {
     key: 'starter',
     name: 'Starter',
-    description: 'Promotor oficial GEMASHOW'
+    description: `Promotor oficial ${promoter?.brand_name || 'PROMOTERS'}`
   };
 
   if (levelPoints >= settings.bronze) {
-    level = { key: 'bronze', name: 'Bronze', description: 'Promotor destacado GEMASHOW' };
+    level = { key: 'bronze', name: 'Bronze', description: `Promotor destacado ${promoter?.brand_name || 'PROMOTERS'}` };
   }
   if (levelPoints >= settings.silver) {
-    level = { key: 'silver', name: 'Silver', description: 'Promotor elite GEMASHOW' };
+    level = { key: 'silver', name: 'Silver', description: `Promotor elite ${promoter?.brand_name || 'PROMOTERS'}` };
   }
   if (levelPoints >= settings.gold) {
-    level = { key: 'gold', name: 'Gold', description: 'Promotor top GEMASHOW' };
+    level = { key: 'gold', name: 'Gold', description: `Promotor top ${promoter?.brand_name || 'PROMOTERS'}` };
   }
 
   return {
@@ -512,8 +529,25 @@ app.post('/api/auth/promoter-login', (req, res) => {
   });
 });
 
+app.get('/api/public-establishments', (_req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT id, name, display_name, theme, logo_url, code_prefix
+       FROM establishments
+       WHERE status = 'active'
+         AND business_type = 'event'
+         AND promoter_sales_enabled = 1
+       ORDER BY name = 'GEMASHOW' DESC, display_name ASC`
+    )
+    .all();
+  res.json(rows);
+});
+
 app.post('/api/promoter-register', async (req, res) => {
-  const establishment = db.prepare("SELECT * FROM establishments WHERE name = 'GEMASHOW'").get() || getDefaultEstablishment();
+  const requestedEstablishmentId = Number(req.body.establishment_id || req.body.establishmentId || 0);
+  const establishment = requestedEstablishmentId
+    ? db.prepare("SELECT * FROM establishments WHERE id = ? AND status = 'active' AND business_type = 'event' AND promoter_sales_enabled = 1").get(requestedEstablishmentId)
+    : db.prepare("SELECT * FROM establishments WHERE name = 'GEMASHOW'").get() || getDefaultEstablishment();
   const establishmentId = establishment?.id || 1;
   const {
     name,
@@ -553,7 +587,7 @@ app.post('/api/promoter-register', async (req, res) => {
     return res.status(409).json({ message: 'Ya existe un promotor registrado con esa cedula o correo' });
   }
 
-  const code = buildPromoterCode(cleanName);
+  const code = buildPromoterCode(cleanName, establishmentId);
   const username = code;
   const password = generatePromoterPassword();
 
@@ -585,7 +619,8 @@ app.post('/api/promoter-register', async (req, res) => {
         name: cleanName,
         username,
         password,
-        code
+        code,
+        brandName: establishment.display_name || establishment.name
       });
     } catch (error) {
       emailResult = { sent: false, reason: error.message };
@@ -617,6 +652,9 @@ app.post('/api/establishments', requireSupreme, (req, res) => {
   const name = String(req.body.name || '').trim();
   const displayName = String(req.body.display_name || '').trim();
   const businessType = req.body.business_type === 'commercial' ? 'commercial' : 'event';
+  const codePrefix = normalizeLookup(req.body.code_prefix || name).slice(0, 12) || 'PROMO';
+  const theme = normalizeLookup(req.body.theme || name).toLowerCase() || 'custom';
+  const logoUrl = String(req.body.logo_url || '').trim();
   const adminUsername = String(req.body.admin_username || '').trim();
   const adminPassword = String(req.body.admin_password || '').trim();
   const status = ['active', 'inactive'].includes(req.body.status) ? req.body.status : 'active';
@@ -628,8 +666,8 @@ app.post('/api/establishments', requireSupreme, (req, res) => {
 
   try {
     const result = db
-      .prepare('INSERT INTO establishments (name, display_name, business_type, admin_username, admin_password, status, promoter_sales_enabled) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(name, displayName || name, businessType, adminUsername, adminPassword, status, promoterSalesEnabled);
+      .prepare('INSERT INTO establishments (name, display_name, business_type, code_prefix, theme, logo_url, admin_username, admin_password, status, promoter_sales_enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(name, displayName || name, businessType, codePrefix, theme, logoUrl, adminUsername, adminPassword, status, promoterSalesEnabled);
     const eventResult = db
       .prepare('INSERT INTO events (establishment_id, name, description, status, is_active) VALUES (?, ?, ?, ?, 1)')
       .run(result.lastInsertRowid, name.toUpperCase(), `Evento principal ${name}`, 'active');
@@ -644,6 +682,9 @@ app.put('/api/establishments/:id', requireSupreme, (req, res) => {
   const name = String(req.body.name || '').trim();
   const displayName = String(req.body.display_name || '').trim();
   const businessType = req.body.business_type === 'commercial' ? 'commercial' : 'event';
+  const codePrefix = normalizeLookup(req.body.code_prefix || name).slice(0, 12) || 'PROMO';
+  const theme = normalizeLookup(req.body.theme || name).toLowerCase() || 'custom';
+  const logoUrl = String(req.body.logo_url || '').trim();
   const adminUsername = String(req.body.admin_username || '').trim();
   const adminPassword = String(req.body.admin_password || '').trim();
   const status = ['active', 'inactive'].includes(req.body.status) ? req.body.status : 'active';
@@ -655,8 +696,8 @@ app.put('/api/establishments/:id', requireSupreme, (req, res) => {
 
   try {
     const result = db
-      .prepare('UPDATE establishments SET name = ?, display_name = ?, business_type = ?, admin_username = ?, admin_password = ?, status = ?, promoter_sales_enabled = ? WHERE id = ?')
-      .run(name, displayName || name, businessType, adminUsername, adminPassword, status, promoterSalesEnabled, req.params.id);
+      .prepare('UPDATE establishments SET name = ?, display_name = ?, business_type = ?, code_prefix = ?, theme = ?, logo_url = ?, admin_username = ?, admin_password = ?, status = ?, promoter_sales_enabled = ? WHERE id = ?')
+      .run(name, displayName || name, businessType, codePrefix, theme, logoUrl, adminUsername, adminPassword, status, promoterSalesEnabled, req.params.id);
     if (!result.changes) {
       return res.status(404).json({ message: 'Establecimiento no encontrado' });
     }
@@ -876,7 +917,7 @@ app.get('/api/promoters', requireAdmin, (req, res) => {
 app.post('/api/promoters', requireAdmin, (req, res) => {
   const establishmentId = getRequestEstablishmentId(req);
   const { name, cedula, email, whatsapp, instagram, photo_url, referral_code, branch_id, status = 'active' } = req.body;
-  const normalizedCode = buildPromoterCode(name);
+  const normalizedCode = buildPromoterCode(name, establishmentId);
   const normalizedUsername = normalizedCode;
   const normalizedPassword = String(cedula || '').trim();
   const cleanEmail = String(email || '').trim().toLowerCase();
@@ -1603,17 +1644,18 @@ app.patch('/api/withdrawals/:id/pay', requireAdmin, async (req, res) => {
 
 app.get('/api/verify/:code', (req, res) => {
   const promoter = findPromoterForVerification(req.params.code);
-  const eventId = getActiveEvent()?.id || 1;
 
   if (!promoter) {
     return res.status(404).json({ registered: false, message: 'Codigo no registrado' });
   }
 
   const isActive = promoter.status === 'active';
+  const eventId = getActiveEvent(promoter.establishment_id)?.id || 1;
+  const brandName = promoter.establishment_display_name || promoter.establishment_name || 'PROMOTERS';
   return res.json({
     registered: true,
     active: isActive,
-    message: isActive ? 'Promotor oficial GEMASHOW' : 'Promotor inactivo',
+    message: isActive ? `Promotor oficial ${brandName}` : 'Promotor inactivo',
     promoter: {
       ...promoter,
       level: isActive ? getPromoterLevel(promoter.id, eventId) : { key: 'inactive', name: 'Inactive' }
@@ -1623,17 +1665,18 @@ app.get('/api/verify/:code', (req, res) => {
 
 app.post('/api/verify', (req, res) => {
   const promoter = findPromoterForVerification(req.body.code);
-  const eventId = getActiveEvent()?.id || 1;
 
   if (!promoter) {
     return res.status(404).json({ registered: false, message: 'Codigo no registrado' });
   }
 
   const isActive = promoter.status === 'active';
+  const eventId = getActiveEvent(promoter.establishment_id)?.id || 1;
+  const brandName = promoter.establishment_display_name || promoter.establishment_name || 'PROMOTERS';
   return res.json({
     registered: true,
     active: isActive,
-    message: isActive ? 'Promotor oficial GEMASHOW' : 'Promotor inactivo',
+    message: isActive ? `Promotor oficial ${brandName}` : 'Promotor inactivo',
     promoter: {
       ...promoter,
       level: isActive ? getPromoterLevel(promoter.id, eventId) : { key: 'inactive', name: 'Inactive' }
