@@ -397,7 +397,16 @@ function RegisterPage() {
       .then((rows) => {
         setEstablishments(rows);
         if (rows.length) {
-          setForm((current) => ({ ...current, establishment_id: current.establishment_id || String(rows[0].id) }));
+          const defaultEstablishment =
+            rows.find((item) =>
+              item.theme === 'digitalesclub' ||
+              item.code_prefix === 'DGCLUB' ||
+              /digitales/i.test(`${item.display_name || ''} ${item.name || ''}`)
+            ) || rows[0];
+          setForm((current) => ({
+            ...current,
+            establishment_id: current.establishment_id || String(defaultEstablishment.id)
+          }));
         }
       })
       .catch(() => setEstablishments([]));
