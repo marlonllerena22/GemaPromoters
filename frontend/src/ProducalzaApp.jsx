@@ -391,11 +391,39 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
 
   useEffect(() => {
     if (!printState) return undefined;
-    const timer = window.setTimeout(() => window.print(), 80);
+    let cancelled = false;
+    let fallbackTimer;
     const clearPrint = () => setPrintState(null);
+
+    async function openPrintWhenReady() {
+      await new Promise((resolve) => window.requestAnimationFrame(() =>
+        window.requestAnimationFrame(resolve)
+      ));
+      if (document.fonts?.ready) {
+        await document.fonts.ready.catch(() => {});
+      }
+      const images = Array.from(document.querySelectorAll('.prod-print-root img'));
+      await Promise.all(images.map((image) => {
+        if (image.complete && image.naturalWidth > 0) {
+          return image.decode?.().catch(() => {}) || Promise.resolve();
+        }
+        return new Promise((resolve) => {
+          const finish = () => resolve();
+          image.addEventListener('load', finish, { once: true });
+          image.addEventListener('error', finish, { once: true });
+          window.setTimeout(finish, 5000);
+        });
+      }));
+      if (!cancelled) {
+        fallbackTimer = window.setTimeout(() => window.print(), 120);
+      }
+    }
+
     window.addEventListener('afterprint', clearPrint, { once: true });
+    openPrintWhenReady();
     return () => {
-      window.clearTimeout(timer);
+      cancelled = true;
+      window.clearTimeout(fallbackTimer);
       window.removeEventListener('afterprint', clearPrint);
     };
   }, [printState]);

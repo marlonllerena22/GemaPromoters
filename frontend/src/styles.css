@@ -3880,7 +3880,7 @@ td {
     break-after: page;
     break-inside: avoid;
     box-sizing: border-box;
-    height: 297mm;
+    height: 296mm;
     margin: 0;
     overflow: hidden;
     page: box-guides;
@@ -3889,7 +3889,7 @@ td {
     position: relative;
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
-    width: 210mm;
+    width: 209.5mm;
   }
 
   .prod-guide-page:last-child {
@@ -3926,7 +3926,7 @@ td {
     grid-column: 1 / -1;
     justify-content: center;
     overflow: hidden;
-    padding: 0 1.5mm;
+    padding: 0.8mm 1.5mm;
   }
 
   .prod-guide-logo img {
@@ -3934,6 +3934,7 @@ td {
     height: 100%;
     max-width: 100%;
     object-fit: contain;
+    object-position: center;
     width: 100%;
   }
 
