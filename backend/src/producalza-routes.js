@@ -883,7 +883,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       'SELECT * FROM production_order_models WHERE id = ? AND establishment_id = ?'
     ).get(req.params.id, business.id);
     if (!current) return res.status(404).json({ message: 'Modelo no encontrado' });
-    const status = MODEL_STATUSES.includes(req.body.status) ? req.body.status : current.status;
+    const status = deriveModelStatus(req.body, MODEL_STATUSES.includes(req.body.status) ? req.body.status : current.status);
     const cardNumber = Number(req.body.card_number || current.card_number) || current.card_number;
     try {
       db.prepare(
@@ -913,6 +913,72 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     audit(req, 'update', 'production_model', current.id, status);
     res.json({ ok: true });
   });
+
+  app.patch('/api/producalza/models-batch', requireProductionAdmin, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const updates = Array.isArray(req.body.updates) ? req.body.updates : [];
+    if (!updates.length || updates.length > 500) {
+      return res.status(400).json({ message: 'No hay avances validos para guardar' });
+    }
+    const findModel = db.prepare(
+      'SELECT * FROM production_order_models WHERE id = ? AND establishment_id = ?'
+    );
+    const updateModel = db.prepare(
+      `UPDATE production_order_models SET
+       card_number = ?, status = ?, plant_area = ?,
+       process_cut = ?, process_prepared = ?, process_stitched = ?,
+       process_assembled = ?, process_planted = ?, process_finished = ?,
+       updated_at = datetime('now', 'localtime')
+       WHERE id = ? AND establishment_id = ?`
+    );
+    const affectedOrders = new Set();
+
+    try {
+      db.transaction(() => {
+        for (const update of updates) {
+          const current = findModel.get(update.id, business.id);
+          if (!current) {
+            throw new Error('Modelo no encontrado');
+          }
+          const merged = { ...current, ...update };
+          const status = deriveModelStatus(merged, MODEL_STATUSES.includes(update.status) ? update.status : current.status);
+          const cardNumber = Number(update.card_number || current.card_number) || current.card_number;
+          updateModel.run(
+            cardNumber,
+            status,
+            String(update.plant_area ?? current.plant_area ?? '').trim(),
+            merged.process_cut ? 1 : 0,
+            merged.process_prepared ? 1 : 0,
+            merged.process_stitched ? 1 : 0,
+            merged.process_assembled ? 1 : 0,
+            merged.process_planted ? 1 : 0,
+            merged.process_finished ? 1 : 0,
+            current.id,
+            business.id
+          );
+          affectedOrders.add(current.order_id);
+        }
+        for (const orderId of affectedOrders) {
+          syncOrderStatus(db, orderId, business.id);
+        }
+      })();
+    } catch (error) {
+      return res.status(400).json({ message: error.message || 'No se pudieron guardar los avances' });
+    }
+
+    audit(req, 'batch_update', 'production_model', null, `${updates.length} modelos actualizados`);
+    res.json({ ok: true, updated: updates.length });
+  });
+}
+
+function deriveModelStatus(model, fallback = 'received') {
+  if (model.process_finished) return 'finished';
+  if (model.process_planted || model.process_assembled) return 'assembled';
+  if (model.process_stitched) return 'stitched';
+  if (model.process_cut) return 'cut';
+  if (model.process_prepared) return 'in_production';
+  return fallback;
 }
 
 function insertModels(db, establishmentId, orderId, models, nextCardNumber) {

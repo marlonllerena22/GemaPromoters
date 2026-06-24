@@ -2570,6 +2570,89 @@ td {
   font-size: 17px;
 }
 
+.prod-client-picker {
+  position: relative;
+}
+
+.prod-client-picker > label {
+  color: #5c6b63;
+  display: grid;
+  font-size: 11px;
+  font-weight: 850;
+  gap: 6px;
+}
+
+.prod-client-suggestions {
+  background: #ffffff;
+  border: 1px solid #bdcbc4;
+  border-radius: 5px;
+  box-shadow: 0 14px 34px rgba(24, 43, 34, 0.15);
+  display: grid;
+  left: 0;
+  max-height: 300px;
+  overflow-y: auto;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 5px);
+  z-index: 20;
+}
+
+.prod-client-suggestions button {
+  background: #ffffff;
+  border: 0;
+  border-bottom: 1px solid #e3e9e6;
+  color: #1b2922;
+  padding: 11px;
+  text-align: left;
+}
+
+.prod-client-suggestions button:hover {
+  background: #edf5f1;
+}
+
+.prod-client-suggestions strong,
+.prod-client-suggestions span {
+  display: block;
+}
+
+.prod-client-suggestions span {
+  color: #64736b;
+  font-size: 10px;
+  margin-top: 3px;
+}
+
+.prod-client-suggestions > div {
+  color: #718078;
+  font-size: 11px;
+  padding: 15px;
+}
+
+.prod-selected-client {
+  background: #f1f6f3;
+  border: 1px solid #d4e0da;
+  border-radius: 6px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 12px;
+}
+
+.prod-selected-client span,
+.prod-selected-client strong {
+  display: block;
+}
+
+.prod-selected-client span {
+  color: #718078;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.prod-selected-client strong {
+  font-size: 11px;
+  margin-top: 3px;
+}
+
 .prod-add-model {
   background: transparent;
   border: 1px dashed #78988a;
@@ -3050,6 +3133,62 @@ td {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.prod-production-orders {
+  display: grid;
+  gap: 16px;
+}
+
+.prod-production-order {
+  background: #ffffff;
+  border: 1px solid #d2dcd7;
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.prod-production-order > header {
+  align-items: center;
+  background: #edf3f0;
+  border-bottom: 1px solid #d6e0db;
+  display: flex;
+  justify-content: space-between;
+  padding: 15px 17px;
+}
+
+.prod-production-order > header span,
+.prod-production-order > header small {
+  color: #68776f;
+  display: block;
+  font-size: 10px;
+}
+
+.prod-production-order > header h2 {
+  font-size: 18px;
+  margin: 3px 0;
+}
+
+.prod-production-order > header > div:last-child {
+  display: flex;
+  gap: 7px;
+}
+
+.prod-production-order .prod-production-grid {
+  padding: 13px;
+}
+
+.prod-production-card.pending-save {
+  border-color: #d39b1e;
+  box-shadow: inset 0 3px #e6b94a;
+}
+
+.prod-card-actions > span {
+  color: #77857d;
+  font-size: 9px;
+}
+
+.prod-save-progress {
+  margin-left: auto;
+}
+
 .prod-production-card {
   background: #ffffff;
   border: 1px solid #d6dfda;
@@ -3305,6 +3444,14 @@ td {
     grid-template-columns: 1fr;
   }
 
+  .prod-selected-client {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .prod-production-order > header {
+    align-items: flex-start;
+  }
+
   .prod-client-report-filters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -3439,9 +3586,39 @@ td {
   .prod-report-range.date {
     grid-column: auto;
   }
+
+  .prod-selected-client {
+    grid-template-columns: 1fr;
+  }
+
+  .prod-production-order > header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .prod-production-order > header > div:last-child {
+    display: grid;
+    grid-template-columns: 1fr auto;
+  }
+
+  .prod-save-progress {
+    margin-left: 0;
+    width: 100%;
+  }
 }
 
 @media print {
+  @page order-sheet {
+    size: A4 landscape;
+    margin: 6mm;
+  }
+
+  @page production-cards {
+    size: A4 portrait;
+    margin: 6mm;
+  }
+
   body * {
     visibility: hidden !important;
   }
@@ -3462,16 +3639,28 @@ td {
   }
 
   .prod-print-page,
+  .prod-print-card-page,
   .prod-print-card {
-    break-after: page;
     font-family: Arial, sans-serif;
     margin: 0 auto;
   }
 
   .prod-print-page {
-    min-height: 270mm;
-    padding: 10mm;
-    width: 190mm;
+    break-after: page;
+    min-height: 190mm;
+    page: order-sheet;
+    padding: 3mm;
+    width: 277mm;
+  }
+
+  .prod-print-card-page {
+    align-content: start;
+    break-after: page;
+    display: grid;
+    gap: 3mm;
+    min-height: 285mm;
+    page: production-cards;
+    width: 198mm;
   }
 
   .prod-print-page header,
@@ -3492,7 +3681,7 @@ td {
 
   .prod-print-page header strong,
   .prod-print-card header strong {
-    font-size: 18pt;
+    font-size: 14pt;
   }
 
   .prod-print-page header span,
@@ -3502,21 +3691,21 @@ td {
 
   .prod-print-page header b,
   .prod-print-card header b {
-    font-size: 15pt;
+    font-size: 12pt;
   }
 
   .prod-print-info {
     display: grid;
-    gap: 3mm;
-    grid-template-columns: repeat(4, 1fr);
-    margin: 7mm 0;
+    gap: 1.5mm;
+    grid-template-columns: repeat(6, 1fr);
+    margin: 3mm 0;
   }
 
   .prod-print-info div,
   .prod-print-card section div,
   .prod-card-client {
     border: 1px solid #777777;
-    padding: 3mm;
+    padding: 1.5mm;
   }
 
   .prod-print-info span,
@@ -3538,8 +3727,8 @@ td {
   .prod-print-info strong,
   .prod-print-card section strong,
   .prod-card-client strong {
-    font-size: 10pt;
-    margin-top: 1mm;
+    font-size: 8pt;
+    margin-top: 0.5mm;
   }
 
   .prod-print-page table,
@@ -3548,21 +3737,53 @@ td {
     width: 100%;
   }
 
+  .prod-print-process-legend {
+    display: flex;
+    font-size: 6.5pt;
+    gap: 4mm;
+    justify-content: flex-end;
+    margin: 0 0 1.5mm;
+  }
+
   .prod-print-page th,
   .prod-print-page td,
   .prod-print-card th,
   .prod-print-card td {
     border: 1px solid #000000;
-    font-size: 11pt;
-    height: 13mm;
+    font-size: 8pt;
+    height: 8mm;
+    padding: 1mm;
     text-align: center;
+  }
+
+  .prod-print-order-table th {
+    font-size: 6.5pt;
+  }
+
+  .prod-print-order-table td:nth-child(2),
+  .prod-print-order-table td:nth-child(3),
+  .prod-print-order-table td:last-child {
+    text-align: left;
+  }
+
+  .prod-print-order-table td:last-child {
+    font-size: 6.5pt;
+    max-width: 34mm;
+  }
+
+  .prod-print-order-table small {
+    font-size: 6pt;
+  }
+
+  .prod-print-total-row td {
+    background: #eeeeee;
   }
 
   .prod-print-notes {
     border: 1px solid #000000;
-    margin-top: 7mm;
-    min-height: 35mm;
-    padding: 4mm;
+    margin-top: 3mm;
+    min-height: 13mm;
+    padding: 2mm;
   }
 
   .prod-print-notes span,
@@ -3572,52 +3793,25 @@ td {
     text-transform: uppercase;
   }
 
-  .prod-print-process {
-    display: grid;
-    gap: 3mm;
-    grid-template-columns: repeat(6, 1fr);
-    margin-top: 8mm;
-  }
-
-  .prod-print-process div {
-    border: 1px solid #000000;
-    display: grid;
-    min-height: 28mm;
-    padding: 3mm;
-    text-align: center;
-  }
-
-  .prod-print-process strong {
-    font-size: 16pt;
-  }
-
-  .prod-print-process span {
-    font-size: 7pt;
-  }
-
-  .prod-print-process i {
-    border: 1px solid #000000;
-    height: 8mm;
-    margin: auto;
-    width: 8mm;
-  }
-
   .prod-print-page footer {
     display: flex;
     font-size: 9pt;
     justify-content: space-between;
-    margin-top: 15mm;
+    margin-top: 5mm;
   }
 
   .prod-print-card {
     border: 2px solid #000000;
-    min-height: 125mm;
-    padding: 7mm;
-    width: 185mm;
+    break-inside: avoid;
+    height: 91mm;
+    overflow: hidden;
+    padding: 3.5mm;
+    width: 198mm;
   }
 
   .prod-card-client {
-    margin: 5mm 0;
+    margin: 2mm 0;
+    padding: 1.5mm;
   }
 
   .prod-print-card section {
@@ -3627,6 +3821,7 @@ td {
 
   .prod-print-card section div {
     border-right: 0;
+    padding: 1.5mm;
   }
 
   .prod-print-card section div:last-child {
@@ -3634,7 +3829,13 @@ td {
   }
 
   .prod-print-card table {
-    margin-top: 5mm;
+    margin-top: 2mm;
+  }
+
+  .prod-print-card th,
+  .prod-print-card td {
+    font-size: 8pt;
+    height: 7mm;
   }
 
   .prod-card-total {
@@ -3642,29 +3843,30 @@ td {
     border: 2px solid #000000;
     display: flex;
     justify-content: space-between;
-    margin-top: 4mm;
-    padding: 3mm;
+    margin-top: 2mm;
+    padding: 1.5mm;
   }
 
   .prod-card-total strong {
-    font-size: 15pt;
+    font-size: 11pt;
   }
 
   .prod-card-observation {
     border: 1px solid #000000;
-    min-height: 22mm;
-    padding: 3mm;
+    min-height: 10mm;
+    padding: 1.5mm;
   }
 
   .prod-card-observation p {
-    font-size: 9pt;
+    font-size: 7pt;
+    margin: 1mm 0 0;
   }
 
   .prod-card-process {
     display: flex;
-    font-size: 11pt;
+    font-size: 8pt;
     font-weight: bold;
     justify-content: space-between;
-    margin-top: 5mm;
+    margin-top: 2mm;
   }
 }

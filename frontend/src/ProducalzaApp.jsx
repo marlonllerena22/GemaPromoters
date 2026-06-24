@@ -531,10 +531,36 @@ function OrderForm({ clients, users, isAdmin, scope, initialOrder, onCancel, onS
   const [newClient, setNewClient] = useState(emptyClient);
   const [localClients, setLocalClients] = useState(clients);
   const [saving, setSaving] = useState(false);
+  const initialClient = clients.find((client) => String(client.id) === String(initialOrder?.client_id));
+  const [clientQuery, setClientQuery] = useState(initialClient?.name || initialOrder?.client_name || '');
+  const [showClientSuggestions, setShowClientSuggestions] = useState(false);
 
   useEffect(() => {
     setForm(initialOrder ? orderToForm(initialOrder) : emptyOrder());
+    const client = clients.find((item) => String(item.id) === String(initialOrder?.client_id));
+    setClientQuery(client?.name || initialOrder?.client_name || '');
   }, [initialOrder]);
+
+  const selectedClient = localClients.find((client) => String(client.id) === String(form.client_id));
+  const clientSuggestions = (clientQuery.trim()
+    ? localClients.filter((client) =>
+      `${client.name} ${client.business_name || ''} ${client.city || ''} ${client.phone || ''}`
+        .toLowerCase()
+        .includes(clientQuery.toLowerCase())
+    )
+    : localClients).slice(0, 8);
+
+  function selectClient(client) {
+    setClientQuery(client.name);
+    setShowClientSuggestions(false);
+    setForm((current) => ({
+      ...current,
+      client_id: String(client.id),
+      brand: current.brand || client.brand || '',
+      payment_method: current.payment_method || client.payment_method || '',
+      bank_reference: current.bank_reference || client.bank_reference || ''
+    }));
+  }
 
   function updateModel(index, patch) {
     setForm((current) => ({
@@ -555,7 +581,7 @@ function OrderForm({ clients, users, isAdmin, scope, initialOrder, onCancel, onS
         body: JSON.stringify(newClient)
       });
       setLocalClients((current) => [...current, created].sort((a, b) => a.name.localeCompare(b.name)));
-      setForm({ ...form, client_id: String(created.id) });
+      selectClient(created);
       setNewClient(emptyClient);
       setShowNewClient(false);
     } catch (err) {
@@ -592,18 +618,46 @@ function OrderForm({ clients, users, isAdmin, scope, initialOrder, onCancel, onS
           <button className="prod-icon-button" onClick={onCancel} title="Cerrar"><X size={18} /></button>
         </div>
         <div className="prod-form-grid">
-          <label className="span-2">
-            Cliente
-            <select value={form.client_id} onChange={(event) => setForm({ ...form, client_id: event.target.value })}>
-              <option value="">Selecciona un cliente</option>
-              {localClients.map((client) => (
-                <option value={client.id} key={client.id}>{client.name}{client.business_name ? ` · ${client.business_name}` : ''}</option>
-              ))}
-            </select>
-          </label>
+          <div className="span-2 prod-client-picker">
+            <label>
+              Cliente
+              <input
+                value={clientQuery}
+                placeholder="Escribe el nombre, ciudad o telefono"
+                autoComplete="off"
+                onFocus={() => setShowClientSuggestions(true)}
+                onChange={(event) => {
+                  setClientQuery(event.target.value);
+                  setForm((current) => ({ ...current, client_id: '' }));
+                  setShowClientSuggestions(true);
+                }}
+              />
+            </label>
+            {showClientSuggestions && (
+              <div className="prod-client-suggestions">
+                {clientSuggestions.map((client) => (
+                  <button type="button" key={client.id} onClick={() => selectClient(client)}>
+                    <strong>{client.name}</strong>
+                    <span>{client.business_name || 'Sin razon social'} · {client.city || 'Sin ciudad'} · {client.phone || 'Sin telefono'}</span>
+                  </button>
+                ))}
+                {!clientSuggestions.length && <div>Cliente no encontrado. Puedes crearlo con Nuevo cliente.</div>}
+              </div>
+            )}
+          </div>
           <button className="prod-secondary-button align-end" type="button" onClick={() => setShowNewClient((value) => !value)}>
             <UserPlus size={17} />Nuevo cliente
           </button>
+          {selectedClient && (
+            <div className="span-full prod-selected-client">
+              <div><span>Razon social</span><strong>{selectedClient.business_name || 'No registrada'}</strong></div>
+              <div><span>RUC / Cedula</span><strong>{selectedClient.tax_id || 'No registrado'}</strong></div>
+              <div><span>Ciudad</span><strong>{selectedClient.city || 'No registrada'}</strong></div>
+              <div><span>Direccion</span><strong>{selectedClient.address || 'No registrada'}</strong></div>
+              <div><span>Telefono</span><strong>{selectedClient.phone || 'No registrado'}</strong></div>
+              <div><span>Correo</span><strong>{selectedClient.email || 'No registrado'}</strong></div>
+            </div>
+          )}
           <label>Fecha<input type="date" value={form.order_date} onChange={(event) => setForm({ ...form, order_date: event.target.value })} /></label>
           {isAdmin && (
             <label>Vendedor
@@ -688,7 +742,7 @@ function OrderDetail({ order, isAdmin, onBack, onEdit, onPrint }) {
         <button className="prod-secondary-button" onClick={onBack}><ChevronLeft size={17} />Volver</button>
         <div>
           <button className="prod-secondary-button" onClick={onEdit}><Pencil size={17} />Editar</button>
-          <button className="prod-primary-button" onClick={() => onPrint('sheets')}><Printer size={17} />Hojas de produccion</button>
+          <button className="prod-primary-button" onClick={() => onPrint('sheets')}><Printer size={17} />Hoja unica del pedido</button>
           <button className="prod-primary-button dark" onClick={() => onPrint('cards')}><Printer size={17} />Tarjetas</button>
         </div>
       </div>
@@ -1056,60 +1110,161 @@ function ClientsView({ clients, isAdmin, users, scope, onOpenOrder, onRefresh, s
 
 function ProductionBoard({ items, isAdmin, scope, onOpen, onRefresh, setError, onPrint }) {
   const [status, setStatus] = useState('');
-  const filtered = status ? items.filter((item) => item.status === status) : items;
+  const [search, setSearch] = useState('');
+  const [processFilter, setProcessFilter] = useState('');
+  const [draftItems, setDraftItems] = useState(items);
+  const [dirtyIds, setDirtyIds] = useState([]);
+  const [saving, setSaving] = useState(false);
 
-  async function update(item, patch) {
+  useEffect(() => {
+    setDraftItems(items);
+    setDirtyIds([]);
+  }, [items]);
+
+  function deriveStatus(item) {
+    if (item.process_finished) return 'finished';
+    if (item.process_planted || item.process_assembled) return 'assembled';
+    if (item.process_stitched) return 'stitched';
+    if (item.process_cut) return 'cut';
+    if (item.process_prepared) return 'in_production';
+    return 'received';
+  }
+
+  function stageUpdate(item, patch) {
+    setDraftItems((current) => current.map((currentItem) => {
+      if (currentItem.id !== item.id) return currentItem;
+      const merged = { ...currentItem, ...patch };
+      return { ...merged, status: patch.status || deriveStatus(merged) };
+    }));
+    setDirtyIds((current) => current.includes(item.id) ? current : [...current, item.id]);
+  }
+
+  async function saveUpdates() {
+    if (!dirtyIds.length) return;
+    setSaving(true);
     try {
-      await api(scope(`/producalza/models/${item.id}`), {
+      await api(scope('/producalza/models-batch'), {
         method: 'PATCH',
-        body: JSON.stringify({ ...item, ...patch })
+        body: JSON.stringify({
+          updates: draftItems
+            .filter((item) => dirtyIds.includes(item.id))
+            .map((item) => ({
+              id: item.id,
+              status: item.status,
+              card_number: item.card_number,
+              plant_area: item.plant_area,
+              process_cut: item.process_cut,
+              process_prepared: item.process_prepared,
+              process_stitched: item.process_stitched,
+              process_assembled: item.process_assembled,
+              process_planted: item.process_planted,
+              process_finished: item.process_finished
+            }))
+        })
       });
-      onRefresh('Avance actualizado');
+      await onRefresh(`${dirtyIds.length} avances actualizados`);
     } catch (err) {
       setError(err.message);
+    } finally {
+      setSaving(false);
     }
   }
+
+  const processField = PROCESS_FIELDS.find(([, , label]) => label === processFilter)?.[0];
+  const filtered = draftItems.filter((item) => {
+    const matchesStatus = !status || item.status === status;
+    const matchesSearch = !search || `${item.order_number} ${item.client_name} ${item.model_code}`
+      .toLowerCase()
+      .includes(search.toLowerCase());
+    const matchesProcess = !processField || Boolean(item[processField]);
+    return matchesStatus && matchesSearch && matchesProcess;
+  });
+  const grouped = Object.values(filtered.reduce((orders, item) => {
+    const key = item.order_id;
+    if (!orders[key]) {
+      orders[key] = {
+        order_id: item.order_id,
+        order_number: item.order_number,
+        client_name: item.client_name,
+        city: item.city,
+        order_date: item.order_date,
+        items: []
+      };
+    }
+    orders[key].items.push(item);
+    return orders;
+  }, {}));
 
   return (
     <div className="prod-stack">
       <section className="prod-filterbar">
+        <label className="prod-search">
+          <Search size={17} />
+          <input
+            placeholder="Pedido, cliente o modelo"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </label>
         <select value={status} onChange={(event) => setStatus(event.target.value)}>
-          <option value="">Todos los procesos</option>
+          <option value="">Todos los estados</option>
           {Object.entries(MODEL_STATUS_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
         </select>
-        <span className="prod-filter-count">{filtered.length} modelos</span>
+        <select value={processFilter} onChange={(event) => setProcessFilter(event.target.value)}>
+          <option value="">Todas las etapas marcadas</option>
+          {PROCESS_FIELDS.map(([, , label]) => <option value={label} key={label}>{label}</option>)}
+        </select>
+        <span className="prod-filter-count">{grouped.length} pedidos · {filtered.length} modelos</span>
+        {isAdmin && dirtyIds.length > 0 && (
+          <button className="prod-primary-button prod-save-progress" disabled={saving} onClick={saveUpdates}>
+            <Save size={17} />
+            Guardar avances ({dirtyIds.length})
+          </button>
+        )}
       </section>
-      <div className="prod-production-grid">
-        {filtered.map((item) => (
-          <article className="prod-production-card" key={item.id}>
-            <div className="prod-production-head">
-              <div><span>{item.order_number} · Tarjeta {item.card_number}</span><h3>{item.model_code}</h3><p>{item.client_name}</p></div>
-              <StatusBadge status={item.status} model />
+      <div className="prod-production-orders">
+        {grouped.map((order) => (
+          <section className="prod-production-order" key={order.order_id}>
+            <header>
+              <div>
+                <span>{order.order_number} · {displayDate(order.order_date)}</span>
+                <h2>{order.client_name}</h2>
+                <small>{order.city || 'Sin ciudad'} · {order.items.length} modelos · {order.items.reduce((sum, item) => sum + Number(item.total_pairs || 0), 0)} pares</small>
+              </div>
+              <div>
+                <button className="prod-secondary-button" onClick={() => onOpen(order.order_id)}>Ver pedido</button>
+                <button className="prod-icon-button" title="Imprimir tarjetas" onClick={() => onPrint(order.order_id, 'cards')}><Printer size={17} /></button>
+              </div>
+            </header>
+            <div className="prod-production-grid">
+              {order.items.map((item) => (
+                <article className={`prod-production-card ${dirtyIds.includes(item.id) ? 'pending-save' : ''}`} key={item.id}>
+                  <div className="prod-production-head">
+                    <div><span>Tarjeta {item.card_number}</span><h3>{item.model_code}</h3><p>{item.color || 'Sin color'}</p></div>
+                    <StatusBadge status={item.status} model />
+                  </div>
+                  <div className="prod-production-meta">
+                    <span>{item.material || 'Sin material'}</span>
+                    <strong>{item.total_pairs} pares</strong>
+                  </div>
+                  {isAdmin ? (
+                    <>
+                      <ProcessStrip model={item} onChange={(field, value) => stageUpdate(item, { [field]: value })} />
+                      <label className="prod-card-number">Tarjeta Nro.
+                        <input type="number" value={item.card_number || ''} onChange={(event) => stageUpdate(item, { card_number: event.target.value })} />
+                      </label>
+                    </>
+                  ) : <ProcessStrip model={item} readOnly />}
+                  <div className="prod-card-actions">
+                    <span>{dirtyIds.includes(item.id) ? 'Cambio pendiente de guardar' : 'Actualizado'}</span>
+                    <button className="prod-icon-button" title="Imprimir tarjeta" onClick={() => onPrint(item.order_id, 'card', item.id)}><Printer size={17} /></button>
+                  </div>
+                </article>
+              ))}
             </div>
-            <div className="prod-production-meta">
-              <span>{item.color || 'Sin color'}</span>
-              <strong>{item.total_pairs} pares</strong>
-            </div>
-            {isAdmin ? (
-              <>
-                <label className="prod-status-select">Estado
-                  <select value={item.status} onChange={(event) => update(item, { status: event.target.value })}>
-                    {Object.entries(MODEL_STATUS_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
-                  </select>
-                </label>
-                <ProcessStrip model={item} onChange={(field, value) => update(item, { [field]: value })} />
-                <label className="prod-card-number">Tarjeta Nro.
-                  <input type="number" defaultValue={item.card_number} onBlur={(event) => update(item, { card_number: event.target.value })} />
-                </label>
-              </>
-            ) : <ProcessStrip model={item} readOnly />}
-            <div className="prod-card-actions">
-              <button className="prod-secondary-button" onClick={() => onOpen(item.order_id)}>Ver pedido</button>
-              <button className="prod-icon-button" title="Imprimir tarjeta" onClick={() => onPrint(item.order_id, 'card', item.id)}><Printer size={17} /></button>
-            </div>
-          </article>
+          </section>
         ))}
-        {!filtered.length && <div className="prod-empty">No hay modelos en este estado.</div>}
+        {!grouped.length && <div className="prod-empty">No hay pedidos que coincidan con estos filtros.</div>}
       </div>
     </div>
   );
@@ -1445,40 +1600,76 @@ function PrintLayouts({ state }) {
   if (!state?.order) return null;
   const { order, type, modelId } = state;
   const models = modelId ? order.models.filter((model) => model.id === modelId) : order.models;
+  const cardPages = [];
+  for (let index = 0; index < models.length; index += 3) {
+    cardPages.push(models.slice(index, index + 3));
+  }
   return (
     <div className="prod-print-root">
-      {(type === 'sheets' ? models : []).map((model) => (
-        <ProductionSheet order={order} model={model} key={`sheet-${model.id}`} />
-      ))}
-      {(type === 'cards' || type === 'card' ? models : []).map((model) => (
-        <ProductionCard order={order} model={model} key={`card-${model.id}`} />
+      {type === 'sheets' && <ProductionOrderSheet order={order} />}
+      {(type === 'cards' || type === 'card') && cardPages.map((pageModels, pageIndex) => (
+        <article className="prod-print-card-page" key={`card-page-${pageIndex}`}>
+          {pageModels.map((model) => <ProductionCard order={order} model={model} key={`card-${model.id}`} />)}
+        </article>
       ))}
     </div>
   );
 }
 
-function ProductionSheet({ order, model }) {
+function ProductionOrderSheet({ order }) {
+  const totalPairs = order.models.reduce((sum, model) => sum + Number(model.total_pairs || 0), 0);
   return (
     <article className="prod-print-page">
-      <header><div><strong>PRODUCALZA</strong><span>HOJA DE PRODUCCION</span></div><b>{order.order_number}</b></header>
+      <header><div><strong>PRODUCALZA</strong><span>HOJA UNICA DE PEDIDO Y PRODUCCION</span></div><b>{order.order_number}</b></header>
       <section className="prod-print-info">
         <div><span>Cliente</span><strong>{order.client_name}</strong></div>
+        <div><span>Razon social</span><strong>{order.business_name || '-'}</strong></div>
+        <div><span>RUC / Cedula</span><strong>{order.tax_id || '-'}</strong></div>
         <div><span>Fecha</span><strong>{displayDate(order.order_date)}</strong></div>
         <div><span>Vendedor</span><strong>{order.seller_name || 'Sin asignar'}</strong></div>
         <div><span>Ciudad</span><strong>{order.city || 'Sin ciudad'}</strong></div>
-        <div><span>Modelo</span><strong>{model.model_code}</strong></div>
-        <div><span>Color</span><strong>{model.color || '-'}</strong></div>
-        <div><span>Material</span><strong>{model.material || '-'}</strong></div>
-        <div><span>Tarjeta Nro.</span><strong>{model.card_number}</strong></div>
+        <div><span>Direccion</span><strong>{order.address || '-'}</strong></div>
+        <div><span>Telefono</span><strong>{order.phone || '-'}</strong></div>
+        <div><span>Correo</span><strong>{order.email || '-'}</strong></div>
+        <div><span>Marca</span><strong>{order.brand || '-'}</strong></div>
+        <div><span>Forma de pago</span><strong>{order.payment_method || '-'}</strong></div>
+        <div><span>Referencia bancaria</span><strong>{order.bank_reference || '-'}</strong></div>
       </section>
-      <table><thead><tr>{SIZES.map((size) => <th key={size}>{size}</th>)}<th>TOTAL</th></tr></thead>
-        <tbody><tr>{SIZES.map((size) => <td key={size}>{model.sizes?.[size] || ''}</td>)}<td><strong>{model.total_pairs}</strong></td></tr></tbody>
+      <div className="prod-print-process-legend">
+        {PROCESS_FIELDS.map(([, letter, label]) => <span key={label}><strong>{letter}</strong> {label}</span>)}
+      </div>
+      <table className="prod-print-order-table">
+        <thead>
+          <tr>
+            <th>Tarj.</th><th>Modelo</th><th>Color / Material</th>
+            {SIZES.map((size) => <th key={size}>{size}</th>)}
+            <th>Total</th>
+            {PROCESS_FIELDS.map(([, letter, label]) => <th title={label} key={label}>{letter}</th>)}
+            <th>Estado</th><th>Observaciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {order.models.map((model) => (
+            <tr key={model.id}>
+              <td>{model.card_number}</td>
+              <td><strong>{model.model_code}</strong></td>
+              <td>{model.color || '-'}<br /><small>{model.material || '-'}</small></td>
+              {SIZES.map((size) => <td key={size}>{model.sizes?.[size] || ''}</td>)}
+              <td><strong>{model.total_pairs}</strong></td>
+              {PROCESS_FIELDS.map(([field, , label]) => <td key={label}>{model[field] ? 'X' : ''}</td>)}
+              <td>{MODEL_STATUS_LABELS[model.status] || model.status}</td>
+              <td>{model.notes || ''}</td>
+            </tr>
+          ))}
+          <tr className="prod-print-total-row">
+            <td colSpan="13"><strong>TOTAL DEL PEDIDO</strong></td>
+            <td><strong>{totalPairs}</strong></td>
+            <td colSpan="8" />
+          </tr>
+        </tbody>
       </table>
-      <section className="prod-print-notes"><span>Observaciones</span><p>{model.notes || order.general_notes || ''}</p></section>
-      <section className="prod-print-process">
-        {PROCESS_FIELDS.map(([, letter, label]) => <div key={label}><strong>{letter}</strong><span>{label}</span><i /></div>)}
-      </section>
-      <footer><span>Planta / area: {model.plant_area || '________________'}</span><span>Firma: __________________________</span></footer>
+      <section className="prod-print-notes"><span>Observaciones generales</span><p>{order.general_notes || ''}</p></section>
+      <footer><span>Revisado por: __________________________</span><span>Firma cliente: __________________________</span></footer>
     </article>
   );
 }
