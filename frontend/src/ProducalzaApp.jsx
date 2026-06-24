@@ -7,6 +7,7 @@ import {
   Factory,
   FilePlus2,
   Filter,
+  Image as ImageIcon,
   LogOut,
   PackageCheck,
   Pencil,
@@ -17,6 +18,7 @@ import {
   Tags,
   BarChart3,
   Trash2,
+  Upload,
   UserPlus,
   UsersRound,
   X
@@ -66,6 +68,7 @@ const emptyClient = {
   bank_reference: '',
   classification: '',
   guide_template_key: '',
+  guide_logo_url: '',
   general_notes: ''
 };
 
@@ -194,6 +197,39 @@ function resolveGuideTemplateKey(order, templates) {
   return order?.guide_template_key
     || order?.client_guide_template_key
     || inferGuideTemplate(order, templates);
+}
+
+function resizeGuideImage(file) {
+  return new Promise((resolve, reject) => {
+    if (!file?.type?.startsWith('image/')) {
+      reject(new Error('Selecciona una imagen valida'));
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      reject(new Error('La imagen no puede superar 8 MB'));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('No se pudo leer la imagen'));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error('No se pudo procesar la imagen'));
+      image.onload = () => {
+        const maxWidth = 1400;
+        const maxHeight = 900;
+        const scale = Math.min(1, maxWidth / image.width, maxHeight / image.height);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext('2d');
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/webp', 0.88));
+      };
+      image.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 export default function ProducalzaApp({ user, onLogout, embedded = false, establishmentId = '' }) {
@@ -769,7 +805,13 @@ function OrderForm({ clients, users, isAdmin, scope, initialOrder, onCancel, onS
       {showNewClient && (
         <section className="prod-panel prod-inline-client">
           <div className="prod-panel-title"><div><span>Registro rapido</span><h2>Nuevo cliente</h2></div></div>
-          <ClientFields value={newClient} onChange={setNewClient} guideTemplates={guideTemplates} />
+          <ClientFields
+            value={newClient}
+            onChange={setNewClient}
+            guideTemplates={guideTemplates}
+            canEditGuideImage={isAdmin}
+            setError={setError}
+          />
           <div className="prod-form-actions">
             <button className="prod-secondary-button" onClick={() => setShowNewClient(false)}>Cancelar</button>
             <button className="prod-primary-button" onClick={createClient}><Save size={17} />Crear y seleccionar</button>
@@ -1087,10 +1129,17 @@ function ClientsView({ clients, isAdmin, users, scope, onOpenOrder, onRefresh, s
     }
   }
 
-  function edit(client) {
-    setEditingId(client.id);
-    setForm(Object.fromEntries(Object.keys(emptyClient).map((key) => [key, client[key] || ''])));
-    setShowClientForm(true);
+  async function edit(client) {
+    try {
+      const fullClient = client.guide_logo_url !== undefined
+        ? client
+        : await api(scope(`/producalza/clients/${client.id}`));
+      setEditingId(fullClient.id);
+      setForm(Object.fromEntries(Object.keys(emptyClient).map((key) => [key, fullClient[key] || ''])));
+      setShowClientForm(true);
+    } catch (err) {
+      setError(err.message);
+    }
   }
 
   if (selected) {
@@ -1133,7 +1182,13 @@ function ClientsView({ clients, isAdmin, users, scope, onOpenOrder, onRefresh, s
               <div><span>Informacion general</span><h2>Editar cliente</h2></div>
               <button className="prod-icon-button" onClick={() => setShowClientForm(false)}><X size={17} /></button>
             </div>
-            <ClientFields value={form} onChange={setForm} guideTemplates={guideTemplates} />
+            <ClientFields
+              value={form}
+              onChange={setForm}
+              guideTemplates={guideTemplates}
+              canEditGuideImage={isAdmin}
+              setError={setError}
+            />
             <div className="prod-form-actions">
               <button className="prod-secondary-button" onClick={() => setShowClientForm(false)}>Cancelar</button>
               <button className="prod-primary-button" onClick={saveClient}><Save size={17} />Guardar cambios</button>
@@ -1155,6 +1210,12 @@ function ClientsView({ clients, isAdmin, users, scope, onOpenOrder, onRefresh, s
             <Detail label="Vendedor historico" value={selected.imported_seller_code} />
             <Detail label="Ultima actividad" value={selected.summary?.last_activity ? displayDate(selected.summary.last_activity.slice(0, 10)) : ''} />
           </div>
+          <GuideBrandPreview
+            value={selected.guide_logo_url}
+            templateKey={selected.guide_template_key}
+            templates={guideTemplates}
+            title="Imagen que se imprimira en las guias"
+          />
           {selected.general_notes && <div className="prod-note"><strong>Observaciones generales</strong><p>{selected.general_notes}</p></div>}
         </section>
 
@@ -1288,7 +1349,13 @@ function ClientsView({ clients, isAdmin, users, scope, onOpenOrder, onRefresh, s
       <div className="prod-stack">
         <section className="prod-panel">
           <div className="prod-panel-title"><div><span>{editingId ? 'Edicion' : 'Nuevo registro'}</span><h2>{editingId ? 'Editar cliente' : 'Agregar cliente'}</h2></div></div>
-          <ClientFields value={form} onChange={setForm} guideTemplates={guideTemplates} />
+          <ClientFields
+            value={form}
+            onChange={setForm}
+            guideTemplates={guideTemplates}
+            canEditGuideImage={isAdmin}
+            setError={setError}
+          />
           <div className="prod-form-actions">
             {editingId && <button className="prod-secondary-button" onClick={() => { setEditingId(null); setForm(emptyClient); }}>Cancelar</button>}
             <button className="prod-primary-button" onClick={saveClient}><Save size={17} />Guardar cliente</button>
@@ -1735,7 +1802,79 @@ function GuideTemplateSelect({ value, templates, onChange }) {
   );
 }
 
-function ClientFields({ value, onChange, guideTemplates = [] }) {
+function GuideBrandPreview({ value, templateKey, templates, title = 'Vista previa' }) {
+  const template = templates.find((item) => item.key === templateKey);
+  const images = value ? [value] : (template?.logos || []);
+  return (
+    <div className="prod-guide-image-preview">
+      <div>
+        <ImageIcon size={19} />
+        <span>{title}</span>
+        <strong>{value ? 'Imagen personalizada' : template?.name || 'Sin formato asignado'}</strong>
+      </div>
+      <div className="prod-guide-image-gallery">
+        {images.map((image, index) => (
+          <figure key={`${image.slice(0, 80)}-${index}`}>
+            <img src={image} alt={`Imagen de guia ${index + 1}`} />
+          </figure>
+        ))}
+        {!images.length && <p>Selecciona un formato o carga una imagen para verla aqui.</p>}
+      </div>
+    </div>
+  );
+}
+
+function GuideImageEditor({ value, templateKey, templates, onChange, setError, canEdit }) {
+  async function selectImage(file) {
+    if (!file) return;
+    try {
+      onChange(await resizeGuideImage(file));
+    } catch (error) {
+      setError?.(error.message);
+    }
+  }
+
+  return (
+    <div className="span-full prod-guide-image-editor">
+      <GuideBrandPreview
+        value={value}
+        templateKey={templateKey}
+        templates={templates}
+        title="Logo o foto para las guias"
+      />
+      {canEdit && (
+        <div className="prod-guide-image-actions">
+          <label className="prod-secondary-button">
+            <Upload size={17} />
+            {value ? 'Reemplazar imagen' : 'Cargar desde dispositivo'}
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              onChange={(event) => {
+                selectImage(event.target.files?.[0]);
+                event.target.value = '';
+              }}
+            />
+          </label>
+          {value && (
+            <button type="button" className="prod-secondary-button danger" onClick={() => onChange('')}>
+              <Trash2 size={17} />
+              Quitar y usar original
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ClientFields({
+  value,
+  onChange,
+  guideTemplates = [],
+  canEditGuideImage = false,
+  setError
+}) {
   const update = (key, nextValue) => onChange({ ...value, [key]: nextValue });
   return (
     <div className="prod-form-grid">
@@ -1754,6 +1893,14 @@ function ClientFields({ value, onChange, guideTemplates = [] }) {
         value={value.guide_template_key}
         templates={guideTemplates}
         onChange={(guide_template_key) => update('guide_template_key', guide_template_key)}
+      />
+      <GuideImageEditor
+        value={value.guide_logo_url}
+        templateKey={value.guide_template_key}
+        templates={guideTemplates}
+        onChange={(guide_logo_url) => update('guide_logo_url', guide_logo_url)}
+        setError={setError}
+        canEdit={canEditGuideImage}
       />
       <label className="span-full">Observaciones<textarea value={value.general_notes} onChange={(event) => update('general_notes', event.target.value)} /></label>
     </div>
@@ -1962,6 +2109,8 @@ function GuidePrintPage({ guides, order, template }) {
 
 function GuideLabel({ guide, order, template }) {
   const { model, size } = guide;
+  const customLogo = order.client_guide_logo_url || '';
+  const logos = customLogo ? [customLogo] : (template.logos || []);
   const description = [model.material, model.color]
     .map((value) => String(value || '').trim())
     .filter((value, index, values) => value && values.indexOf(value) === index)
@@ -1969,9 +2118,9 @@ function GuideLabel({ guide, order, template }) {
   if (template.family === 'special') {
     return (
       <div className={`prod-guide-label special template-${template.slug}`}>
-        <div className="prod-guide-special-logos">
+        <div className={`prod-guide-special-logos ${customLogo ? 'custom-logo' : ''}`}>
           {template.slug === 'bruma' && <span>FABRICADO POR:</span>}
-          {(template.logos || []).map((logo, index) => (
+          {logos.map((logo, index) => (
             <img src={logo} alt="" key={logo} className={`logo-${index + 1}`} />
           ))}
         </div>
@@ -1990,8 +2139,8 @@ function GuideLabel({ guide, order, template }) {
   return (
     <div className={`prod-guide-label standard template-${template.slug}`}>
       <div className="prod-guide-logo">
-        {template.logos?.[0]
-          ? <img src={template.logos[0]} alt="" />
+        {logos[0]
+          ? <img src={logos[0]} alt="" />
           : <strong>{order.brand || order.client_name || template.name}</strong>}
       </div>
       <div className="prod-guide-model">

@@ -111,6 +111,18 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     return next;
   }
 
+  function normalizeGuideLogo(value) {
+    const logo = String(value || '').trim();
+    if (!logo) return '';
+    if (!/^data:image\/(png|jpe?g|webp);base64,/i.test(logo)) {
+      throw new Error('La imagen de la guia debe ser PNG, JPG o WebP');
+    }
+    if (logo.length > 3500000) {
+      throw new Error('La imagen de la guia es demasiado pesada');
+    }
+    return logo;
+  }
+
   function normalizeModels(models) {
     if (!Array.isArray(models) || !models.length) {
       throw new Error('Agrega al menos un modelo al pedido');
@@ -152,6 +164,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         `SELECT orders.*, clients.name AS client_name, clients.business_name, clients.tax_id,
                 clients.city, clients.address, clients.phone, clients.email,
                 clients.guide_template_key AS client_guide_template_key,
+                clients.guide_logo_url AS client_guide_logo_url,
                 users.name AS seller_name
          FROM production_orders AS orders
          JOIN production_clients AS clients ON clients.id = orders.client_id
@@ -318,7 +331,12 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     if (!business) return;
     const search = `%${String(req.query.search || '').trim()}%`;
     const clients = db.prepare(
-      `SELECT clients.*,
+      `SELECT clients.id, clients.establishment_id, clients.external_number, clients.name,
+              clients.business_name, clients.tax_id, clients.city, clients.address, clients.phone,
+              clients.email, clients.brand, clients.payment_method, clients.bank_reference,
+              clients.classification, clients.imported_seller_code, clients.guide_template_key,
+              clients.general_notes, clients.created_at, clients.updated_at,
+              CASE WHEN COALESCE(clients.guide_logo_url, '') <> '' THEN 1 ELSE 0 END AS has_guide_logo,
               (SELECT COUNT(*) FROM production_orders AS orders
                WHERE orders.client_id = clients.id AND orders.deleted_at IS NULL) AS order_count,
               (SELECT COUNT(*) FROM production_client_visits AS visits
@@ -492,11 +510,17 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     if (!business) return;
     const name = String(req.body.name || '').trim();
     if (!name) return res.status(400).json({ message: 'El nombre del cliente es obligatorio' });
+    let guideLogoUrl = '';
+    try {
+      guideLogoUrl = isProductionAdmin(req) ? normalizeGuideLogo(req.body.guide_logo_url) : '';
+    } catch (error) {
+      return res.status(400).json({ message: error.message });
+    }
     const result = db.prepare(
       `INSERT INTO production_clients
        (establishment_id, name, business_name, tax_id, city, address, phone, email, brand,
-        payment_method, bank_reference, classification, guide_template_key, general_notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        payment_method, bank_reference, classification, guide_template_key, guide_logo_url, general_notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       business.id,
       name,
@@ -511,6 +535,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       String(req.body.bank_reference || '').trim(),
       String(req.body.classification || '').trim(),
       String(req.body.guide_template_key || '').trim(),
+      guideLogoUrl,
       String(req.body.general_notes || '').trim()
     );
     audit(req, 'create', 'client', result.lastInsertRowid, name);
@@ -520,10 +545,23 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
   app.put('/api/producalza/clients/:id', requireProductionUser, (req, res) => {
     const business = ensureProductionBusiness(req, res);
     if (!business) return;
+    const current = db.prepare(
+      'SELECT * FROM production_clients WHERE id = ? AND establishment_id = ?'
+    ).get(req.params.id, business.id);
+    if (!current) return res.status(404).json({ message: 'Cliente no encontrado' });
+    let guideLogoUrl = current.guide_logo_url || '';
+    if (isProductionAdmin(req) && Object.prototype.hasOwnProperty.call(req.body, 'guide_logo_url')) {
+      try {
+        guideLogoUrl = normalizeGuideLogo(req.body.guide_logo_url);
+      } catch (error) {
+        return res.status(400).json({ message: error.message });
+      }
+    }
     const result = db.prepare(
       `UPDATE production_clients SET
        name = ?, business_name = ?, tax_id = ?, city = ?, address = ?, phone = ?, email = ?,
-       brand = ?, payment_method = ?, bank_reference = ?, classification = ?, guide_template_key = ?, general_notes = ?,
+       brand = ?, payment_method = ?, bank_reference = ?, classification = ?, guide_template_key = ?,
+       guide_logo_url = ?, general_notes = ?,
        updated_at = datetime('now', 'localtime')
        WHERE id = ? AND establishment_id = ?`
     ).run(
@@ -539,11 +577,11 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       String(req.body.bank_reference || '').trim(),
       String(req.body.classification || '').trim(),
       String(req.body.guide_template_key || '').trim(),
+      guideLogoUrl,
       String(req.body.general_notes || '').trim(),
       req.params.id,
       business.id
     );
-    if (!result.changes) return res.status(404).json({ message: 'Cliente no encontrado' });
     audit(req, 'update', 'client', req.params.id, req.body.name);
     res.json({ ok: true });
   });
