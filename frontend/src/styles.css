@@ -3703,7 +3703,9 @@ td {
     align-content: start;
     break-after: page;
     display: grid;
-    gap: 3mm;
+    gap: 4mm;
+    grid-template-rows: repeat(2, 1fr);
+    height: 285mm;
     min-height: 285mm;
     page: production-cards;
     width: 198mm;
@@ -3884,7 +3886,7 @@ td {
     break-inside: avoid;
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
-    height: 91mm;
+    height: 140.5mm;
     overflow: hidden;
     padding: 3.5mm;
     width: 198mm;

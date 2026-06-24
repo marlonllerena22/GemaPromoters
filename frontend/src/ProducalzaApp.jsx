@@ -1728,8 +1728,8 @@ function PrintLayouts({ state }) {
   const { order, type, modelId } = state;
   const models = modelId ? order.models.filter((model) => model.id === modelId) : order.models;
   const cardPages = [];
-  for (let index = 0; index < models.length; index += 3) {
-    cardPages.push(models.slice(index, index + 3));
+  for (let index = 0; index < models.length; index += 2) {
+    cardPages.push(models.slice(index, index + 2));
   }
   return (
     <div className={`prod-print-root ${type === 'sheets' ? 'print-order' : 'print-cards'}`}>
