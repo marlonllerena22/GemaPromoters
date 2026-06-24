@@ -3700,20 +3700,30 @@ td {
   }
 
   .prod-print-card-page {
-    align-content: start;
     break-after: page;
-    display: grid;
-    gap: 4mm;
-    grid-template-rows: repeat(2, 134mm);
-    height: 276mm;
-    min-height: 0;
-    overflow: hidden;
+    break-inside: avoid;
+    height: 270mm;
+    overflow: visible;
     page: production-cards;
-    width: 194mm;
+    page-break-after: always;
+    page-break-inside: avoid;
+    position: relative;
+    width: 190mm;
   }
 
   .prod-print-card-page:last-child {
     break-after: auto;
+    page-break-after: auto;
+  }
+
+  .prod-print-card-page > .prod-print-card:nth-child(1) {
+    left: 0;
+    top: 0;
+  }
+
+  .prod-print-card-page > .prod-print-card:nth-child(2) {
+    left: 0;
+    top: 136mm;
   }
 
   .prod-print-page header,
@@ -3884,29 +3894,33 @@ td {
 
   .prod-print-card {
     border: 2px solid #000000;
-    break-inside: avoid-page;
+    box-sizing: border-box;
+    break-inside: avoid;
+    left: 0;
+    margin: 0;
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
-    height: 134mm;
+    height: 128mm;
     overflow: hidden;
-    padding: 4mm;
-    width: 194mm;
+    padding: 3.5mm;
+    position: absolute;
+    width: 190mm;
   }
 
   .prod-print-card header {
-    padding-bottom: 3mm;
+    padding-bottom: 2mm;
   }
 
   .prod-print-card header strong {
-    font-size: 17pt;
+    font-size: 16pt;
   }
 
   .prod-print-card header span {
-    font-size: 10pt;
+    font-size: 9pt;
   }
 
   .prod-print-card header b {
-    font-size: 14pt;
+    font-size: 13pt;
   }
 
   .prod-print-card .prod-card-client strong,
@@ -3918,8 +3932,8 @@ td {
   }
 
   .prod-card-client {
-    margin: 2mm 0;
-    padding: 2mm;
+    margin: 1.5mm 0;
+    padding: 1.5mm;
   }
 
   .prod-print-card section {
@@ -3929,7 +3943,7 @@ td {
 
   .prod-print-card section div {
     border-right: 0;
-    padding: 2mm;
+    padding: 1.5mm;
   }
 
   .prod-print-card section div:last-child {
@@ -3937,13 +3951,13 @@ td {
   }
 
   .prod-print-card table {
-    margin-top: 2mm;
+    margin-top: 1.5mm;
   }
 
   .prod-print-card th,
   .prod-print-card td {
-    font-size: 10pt;
-    height: 8mm;
+    font-size: 11pt;
+    height: 7.5mm;
   }
 
   .prod-print-card section span,
@@ -3953,7 +3967,7 @@ td {
 
   .prod-print-card section strong,
   .prod-card-client strong {
-    font-size: 11pt;
+    font-size: 12pt;
   }
 
   .prod-card-total {
@@ -3961,23 +3975,24 @@ td {
     border: 2px solid #000000;
     display: flex;
     justify-content: space-between;
-    margin-top: 2mm;
+    margin-top: 1.5mm;
     padding: 1.5mm;
   }
 
   .prod-card-total strong {
-    font-size: 14pt;
+    font-size: 15pt;
   }
 
   .prod-card-observation {
     border: 1px solid #000000;
-    min-height: 10mm;
+    height: 15mm;
+    overflow: hidden;
     padding: 1.5mm;
   }
 
   .prod-card-observation p {
     color: #c00000 !important;
-    font-size: 9pt;
+    font-size: 9.5pt;
     font-weight: 800;
     margin: 1mm 0 0;
   }
@@ -3991,6 +4006,6 @@ td {
     font-size: 10pt;
     font-weight: bold;
     justify-content: space-between;
-    margin-top: 2mm;
+    margin-top: 1.5mm;
   }
 }
