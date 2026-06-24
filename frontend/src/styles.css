@@ -2784,6 +2784,43 @@ td {
   gap: 8px;
 }
 
+.prod-detail-model.pending-save {
+  border-color: #d39b1e;
+  box-shadow: inset 0 3px #e6b94a;
+}
+
+.prod-inline-status-select,
+.prod-order-status-control select {
+  background: #ffffff;
+  border: 1px solid #c8d2cd;
+  border-radius: 5px;
+  color: #24332c;
+  min-height: 36px;
+  padding: 7px 9px;
+}
+
+.prod-pending-label {
+  color: #9a6d09;
+  font-size: 10px;
+  font-weight: 850;
+  margin-top: 9px;
+  text-align: right;
+}
+
+.prod-order-status-control {
+  align-items: flex-end;
+  color: #b9cec4;
+  display: grid;
+  font-size: 9px;
+  gap: 4px;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.prod-save-order-status {
+  white-space: nowrap;
+}
+
 .prod-size-summary {
   display: flex;
   flex-wrap: wrap;
@@ -3638,6 +3675,12 @@ td {
     width: 100%;
   }
 
+  .prod-print-root.print-order .prod-print-card-page,
+  .prod-print-root.print-order .prod-print-card,
+  .prod-print-root.print-cards .prod-print-page {
+    display: none !important;
+  }
+
   .prod-print-page,
   .prod-print-card-page,
   .prod-print-card {
@@ -3646,8 +3689,11 @@ td {
   }
 
   .prod-print-page {
-    break-after: page;
-    min-height: 190mm;
+    break-after: auto;
+    break-inside: avoid;
+    height: 190mm;
+    max-height: 190mm;
+    overflow: hidden;
     page: order-sheet;
     padding: 3mm;
     width: 277mm;
@@ -3661,6 +3707,10 @@ td {
     min-height: 285mm;
     page: production-cards;
     width: 198mm;
+  }
+
+  .prod-print-card-page:last-child {
+    break-after: auto;
   }
 
   .prod-print-page header,
@@ -3764,6 +3814,35 @@ td {
   .prod-print-order-table td:nth-child(3),
   .prod-print-order-table td:last-child {
     text-align: left;
+  }
+
+  .prod-print-page.dense .prod-print-info {
+    gap: 1mm;
+    margin: 2mm 0;
+  }
+
+  .prod-print-page.dense .prod-print-info div {
+    padding: 1mm;
+  }
+
+  .prod-print-page.dense .prod-print-info span {
+    font-size: 5.5pt;
+  }
+
+  .prod-print-page.dense .prod-print-info strong {
+    font-size: 6.5pt;
+  }
+
+  .prod-print-page.dense th,
+  .prod-print-page.dense td {
+    font-size: 6pt;
+    height: calc(90mm / var(--order-model-count));
+    max-height: 8mm;
+    padding: 0.5mm;
+  }
+
+  .prod-print-page.dense .prod-print-notes {
+    min-height: 8mm;
   }
 
   .prod-print-order-table td:last-child {

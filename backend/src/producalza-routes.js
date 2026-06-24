@@ -883,7 +883,9 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       'SELECT * FROM production_order_models WHERE id = ? AND establishment_id = ?'
     ).get(req.params.id, business.id);
     if (!current) return res.status(404).json({ message: 'Modelo no encontrado' });
-    const status = deriveModelStatus(req.body, MODEL_STATUSES.includes(req.body.status) ? req.body.status : current.status);
+    const status = MODEL_STATUSES.includes(req.body.status)
+      ? req.body.status
+      : deriveModelStatus(req.body, current.status);
     const cardNumber = Number(req.body.card_number || current.card_number) || current.card_number;
     try {
       db.prepare(
@@ -942,7 +944,9 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
             throw new Error('Modelo no encontrado');
           }
           const merged = { ...current, ...update };
-          const status = deriveModelStatus(merged, MODEL_STATUSES.includes(update.status) ? update.status : current.status);
+          const status = MODEL_STATUSES.includes(update.status)
+            ? update.status
+            : deriveModelStatus(merged, current.status);
           const cardNumber = Number(update.card_number || current.card_number) || current.card_number;
           updateModel.run(
             cardNumber,

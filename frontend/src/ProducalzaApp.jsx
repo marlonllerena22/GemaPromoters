@@ -134,6 +134,22 @@ function totalModel(model) {
   return SIZES.reduce((sum, size) => sum + Number(model.sizes?.[size] || 0), 0);
 }
 
+function processStateForStatus(status) {
+  const order = ['received', 'reviewed', 'in_production', 'cut', 'stitched', 'assembled', 'finished', 'delivered'];
+  const step = order.indexOf(status);
+  if (status === 'cancelled' || step < 0) {
+    return {};
+  }
+  return {
+    process_prepared: step >= 2,
+    process_cut: step >= 3,
+    process_stitched: step >= 4,
+    process_assembled: step >= 5,
+    process_planted: step >= 6,
+    process_finished: step >= 6
+  };
+}
+
 function displayDate(value) {
   if (!value) return 'Sin fecha';
   const date = new Date(`${value}T12:00:00`);
@@ -221,8 +237,18 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
       ? selectedOrder
       : await api(scope(`/producalza/orders/${orderId}`));
     setPrintState({ order, type, modelId });
-    setTimeout(() => window.print(), 120);
   }
+
+  useEffect(() => {
+    if (!printState) return undefined;
+    const timer = window.setTimeout(() => window.print(), 80);
+    const clearPrint = () => setPrintState(null);
+    window.addEventListener('afterprint', clearPrint, { once: true });
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('afterprint', clearPrint);
+    };
+  }, [printState]);
 
   const nav = [
     ['dashboard', 'Panel', Boxes],
@@ -281,9 +307,16 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
         <OrderDetail
           order={selectedOrder}
           isAdmin={isAdmin}
+          scope={scope}
+          setError={setError}
           onBack={() => setView('orders')}
           onEdit={() => editOrder(selectedOrder.id)}
           onPrint={(type, modelId) => preparePrint(selectedOrder.id, type, modelId)}
+          onUpdated={async () => {
+            const updatedOrder = await api(scope(`/producalza/orders/${selectedOrder.id}`));
+            setSelectedOrder(updatedOrder);
+            await refresh('Estados del pedido actualizados');
+          }}
         />
       )}
       {view === 'clients' && (
@@ -735,7 +768,71 @@ function OrderForm({ clients, users, isAdmin, scope, initialOrder, onCancel, onS
   );
 }
 
-function OrderDetail({ order, isAdmin, onBack, onEdit, onPrint }) {
+function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint, onUpdated }) {
+  const [models, setModels] = useState(order.models);
+  const [dirtyIds, setDirtyIds] = useState([]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setModels(order.models);
+    setDirtyIds([]);
+  }, [order]);
+
+  function deriveStatus(model) {
+    if (model.process_finished) return 'finished';
+    if (model.process_planted || model.process_assembled) return 'assembled';
+    if (model.process_stitched) return 'stitched';
+    if (model.process_cut) return 'cut';
+    if (model.process_prepared) return 'in_production';
+    return 'received';
+  }
+
+  function stageModel(modelId, patch, explicitStatus = false) {
+    setModels((current) => current.map((model) => {
+      if (model.id !== modelId) return model;
+      const merged = { ...model, ...patch };
+      return explicitStatus ? merged : { ...merged, status: deriveStatus(merged) };
+    }));
+    setDirtyIds((current) => current.includes(modelId) ? current : [...current, modelId]);
+  }
+
+  function stageEntireOrder(status) {
+    const processPatch = processStateForStatus(status);
+    setModels((current) => current.map((model) => ({ ...model, ...processPatch, status })));
+    setDirtyIds(models.map((model) => model.id));
+  }
+
+  async function saveModelStates() {
+    if (!dirtyIds.length) return;
+    setSaving(true);
+    try {
+      await api(scope('/producalza/models-batch'), {
+        method: 'PATCH',
+        body: JSON.stringify({
+          updates: models
+            .filter((model) => dirtyIds.includes(model.id))
+            .map((model) => ({
+              id: model.id,
+              status: model.status,
+              card_number: model.card_number,
+              plant_area: model.plant_area,
+              process_cut: model.process_cut,
+              process_prepared: model.process_prepared,
+              process_stitched: model.process_stitched,
+              process_assembled: model.process_assembled,
+              process_planted: model.process_planted,
+              process_finished: model.process_finished
+            }))
+        })
+      });
+      await onUpdated();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="prod-stack">
       <div className="prod-detail-actions">
@@ -744,6 +841,11 @@ function OrderDetail({ order, isAdmin, onBack, onEdit, onPrint }) {
           <button className="prod-secondary-button" onClick={onEdit}><Pencil size={17} />Editar</button>
           <button className="prod-primary-button" onClick={() => onPrint('sheets')}><Printer size={17} />Hoja unica del pedido</button>
           <button className="prod-primary-button dark" onClick={() => onPrint('cards')}><Printer size={17} />Tarjetas</button>
+          {isAdmin && dirtyIds.length > 0 && (
+            <button className="prod-primary-button prod-save-order-status" disabled={saving} onClick={saveModelStates}>
+              <Save size={17} />Guardar estados ({dirtyIds.length})
+            </button>
+          )}
         </div>
       </div>
       <section className="prod-order-hero">
@@ -755,6 +857,15 @@ function OrderDetail({ order, isAdmin, onBack, onEdit, onPrint }) {
         <div>
           <StatusBadge status={order.status} />
           <strong>{order.models.reduce((sum, model) => sum + Number(model.total_pairs), 0)} pares</strong>
+          {isAdmin && (
+            <label className="prod-order-status-control">
+              Cambiar todo el pedido
+              <select value="" onChange={(event) => event.target.value && stageEntireOrder(event.target.value)}>
+                <option value="">Seleccionar estado</option>
+                {Object.entries(MODEL_STATUS_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+              </select>
+            </label>
+          )}
         </div>
       </section>
       <section className="prod-panel">
@@ -771,12 +882,23 @@ function OrderDetail({ order, isAdmin, onBack, onEdit, onPrint }) {
         {order.general_notes && <div className="prod-note"><strong>Observaciones</strong><p>{order.general_notes}</p></div>}
       </section>
       <div className="prod-model-stack">
-        {order.models.map((model) => (
-          <section className="prod-panel prod-detail-model" key={model.id}>
+        {models.map((model) => (
+          <section className={`prod-panel prod-detail-model ${dirtyIds.includes(model.id) ? 'pending-save' : ''}`} key={model.id}>
             <div className="prod-panel-title">
               <div><span>Tarjeta Nro. {model.card_number}</span><h2>{model.model_code}</h2></div>
               <div className="prod-detail-model-actions">
-                <StatusBadge status={model.status} model />
+                {isAdmin ? (
+                  <select
+                    className="prod-inline-status-select"
+                    value={model.status}
+                    onChange={(event) => {
+                      const status = event.target.value;
+                      stageModel(model.id, { ...processStateForStatus(status), status }, true);
+                    }}
+                  >
+                    {Object.entries(MODEL_STATUS_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+                  </select>
+                ) : <StatusBadge status={model.status} model />}
                 <button className="prod-icon-button" title="Imprimir tarjeta" onClick={() => onPrint('card', model.id)}><Printer size={17} /></button>
               </div>
             </div>
@@ -787,7 +909,12 @@ function OrderDetail({ order, isAdmin, onBack, onEdit, onPrint }) {
               <Detail label="Total" value={`${model.total_pairs} pares`} />
             </div>
             <SizeSummary sizes={model.sizes} />
-            <ProcessStrip model={model} readOnly />
+            <ProcessStrip
+              model={model}
+              readOnly={!isAdmin}
+              onChange={(field, value) => stageModel(model.id, { [field]: value })}
+            />
+            {dirtyIds.includes(model.id) && <div className="prod-pending-label">Cambios pendientes de guardar</div>}
             {model.notes && <div className="prod-note"><strong>Observaciones</strong><p>{model.notes}</p></div>}
           </section>
         ))}
@@ -1605,7 +1732,7 @@ function PrintLayouts({ state }) {
     cardPages.push(models.slice(index, index + 3));
   }
   return (
-    <div className="prod-print-root">
+    <div className={`prod-print-root ${type === 'sheets' ? 'print-order' : 'print-cards'}`}>
       {type === 'sheets' && <ProductionOrderSheet order={order} />}
       {(type === 'cards' || type === 'card') && cardPages.map((pageModels, pageIndex) => (
         <article className="prod-print-card-page" key={`card-page-${pageIndex}`}>
@@ -1619,7 +1746,10 @@ function PrintLayouts({ state }) {
 function ProductionOrderSheet({ order }) {
   const totalPairs = order.models.reduce((sum, model) => sum + Number(model.total_pairs || 0), 0);
   return (
-    <article className="prod-print-page">
+    <article
+      className={`prod-print-page ${order.models.length > 8 ? 'dense' : ''}`}
+      style={{ '--order-model-count': Math.max(order.models.length, 1) }}
+    >
       <header><div><strong>PRODUCALZA</strong><span>HOJA UNICA DE PEDIDO Y PRODUCCION</span></div><b>{order.order_number}</b></header>
       <section className="prod-print-info">
         <div><span>Cliente</span><strong>{order.client_name}</strong></div>
