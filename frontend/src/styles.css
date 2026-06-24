@@ -3882,10 +3882,20 @@ td {
   .prod-print-card {
     border: 2px solid #000000;
     break-inside: avoid;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
     height: 91mm;
     overflow: hidden;
     padding: 3.5mm;
     width: 198mm;
+  }
+
+  .prod-print-card .prod-card-client strong,
+  .prod-print-card section strong,
+  .prod-print-card tbody td,
+  .prod-print-card .prod-card-total strong {
+    color: #0057b8 !important;
+    font-weight: 800;
   }
 
   .prod-card-client {
@@ -3937,8 +3947,14 @@ td {
   }
 
   .prod-card-observation p {
+    color: #c00000 !important;
     font-size: 7pt;
+    font-weight: 800;
     margin: 1mm 0 0;
+  }
+
+  .prod-card-observation span {
+    color: #c00000 !important;
   }
 
   .prod-card-process {
