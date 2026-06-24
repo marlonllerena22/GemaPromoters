@@ -3133,6 +3133,76 @@ td {
   height: 100%;
 }
 
+.prod-report-result-count {
+  color: #52635a;
+  font-size: 12px;
+}
+
+.prod-client-report-filters {
+  align-items: end;
+  background: #f4f7f5;
+  border: 1px solid #dce4df;
+  border-radius: 6px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(230px, 1.35fr) minmax(150px, 0.75fr) repeat(3, minmax(145px, 0.7fr));
+  margin-bottom: 16px;
+  padding: 13px;
+}
+
+.prod-client-report-filters > label:not(.prod-search) {
+  color: #5d6c64;
+  display: grid;
+  font-size: 10px;
+  font-weight: 850;
+  gap: 5px;
+}
+
+.prod-client-report-filters select,
+.prod-report-range input {
+  background: #ffffff;
+  border: 1px solid #c9d4ce;
+  border-radius: 5px;
+  color: #1a2721;
+  min-height: 39px;
+  min-width: 0;
+  padding: 7px 8px;
+  width: 100%;
+}
+
+.prod-report-range {
+  align-items: center;
+  border: 0;
+  display: grid;
+  gap: 5px;
+  grid-template-columns: minmax(55px, 1fr) auto minmax(55px, 1fr);
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.prod-report-range legend {
+  color: #5d6c64;
+  font-size: 10px;
+  font-weight: 850;
+  grid-column: 1 / -1;
+  margin-bottom: 5px;
+  padding: 0;
+}
+
+.prod-report-range span {
+  color: #7a8880;
+  font-size: 10px;
+}
+
+.prod-report-range.date {
+  grid-column: span 2;
+}
+
+.prod-clear-report {
+  justify-self: stretch;
+}
+
 .prod-check-line {
   align-items: center;
   display: flex !important;
@@ -3159,6 +3229,10 @@ td {
 
   .prod-size-grid {
     grid-template-columns: repeat(5, minmax(54px, 1fr));
+  }
+
+  .prod-client-report-filters {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
@@ -3229,6 +3303,15 @@ td {
 
   .prod-client-record-grid {
     grid-template-columns: 1fr;
+  }
+
+  .prod-client-report-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .prod-client-report-filters .prod-search,
+  .prod-report-range.date {
+    grid-column: span 2;
   }
 }
 
@@ -3346,6 +3429,15 @@ td {
 
   .prod-timeline-content header {
     gap: 8px;
+  }
+
+  .prod-client-report-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .prod-client-report-filters .prod-search,
+  .prod-report-range.date {
+    grid-column: auto;
   }
 }
 

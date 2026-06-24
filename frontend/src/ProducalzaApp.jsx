@@ -1172,6 +1172,22 @@ function UsersView({ users, scope, onRefresh, setError }) {
 }
 
 function ProductionReports({ dashboard, orders, clientActivity }) {
+  const emptyReportFilters = {
+    client: '',
+    city: '',
+    visits_min: '',
+    visits_max: '',
+    orders_min: '',
+    orders_max: '',
+    pairs_min: '',
+    pairs_max: '',
+    last_from: '',
+    last_to: '',
+    next_from: '',
+    next_to: '',
+    next_status: 'all'
+  };
+  const [reportFilters, setReportFilters] = useState(emptyReportFilters);
   const byStatus = Object.entries(ORDER_STATUS_LABELS).map(([key, label]) => ({
     key,
     label,
@@ -1179,6 +1195,32 @@ function ProductionReports({ dashboard, orders, clientActivity }) {
     pairs: orders.filter((order) => order.status === key).reduce((sum, order) => sum + Number(order.total_pairs || 0), 0)
   }));
   const totalPairs = orders.reduce((sum, order) => sum + Number(order.total_pairs || 0), 0);
+  const cities = [...new Set((clientActivity || []).map((client) => client.city).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const filteredClients = (clientActivity || []).filter((client) => {
+    const matchesText = `${client.name || ''} ${client.business_name || ''} ${client.phone || ''}`
+      .toLowerCase()
+      .includes(reportFilters.client.toLowerCase());
+    const matchesCity = !reportFilters.city || client.city === reportFilters.city;
+    const inNumberRange = (value, min, max) =>
+      (min === '' || Number(value || 0) >= Number(min)) &&
+      (max === '' || Number(value || 0) <= Number(max));
+    const inDateRange = (value, from, to) =>
+      (!from || (value && value.slice(0, 10) >= from)) &&
+      (!to || (value && value.slice(0, 10) <= to));
+    const matchesNextStatus =
+      reportFilters.next_status === 'all' ||
+      (reportFilters.next_status === 'scheduled' && client.next_visit) ||
+      (reportFilters.next_status === 'unscheduled' && !client.next_visit);
+    return matchesText &&
+      matchesCity &&
+      inNumberRange(client.visit_count, reportFilters.visits_min, reportFilters.visits_max) &&
+      inNumberRange(client.order_count, reportFilters.orders_min, reportFilters.orders_max) &&
+      inNumberRange(client.total_pairs, reportFilters.pairs_min, reportFilters.pairs_max) &&
+      inDateRange(client.last_activity, reportFilters.last_from, reportFilters.last_to) &&
+      inDateRange(client.next_visit, reportFilters.next_from, reportFilters.next_to) &&
+      matchesNextStatus;
+  });
+  const updateReportFilter = (key, value) => setReportFilters((current) => ({ ...current, [key]: value }));
   return (
     <div className="prod-stack">
       <section className="prod-metrics">
@@ -1212,6 +1254,69 @@ function ProductionReports({ dashboard, orders, clientActivity }) {
       <section className="prod-panel">
         <div className="prod-panel-title">
           <div><span>Relacion comercial</span><h2>Actividad por cliente</h2></div>
+          <strong className="prod-report-result-count">{filteredClients.length} de {(clientActivity || []).length} clientes</strong>
+        </div>
+        <div className="prod-client-report-filters">
+          <label className="prod-search">
+            <Search size={16} />
+            <input
+              placeholder="Cliente, razon social o telefono"
+              value={reportFilters.client}
+              onChange={(event) => updateReportFilter('client', event.target.value)}
+            />
+          </label>
+          <label>Ciudad
+            <select value={reportFilters.city} onChange={(event) => updateReportFilter('city', event.target.value)}>
+              <option value="">Todas</option>
+              {cities.map((city) => <option value={city} key={city}>{city}</option>)}
+            </select>
+          </label>
+          <ReportNumberRange
+            label="Visitas"
+            min={reportFilters.visits_min}
+            max={reportFilters.visits_max}
+            onMin={(value) => updateReportFilter('visits_min', value)}
+            onMax={(value) => updateReportFilter('visits_max', value)}
+          />
+          <ReportNumberRange
+            label="Pedidos"
+            min={reportFilters.orders_min}
+            max={reportFilters.orders_max}
+            onMin={(value) => updateReportFilter('orders_min', value)}
+            onMax={(value) => updateReportFilter('orders_max', value)}
+          />
+          <ReportNumberRange
+            label="Pares"
+            min={reportFilters.pairs_min}
+            max={reportFilters.pairs_max}
+            onMin={(value) => updateReportFilter('pairs_min', value)}
+            onMax={(value) => updateReportFilter('pairs_max', value)}
+          />
+          <ReportDateRange
+            label="Ultima actividad"
+            from={reportFilters.last_from}
+            to={reportFilters.last_to}
+            onFrom={(value) => updateReportFilter('last_from', value)}
+            onTo={(value) => updateReportFilter('last_to', value)}
+          />
+          <ReportDateRange
+            label="Proxima visita"
+            from={reportFilters.next_from}
+            to={reportFilters.next_to}
+            onFrom={(value) => updateReportFilter('next_from', value)}
+            onTo={(value) => updateReportFilter('next_to', value)}
+          />
+          <label>Agenda
+            <select value={reportFilters.next_status} onChange={(event) => updateReportFilter('next_status', event.target.value)}>
+              <option value="all">Con y sin proxima visita</option>
+              <option value="scheduled">Solo agendados</option>
+              <option value="unscheduled">Sin proxima visita</option>
+            </select>
+          </label>
+          <button className="prod-secondary-button prod-clear-report" onClick={() => setReportFilters(emptyReportFilters)}>
+            <X size={16} />
+            Limpiar filtros
+          </button>
         </div>
         <div className="prod-table-wrap">
           <table className="prod-table">
@@ -1219,7 +1324,7 @@ function ProductionReports({ dashboard, orders, clientActivity }) {
               <tr><th>Cliente</th><th>Ciudad</th><th>Visitas</th><th>Pedidos</th><th>Pares</th><th>Ultima actividad</th><th>Proxima visita</th></tr>
             </thead>
             <tbody>
-              {(clientActivity || []).map((client) => (
+              {filteredClients.map((client) => (
                 <tr key={client.id}>
                   <td><strong>{client.name}</strong><small>{client.business_name || client.phone || ''}</small></td>
                   <td>{client.city || '-'}</td>
@@ -1232,9 +1337,32 @@ function ProductionReports({ dashboard, orders, clientActivity }) {
               ))}
             </tbody>
           </table>
+          {!filteredClients.length && <div className="prod-empty">No hay clientes que coincidan con estos filtros.</div>}
         </div>
       </section>
     </div>
+  );
+}
+
+function ReportNumberRange({ label, min, max, onMin, onMax }) {
+  return (
+    <fieldset className="prod-report-range">
+      <legend>{label}</legend>
+      <input type="number" min="0" placeholder="Min." value={min} onChange={(event) => onMin(event.target.value)} />
+      <span>a</span>
+      <input type="number" min="0" placeholder="Max." value={max} onChange={(event) => onMax(event.target.value)} />
+    </fieldset>
+  );
+}
+
+function ReportDateRange({ label, from, to, onFrom, onTo }) {
+  return (
+    <fieldset className="prod-report-range date">
+      <legend>{label}</legend>
+      <input type="date" value={from} onChange={(event) => onFrom(event.target.value)} />
+      <span>a</span>
+      <input type="date" value={to} onChange={(event) => onTo(event.target.value)} />
+    </fieldset>
   );
 }
 
