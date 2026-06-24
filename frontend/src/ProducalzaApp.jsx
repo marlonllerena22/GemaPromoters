@@ -171,12 +171,61 @@ function normalizeGuideText(value) {
     .trim();
 }
 
+const GUIDE_TEMPLATE_ALIASES = {
+  'standard-l-alvarado': ['lasland'],
+  'standard-j-velastegui': ['ambacuero'],
+  'standard-k-leon': ['calzado aries', 'aries'],
+  'standard-g-camaco': ['gabbys', 'gabby s'],
+  'standard-c-andrade': ['sebastians', 'sebastian s'],
+  'standard-l-guznay': ['d mujeres shop', 'dmujeres shop'],
+  'standard-j-enriquez': ['jestilos y modelos'],
+  'standard-marjorie': ['marjorie botas'],
+  'standard-r-molina': ['desing'],
+  'standard-j-barrera': ['moda en cuero'],
+  'standard-m-saavedra': ['emanuels', 'emanuell s'],
+  'standard-f-guerrero': ['adore shoes'],
+  'standard-m-guerrero-2-': ['belle scarpe'],
+  'standard-n-llivicura': ['amis'],
+  'standard-t-macas': ['boga'],
+  'standard-l-llango': ['naysha', 'lever sastreria'],
+  'standard-m-cueva': ['milenne cueva'],
+  'standard-m-galarza': ['cellini'],
+  'standard-j-torres': ['klauso'],
+  'standard-j-hernandez': ['ecuabotas'],
+  'standard-febraty': ['ferratty'],
+  'standard-f-recalde': ['calzado pony'],
+  'standard-l-quezada': ['zaba'],
+  'standard-c-vactory': ['paloma vactory'],
+  'special-d-martinez': ['gusmar'],
+  'special-bruma': ['bruma'],
+  'special-f-guaman': ['calzado marcos', 'calzado marcos 2']
+};
+
+function guideSimilarity(first, second) {
+  const left = normalizeGuideText(first).replace(/\s/g, '');
+  const right = normalizeGuideText(second).replace(/\s/g, '');
+  if (!left || !right) return 0;
+  if (left === right) return 1;
+  const rows = Array.from({ length: left.length + 1 }, (_, index) => [index]);
+  for (let column = 1; column <= right.length; column += 1) rows[0][column] = column;
+  for (let row = 1; row <= left.length; row += 1) {
+    for (let column = 1; column <= right.length; column += 1) {
+      rows[row][column] = Math.min(
+        rows[row - 1][column] + 1,
+        rows[row][column - 1] + 1,
+        rows[row - 1][column - 1] + (left[row - 1] === right[column - 1] ? 0 : 1)
+      );
+    }
+  }
+  return 1 - rows[left.length][right.length] / Math.max(left.length, right.length);
+}
+
 function inferGuideTemplate(client, templates) {
   if (!client || !templates?.length) return '';
-  const source = normalizeGuideText(
-    `${client.name || client.client_name || ''} ${client.business_name || ''} ${client.brand || ''}`
-  );
-  const sourceTokens = source.split(' ').filter(Boolean);
+  const name = normalizeGuideText(client.name || client.client_name || '');
+  const business = normalizeGuideText(client.business_name || '');
+  const brand = normalizeGuideText(client.brand || '');
+  const nameTokens = name.split(' ').filter(Boolean);
   let best = null;
   for (const template of templates) {
     const templateTokens = normalizeGuideText(template.name).split(' ').filter(Boolean);
@@ -184,13 +233,30 @@ function inferGuideTemplate(client, templates) {
     const surname = templateTokens.findLast((token) => token.length > 1 && !/^\d+$/.test(token));
     const initial = templateTokens[0]?.[0];
     let score = 0;
-    if (source.includes(templateTokens.join(' '))) score += 100;
-    if (surname && sourceTokens.includes(surname)) score += 55;
-    if (initial && sourceTokens.some((token) => token[0] === initial)) score += 20;
-    if (templateTokens.every((token) => token.length === 1 || sourceTokens.includes(token))) score += 25;
+    const aliases = GUIDE_TEMPLATE_ALIASES[template.key] || [];
+    const aliasMatch = aliases.some((alias) =>
+      [business, brand, name].some((source) =>
+        source && (source.includes(normalizeGuideText(alias))
+          || guideSimilarity(source, alias) >= 0.88)
+      )
+    );
+    if (aliasMatch) score += 130;
+
+    const surnameSimilarity = surname
+      ? Math.max(0, ...nameTokens.map((token) => guideSimilarity(token, surname)))
+      : 0;
+    const initialMatches = initial
+      ? nameTokens.slice(0, -1).some((token) => token.startsWith(initial))
+      : false;
+    if (surnameSimilarity >= 0.9) score += 65;
+    else if (surnameSimilarity >= 0.76) score += 42;
+    if (initialMatches) score += 35;
+    if (normalizeGuideText(template.name).replace(/\s/g, '') === name.replace(/\s/g, '')) score += 80;
+
+    if (!aliasMatch && (!initialMatches || surnameSimilarity < 0.76)) score = 0;
     if (!best || score > best.score) best = { key: template.key, score };
   }
-  return best?.score >= 70 ? best.key : '';
+  return best?.score >= 90 ? best.key : '';
 }
 
 function resolveGuideTemplateKey(order, templates) {
@@ -1135,7 +1201,11 @@ function ClientsView({ clients, isAdmin, users, scope, onOpenOrder, onRefresh, s
         ? client
         : await api(scope(`/producalza/clients/${client.id}`));
       setEditingId(fullClient.id);
-      setForm(Object.fromEntries(Object.keys(emptyClient).map((key) => [key, fullClient[key] || ''])));
+      setForm({
+        ...Object.fromEntries(Object.keys(emptyClient).map((key) => [key, fullClient[key] || ''])),
+        guide_template_key: fullClient.guide_template_key
+          || inferGuideTemplate(fullClient, guideTemplates)
+      });
       setShowClientForm(true);
     } catch (err) {
       setError(err.message);
@@ -1212,7 +1282,7 @@ function ClientsView({ clients, isAdmin, users, scope, onOpenOrder, onRefresh, s
           </div>
           <GuideBrandPreview
             value={selected.guide_logo_url}
-            templateKey={selected.guide_template_key}
+            templateKey={selected.guide_template_key || inferGuideTemplate(selected, guideTemplates)}
             templates={guideTemplates}
             title="Imagen que se imprimira en las guias"
           />
@@ -1336,6 +1406,7 @@ function ClientsView({ clients, isAdmin, users, scope, onOpenOrder, onRefresh, s
         <div className="prod-client-list">
           {filtered.map((client) => (
             <article key={client.id}>
+              <ClientGuideThumbnail client={client} templates={guideTemplates} />
               <button onClick={() => openClient(client.id)}>
                 <strong>{client.name}</strong>
                 <span>{client.business_name || 'Sin razon social'} · {client.city || 'Sin ciudad'}</span>
@@ -1799,6 +1870,25 @@ function GuideTemplateSelect({ value, templates, onChange }) {
         )}
       </select>
     </label>
+  );
+}
+
+function ClientGuideThumbnail({ client, templates }) {
+  const templateKey = client.guide_template_key || inferGuideTemplate(client, templates);
+  const template = templates.find((item) => item.key === templateKey);
+  const image = template?.logos?.[0];
+  return (
+    <div
+      className={`prod-client-guide-thumb ${client.has_guide_logo ? 'custom' : ''}`}
+      title={client.has_guide_logo
+        ? 'Este cliente tiene una imagen personalizada'
+        : template
+          ? `Formato sugerido: ${template.name}`
+          : 'Sin formato de guia enlazado'}
+    >
+      {image ? <img src={image} alt="" /> : <ImageIcon size={20} />}
+      {client.has_guide_logo ? <i>Personalizada</i> : template ? <i>{template.name}</i> : <i>Sin foto</i>}
+    </div>
   );
 }
 

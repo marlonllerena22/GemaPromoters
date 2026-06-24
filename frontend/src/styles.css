@@ -3119,11 +3119,57 @@ td {
 }
 
 .prod-client-list article > button:first-child {
+  flex: 1;
   background: transparent;
   border: 0;
   color: inherit;
   min-width: 0;
   text-align: left;
+}
+
+.prod-client-guide-thumb {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #d8e0dc;
+  display: flex;
+  flex: 0 0 88px;
+  flex-direction: column;
+  height: 62px;
+  justify-content: center;
+  overflow: hidden;
+  padding: 4px;
+}
+
+.prod-client-guide-thumb img {
+  height: 40px;
+  object-fit: contain;
+  width: 100%;
+}
+
+.prod-client-guide-thumb svg {
+  color: #8b9891;
+}
+
+.prod-client-guide-thumb i {
+  color: #66736d;
+  display: block;
+  font-size: 8px;
+  font-style: normal;
+  line-height: 1;
+  margin-top: 2px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prod-client-guide-thumb.custom {
+  border-color: #3153a6;
+}
+
+.prod-client-guide-thumb.custom i {
+  color: #3153a6;
+  font-weight: 700;
 }
 
 .prod-client-list strong,
