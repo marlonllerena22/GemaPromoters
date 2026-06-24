@@ -1,0 +1,3322 @@
+﻿[
+    {
+        "key":  "special-d-martinez",
+        "family":  "special",
+        "name":  "D. MARTINEZ",
+        "slug":  "d-martinez",
+        "logos":  [
+                      "/producalza/guides/special-d-martinez-1.png"
+                  ],
+        "capacity":  8,
+        "variant":  "special",
+        "page":  {
+                     "paperSize":  "A4",
+                     "orientation":  "portrait",
+                     "marginLeftIn":  0.2,
+                     "marginRightIn":  0,
+                     "marginTopIn":  0.23062992125984252,
+                     "marginBottomIn":  0
+                 },
+        "columns":  [
+                        {
+                            "min":  1,
+                            "max":  1,
+                            "width":  45.33203125
+                        },
+                        {
+                            "min":  2,
+                            "max":  2,
+                            "width":  27.33203125
+                        },
+                        {
+                            "min":  3,
+                            "max":  3,
+                            "width":  20.33203125
+                        }
+                    ],
+        "rows":  [
+                     {
+                         "row":  1,
+                         "height":  42
+                     },
+                     {
+                         "row":  2,
+                         "height":  42
+                     },
+                     {
+                         "row":  3,
+                         "height":  11
+                     },
+                     {
+                         "row":  4,
+                         "height":  8
+                     },
+                     {
+                         "row":  5,
+                         "height":  42
+                     },
+                     {
+                         "row":  6,
+                         "height":  42
+                     },
+                     {
+                         "row":  7,
+                         "height":  11
+                     },
+                     {
+                         "row":  8,
+                         "height":  8
+                     },
+                     {
+                         "row":  9,
+                         "height":  42
+                     },
+                     {
+                         "row":  10,
+                         "height":  42
+                     },
+                     {
+                         "row":  11,
+                         "height":  11
+                     },
+                     {
+                         "row":  12,
+                         "height":  8
+                     },
+                     {
+                         "row":  13,
+                         "height":  42
+                     },
+                     {
+                         "row":  14,
+                         "height":  42
+                     },
+                     {
+                         "row":  15,
+                         "height":  11
+                     },
+                     {
+                         "row":  16,
+                         "height":  8
+                     },
+                     {
+                         "row":  17,
+                         "height":  42
+                     },
+                     {
+                         "row":  18,
+                         "height":  42
+                     },
+                     {
+                         "row":  19,
+                         "height":  11
+                     },
+                     {
+                         "row":  20,
+                         "height":  8
+                     },
+                     {
+                         "row":  21,
+                         "height":  42
+                     },
+                     {
+                         "row":  22,
+                         "height":  42
+                     },
+                     {
+                         "row":  23,
+                         "height":  11
+                     },
+                     {
+                         "row":  24,
+                         "height":  8
+                     },
+                     {
+                         "row":  25,
+                         "height":  42
+                     },
+                     {
+                         "row":  26,
+                         "height":  42
+                     },
+                     {
+                         "row":  27,
+                         "height":  11
+                     },
+                     {
+                         "row":  28,
+                         "height":  8
+                     },
+                     {
+                         "row":  29,
+                         "height":  42
+                     },
+                     {
+                         "row":  30,
+                         "height":  42
+                     },
+                     {
+                         "row":  31,
+                         "height":  11
+                     },
+                     {
+                         "row":  32,
+                         "height":  8
+                     },
+                     {
+                         "row":  33,
+                         "height":  38
+                     },
+                     {
+                         "row":  34,
+                         "height":  39
+                     },
+                     {
+                         "row":  35,
+                         "height":  11
+                     }
+                 ]
+    },
+    {
+        "key":  "special-bruma",
+        "family":  "special",
+        "name":  "BRUMA",
+        "slug":  "bruma",
+        "logos":  [
+                      "/producalza/guides/special-bruma-1.png",
+                      "/producalza/guides/special-bruma-2.png"
+                  ],
+        "capacity":  8,
+        "variant":  "special",
+        "page":  {
+                     "paperSize":  "A4",
+                     "orientation":  "portrait",
+                     "marginLeftIn":  0.2,
+                     "marginRightIn":  0,
+                     "marginTopIn":  0.1931496062992126,
+                     "marginBottomIn":  0
+                 },
+        "columns":  [
+                        {
+                            "min":  1,
+                            "max":  1,
+                            "width":  46.33203125
+                        },
+                        {
+                            "min":  2,
+                            "max":  2,
+                            "width":  24
+                        },
+                        {
+                            "min":  3,
+                            "max":  3,
+                            "width":  20.33203125
+                        }
+                    ],
+        "rows":  [
+                     {
+                         "row":  1,
+                         "height":  42
+                     },
+                     {
+                         "row":  2,
+                         "height":  42
+                     },
+                     {
+                         "row":  3,
+                         "height":  11
+                     },
+                     {
+                         "row":  4,
+                         "height":  8
+                     },
+                     {
+                         "row":  5,
+                         "height":  42
+                     },
+                     {
+                         "row":  6,
+                         "height":  42
+                     },
+                     {
+                         "row":  7,
+                         "height":  11
+                     },
+                     {
+                         "row":  8,
+                         "height":  8
+                     },
+                     {
+                         "row":  9,
+                         "height":  42
+                     },
+                     {
+                         "row":  10,
+                         "height":  42
+                     },
+                     {
+                         "row":  11,
+                         "height":  11
+                     },
+                     {
+                         "row":  12,
+                         "height":  8
+                     },
+                     {
+                         "row":  13,
+                         "height":  42
+                     },
+                     {
+                         "row":  14,
+                         "height":  42
+                     },
+                     {
+                         "row":  15,
+                         "height":  11
+                     },
+                     {
+                         "row":  16,
+                         "height":  8
+                     },
+                     {
+                         "row":  17,
+                         "height":  42
+                     },
+                     {
+                         "row":  18,
+                         "height":  42
+                     },
+                     {
+                         "row":  19,
+                         "height":  11
+                     },
+                     {
+                         "row":  20,
+                         "height":  8
+                     },
+                     {
+                         "row":  21,
+                         "height":  42
+                     },
+                     {
+                         "row":  22,
+                         "height":  42
+                     },
+                     {
+                         "row":  23,
+                         "height":  11
+                     },
+                     {
+                         "row":  24,
+                         "height":  8
+                     },
+                     {
+                         "row":  25,
+                         "height":  42
+                     },
+                     {
+                         "row":  26,
+                         "height":  42
+                     },
+                     {
+                         "row":  27,
+                         "height":  11
+                     },
+                     {
+                         "row":  28,
+                         "height":  8
+                     },
+                     {
+                         "row":  29,
+                         "height":  42
+                     },
+                     {
+                         "row":  30,
+                         "height":  42
+                     },
+                     {
+                         "row":  31,
+                         "height":  11
+                     },
+                     {
+                         "row":  32,
+                         "height":  8
+                     },
+                     {
+                         "row":  33,
+                         "height":  38
+                     },
+                     {
+                         "row":  34,
+                         "height":  39
+                     },
+                     {
+                         "row":  35,
+                         "height":  11
+                     }
+                 ]
+    },
+    {
+        "key":  "special-f-guaman",
+        "family":  "special",
+        "name":  "F.  GUAMAN",
+        "slug":  "f-guaman",
+        "logos":  [
+                      "/producalza/guides/special-f-guaman-1.png"
+                  ],
+        "capacity":  9,
+        "variant":  "special",
+        "page":  {
+                     "paperSize":  "A4",
+                     "orientation":  "portrait",
+                     "marginLeftIn":  0.39000000000000007,
+                     "marginRightIn":  0,
+                     "marginTopIn":  0.39370078740157483,
+                     "marginBottomIn":  0
+                 },
+        "columns":  [
+                        {
+                            "min":  1,
+                            "max":  1,
+                            "width":  8.6640625
+                        },
+                        {
+                            "min":  2,
+                            "max":  2,
+                            "width":  29.33203125
+                        },
+                        {
+                            "min":  3,
+                            "max":  3,
+                            "width":  28.83203125
+                        },
+                        {
+                            "min":  4,
+                            "max":  4,
+                            "width":  19.6640625
+                        },
+                        {
+                            "min":  5,
+                            "max":  5,
+                            "width":  5.1640625
+                        },
+                        {
+                            "min":  7,
+                            "max":  16384,
+                            "width":  10.83203125
+                        }
+                    ],
+        "rows":  [
+                     {
+                         "row":  1,
+                         "height":  14
+                     },
+                     {
+                         "row":  2,
+                         "height":  34
+                     },
+                     {
+                         "row":  3,
+                         "height":  34
+                     },
+                     {
+                         "row":  4,
+                         "height":  11
+                     },
+                     {
+                         "row":  5,
+                         "height":  9
+                     },
+                     {
+                         "row":  6,
+                         "height":  34
+                     },
+                     {
+                         "row":  7,
+                         "height":  34
+                     },
+                     {
+                         "row":  8,
+                         "height":  11
+                     },
+                     {
+                         "row":  9,
+                         "height":  9
+                     },
+                     {
+                         "row":  10,
+                         "height":  34
+                     },
+                     {
+                         "row":  11,
+                         "height":  34
+                     },
+                     {
+                         "row":  12,
+                         "height":  11
+                     },
+                     {
+                         "row":  13,
+                         "height":  9
+                     },
+                     {
+                         "row":  14,
+                         "height":  34
+                     },
+                     {
+                         "row":  15,
+                         "height":  34
+                     },
+                     {
+                         "row":  16,
+                         "height":  11
+                     },
+                     {
+                         "row":  17,
+                         "height":  9
+                     },
+                     {
+                         "row":  18,
+                         "height":  34
+                     },
+                     {
+                         "row":  19,
+                         "height":  34
+                     },
+                     {
+                         "row":  20,
+                         "height":  11
+                     },
+                     {
+                         "row":  21,
+                         "height":  9
+                     },
+                     {
+                         "row":  22,
+                         "height":  34
+                     },
+                     {
+                         "row":  23,
+                         "height":  34
+                     },
+                     {
+                         "row":  24,
+                         "height":  11
+                     },
+                     {
+                         "row":  25,
+                         "height":  9
+                     },
+                     {
+                         "row":  26,
+                         "height":  34
+                     },
+                     {
+                         "row":  27,
+                         "height":  34
+                     },
+                     {
+                         "row":  28,
+                         "height":  11
+                     },
+                     {
+                         "row":  29,
+                         "height":  9
+                     },
+                     {
+                         "row":  30,
+                         "height":  34
+                     },
+                     {
+                         "row":  31,
+                         "height":  34
+                     },
+                     {
+                         "row":  32,
+                         "height":  11
+                     },
+                     {
+                         "row":  33,
+                         "height":  9
+                     },
+                     {
+                         "row":  34,
+                         "height":  34
+                     },
+                     {
+                         "row":  35,
+                         "height":  34
+                     },
+                     {
+                         "row":  36,
+                         "height":  11
+                     }
+                 ]
+    },
+    {
+        "key":  "standard-l-alvarado",
+        "family":  "standard",
+        "name":  "L. ALVARADO",
+        "slug":  "l-alvarado",
+        "logos":  [
+                      "/producalza/guides/standard-l-alvarado-1.png"
+                  ],
+        "capacity":  4,
+        "variant":  "classic",
+        "page":  {
+                     "paperSize":  "A4",
+                     "orientation":  "portrait",
+                     "marginLeftIn":  1.3800000000000001,
+                     "marginRightIn":  0,
+                     "marginTopIn":  0.2393700787401575,
+                     "marginBottomIn":  0.75000000000000011
+                 },
+        "columns":  [
+                        {
+                            "min":  1,
+                            "max":  1,
+                            "width":  21.33203125
+                        },
+                        {
+                            "min":  2,
+                            "max":  2,
+                            "width":  10.83203125
+                        },
+                        {
+                            "min":  3,
+                            "max":  3,
+                            "width":  20.83203125
+                        },
+                        {
+                            "min":  4,
+                            "max":  4,
+                            "width":  10.83203125
+                        },
+                        {
+                            "min":  5,
+                            "max":  5,
+                            "width":  8.33203125
+                        },
+                        {
+                            "min":  6,
+                            "max":  7,
+                            "width":  10.83203125
+                        }
+                    ],
+        "rows":  [
+                     {
+                         "row":  1,
+                         "height":  65
+                     },
+                     {
+                         "row":  2,
+                         "height":  20
+                     },
+                     {
+                         "row":  3,
+                         "height":  20
+                     },
+                     {
+                         "row":  4,
+                         "height":  7
+                     },
+                     {
+                         "row":  5,
+                         "height":  7
+                     },
+                     {
+                         "row":  6,
+                         "height":  24
+                     },
+                     {
+                         "row":  7,
+                         "height":  57
+                     },
+                     {
+                         "row":  8,
+                         "height":  20
+                     },
+                     {
+                         "row":  9,
+                         "height":  20
+                     },
+                     {
+                         "row":  10,
+                         "height":  7
+                     },
+                     {
+                         "row":  11,
+                         "height":  7
+                     },
+                     {
+                         "row":  12,
+                         "height":  20.25
+                     },
+                     {
+                         "row":  14,
+                         "height":  12.75
+                     },
+                     {
+                         "row":  15,
+                         "height":  13.5
+                     },
+                     {
+                         "row":  17,
+                         "height":  15
+                     }
+                 ]
+    },
+    {
+        "key":  "standard-j-velastegui",
+        "family":  "standard",
+        "name":  "J. VELASTEGUI",
+        "slug":  "j-velastegui",
+        "logos":  [
+                      "/producalza/guides/standard-j-velastegui-1.png"
+                  ],
+        "capacity":  4,
+        "variant":  "classic",
+        "page":  {
+                     "paperSize":  "A4",
+                     "orientation":  "portrait",
+                     "marginLeftIn":  1.5300000000000002,
+                     "marginRightIn":  0,
+                     "marginTopIn":  0.13062992125984252,
+                     "marginBottomIn":  0.75000000000000011
+                 },
+        "columns":  [
+                        {
+                            "min":  1,
+                            "max":  1,
+                            "width":  20.1640625
+                        },
+                        {
+                            "min":  2,
+                            "max":  2,
+                            "width":  10.5
+                        },
+                        {
+                            "min":  3,
+                            "max":  3,
+                            "width":  20.33203125
+                        },
+                        {
+                            "min":  4,
+                            "max":  4,
+                            "width":  12
+                        },
+                        {
+                            "min":  5,
+                            "max":  5,
+                            "width":  8.33203125
+                        },
+                        {
+                            "min":  6,
+                            "max":  7,
+                            "width":  10.83203125
+                        }
+                    ],
+        "rows":  [
+                     {
+                         "row":  1,
+                         "height":  63
+                     },
+                     {
+                         "row":  2,
+                         "height":  20
+                     },
+                     {
+                         "row":  3,
+                         "height":  20
+                     },
+                     {
+                         "row":  4,
+                         "height":  7
+                     },
+                     {
+                         "row":  5,
+                         "height":  7
+                     },
+                     {
+                         "row":  6,
+                         "height":  25
+                     },
+                     {
+                         "row":  7,
+                         "height":  63
+                     },
+                     {
+                         "row":  8,
+                         "height":  20
+                     },
+                     {
+                         "row":  9,
+                         "height":  20
+                     },
+                     {
+                         "row":  10,
+                         "height":  7
+                     },
+                     {
+                         "row":  11,
+                         "height":  7
+                     },
+                     {
+                         "row":  12,
+                         "height":  20.25
+                     },
+                     {
+                         "row":  14,
+                         "height":  12.75
+                     },
+                     {
+                         "row":  15,
+                         "height":  13.5
+                     },
+                     {
+                         "row":  17,
+                         "height":  15
+                     }
+                 ]
+    },
+    {
+        "key":  "standard-k-leon",
+        "family":  "standard",
+        "name":  "K. LEON",
+        "slug":  "k-leon",
+        "logos":  [
+                      "/producalza/guides/standard-k-leon-1.png"
+                  ],
+        "capacity":  4,
+        "variant":  "classic",
+        "page":  {
+                     "paperSize":  "A4",
+                     "orientation":  "portrait",
+                     "marginLeftIn":  1.5300000000000002,
+                     "marginRightIn":  0,
+                     "marginTopIn":  0.32685039370078739,
+                     "marginBottomIn":  0.75000000000000011
+                 },
+        "columns":  [
+                        {
+                            "min":  1,
+                            "max":  1,
+                            "width":  20.1640625
+                        },
+                        {
+                            "min":  2,
+                            "max":  2,
+                            "width":  10.5
+                        },
+                        {
+                            "min":  3,
+                            "max":  3,
+                            "width":  20.33203125
+                        },
+                        {
+                            "min":  4,
+                            "max":  4,
+                            "width":  12
+                        },
+                        {
+                            "min":  5,
+                            "max":  5,
+                            "width":  8.33203125
+                        },
+                        {
+                            "min":  6,
+                            "max":  7,
+                            "width":  10.83203125
+                        }
+                    ],
+        "rows":  [
+                     {
+                         "row":  1,
+                         "height":  63
+                     },
+                     {
+                         "row":  2,
+                         "height":  20
+                     },
+                     {
+                         "row":  3,
+                         "height":  20
+                     },
+                     {
+                         "row":  4,
+                         "height":  7
+                     },
+                     {
+                         "row":  5,
+                         "height":  7
+                     },
+                     {
+                         "row":  6,
+                         "height":  18
+                     },
+                     {
+                         "row":  7,
+                         "height":  63
+                     },
+                     {
+                         "row":  8,
+                         "height":  20
+                     },
+                     {
+                         "row":  9,
+                         "height":  20
+                     },
+                     {
+                         "row":  10,
+                         "height":  7
+                     },
+                     {
+                         "row":  11,
+                         "height":  7
+                     },
+                     {
+                         "row":  12,
+                         "height":  20.25
+                     },
+                     {
+                         "row":  14,
+                         "height":  12.75
+                     },
+                     {
+                         "row":  15,
+                         "height":  13.5
+                     },
+                     {
+                         "row":  17,
+                         "height":  15
+                     }
+                 ]
+    },
+    {
+        "key":  "standard-s-marca",
+        "family":  "standard",
+        "name":  "S. MARCA",
+        "slug":  "s-marca",
+        "logos":  [
+
+                  ],
+        "capacity":  4,
+        "variant":  "classic",
+        "page":  {
+                     "paperSize":  "A4",
+                     "orientation":  "portrait",
+                     "marginLeftIn":  1.4918897637795276,
+                     "marginRightIn":  0,
+                     "marginTopIn":  0.25,
+                     "marginBottomIn":  0.75000000000000011
+                 },
+        "columns":  [
+                        {
+                            "min":  1,
+                            "max":  1,
+                            "width":  20
+                        },
+                        {
+                            "min":  2,
+                            "max":  2,
+                            "width":  11
+                        },
+                        {
+                            "min":  3,
+                            "max":  3,
+                            "width":  20.33203125
+                        },
+                        {
+                            "min":  4,
+                            "max":  4,
+                            "width":  12
+                        },
+                        {
+                            "min":  5,
+                            "max":  5,
+                            "width":  8.33203125
+                        },
+                        {
+                            "min":  6,
+                            "max":  7,
+                            "width":  10.83203125
+                        }
+                    ],
+        "rows":  [
+                     {
+                         "row":  1,
+                         "height":  35
+                     },
+                     {
+                         "row":  2,
+                         "height":  23
+                     },
+                     {
+                         "row":  3,
+                         "height":  26
+                     },
+                     {
+                         "row":  4,
+                         "height":  10
+                     },
+                     {
+                         "row":  5,
+                         "height":  10
+                     },
+                     {
+                         "row":  6,
+                         "height":  27
+                     },
+                     {
+                         "row":  7,
+                         "height":  42
+                     },
+                     {
+                         "row":  8,
+                         "height":  23
+                     },
+                     {
+                         "row":  9,
+                         "height":  26
+                     },
+                     {
+                         "row":  10,
+                         "height":  10
+                     },
+                     {
+                         "row":  11,
+                         "height":  10
+                     },
+                     {
+                         "row":  12,
+                         "height":  20.25
+                     },
+                     {
+                         "row":  14,
+                         "height":  12.75
+                     },
+                     {
+                         "row":  15,
+                         "height":  13.5
+                     },
+                     {
+                         "row":  17,
+                         "height":  15
+                     }
+                 ]
+    },
+    {
+        "key":  "standard-g-camaco",
+        "family":  "standard",
+        "name":  "G. CAMACO",
+        "slug":  "g-camaco",
+        "logos":  [
+                      "/producalza/guides/standard-g-camaco-1.png"
+                  ],
+        "capacity":  4,
+        "variant":  "classic",
+        "page":  {
+                     "paperSize":  "A4",
+                     "orientation":  "portrait",
+                     "marginLeftIn":  1.1811023622047245,
+                     "marginRightIn":  0,
+                     "marginTopIn":  0.08,
+                     "marginBottomIn":  0.75000000000000011
+                 },
+        "columns":  [
+                        {
+                            "min":  1,
+                            "max":  1,
+                            "width":  24.1640625
+                        },
+                        {
+                            "min":  2,
+                            "max":  2,
+                            "width":  11.6640625
+                        },
+                        {
+                            "min":  3,
+                            "max":  3,
+                            "width":  21
+                        },
+                        {
+                            "min":  4,
+                            "max":  4,
+                            "width":  11.83203125
+                        },
+                        {
+                            "min":  5,
+                            "max":  5,
+                            "width":  8.33203125
+                        },
+                        {
+                            "min":  6,
+                            "max":  7,
+                            "width":  10.83203125
+                        }
+                    ],
+        "rows":  [
+                     {
+                         "row":  1,
+                         "height":  65
+                     },
+                     {
+                         "row":  2,
+                         "height":  20
+                     },
+                     {
+                         "row":  3,
+                         "height":  20
+                     },
+                     {
+                         "row":  4,
+                         "height":  7
+                     },
+                     {
+                         "row":  5,
+                         "height":  7
+                     },
+                     {
+                         "row":  6,
+                         "height":  31
+                     },
+                     {
+                         "row":  7,
+                         "height":  65
+                     },
+                     {
+                         "row":  8,
+                         "height":  20
+                     },
+                     {
+                         "row":  9,
+                         "height":  20
+                     },
+                     {
+                         "row":  10,
+                         "height":  7
+                     },
+                     {
+                         "row":  11,
+                         "height":  7
+                     },
+                     {
+                         "row":  12,
+                         "height":  20.25
+                     },
+                     {
+                         "row":  14,
+                         "height":  12.75
+                     },
+                     {
+                         "row":  15,
+                         "height":  13.5
+                     },
+                     {
+                         "row":  17,
+                         "height":  15
+                     }
+                 ]
+    },
+    {
+        "key":  "standard-c-andrade",
+        "family":  "standard",
+        "name":  "C. ANDRADE",
+        "slug":  "c-andrade",
+        "logos":  [
+                      "/producalza/guides/standard-c-andrade-1.png"
+                  ],
+        "capacity":  4,
+        "variant":  "classic",
+        "page":  {
+                     "paperSize":  "A4",
+                     "orientation":  "portrait",
+                     "marginLeftIn":  1.1811023622047245,
+                     "marginRightIn":  0,
+                     "marginTopIn":  0.08,
+                     "marginBottomIn":  0.75000000000000011
+                 },
+        "columns":  [
+                        {
+                            "min":  1,
+                            "max":  1,
+                            "width":  24.1640625
+                        },
+                        {
+                            "min":  2,
+                            "max":  2,
+                            "width":  11.6640625
+                        },
+                        {
+                            "min":  3,
+                            "max":  3,
+                            "width":  21
+                        },
+                        {
+                            "min":  4,
+                            "max":  4,
+                            "width":  11.83203125
+                        },
+                        {
+                            "min":  5,
+                            "max":  5,
+                            "width":  8.33203125
+                        },
+                        {
+                            "min":  6,
+                            "max":  7,
+                            "width":  10.83203125
+                        }
+                    ],
+        "rows":  [
+                     {
+                         "row":  1,
+                         "height":  65
+                     },
+                     {
+                         "row":  2,
+                         "height":  20
+                     },
+                     {
+                         "row":  3,
+                         "height":  20
+                     },
+                     {
+                         "row":  4,
+                         "height":  7
+                     },
+                     {
+                         "row":  5,
+                         "height":  7
+                     },
+                     {
+                         "row":  6,
+                         "height":  31
+                     },
+                     {
+                         "row":  7,
+                         "height":  65
+                     },
+                     {
+                         "row":  8,
+                         "height":  20
+                     },
+                     {
+                         "row":  9,
+                         "height":  20
+                     },
+                     {
+                         "row":  10,
+                         "height":  7
+                     },
+                     {
+                         "row":  11,
+                         "height":  7
+                     },
+                     {
+                         "row":  12,
+                         "height":  20.25
+                     },
+                     {
+                         "row":  14,
+                         "height":  12.75
+                     },
+                     {
+                         "row":  15,
+                         "height":  13.5
+                     },
+                     {
+                         "row":  17,
+                         "height":  15
+                     }
+                 ]
+    },
+    {
+        "key":  "standard-l-guznay",
+        "family":  "standard",
+        "name":  "L. GUZÑAY",
+        "slug":  "l-guznay",
+        "logos":  [
+                      "/producalza/guides/standard-l-guznay-1.png"
+                  ],
+        "capacity":  4,
+        "variant":  "classic",
+        "page":  {
+                     "paperSize":  "A4",
+                     "orientation":  "portrait",
+                     "marginLeftIn":  1.4100000000000001,
+                     "marginRightIn":  0,
+                     "marginTopIn":  0.079370078740157488,
+                     "marginBottomIn":  0.75000000000000011
+                 },
+        "columns":  [
+                        {
+                            "min":  1,
+                            "max":  1,
+                            "width":  21.6640625
+                        },
+                        {
+                            "min":  2,
+                            "max":  2,
+                            "width":  10.83203125
+                        },
+                        {
+                            "min":  3,
+                            "max":  3,
+                            "width":  20.33203125
+                        },
+                        {
+                            "min":  4,
+                            "max":  4,
+                            "width":  10.83203125
+                        },
+                        {
+                            "min":  5,
+                            "max":  5,
+                            "width":  8.33203125
+                        },
+                        {
+                            "min":  6,
+                            "max":  6,
+                            "width":  10.83203125
+                        }
+                    ],
+        "rows":  [
+                     {
+                         "row":  1,
+                         "height":  67
+                     },
+                     {
+                         "row":  2,
+                         "height":  20
+                     },
+                     {
+                         "row":  3,
+                         "height":  20
+                     },
+                     {
+                         "row":  4,
+                         "height":  7
+                     },
+                     {
+                         "row":  5,
+                         "height":  7
+                     },
+                     {
+                         "row":  6,
+                         "height":  32
+                     },
+                     {
+                         "row":  7,
+                         "height":  65
+                     },
+                     {
+                         "row":  8,
+                         "height":  20
+                     },
+                     {
+                         "row":  9,
+                         "height":  20
+                     },
+                     {
+                         "row":  10,
+                         "height":  7
+                     },
+                     {
+                         "row":  11,
+                         "height":  7
+                     },
+                     {
+                         "row":  12,
+                         "height":  20.25
+                     },
+                     {
+                         "row":  14,
+                         "height":  12.75
+                     },
+                     {
+                         "row":  15,
+                         "height":  13.5
+                     },
+                     {
+                         "row":  17,
+                         "height":  15
+                     }
+                 ]
+    },
+    {
+        "key":  "standard-j-enriquez",
+        "family":  "standard",
+        "name":  "J. ENRIQUEZ",
+        "slug":  "j-enriquez",
+        "logos":  [
+                      "/producalza/guides/standard-j-enriquez-1.png"
+                  ],
+        "capacity":  4,
+        "variant":  "wide",
+        "page":  {
+                     "paperSize":  "A4",
+                     "orientation":  "portrait",
+                     "marginLeftIn":  1.57,
+                     "marginRightIn":  0,
+                     "marginTopIn":  0.11850393700787401,
+                     "marginBottomIn":  0.75000000000000011
+                 },
+        "columns":  [
+                        {
+                            "min":  1,
+                            "max":  1,
+                            "width":  9.33203125
+                        },
+                        {
+                            "min":  2,
+                            "max":  2,
+                            "width":  11.33203125
+                        },
+                        {
+                            "min":  3,
+                            "max":  3,
+                            "width":  8.33203125
+                        },
+                        {
+                            "min":  4,
+                            "max":  4,
+                            "width":  2.6640625
+                        },
+                        {
+                            "min":  5,
+                            "max":  5,
+                            "width":  9.33203125
+                        },
+                        {
+                            "min":  6,
+                            "max":  6,
+                            "width":  11.83203125
+                        },
+                        {
+                            "min":  7,
+                            "max":  7,
+                            "width":  8.33203125
+                        }
+                    ],
+        "rows":  [
+                     {
+                         "row":  1,
+                         "height":  53
+                     },
+                     {
+                         "row":  2,
+                         "height":  13
+                     },
+                     {
+                         "row":  3,
+                         "height":  45
+                     },
+                     {
+                         "row":  4,
+                         "height":  7
+                     },
+                     {
+                         "row":  5,
+                         "height":  7
+                     },
+                     {
+                         "row":  6,
+                         "height":  14
+                     },
+                     {
+                         "row":  7,
+                         "height":  53
+                     },
+                     {
+                         "row":  8,
+                         "height":  13
+                     },
+                     {
+                         "row":  9,
+                         "height":  46
+                     },
+                     {
+                         "row":  10,
+                         "height":  7
+                     },
+                     {
+                         "row":  11,
+                         "height":  7
+                     }
+                 ]
+    },
+    {
+        "key":  "standard-marjorie",
+        "family":  "standard",
+        "name":  "MARJORIE",
+        "slug":  "marjorie",
+        "logos":  [
+                      "/producalza/guides/standard-marjorie-1.png"
+                  ],
+        "capacity":  4,
+        "variant":  "classic",
+        "page":  {
+                     "paperSize":  "A4",
+                     "orientation":  "portrait",
+                     "marginLeftIn":  1.5300000000000002,
+                     "marginRightIn":  0,
+                     "marginTopIn":  0.1331496062992126,
+                     "marginBottomIn":  0.75000000000000011
+                 },
+        "columns":  [
+                        {
+                            "min":  1,
+                            "max":  1,
+                            "width":  20.1640625
+                        },
+                        {
+                            "min":  2,
+                            "max":  2,
+                            "width":  10.5
+                        },
+                        {
+                            "min":  3,
+                            "max":  3,
+                            "width":  19.83203125
+                        },
+                        {
+                            "min":  4,
+                            "max":  4,
+                            "width":  12
+                        },
+                        {
+                            "min":  5,
+                            "max":  5,
+                            "width":  8.33203125
+                        },
+                        {
+                            "min":  6,
+                            "max":  7,
+                            "width":  10.83203125
+                        }
+                    ],
+        "rows":  [
+                     {
+                         "row":  1,
+                         "height":  61
+                     },
+                     {
+                         "row":  2,
+                         "height":  20
+                     },
+                     {
+                         "row":  3,
+                         "height":  20
+                     },
+                     {
+                         "row":  4,
+                         "height":  7
+                     },
+                     {
+                         "row":  5,
+                         "height":  7
+                     },
+                     {
+                         "row":  6,
+                         "height":  26
+                     },
+                     {
+                         "row":  7,
+                         "height":  63
+                     },
+                     {
+                         "row":  8,
+                         "height":  20
+                     },
+                     {
+                         "row":  9,
+                         "height":  20
+                     },
+                     {
+                         "row":  10,
+                         "height":  7
+                     },
+                     {
+                         "row":  11,
+                         "height":  7
+                     },
+                     {
+                         "row":  12,
+                         "height":  20.25
+                     },
+                     {
+                         "row":  14,
+                         "height":  12.75
+                     },
+                     {
+                         "row":  15,
+                         "height":  13.5
+                     },
+                     {
+                         "row":  17,
+                         "height":  15
+                     }
+                 ]
+    },
+    {
+        "key":  "standard-r-molina",
+        "family":  "standard",
+        "name":  "R. MOLINA",
+        "slug":  "r-molina",
+        "logos":  [
+                      "/producalza/guides/standard-r-molina-1.png"
+                  ],
+        "capacity":  4,
+        "variant":  "classic",
+        "page":  {
+                     "paperSize":  "A4",
+                     "orientation":  "portrait",
+                     "marginLeftIn":  1.4100000000000001,
+                     "marginRightIn":  0,
+                     "marginTopIn":  0.043149606299212606,
+                     "marginBottomIn":  0.75000000000000011
+                 },
+        "columns":  [
+                        {
+                            "min":  1,
+                            "max":  1,
+                            "width":  22.1640625
+                        },
+                        {
+                            "min":  2,
+                            "max":  2,
+                            "width":  9.83203125
+                        },
+                        {
+                            "min":  3,
+                            "max":  3,
+                            "width":  21.33203125
+                        },
+                        {
+                            "min":  4,
+                            "max":  4,
+                            "width":  11.33203125
+                        },
+                        {
+                            "min":  5,
+                            "max":  5,
+                            "width":  8.33203125
+                        },
+                        {
+                            "min":  6,
+                            "max":  7,
+                            "width":  10.83203125
+                        }
+                    ],
+        "rows":  [
+                     {
+                         "row":  1,
+                         "height":  65
+                     },
+                     {
+                         "row":  2,
+                         "height":  20
+                     },
+                     {
+                         "row":  3,
+                         "height":  20
+                     },
+                     {
+                         "row":  4,
+                         "height":  7
+                     },
+                     {
+                         "row":  5,
+                         "height":  7
+                     },
+                     {
+                         "row":  6,
+                         "height":  27
+                     },
+                     {
+                         "row":  7,
+                         "height":  65
+                     },
+                     {
+                         "row":  8,
+                         "height":  20
+                     },
+                     {
+                         "row":  9,
+                         "height":  20
+                     },
+                     {
+                         "row":  10,
+                         "height":  7
+                     },
+                     {
+                         "row":  11,
+                         "height":  7
+                     },
+                     {
+                         "row":  12,
+                         "height":  20.25
+                     },
+                     {
+                         "row":  14,
+                         "height":  12.75
+                     },
+                     {
+                         "row":  15,
+                         "height":  13.5
+                     },
+                     {
+                         "row":  17,
+                         "height":  15
+                     }
+                 ]
+    },
+    {
+        "key":  "standard-j-barrera",
+        "family":  "standard",
+        "name":  "J. BARRERA",
+        "slug":  "j-barrera",
+        "logos":  [
+                      "/producalza/guides/standard-j-barrera-1.png"
+                  ],
+        "capacity":  4,
+        "variant":  "classic",
+        "page":  {
+                     "paperSize":  "A4",
+                     "orientation":  "portrait",
+                     "marginLeftIn":  1.4100000000000001,
+                     "marginRightIn":  0,
+                     "marginTopIn":  0.20062992125984253,
+                     "marginBottomIn":  0.75000000000000011
+                 },
+        "columns":  [
+                        {
+                            "min":  1,
+                            "max":  1,
+                            "width":  22.1640625
+                        },
+                        {
+                            "min":  2,
+                            "max":  2,
+                            "width":  9.83203125
+                        },
+                        {
+                            "min":  3,
+                            "max":  3,
+                            "width":  21.33203125
+                        },
+                        {
+                            "min":  4,
+                            "max":  4,
+                            "width":  11.33203125
+                        },
+                        {
+                            "min":  5,
+                            "max":  5,
+                            "width":  8.33203125
+                        },
+                        {
+                            "min":  6,
+                            "max":  7,
+                            "width":  10.83203125
+                        }
+                    ],
+        "rows":  [
+                     {
+                         "row":  1,
+                         "height":  65
+                     },
+                     {
+                         "row":  2,
+                         "height":  20
+                     },
+                     {
+                         "row":  3,
+                         "height":  20
+                     },
+                     {
+                         "row":  4,
+                         "height":  7
+                     },
+                     {
+                         "row":  5,
+                         "height":  7
+                     },
+                     {
+                         "row":  6,
+                         "height":  27
+                     },
+                     {
+                         "row":  7,
+                         "height":  65
+                     },
+                     {
+                         "row":  8,
+                         "height":  20
+                     },
+                     {
+                         "row":  9,
+                         "height":  20
+                     },
+                     {
+                         "row":  10,
+                         "height":  7
+                     },
+                     {
+                         "row":  11,
+                         "height":  7
+                     },
+                     {
+                         "row":  12,
+                         "height":  20.25
+                     },
+                     {
+                         "row":  14,
+                         "height":  12.75
+                     },
+                     {
+                         "row":  15,
+                         "height":  13.5
+                     },
+                     {
+                         "row":  17,
+                         "height":  15
+                     }
+                 ]
+    },
+    {
+        "key":  "standard-m-saavedra",
+        "family":  "standard",
+        "name":  "M. SAAVEDRA",
+        "slug":  "m-saavedra",
+        "logos":  [
+                      "/producalza/guides/standard-m-saavedra-1.png"
+                  ],
+        "capacity":  4,
+        "variant":  "classic",
+        "page":  {
+                     "paperSize":  "A4",
+                     "orientation":  "portrait",
+                     "marginLeftIn":  1.4100000000000001,
+                     "marginRightIn":  0,
+                     "marginTopIn":  0.24000000000000002,
+                     "marginBottomIn":  0.75000000000000011
+                 },
+        "columns":  [
+                        {
+                            "min":  1,
+                            "max":  1,
+                            "width":  22.1640625
+                        },
+                        {
+                            "min":  2,
+                            "max":  2,
+                            "width":  9.83203125
+                        },
+                        {
+                            "min":  3,
+                            "max":  3,
+                            "width":  21.33203125
+                        },
+                        {
+                            "min":  4,
+                            "max":  4,
+                            "width":  11.33203125
+                        },
+                        {
+                            "min":  5,
+                            "max":  5,
+                            "width":  8.33203125
+                        },
+                        {
+                            "min":  6,
+                            "max":  7,
+                            "width":  10.83203125
+                        }
+                    ],
+        "rows":  [
+                     {
+                         "row":  1,
+                         "height":  65
+                     },
+                     {
+                         "row":  2,
+                         "height":  20
+                     },
+                     {
+                         "row":  3,
+                         "height":  20
+                     },
+                     {
+                         "row":  4,
+                         "height":  7
+                     },
+                     {
+                         "row":  5,
+                         "height":  7
+                     },
+                     {
+                         "row":  6,
+                         "height":  27
+                     },
+                     {
+                         "row":  7,
+                         "height":  65
+                     },
+                     {
+                         "row":  8,
+                         "height":  20
+                     },
+                     {
+                         "row":  9,
+                         "height":  20
+                     },
+                     {
+                         "row":  10,
+                         "height":  7
+                     },
+                     {
+                         "row":  11,
+                         "height":  7
+                     },
+                     {
+                         "row":  12,
+                         "height":  20.25
+                     },
+                     {
+                         "row":  14,
+                         "height":  12.75
+                     },
+                     {
+                         "row":  15,
+                         "height":  13.5
+                     },
+                     {
+                         "row":  17,
+                         "height":  15
+                     }
+                 ]
+    },
+    {
+        "key":  "standard-f-guerrero",
+        "family":  "standard",
+        "name":  "F. GUERRERO",
+        "slug":  "f-guerrero",
+        "logos":  [
+                      "/producalza/guides/standard-f-guerrero-1.png"
+                  ],
+        "capacity":  4,
+        "variant":  "classic",
+        "page":  {
+                     "paperSize":  "A4",
+                     "orientation":  "portrait",
+                     "marginLeftIn":  1.3300000000000003,
+                     "marginRightIn":  0,
+                     "marginTopIn":  0.27677165354330707,
+                     "marginBottomIn":  0.75000000000000011
+                 },
+        "columns":  [
+                        {
+                            "min":  1,
+                            "max":  1,
+                            "width":  21.33203125
+                        },
+                        {
+                            "min":  2,
+                            "max":  2,
+                            "width":  10.33203125
+                        },
+                        {
+                            "min":  3,
+                            "max":  3,
+                            "width":  22.6640625
+                        },
+                        {
+                            "min":  4,
+                            "max":  4,
+                            "width":  11.33203125
+                        },
+                        {
+                            "min":  5,
+                            "max":  5,
+                            "width":  8.33203125
+                        },
+                        {
+                            "min":  6,
+                            "max":  7,
+                            "width":  10.83203125
+                        }
+                    ],
+        "rows":  [
+                     {
+                         "row":  1,
+                         "height":  51
+                     },
+                     {
+                         "row":  2,
+                         "height":  24.75
+                     },
+                     {
+                         "row":  3,
+                         "height":  27
+                     },
+                     {
+                         "row":  4,
+                         "height":  7
+                     },
+                     {
+                         "row":  5,
+                         "height":  7
+                     },
+                     {
+                         "row":  6,
+                         "height":  30
+                     },
+                     {
+                         "row":  7,
+                         "height":  46.5
+                     },
+                     {
+                         "row":  8,
+                         "height":  24.75
+                     },
+                     {
+                         "row":  9,
+                         "height":  27
+                     },
+                     {
+                         "row":  10,
+                         "height":  7
+                     },
+                     {
+                         "row":  11,
+                         "height":  7
+                     },
+                     {
+                         "row":  12,
+                         "height":  20.25
+                     },
+                     {
+                         "row":  14,
+                         "height":  12.75
+                     },
+                     {
+                         "row":  15,
+                         "height":  13.5
+                     },
+                     {
+                         "row":  17,
+                         "height":  15
+                     }
+                 ]
+    },
+    {
+        "key":  "standard-m-guerrero-2-",
+        "family":  "standard",
+        "name":  "M GUERRERO (2)",
+        "slug":  "m-guerrero-2-",
+        "logos":  [
+                      "/producalza/guides/standard-m-guerrero-2--1.png"
+                  ],
+        "capacity":  4,
+        "variant":  "classic",
+        "page":  {
+                     "paperSize":  "A4",
+                     "orientation":  "portrait",
+                     "marginLeftIn":  1.3812598425196851,
+                     "marginRightIn":  0,
+                     "marginTopIn":  0.24000000000000002,
+                     "marginBottomIn":  0.75000000000000011
+                 },
+        "columns":  [
+                        {
+                            "min":  1,
+                            "max":  1,
+                            "width":  21.33203125
+                        },
+                        {
+                            "min":  2,
+                            "max":  2,
+                            "width":  10.83203125
+                        },
+                        {
+                            "min":  3,
+                            "max":  3,
+                            "width":  20.83203125
+                        },
+                        {
+                            "min":  4,
+                            "max":  4,
+                            "width":  10.83203125
+                        },
+                        {
+                            "min":  5,
+                            "max":  5,
+                            "width":  8.33203125
+                        },
+                        {
+                            "min":  6,
+                            "max":  7,
+                            "width":  10.83203125
+                        }
+                    ],
+        "rows":  [
+                     {
+                         "row":  1,
+                         "height":  51
+                     },
+                     {
+                         "row":  2,
+                         "height":  24.75
+                     },
+                     {
+                         "row":  3,
+                         "height":  27
+                     },
+                     {
+                         "row":  4,
+                         "height":  7
+                     },
+                     {
+                         "row":  5,
+                         "height":  7
+                     },
+                     {
+                         "row":  6,
+                         "height":  27
+                     },
+                     {
+                         "row":  7,
+                         "height":  46.5
+                     },
+                     {
+                         "row":  8,
+                         "height":  24.75
+                     },
+                     {
+                         "row":  9,
+                         "height":  27
+                     },
+                     {
+                         "row":  10,
+                         "height":  7
+                     },
+                     {
+                         "row":  11,
+                         "height":  7
+                     },
+                     {
+                         "row":  12,
+                         "height":  20.25
+                     },
+                     {
+                         "row":  14,
+                         "height":  12.75
+                     },
+                     {
+                         "row":  15,
+                         "height":  13.5
+                     },
+                     {
+                         "row":  17,
+                         "height":  15
+                     }
+                 ]
+    },
+    {
+        "key":  "standard-n-llivicura",
+        "family":  "standard",
+        "name":  "N. LLIVICURA",
+        "slug":  "n-llivicura",
+        "logos":  [
+                      "/producalza/guides/standard-n-llivicura-1.png"
+                  ],
+        "capacity":  4,
+        "variant":  "classic",
+        "page":  {
+                     "paperSize":  "A4",
+                     "orientation":  "portrait",
+                     "marginLeftIn":  1.299212598425197,
+                     "marginRightIn":  0.71,
+                     "marginTopIn":  0.12000000000000001,
+                     "marginBottomIn":  0.75000000000000011
+                 },
+        "columns":  [
+                        {
+                            "min":  1,
+                            "max":  1,
+                            "width":  23.33203125
+                        },
+                        {
+                            "min":  2,
+                            "max":  2,
+                            "width":  10
+                        },
+                        {
+                            "min":  3,
+                            "max":  3,
+                            "width":  22.33203125
+                        },
+                        {
+                            "min":  4,
+                            "max":  4,
+                            "width":  10.33203125
+                        },
+                        {
+                            "min":  5,
+                            "max":  5,
+                            "width":  8.33203125
+                        },
+                        {
+                            "min":  6,
+                            "max":  7,
+                            "width":  10.83203125
+                        }
+                    ],
+        "rows":  [
+                     {
+                         "row":  1,
+                         "height":  56
+                     },
+                     {
+                         "row":  2,
+                         "height":  24.75
+                     },
+                     {
+                         "row":  3,
+                         "height":  27
+                     },
+                     {
+                         "row":  4,
+                         "height":  8
+                     },
+                     {
+                         "row":  5,
+                         "height":  8
+                     },
+                     {
+                         "row":  6,
+                         "height":  21
+                     },
+                     {
+                         "row":  7,
+                         "height":  54
+                     },
+                     {
+                         "row":  8,
+                         "height":  24.75
+                     },
+                     {
+                         "row":  9,
+                         "height":  27
+                     },
+                     {
+                         "row":  10,
+                         "height":  8
+                     },
+                     {
+                         "row":  11,
+                         "height":  8
+                     },
+                     {
+                         "row":  15,
+                         "height":  13.5
+                     },
+                     {
+                         "row":  17,
+                         "height":  15
+                     }
+                 ]
+    },
+    {
+        "key":  "standard-t-macas",
+        "family":  "standard",
+        "name":  "T. MACAS",
+        "slug":  "t-macas",
+        "logos":  [
+                      "/producalza/guides/standard-t-macas-1.png"
+                  ],
+        "capacity":  4,
+        "variant":  "classic",
+        "page":  {
+                     "paperSize":  "A4",
+                     "orientation":  "portrait",
+                     "marginLeftIn":  1.3531496062992125,
+                     "marginRightIn":  0,
+                     "marginTopIn":  0.21999999999999997,
+                     "marginBottomIn":  0.75000000000000011
+                 },
+        "columns":  [
+                        {
+                            "min":  1,
+                            "max":  1,
+                            "width":  21.83203125
+                        },
+                        {
+                            "min":  2,
+                            "max":  2,
+                            "width":  10.83203125
+                        },
+                        {
+                            "min":  3,
+                            "max":  3,
+                            "width":  21.33203125
+                        },
+                        {
+                            "min":  4,
+                            "max":  4,
+                            "width":  11.1640625
+                        },
+                        {
+                            "min":  5,
+                            "max":  5,
+                            "width":  8.33203125
+                        },
+                        {
+                            "min":  6,
+                            "max":  7,
+                            "width":  10.83203125
+                        }
+                    ],
+        "rows":  [
+                     {
+                         "row":  1,
+                         "height":  65
+                     },
+                     {
+                         "row":  2,
+                         "height":  20
+                     },
+                     {
+                         "row":  3,
+                         "height":  20
+                     },
+                     {
+                         "row":  4,
+                         "height":  8
+                     },
+                     {
+                         "row":  5,
+                         "height":  8
+                     },
+                     {
+                         "row":  6,
+                         "height":  23
+                     },
+                     {
+                         "row":  7,
+                         "height":  65
+                     },
+                     {
+                         "row":  8,
+                         "height":  20
+                     },
+                     {
+                         "row":  9,
+                         "height":  20
+                     },
+                     {
+                         "row":  10,
+                         "height":  8
+                     },
+                     {
+                         "row":  11,
+                         "height":  8
+                     },
+                     {
+                         "row":  15,
+                         "height":  13.5
+                     },
+                     {
+                         "row":  17,
+                         "height":  15
+                     }
+                 ]
+    },
+    {
+        "key":  "standard-l-llango",
+        "family":  "standard",
+        "name":  "L. LLANGO",
+        "slug":  "l-llango",
+        "logos":  [
+                      "/producalza/guides/standard-l-llango-1.png"
+                  ],
+        "capacity":  4,
+        "variant":  "classic",
+        "page":  {
+                     "paperSize":  "A4",
+                     "orientation":  "portrait",
+                     "marginLeftIn":  1.4093700787401577,
+                     "marginRightIn":  0,
+                     "marginTopIn":  0.24000000000000002,
+                     "marginBottomIn":  0.75000000000000011
+                 },
+        "columns":  [
+                        {
+                            "min":  1,
+                            "max":  1,
+                            "width":  23.1640625
+                        },
+                        {
+                            "min":  2,
+                            "max":  2,
+                            "width":  10.83203125
+                        },
+                        {
+                            "min":  3,
+                            "max":  3,
+                            "width":  20.6640625
+                        },
+                        {
+                            "min":  4,
+                            "max":  4,
+                            "width":  11.33203125
+                        },
+                        {
+                            "min":  5,
+                            "max":  5,
+                            "width":  8.33203125
+                        },
+                        {
+                            "min":  6,
+                            "max":  7,
+                            "width":  10.83203125
+                        }
+                    ],
+        "rows":  [
+                     {
+                         "row":  1,
+                         "height":  51
+                     },
+                     {
+                         "row":  2,
+                         "height":  24.75
+                     },
+                     {
+                         "row":  3,
+                         "height":  27
+                     },
+                     {
+                         "row":  4,
+                         "height":  7
+                     },
+                     {
+                         "row":  5,
+                         "height":  7
+                     },
+                     {
+                         "row":  6,
+                         "height":  30
+                     },
+                     {
+                         "row":  7,
+                         "height":  46.5
+                     },
+                     {
+                         "row":  8,
+                         "height":  24.75
+                     },
+                     {
+                         "row":  9,
+                         "height":  27
+                     },
+                     {
+                         "row":  10,
+                         "height":  7
+                     },
+                     {
+                         "row":  11,
+                         "height":  7
+                     },
+                     {
+                         "row":  12,
+                         "height":  20.25
+                     },
+                     {
+                         "row":  14,
+                         "height":  12.75
+                     },
+                     {
+                         "row":  15,
+                         "height":  13.5
+                     },
+                     {
+                         "row":  17,
+                         "height":  15
+                     }
+                 ]
+    },
+    {
+        "key":  "standard-m-cueva",
+        "family":  "standard",
+        "name":  "M. CUEVA",
+        "slug":  "m-cueva",
+        "logos":  [
+                      "/producalza/guides/standard-m-cueva-1.png"
+                  ],
+        "capacity":  4,
+        "variant":  "classic",
+        "page":  {
+                     "paperSize":  "A4",
+                     "orientation":  "portrait",
+                     "marginLeftIn":  1.3307086614173227,
+                     "marginRightIn":  0,
+                     "marginTopIn":  0.24000000000000002,
+                     "marginBottomIn":  0.75000000000000011
+                 },
+        "columns":  [
+                        {
+                            "min":  1,
+                            "max":  1,
+                            "width":  21.33203125
+                        },
+                        {
+                            "min":  2,
+                            "max":  2,
+                            "width":  10.33203125
+                        },
+                        {
+                            "min":  3,
+                            "max":  3,
+                            "width":  22.6640625
+                        },
+                        {
+                            "min":  4,
+                            "max":  4,
+                            "width":  11.33203125
+                        },
+                        {
+                            "min":  5,
+                            "max":  5,
+                            "width":  8.33203125
+                        },
+                        {
+                            "min":  6,
+                            "max":  7,
+                            "width":  10.83203125
+                        }
+                    ],
+        "rows":  [
+                     {
+                         "row":  1,
+                         "height":  51
+                     },
+                     {
+                         "row":  2,
+                         "height":  24.75
+                     },
+                     {
+                         "row":  3,
+                         "height":  27
+                     },
+                     {
+                         "row":  4,
+                         "height":  7
+                     },
+                     {
+                         "row":  5,
+                         "height":  7
+                     },
+                     {
+                         "row":  6,
+                         "height":  30
+                     },
+                     {
+                         "row":  7,
+                         "height":  46.5
+                     },
+                     {
+                         "row":  8,
+                         "height":  24.75
+                     },
+                     {
+                         "row":  9,
+                         "height":  27
+                     },
+                     {
+                         "row":  10,
+                         "height":  7
+                     },
+                     {
+                         "row":  11,
+                         "height":  7
+                     },
+                     {
+                         "row":  12,
+                         "height":  20.25
+                     },
+                     {
+                         "row":  14,
+                         "height":  12.75
+                     },
+                     {
+                         "row":  15,
+                         "height":  13.5
+                     },
+                     {
+                         "row":  17,
+                         "height":  15
+                     }
+                 ]
+    },
+    {
+        "key":  "standard-m-galarza",
+        "family":  "standard",
+        "name":  "M GALARZA",
+        "slug":  "m-galarza",
+        "logos":  [
+                      "/producalza/guides/standard-m-galarza-1.png"
+                  ],
+        "capacity":  4,
+        "variant":  "classic",
+        "page":  {
+                     "paperSize":  "A4",
+                     "orientation":  "portrait",
+                     "marginLeftIn":  1.4093700787401577,
+                     "marginRightIn":  0,
+                     "marginTopIn":  0.24000000000000002,
+                     "marginBottomIn":  0.75000000000000011
+                 },
+        "columns":  [
+                        {
+                            "min":  1,
+                            "max":  1,
+                            "width":  23.1640625
+                        },
+                        {
+                            "min":  2,
+                            "max":  2,
+                            "width":  10.83203125
+                        },
+                        {
+                            "min":  3,
+                            "max":  3,
+                            "width":  20.6640625
+                        },
+                        {
+                            "min":  4,
+                            "max":  4,
+                            "width":  11.33203125
+                        },
+                        {
+                            "min":  5,
+                            "max":  5,
+                            "width":  8.33203125
+                        },
+                        {
+                            "min":  6,
+                            "max":  7,
+                            "width":  10.83203125
+                        }
+                    ],
+        "rows":  [
+                     {
+                         "row":  1,
+                         "height":  51
+                     },
+                     {
+                         "row":  2,
+                         "height":  24.75
+                     },
+                     {
+                         "row":  3,
+                         "height":  27
+                     },
+                     {
+                         "row":  4,
+                         "height":  7
+                     },
+                     {
+                         "row":  5,
+                         "height":  7
+                     },
+                     {
+                         "row":  6,
+                         "height":  30
+                     },
+                     {
+                         "row":  7,
+                         "height":  46.5
+                     },
+                     {
+                         "row":  8,
+                         "height":  24.75
+                     },
+                     {
+                         "row":  9,
+                         "height":  27
+                     },
+                     {
+                         "row":  10,
+                         "height":  7
+                     },
+                     {
+                         "row":  11,
+                         "height":  7
+                     },
+                     {
+                         "row":  12,
+                         "height":  20.25
+                     },
+                     {
+                         "row":  14,
+                         "height":  12.75
+                     },
+                     {
+                         "row":  15,
+                         "height":  13.5
+                     },
+                     {
+                         "row":  17,
+                         "height":  15
+                     }
+                 ]
+    },
+    {
+        "key":  "standard-j-torres",
+        "family":  "standard",
+        "name":  "J. TORRES",
+        "slug":  "j-torres",
+        "logos":  [
+                      "/producalza/guides/standard-j-torres-1.png"
+                  ],
+        "capacity":  4,
+        "variant":  "classic",
+        "page":  {
+                     "paperSize":  "A4",
+                     "orientation":  "portrait",
+                     "marginLeftIn":  1.4093700787401577,
+                     "marginRightIn":  0,
+                     "marginTopIn":  0.24000000000000002,
+                     "marginBottomIn":  0.75000000000000011
+                 },
+        "columns":  [
+                        {
+                            "min":  1,
+                            "max":  1,
+                            "width":  23.1640625
+                        },
+                        {
+                            "min":  2,
+                            "max":  2,
+                            "width":  10.83203125
+                        },
+                        {
+                            "min":  3,
+                            "max":  3,
+                            "width":  20.6640625
+                        },
+                        {
+                            "min":  4,
+                            "max":  4,
+                            "width":  11.33203125
+                        },
+                        {
+                            "min":  5,
+                            "max":  5,
+                            "width":  8.33203125
+                        },
+                        {
+                            "min":  6,
+                            "max":  7,
+                            "width":  10.83203125
+                        }
+                    ],
+        "rows":  [
+                     {
+                         "row":  1,
+                         "height":  51
+                     },
+                     {
+                         "row":  2,
+                         "height":  24.75
+                     },
+                     {
+                         "row":  3,
+                         "height":  27
+                     },
+                     {
+                         "row":  4,
+                         "height":  7
+                     },
+                     {
+                         "row":  5,
+                         "height":  7
+                     },
+                     {
+                         "row":  6,
+                         "height":  30
+                     },
+                     {
+                         "row":  7,
+                         "height":  46.5
+                     },
+                     {
+                         "row":  8,
+                         "height":  24.75
+                     },
+                     {
+                         "row":  9,
+                         "height":  27
+                     },
+                     {
+                         "row":  10,
+                         "height":  7
+                     },
+                     {
+                         "row":  11,
+                         "height":  7
+                     },
+                     {
+                         "row":  12,
+                         "height":  20.25
+                     },
+                     {
+                         "row":  14,
+                         "height":  12.75
+                     },
+                     {
+                         "row":  15,
+                         "height":  13.5
+                     },
+                     {
+                         "row":  17,
+                         "height":  15
+                     }
+                 ]
+    },
+    {
+        "key":  "standard-j-hernandez",
+        "family":  "standard",
+        "name":  "J. HERNANDEZ",
+        "slug":  "j-hernandez",
+        "logos":  [
+                      "/producalza/guides/standard-j-hernandez-1.png"
+                  ],
+        "capacity":  4,
+        "variant":  "classic",
+        "page":  {
+                     "paperSize":  "A4",
+                     "orientation":  "portrait",
+                     "marginLeftIn":  1.4100000000000001,
+                     "marginRightIn":  0,
+                     "marginTopIn":  0.043149606299212606,
+                     "marginBottomIn":  0.75000000000000011
+                 },
+        "columns":  [
+                        {
+                            "min":  1,
+                            "max":  1,
+                            "width":  22.1640625
+                        },
+                        {
+                            "min":  2,
+                            "max":  2,
+                            "width":  9.83203125
+                        },
+                        {
+                            "min":  3,
+                            "max":  3,
+                            "width":  21.33203125
+                        },
+                        {
+                            "min":  4,
+                            "max":  4,
+                            "width":  11.33203125
+                        },
+                        {
+                            "min":  5,
+                            "max":  5,
+                            "width":  8.33203125
+                        },
+                        {
+                            "min":  6,
+                            "max":  7,
+                            "width":  10.83203125
+                        }
+                    ],
+        "rows":  [
+                     {
+                         "row":  1,
+                         "height":  65
+                     },
+                     {
+                         "row":  2,
+                         "height":  20
+                     },
+                     {
+                         "row":  3,
+                         "height":  20
+                     },
+                     {
+                         "row":  4,
+                         "height":  7
+                     },
+                     {
+                         "row":  5,
+                         "height":  7
+                     },
+                     {
+                         "row":  6,
+                         "height":  26
+                     },
+                     {
+                         "row":  7,
+                         "height":  65
+                     },
+                     {
+                         "row":  8,
+                         "height":  20
+                     },
+                     {
+                         "row":  9,
+                         "height":  20
+                     },
+                     {
+                         "row":  10,
+                         "height":  7
+                     },
+                     {
+                         "row":  11,
+                         "height":  7
+                     },
+                     {
+                         "row":  12,
+                         "height":  20.25
+                     },
+                     {
+                         "row":  14,
+                         "height":  12.75
+                     },
+                     {
+                         "row":  15,
+                         "height":  13.5
+                     },
+                     {
+                         "row":  17,
+                         "height":  15
+                     }
+                 ]
+    },
+    {
+        "key":  "standard-febraty",
+        "family":  "standard",
+        "name":  "FEBRATY",
+        "slug":  "febraty",
+        "logos":  [
+                      "/producalza/guides/standard-febraty-1.png"
+                  ],
+        "capacity":  4,
+        "variant":  "classic",
+        "page":  {
+                     "paperSize":  "A4",
+                     "orientation":  "portrait",
+                     "marginLeftIn":  1.42,
+                     "marginRightIn":  0.71,
+                     "marginTopIn":  0.2,
+                     "marginBottomIn":  0.55314960629921262
+                 },
+        "columns":  [
+                        {
+                            "min":  1,
+                            "max":  1,
+                            "width":  23.33203125
+                        },
+                        {
+                            "min":  2,
+                            "max":  2,
+                            "width":  9.5
+                        },
+                        {
+                            "min":  3,
+                            "max":  3,
+                            "width":  23.1640625
+                        },
+                        {
+                            "min":  4,
+                            "max":  4,
+                            "width":  9.5
+                        },
+                        {
+                            "min":  5,
+                            "max":  5,
+                            "width":  8.33203125
+                        },
+                        {
+                            "min":  6,
+                            "max":  7,
+                            "width":  10.83203125
+                        }
+                    ],
+        "rows":  [
+                     {
+                         "row":  1,
+                         "height":  56
+                     },
+                     {
+                         "row":  2,
+                         "height":  21
+                     },
+                     {
+                         "row":  3,
+                         "height":  21
+                     },
+                     {
+                         "row":  4,
+                         "height":  8
+                     },
+                     {
+                         "row":  5,
+                         "height":  8
+                     },
+                     {
+                         "row":  6,
+                         "height":  25
+                     },
+                     {
+                         "row":  7,
+                         "height":  46.5
+                     },
+                     {
+                         "row":  8,
+                         "height":  21
+                     },
+                     {
+                         "row":  9,
+                         "height":  21
+                     },
+                     {
+                         "row":  10,
+                         "height":  8
+                     },
+                     {
+                         "row":  11,
+                         "height":  8
+                     },
+                     {
+                         "row":  15,
+                         "height":  13.5
+                     },
+                     {
+                         "row":  17,
+                         "height":  15
+                     }
+                 ]
+    },
+    {
+        "key":  "standard-f-recalde",
+        "family":  "standard",
+        "name":  "F. RECALDE",
+        "slug":  "f-recalde",
+        "logos":  [
+                      "/producalza/guides/standard-f-recalde-1.png"
+                  ],
+        "capacity":  4,
+        "variant":  "classic",
+        "page":  {
+                     "paperSize":  "A4",
+                     "orientation":  "portrait",
+                     "marginLeftIn":  1.3779527559055118,
+                     "marginRightIn":  0.70866141732283472,
+                     "marginTopIn":  0.19685039370078741,
+                     "marginBottomIn":  0.74803149606299213
+                 },
+        "columns":  [
+                        {
+                            "min":  1,
+                            "max":  1,
+                            "width":  22.6640625
+                        },
+                        {
+                            "min":  2,
+                            "max":  2,
+                            "width":  10.33203125
+                        },
+                        {
+                            "min":  3,
+                            "max":  3,
+                            "width":  21.1640625
+                        },
+                        {
+                            "min":  4,
+                            "max":  4,
+                            "width":  10
+                        },
+                        {
+                            "min":  5,
+                            "max":  5,
+                            "width":  8.33203125
+                        },
+                        {
+                            "min":  6,
+                            "max":  7,
+                            "width":  10.83203125
+                        }
+                    ],
+        "rows":  [
+                     {
+                         "row":  1,
+                         "height":  62
+                     },
+                     {
+                         "row":  2,
+                         "height":  23
+                     },
+                     {
+                         "row":  3,
+                         "height":  21
+                     },
+                     {
+                         "row":  4,
+                         "height":  7
+                     },
+                     {
+                         "row":  5,
+                         "height":  7
+                     },
+                     {
+                         "row":  6,
+                         "height":  19
+                     },
+                     {
+                         "row":  7,
+                         "height":  62
+                     },
+                     {
+                         "row":  8,
+                         "height":  23
+                     },
+                     {
+                         "row":  9,
+                         "height":  23
+                     },
+                     {
+                         "row":  10,
+                         "height":  8
+                     },
+                     {
+                         "row":  11,
+                         "height":  8
+                     },
+                     {
+                         "row":  15,
+                         "height":  13.5
+                     },
+                     {
+                         "row":  17,
+                         "height":  15
+                     }
+                 ]
+    },
+    {
+        "key":  "standard-l-quezada",
+        "family":  "standard",
+        "name":  "L. QUEZADA",
+        "slug":  "l-quezada",
+        "logos":  [
+                      "/producalza/guides/standard-l-quezada-1.png"
+                  ],
+        "capacity":  4,
+        "variant":  "classic",
+        "page":  {
+                     "paperSize":  "A4",
+                     "orientation":  "portrait",
+                     "marginLeftIn":  1.3779527559055118,
+                     "marginRightIn":  0.70866141732283472,
+                     "marginTopIn":  0.19685039370078741,
+                     "marginBottomIn":  0.74803149606299213
+                 },
+        "columns":  [
+                        {
+                            "min":  1,
+                            "max":  1,
+                            "width":  21
+                        },
+                        {
+                            "min":  2,
+                            "max":  2,
+                            "width":  11.33203125
+                        },
+                        {
+                            "min":  3,
+                            "max":  3,
+                            "width":  19.5
+                        },
+                        {
+                            "min":  4,
+                            "max":  4,
+                            "width":  11.6640625
+                        },
+                        {
+                            "min":  5,
+                            "max":  5,
+                            "width":  8.33203125
+                        },
+                        {
+                            "min":  6,
+                            "max":  7,
+                            "width":  10.83203125
+                        }
+                    ],
+        "rows":  [
+                     {
+                         "row":  1,
+                         "height":  50
+                     },
+                     {
+                         "row":  2,
+                         "height":  24.75
+                     },
+                     {
+                         "row":  3,
+                         "height":  27
+                     },
+                     {
+                         "row":  4,
+                         "height":  8
+                     },
+                     {
+                         "row":  5,
+                         "height":  7.5
+                     },
+                     {
+                         "row":  6,
+                         "height":  21
+                     },
+                     {
+                         "row":  7,
+                         "height":  46.5
+                     },
+                     {
+                         "row":  8,
+                         "height":  24.75
+                     },
+                     {
+                         "row":  9,
+                         "height":  27
+                     },
+                     {
+                         "row":  10,
+                         "height":  8
+                     },
+                     {
+                         "row":  11,
+                         "height":  8
+                     },
+                     {
+                         "row":  15,
+                         "height":  13.5
+                     },
+                     {
+                         "row":  17,
+                         "height":  15
+                     }
+                 ]
+    },
+    {
+        "key":  "standard-c-vactory",
+        "family":  "standard",
+        "name":  "C. VACTORY",
+        "slug":  "c-vactory",
+        "logos":  [
+                      "/producalza/guides/standard-c-vactory-1.png"
+                  ],
+        "capacity":  4,
+        "variant":  "classic",
+        "page":  {
+                     "paperSize":  "A4",
+                     "orientation":  "portrait",
+                     "marginLeftIn":  1.18,
+                     "marginRightIn":  0.71,
+                     "marginTopIn":  0.16,
+                     "marginBottomIn":  0.75000000000000011
+                 },
+        "columns":  [
+                        {
+                            "min":  1,
+                            "max":  1,
+                            "width":  22.6640625
+                        },
+                        {
+                            "min":  2,
+                            "max":  2,
+                            "width":  9.83203125
+                        },
+                        {
+                            "min":  3,
+                            "max":  3,
+                            "width":  22.6640625
+                        },
+                        {
+                            "min":  4,
+                            "max":  4,
+                            "width":  11
+                        },
+                        {
+                            "min":  5,
+                            "max":  5,
+                            "width":  8.33203125
+                        },
+                        {
+                            "min":  6,
+                            "max":  7,
+                            "width":  10.83203125
+                        }
+                    ],
+        "rows":  [
+                     {
+                         "row":  1,
+                         "height":  60
+                     },
+                     {
+                         "row":  2,
+                         "height":  19.5
+                     },
+                     {
+                         "row":  3,
+                         "height":  20
+                     },
+                     {
+                         "row":  4,
+                         "height":  8
+                     },
+                     {
+                         "row":  5,
+                         "height":  8
+                     },
+                     {
+                         "row":  6,
+                         "height":  14
+                     },
+                     {
+                         "row":  7,
+                         "height":  64
+                     },
+                     {
+                         "row":  8,
+                         "height":  20
+                     },
+                     {
+                         "row":  9,
+                         "height":  20
+                     },
+                     {
+                         "row":  10,
+                         "height":  8
+                     },
+                     {
+                         "row":  11,
+                         "height":  8
+                     },
+                     {
+                         "row":  15,
+                         "height":  13.5
+                     },
+                     {
+                         "row":  17,
+                         "height":  15
+                     }
+                 ]
+    }
+]

@@ -151,6 +151,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       .prepare(
         `SELECT orders.*, clients.name AS client_name, clients.business_name, clients.tax_id,
                 clients.city, clients.address, clients.phone, clients.email,
+                clients.guide_template_key AS client_guide_template_key,
                 users.name AS seller_name
          FROM production_orders AS orders
          JOIN production_clients AS clients ON clients.id = orders.client_id
@@ -494,8 +495,8 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const result = db.prepare(
       `INSERT INTO production_clients
        (establishment_id, name, business_name, tax_id, city, address, phone, email, brand,
-        payment_method, bank_reference, classification, general_notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        payment_method, bank_reference, classification, guide_template_key, general_notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       business.id,
       name,
@@ -509,6 +510,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       String(req.body.payment_method || '').trim(),
       String(req.body.bank_reference || '').trim(),
       String(req.body.classification || '').trim(),
+      String(req.body.guide_template_key || '').trim(),
       String(req.body.general_notes || '').trim()
     );
     audit(req, 'create', 'client', result.lastInsertRowid, name);
@@ -521,7 +523,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const result = db.prepare(
       `UPDATE production_clients SET
        name = ?, business_name = ?, tax_id = ?, city = ?, address = ?, phone = ?, email = ?,
-       brand = ?, payment_method = ?, bank_reference = ?, classification = ?, general_notes = ?,
+       brand = ?, payment_method = ?, bank_reference = ?, classification = ?, guide_template_key = ?, general_notes = ?,
        updated_at = datetime('now', 'localtime')
        WHERE id = ? AND establishment_id = ?`
     ).run(
@@ -536,6 +538,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       String(req.body.payment_method || '').trim(),
       String(req.body.bank_reference || '').trim(),
       String(req.body.classification || '').trim(),
+      String(req.body.guide_template_key || '').trim(),
       String(req.body.general_notes || '').trim(),
       req.params.id,
       business.id
@@ -760,8 +763,8 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       const orderResult = db.prepare(
         `INSERT INTO production_orders
          (establishment_id, order_number, client_id, seller_user_id, order_date, brand,
-          payment_method, bank_reference, general_notes, status, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          payment_method, bank_reference, guide_template_key, general_notes, status, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         business.id,
         orderNumber,
@@ -771,6 +774,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         String(req.body.brand || '').trim(),
         String(req.body.payment_method || '').trim(),
         String(req.body.bank_reference || '').trim(),
+        String(req.body.guide_template_key || '').trim(),
         String(req.body.general_notes || '').trim(),
         status,
         req.user.username || req.user.role
@@ -808,7 +812,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     db.transaction(() => {
       db.prepare(
         `UPDATE production_orders SET client_id = ?, seller_user_id = ?, order_date = ?, brand = ?,
-         payment_method = ?, bank_reference = ?, general_notes = ?, status = ?,
+         payment_method = ?, bank_reference = ?, guide_template_key = ?, general_notes = ?, status = ?,
          updated_at = datetime('now', 'localtime')
          WHERE id = ? AND establishment_id = ?`
       ).run(
@@ -818,6 +822,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         String(req.body.brand || '').trim(),
         String(req.body.payment_method || '').trim(),
         String(req.body.bank_reference || '').trim(),
+        String(req.body.guide_template_key || '').trim(),
         String(req.body.general_notes || '').trim(),
         status,
         current.id,

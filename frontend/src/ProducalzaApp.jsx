@@ -14,6 +14,7 @@ import {
   Printer,
   Save,
   Search,
+  Tags,
   BarChart3,
   Trash2,
   UserPlus,
@@ -64,6 +65,7 @@ const emptyClient = {
   payment_method: '',
   bank_reference: '',
   classification: '',
+  guide_template_key: '',
   general_notes: ''
 };
 
@@ -118,6 +120,7 @@ function emptyOrder() {
     brand: '',
     payment_method: '',
     bank_reference: '',
+    guide_template_key: '',
     general_notes: '',
     status: 'draft',
     models: [emptyModel()]
@@ -156,6 +159,43 @@ function displayDate(value) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('es-EC');
 }
 
+function normalizeGuideText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function inferGuideTemplate(client, templates) {
+  if (!client || !templates?.length) return '';
+  const source = normalizeGuideText(
+    `${client.name || client.client_name || ''} ${client.business_name || ''} ${client.brand || ''}`
+  );
+  const sourceTokens = source.split(' ').filter(Boolean);
+  let best = null;
+  for (const template of templates) {
+    const templateTokens = normalizeGuideText(template.name).split(' ').filter(Boolean);
+    if (!templateTokens.length) continue;
+    const surname = templateTokens.findLast((token) => token.length > 1 && !/^\d+$/.test(token));
+    const initial = templateTokens[0]?.[0];
+    let score = 0;
+    if (source.includes(templateTokens.join(' '))) score += 100;
+    if (surname && sourceTokens.includes(surname)) score += 55;
+    if (initial && sourceTokens.some((token) => token[0] === initial)) score += 20;
+    if (templateTokens.every((token) => token.length === 1 || sourceTokens.includes(token))) score += 25;
+    if (!best || score > best.score) best = { key: template.key, score };
+  }
+  return best?.score >= 70 ? best.key : '';
+}
+
+function resolveGuideTemplateKey(order, templates) {
+  return order?.guide_template_key
+    || order?.client_guide_template_key
+    || inferGuideTemplate(order, templates);
+}
+
 export default function ProducalzaApp({ user, onLogout, embedded = false, establishmentId = '' }) {
   const [view, setView] = useState('dashboard');
   const [bootstrap, setBootstrap] = useState(null);
@@ -165,6 +205,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
   const [production, setProduction] = useState([]);
   const [clientActivity, setClientActivity] = useState([]);
   const [users, setUsers] = useState([]);
+  const [guideTemplates, setGuideTemplates] = useState([]);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [editingOrder, setEditingOrder] = useState(null);
   const [notice, setNotice] = useState('');
@@ -178,13 +219,14 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
     setLoading(true);
     setError('');
     try {
-      const [nextBootstrap, nextDashboard, nextClients, nextOrders, nextProduction, nextClientActivity] = await Promise.all([
+      const [nextBootstrap, nextDashboard, nextClients, nextOrders, nextProduction, nextClientActivity, nextGuideTemplates] = await Promise.all([
         api(scope('/producalza/bootstrap')),
         api(scope('/producalza/dashboard')),
         api(scope('/producalza/clients')),
         api(scope('/producalza/orders')),
         api(scope('/producalza/production')),
-        isAdmin ? api(scope('/producalza/client-activity-report')) : Promise.resolve([])
+        isAdmin ? api(scope('/producalza/client-activity-report')) : Promise.resolve([]),
+        fetch('/producalza/guides/templates.json').then((response) => response.ok ? response.json() : [])
       ]);
       setBootstrap(nextBootstrap);
       setDashboard(nextDashboard);
@@ -193,6 +235,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
       setProduction(nextProduction);
       setClientActivity(nextClientActivity);
       setUsers(nextBootstrap.users || []);
+      setGuideTemplates(nextGuideTemplates || []);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -236,7 +279,12 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
     const order = selectedOrder?.id === orderId
       ? selectedOrder
       : await api(scope(`/producalza/orders/${orderId}`));
-    setPrintState({ order, type, modelId });
+    const guideTemplateKey = resolveGuideTemplateKey(order, guideTemplates);
+    if (type === 'guides' && !guideTemplateKey) {
+      setError('Asigna un formato de guia al cliente o al pedido antes de imprimir.');
+      return;
+    }
+    setPrintState({ order, type, modelId, guideTemplateKey });
   }
 
   useEffect(() => {
@@ -301,6 +349,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
             setView('order-detail');
           }}
           setError={setError}
+          guideTemplates={guideTemplates}
         />
       )}
       {view === 'order-detail' && selectedOrder && (
@@ -317,6 +366,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
             setSelectedOrder(updatedOrder);
             await refresh('Estados del pedido actualizados');
           }}
+          guideTemplates={guideTemplates}
         />
       )}
       {view === 'clients' && (
@@ -328,6 +378,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
           onOpenOrder={openOrder}
           onRefresh={refresh}
           setError={setError}
+          guideTemplates={guideTemplates}
         />
       )}
       {view === 'production' && (
@@ -416,7 +467,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
           </section>
         </main>
       )}
-      <PrintLayouts state={printState} />
+      <PrintLayouts state={printState} guideTemplates={guideTemplates} />
     </>
   );
 }
@@ -558,7 +609,7 @@ function OrdersList({ orders, users, isAdmin, scope, onOpen, onEdit, onRefresh, 
   );
 }
 
-function OrderForm({ clients, users, isAdmin, scope, initialOrder, onCancel, onSaved, setError }) {
+function OrderForm({ clients, users, isAdmin, scope, initialOrder, onCancel, onSaved, setError, guideTemplates }) {
   const [form, setForm] = useState(() => initialOrder ? orderToForm(initialOrder) : emptyOrder());
   const [showNewClient, setShowNewClient] = useState(false);
   const [newClient, setNewClient] = useState(emptyClient);
@@ -591,7 +642,10 @@ function OrderForm({ clients, users, isAdmin, scope, initialOrder, onCancel, onS
       client_id: String(client.id),
       brand: current.brand || client.brand || '',
       payment_method: current.payment_method || client.payment_method || '',
-      bank_reference: current.bank_reference || client.bank_reference || ''
+      bank_reference: current.bank_reference || client.bank_reference || '',
+      guide_template_key: current.guide_template_key
+        || client.guide_template_key
+        || inferGuideTemplate(client, guideTemplates)
     }));
   }
 
@@ -701,6 +755,11 @@ function OrderForm({ clients, users, isAdmin, scope, initialOrder, onCancel, onS
             </label>
           )}
           <label>Marca<input value={form.brand} onChange={(event) => setForm({ ...form, brand: event.target.value })} /></label>
+          <GuideTemplateSelect
+            value={form.guide_template_key}
+            templates={guideTemplates}
+            onChange={(guide_template_key) => setForm({ ...form, guide_template_key })}
+          />
           <label>Forma de pago<input value={form.payment_method} onChange={(event) => setForm({ ...form, payment_method: event.target.value })} /></label>
           <label>Referencia bancaria<input value={form.bank_reference} onChange={(event) => setForm({ ...form, bank_reference: event.target.value })} /></label>
           <label className="span-full">Observaciones generales<textarea value={form.general_notes} onChange={(event) => setForm({ ...form, general_notes: event.target.value })} /></label>
@@ -710,7 +769,7 @@ function OrderForm({ clients, users, isAdmin, scope, initialOrder, onCancel, onS
       {showNewClient && (
         <section className="prod-panel prod-inline-client">
           <div className="prod-panel-title"><div><span>Registro rapido</span><h2>Nuevo cliente</h2></div></div>
-          <ClientFields value={newClient} onChange={setNewClient} />
+          <ClientFields value={newClient} onChange={setNewClient} guideTemplates={guideTemplates} />
           <div className="prod-form-actions">
             <button className="prod-secondary-button" onClick={() => setShowNewClient(false)}>Cancelar</button>
             <button className="prod-primary-button" onClick={createClient}><Save size={17} />Crear y seleccionar</button>
@@ -768,7 +827,7 @@ function OrderForm({ clients, users, isAdmin, scope, initialOrder, onCancel, onS
   );
 }
 
-function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint, onUpdated }) {
+function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint, onUpdated, guideTemplates }) {
   const [models, setModels] = useState(order.models);
   const [dirtyIds, setDirtyIds] = useState([]);
   const [saving, setSaving] = useState(false);
@@ -841,6 +900,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
           <button className="prod-secondary-button" onClick={onEdit}><Pencil size={17} />Editar</button>
           <button className="prod-primary-button" onClick={() => onPrint('sheets')}><Printer size={17} />Hoja unica del pedido</button>
           <button className="prod-primary-button dark" onClick={() => onPrint('cards')}><Printer size={17} />Tarjetas</button>
+          <button className="prod-primary-button guide" onClick={() => onPrint('guides')}><Tags size={17} />Guias para cajas</button>
           {isAdmin && dirtyIds.length > 0 && (
             <button className="prod-primary-button prod-save-order-status" disabled={saving} onClick={saveModelStates}>
               <Save size={17} />Guardar estados ({dirtyIds.length})
@@ -877,6 +937,10 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
           <Detail label="Vendedor" value={order.seller_name} />
           <Detail label="Fecha" value={displayDate(order.order_date)} />
           <Detail label="Marca" value={order.brand} />
+          <Detail
+            label="Formato de guias"
+            value={guideTemplates.find((item) => item.key === resolveGuideTemplateKey(order, guideTemplates))?.name}
+          />
           <Detail label="Forma de pago" value={order.payment_method} />
         </div>
         {order.general_notes && <div className="prod-note"><strong>Observaciones</strong><p>{order.general_notes}</p></div>}
@@ -923,7 +987,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
   );
 }
 
-function ClientsView({ clients, isAdmin, users, scope, onOpenOrder, onRefresh, setError }) {
+function ClientsView({ clients, isAdmin, users, scope, onOpenOrder, onRefresh, setError, guideTemplates }) {
   const [search, setSearch] = useState('');
   const [form, setForm] = useState(emptyClient);
   const [editingId, setEditingId] = useState(null);
@@ -1069,7 +1133,7 @@ function ClientsView({ clients, isAdmin, users, scope, onOpenOrder, onRefresh, s
               <div><span>Informacion general</span><h2>Editar cliente</h2></div>
               <button className="prod-icon-button" onClick={() => setShowClientForm(false)}><X size={17} /></button>
             </div>
-            <ClientFields value={form} onChange={setForm} />
+            <ClientFields value={form} onChange={setForm} guideTemplates={guideTemplates} />
             <div className="prod-form-actions">
               <button className="prod-secondary-button" onClick={() => setShowClientForm(false)}>Cancelar</button>
               <button className="prod-primary-button" onClick={saveClient}><Save size={17} />Guardar cambios</button>
@@ -1224,7 +1288,7 @@ function ClientsView({ clients, isAdmin, users, scope, onOpenOrder, onRefresh, s
       <div className="prod-stack">
         <section className="prod-panel">
           <div className="prod-panel-title"><div><span>{editingId ? 'Edicion' : 'Nuevo registro'}</span><h2>{editingId ? 'Editar cliente' : 'Agregar cliente'}</h2></div></div>
-          <ClientFields value={form} onChange={setForm} />
+          <ClientFields value={form} onChange={setForm} guideTemplates={guideTemplates} />
           <div className="prod-form-actions">
             {editingId && <button className="prod-secondary-button" onClick={() => { setEditingId(null); setForm(emptyClient); }}>Cancelar</button>}
             <button className="prod-primary-button" onClick={saveClient}><Save size={17} />Guardar cliente</button>
@@ -1648,7 +1712,30 @@ function ReportDateRange({ label, from, to, onFrom, onTo }) {
   );
 }
 
-function ClientFields({ value, onChange }) {
+function GuideTemplateSelect({ value, templates, onChange }) {
+  const standard = templates.filter((item) => item.family === 'standard');
+  const special = templates.filter((item) => item.family === 'special');
+  return (
+    <label>
+      Formato de guias
+      <select value={value || ''} onChange={(event) => onChange(event.target.value)}>
+        <option value="">Sin asignar</option>
+        {standard.length > 0 && (
+          <optgroup label="Formatos normales">
+            {standard.map((item) => <option value={item.key} key={item.key}>{item.name}</option>)}
+          </optgroup>
+        )}
+        {special.length > 0 && (
+          <optgroup label="Formatos especiales">
+            {special.map((item) => <option value={item.key} key={item.key}>{item.name}</option>)}
+          </optgroup>
+        )}
+      </select>
+    </label>
+  );
+}
+
+function ClientFields({ value, onChange, guideTemplates = [] }) {
   const update = (key, nextValue) => onChange({ ...value, [key]: nextValue });
   return (
     <div className="prod-form-grid">
@@ -1663,6 +1750,11 @@ function ClientFields({ value, onChange }) {
       <label>Forma de pago<input value={value.payment_method} onChange={(event) => update('payment_method', event.target.value)} /></label>
       <label>Referencia bancaria<input value={value.bank_reference} onChange={(event) => update('bank_reference', event.target.value)} /></label>
       <label>Clasificacion<input value={value.classification} onChange={(event) => update('classification', event.target.value)} /></label>
+      <GuideTemplateSelect
+        value={value.guide_template_key}
+        templates={guideTemplates}
+        onChange={(guide_template_key) => update('guide_template_key', guide_template_key)}
+      />
       <label className="span-full">Observaciones<textarea value={value.general_notes} onChange={(event) => update('general_notes', event.target.value)} /></label>
     </div>
   );
@@ -1714,6 +1806,7 @@ function orderToForm(order) {
     brand: order.brand || '',
     payment_method: order.payment_method || '',
     bank_reference: order.bank_reference || '',
+    guide_template_key: order.guide_template_key || order.client_guide_template_key || '',
     general_notes: order.general_notes || '',
     status: order.status,
     models: order.models.map((model) => ({
@@ -1723,22 +1816,190 @@ function orderToForm(order) {
   };
 }
 
-function PrintLayouts({ state }) {
+function excelColumnWidthMm(width) {
+  const pixels = width < 1 ? Math.floor(width * 12 + 0.5) : Math.floor(width * 7 + 5);
+  return pixels * 25.4 / 96;
+}
+
+function expandTemplateColumns(template) {
+  const columns = {};
+  for (const item of template?.columns || []) {
+    for (let column = Number(item.min); column <= Math.min(Number(item.max), 7); column += 1) {
+      columns[column] = excelColumnWidthMm(Number(item.width));
+    }
+  }
+  return columns;
+}
+
+function templateRowMm(template, row) {
+  const item = template?.rows?.find((entry) => Number(entry.row) === row);
+  return Number(item?.height || 15) * 25.4 / 72;
+}
+
+function sumTemplateRows(template, from, to) {
+  let total = 0;
+  for (let row = from; row <= to; row += 1) total += templateRowMm(template, row);
+  return total;
+}
+
+function guideSlots(template) {
+  const columns = expandTemplateColumns(template);
+  if (template.family === 'standard') {
+    const wide = template.variant === 'wide';
+    const firstWidth = wide
+      ? (columns[1] || 0) + (columns[2] || 0) + (columns[3] || 0)
+      : (columns[1] || 0) + (columns[2] || 0);
+    const secondLeft = wide
+      ? firstWidth + (columns[4] || 0)
+      : firstWidth;
+    const secondWidth = wide
+      ? (columns[5] || 0) + (columns[6] || 0) + (columns[7] || 0)
+      : (columns[3] || 0) + (columns[4] || 0);
+    const topHeight = sumTemplateRows(template, 1, 5);
+    const bottomTop = sumTemplateRows(template, 1, 6);
+    const bottomHeight = sumTemplateRows(template, 7, 11);
+    return [
+      { left: 0, top: 0, width: firstWidth, height: topHeight },
+      { left: secondLeft, top: 0, width: secondWidth, height: topHeight },
+      { left: 0, top: bottomTop, width: firstWidth, height: bottomHeight },
+      { left: secondLeft, top: bottomTop, width: secondWidth, height: bottomHeight }
+    ];
+  }
+
+  const firstRow = template.slug === 'f-guaman' ? 2 : 1;
+  const contentWidth = Object.values(columns).reduce((sum, width) => sum + width, 0);
+  const topOffset = template.slug === 'f-guaman' ? templateRowMm(template, 1) : 0;
+  const labelHeight = sumTemplateRows(template, firstRow, firstRow + 2);
+  const gap = templateRowMm(template, firstRow + 3);
+  return Array.from({ length: template.capacity }, (_, index) => ({
+    left: 0,
+    top: topOffset + index * (labelHeight + gap),
+    width: contentWidth,
+    height: labelHeight
+  }));
+}
+
+function expandOrderGuides(order) {
+  const guides = [];
+  for (const model of order.models || []) {
+    for (const size of SIZES) {
+      const quantity = Math.max(0, Number(model.sizes?.[size] || 0));
+      for (let copy = 0; copy < quantity; copy += 1) {
+        guides.push({ model, size, copy });
+      }
+    }
+  }
+  return guides;
+}
+
+function PrintLayouts({ state, guideTemplates }) {
   if (!state?.order) return null;
-  const { order, type, modelId } = state;
+  const { order, type, modelId, guideTemplateKey } = state;
   const models = modelId ? order.models.filter((model) => model.id === modelId) : order.models;
+  const guideTemplate = guideTemplates.find((item) => item.key === guideTemplateKey);
+  const guides = expandOrderGuides(order);
+  const guidePages = [];
+  if (guideTemplate) {
+    for (let index = 0; index < guides.length; index += guideTemplate.capacity) {
+      guidePages.push(guides.slice(index, index + guideTemplate.capacity));
+    }
+  }
   const cardPages = [];
   for (let index = 0; index < models.length; index += 2) {
     cardPages.push(models.slice(index, index + 2));
   }
   return (
-    <div className={`prod-print-root ${type === 'sheets' ? 'print-order' : 'print-cards'}`}>
+    <div className={`prod-print-root ${
+      type === 'sheets' ? 'print-order' : type === 'guides' ? 'print-guides' : 'print-cards'
+    }`}>
       {type === 'sheets' && <ProductionOrderSheet order={order} />}
       {(type === 'cards' || type === 'card') && cardPages.map((pageModels, pageIndex) => (
         <article className="prod-print-card-page" key={`card-page-${pageIndex}`}>
           {pageModels.map((model) => <ProductionCard order={order} model={model} key={`card-${model.id}`} />)}
         </article>
       ))}
+      {type === 'guides' && guideTemplate && guidePages.map((pageGuides, pageIndex) => (
+        <GuidePrintPage
+          guides={pageGuides}
+          order={order}
+          template={guideTemplate}
+          key={`guide-page-${pageIndex}`}
+        />
+      ))}
+    </div>
+  );
+}
+
+function GuidePrintPage({ guides, order, template }) {
+  const slots = guideSlots(template);
+  return (
+    <article
+      className={`prod-guide-page guide-${template.family} guide-${template.variant}`}
+      style={{
+        '--guide-page-left': `${Number(template.page?.marginLeftIn || 0) * 25.4}mm`,
+        '--guide-page-top': `${Number(template.page?.marginTopIn || 0) * 25.4}mm`
+      }}
+    >
+      {slots.map((slot, index) => (
+        <div
+          className="prod-guide-slot"
+          key={index}
+          style={{
+            left: `${slot.left}mm`,
+            top: `${slot.top}mm`,
+            width: `${slot.width}mm`,
+            height: `${slot.height}mm`
+          }}
+        >
+          {guides[index] && (
+            <GuideLabel guide={guides[index]} order={order} template={template} />
+          )}
+        </div>
+      ))}
+    </article>
+  );
+}
+
+function GuideLabel({ guide, order, template }) {
+  const { model, size } = guide;
+  const description = [model.material, model.color]
+    .map((value) => String(value || '').trim())
+    .filter((value, index, values) => value && values.indexOf(value) === index)
+    .join(' ');
+  if (template.family === 'special') {
+    return (
+      <div className={`prod-guide-label special template-${template.slug}`}>
+        <div className="prod-guide-special-logos">
+          {template.slug === 'bruma' && <span>FABRICADO POR:</span>}
+          {(template.logos || []).map((logo, index) => (
+            <img src={logo} alt="" key={logo} className={`logo-${index + 1}`} />
+          ))}
+        </div>
+        <div className="prod-guide-special-data">
+          <strong>{model.model_code}</strong>
+          <span>{description || order.brand || ''}</span>
+          <small>BY PRODUCALZA</small>
+        </div>
+        <div className="prod-guide-special-size">
+          <strong>{size}</strong>
+          <small>MADE IN ECUADOR</small>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className={`prod-guide-label standard template-${template.slug}`}>
+      <div className="prod-guide-logo">
+        {template.logos?.[0]
+          ? <img src={template.logos[0]} alt="" />
+          : <strong>{order.brand || order.client_name || template.name}</strong>}
+      </div>
+      <div className="prod-guide-model">
+        <strong>{model.model_code}</strong>
+        <span>{description}</span>
+      </div>
+      <div className="prod-guide-size"><strong>{size}</strong></div>
+      <div className="prod-guide-origin"><span>MADE IN EC</span><strong>BY PRODUCALZA</strong></div>
     </div>
   );
 }

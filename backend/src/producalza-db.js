@@ -29,6 +29,7 @@ export function initProducalzaDb(db) {
       bank_reference TEXT,
       classification TEXT,
       imported_seller_code TEXT,
+      guide_template_key TEXT,
       general_notes TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
@@ -68,6 +69,7 @@ export function initProducalzaDb(db) {
       brand TEXT,
       payment_method TEXT,
       bank_reference TEXT,
+      guide_template_key TEXT,
       general_notes TEXT,
       status TEXT NOT NULL DEFAULT 'draft'
         CHECK (status IN ('draft', 'received', 'reviewed', 'in_production', 'finished', 'delivered', 'cancelled')),
@@ -153,6 +155,8 @@ export function initProducalzaDb(db) {
   addColumnIfMissing(db, 'production_client_visits', 'next_visit_date', 'TEXT');
   addColumnIfMissing(db, 'production_client_visits', 'order_id', 'INTEGER');
   addColumnIfMissing(db, 'production_client_visits', 'updated_at', "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, 'production_clients', 'guide_template_key', 'TEXT');
+  addColumnIfMissing(db, 'production_orders', 'guide_template_key', 'TEXT');
   db.prepare(
     `UPDATE production_client_visits
      SET updated_at = COALESCE(NULLIF(updated_at, ''), created_at),

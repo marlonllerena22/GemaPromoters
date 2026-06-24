@@ -2340,6 +2340,15 @@ td {
   border-color: #17251f;
 }
 
+.prod-primary-button.guide {
+  background: #3153a6;
+  border-color: #3153a6;
+}
+
+.prod-primary-button.guide:hover {
+  background: #263f82;
+}
+
 .prod-secondary-button {
   background: #ffffff;
   border: 1px solid #c8d2cd;
@@ -3656,6 +3665,11 @@ td {
     margin: 6mm;
   }
 
+  @page box-guides {
+    size: A4 portrait;
+    margin: 0;
+  }
+
   body * {
     visibility: hidden !important;
   }
@@ -3677,7 +3691,12 @@ td {
 
   .prod-print-root.print-order .prod-print-card-page,
   .prod-print-root.print-order .prod-print-card,
-  .prod-print-root.print-cards .prod-print-page {
+  .prod-print-root.print-order .prod-guide-page,
+  .prod-print-root.print-cards .prod-print-page,
+  .prod-print-root.print-cards .prod-guide-page,
+  .prod-print-root.print-guides .prod-print-page,
+  .prod-print-root.print-guides .prod-print-card-page,
+  .prod-print-root.print-guides .prod-print-card {
     display: none !important;
   }
 
@@ -3714,6 +3733,277 @@ td {
   .prod-print-card-page:last-child {
     break-after: auto;
     page-break-after: auto;
+  }
+
+  .prod-guide-page {
+    background: #ffffff;
+    break-after: page;
+    break-inside: avoid;
+    box-sizing: border-box;
+    height: 297mm;
+    margin: 0;
+    overflow: hidden;
+    page: box-guides;
+    page-break-after: always;
+    page-break-inside: avoid;
+    position: relative;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+    width: 210mm;
+  }
+
+  .prod-guide-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  .prod-guide-slot {
+    box-sizing: border-box;
+    overflow: hidden;
+    position: absolute;
+    transform: translate(var(--guide-page-left), var(--guide-page-top));
+  }
+
+  .prod-guide-label {
+    background: #ffffff;
+    box-sizing: border-box;
+    color: #000000;
+    height: 100%;
+    overflow: hidden;
+    width: 100%;
+  }
+
+  .prod-guide-label.standard {
+    display: grid;
+    font-family: Arial, sans-serif;
+    grid-template-columns: minmax(0, 2fr) minmax(13mm, 1fr);
+    grid-template-rows: 52% 25% 23%;
+  }
+
+  .prod-guide-logo {
+    align-items: center;
+    display: flex;
+    grid-column: 1 / -1;
+    justify-content: center;
+    overflow: hidden;
+    padding: 0 1.5mm;
+  }
+
+  .prod-guide-logo img {
+    display: block;
+    height: 100%;
+    max-width: 100%;
+    object-fit: contain;
+    width: 100%;
+  }
+
+  .prod-guide-logo > strong {
+    font-size: 16pt;
+    text-align: center;
+    text-transform: uppercase;
+  }
+
+  .prod-guide-model {
+    align-items: center;
+    display: flex;
+    flex-direction: column;
+    grid-column: 1;
+    grid-row: 2 / 4;
+    justify-content: flex-start;
+    min-width: 0;
+    overflow: hidden;
+    padding: 0 1mm;
+    text-align: center;
+  }
+
+  .prod-guide-model strong {
+    font-size: 14pt;
+    line-height: 1.05;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .prod-guide-model span {
+    font-size: 10pt;
+    font-weight: 700;
+    line-height: 1.05;
+    margin-top: 1mm;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    text-transform: uppercase;
+  }
+
+  .prod-guide-size {
+    align-items: center;
+    display: flex;
+    grid-column: 2;
+    grid-row: 2;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  .prod-guide-size strong {
+    color: #0000cc !important;
+    font-family: "Bernard MT Condensed", Impact, sans-serif;
+    font-size: 45pt;
+    font-weight: 800;
+    line-height: 0.8;
+  }
+
+  .prod-guide-origin {
+    align-items: center;
+    color: #777777;
+    display: flex;
+    flex-direction: column;
+    font-family: Calibri, Arial, sans-serif;
+    font-size: 7pt;
+    font-style: italic;
+    grid-column: 2;
+    grid-row: 3;
+    justify-content: center;
+    line-height: 1;
+    overflow: hidden;
+    text-align: center;
+  }
+
+  .prod-guide-label.standard.template-j-enriquez {
+    grid-template-columns: minmax(0, 2fr) minmax(15mm, 1fr);
+    grid-template-rows: 55% 45%;
+  }
+
+  .template-j-enriquez .prod-guide-logo {
+    grid-row: 1;
+  }
+
+  .template-j-enriquez .prod-guide-model {
+    border: 1.5px solid #805b00;
+    color: #892106;
+    flex-direction: row;
+    grid-row: 2;
+    justify-content: center;
+  }
+
+  .template-j-enriquez .prod-guide-model span {
+    color: #000000;
+    margin: 0 0 0 1mm;
+  }
+
+  .template-j-enriquez .prod-guide-size {
+    border: 1.5px solid #805b00;
+    grid-row: 2;
+  }
+
+  .template-j-enriquez .prod-guide-size strong {
+    color: #000000 !important;
+    font-family: Calibri, Arial, sans-serif;
+    font-size: 38pt;
+  }
+
+  .template-j-enriquez .prod-guide-origin {
+    display: none;
+  }
+
+  .prod-guide-label.special {
+    display: grid;
+    font-family: Calibri, Arial, sans-serif;
+    grid-template-columns: 49% 30% 21%;
+  }
+
+  .prod-guide-special-logos {
+    align-items: center;
+    display: flex;
+    height: 100%;
+    justify-content: center;
+    min-width: 0;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .prod-guide-special-logos img {
+    display: block;
+    max-height: 100%;
+    max-width: 100%;
+    object-fit: contain;
+  }
+
+  .prod-guide-special-data,
+  .prod-guide-special-size {
+    align-items: center;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+    overflow: hidden;
+    text-align: center;
+  }
+
+  .prod-guide-special-data strong {
+    font-size: 26pt;
+    font-style: italic;
+    line-height: 0.95;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .prod-guide-special-data span {
+    font-size: 17pt;
+    font-style: italic;
+    line-height: 0.95;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    text-transform: uppercase;
+  }
+
+  .prod-guide-special-data small,
+  .prod-guide-special-size small {
+    color: #868686;
+    font-size: 9pt;
+    font-style: italic;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .prod-guide-special-size strong {
+    color: #0000da !important;
+    font-family: "Bernard MT Condensed", Impact, sans-serif;
+    font-size: 60pt;
+    font-style: italic;
+    line-height: 0.8;
+  }
+
+  .template-bruma .prod-guide-special-logos {
+    padding-top: 3mm;
+  }
+
+  .template-bruma .prod-guide-special-logos > span {
+    color: #888888;
+    font-size: 8pt;
+    font-style: italic;
+    left: 0;
+    position: absolute;
+    top: 0;
+  }
+
+  .template-bruma .prod-guide-special-logos .logo-1 {
+    height: 88%;
+    width: 48%;
+  }
+
+  .template-bruma .prod-guide-special-logos .logo-2 {
+    height: 88%;
+    width: 48%;
+  }
+
+  .template-f-guaman .prod-guide-special-data strong {
+    font-size: 24pt;
+  }
+
+  .template-f-guaman .prod-guide-special-data span {
+    font-size: 22pt;
+  }
+
+  .template-f-guaman .prod-guide-special-size strong {
+    font-size: 55pt;
   }
 
   .prod-print-card-page > .prod-print-card:nth-child(1) {
