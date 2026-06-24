@@ -280,7 +280,12 @@ function App() {
     }} />;
   }
 
-  if (['production_admin', 'production_vendor'].includes(user?.role)) {
+  const isProductionSession =
+    ['production_admin', 'production_vendor'].includes(user?.role) ||
+    user?.establishment_module_type === 'production' ||
+    String(user?.establishment_name || '').toUpperCase() === 'PRODUCALZA';
+
+  if (isProductionSession) {
     return <ProducalzaApp user={user} onLogout={() => {
       clearToken();
       saveToken(null);

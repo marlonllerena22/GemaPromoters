@@ -505,11 +505,13 @@ app.post('/api/auth/login', (req, res) => {
     .prepare("SELECT * FROM establishments WHERE status = 'active' AND admin_username = ? AND admin_password = ?")
     .get(String(username || '').trim(), String(password || '').trim());
   if (owner) {
+    const ownerRole = owner.module_type === 'production' ? 'production_admin' : 'admin';
     return res.json({
-      token: createToken({ role: 'admin', username, establishmentId: owner.id }),
+      token: createToken({ role: ownerRole, username, establishmentId: owner.id }),
       user: {
         username,
-        role: 'admin',
+        role: ownerRole,
+        name: owner.display_name || owner.name,
         establishment_id: owner.id,
         establishment_name: owner.name,
         establishment_display_name: owner.display_name || owner.name,
