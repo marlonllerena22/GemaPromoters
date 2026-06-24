@@ -362,8 +362,8 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     );
     const insertVisit = db.prepare(
       `INSERT INTO production_client_visits
-       (establishment_id, client_id, visit_date, visit_date_text, pairs, notes)
-       VALUES (?, ?, ?, ?, ?, ?)`
+       (establishment_id, client_id, visitor_name, visit_type, visit_date, visit_date_text, pairs, notes)
+       VALUES (?, ?, ?, 'visit', ?, ?, ?, ?)`
     );
     let importedClients = 0;
     let importedVisits = 0;
@@ -415,6 +415,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
             insertVisit.run(
               business.id,
               row.id,
+              String(client.imported_seller_code || '').trim(),
               visit.visit_date || null,
               String(visit.visit_date_text || '').trim(),
               visit.pairs == null ? null : Math.max(0, Number(visit.pairs)),
@@ -441,19 +442,48 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     ).get(req.params.id, business.id);
     if (!client) return res.status(404).json({ message: 'Cliente no encontrado' });
     const visits = db.prepare(
-      `SELECT * FROM production_client_visits
-       WHERE client_id = ? AND establishment_id = ?
-       ORDER BY COALESCE(visit_date, created_at) DESC, id DESC`
+      `SELECT visits.*,
+              COALESCE(users.name, visits.visitor_name, clients.imported_seller_code, 'Sin responsable') AS visited_by_name,
+              orders.order_number AS related_order_number
+       FROM production_client_visits AS visits
+       JOIN production_clients AS clients ON clients.id = visits.client_id
+       LEFT JOIN production_users AS users ON users.id = visits.visited_by_user_id
+       LEFT JOIN production_orders AS orders ON orders.id = visits.order_id
+       WHERE visits.client_id = ? AND visits.establishment_id = ?
+       ORDER BY COALESCE(visits.visit_date, visits.created_at) DESC, visits.id DESC`
     ).all(client.id, business.id);
     const orders = db.prepare(
       `SELECT orders.id, orders.order_number, orders.order_date, orders.status,
-              COALESCE(SUM(models.total_pairs), 0) AS total_pairs
+              users.name AS seller_name,
+              COUNT(models.id) AS model_count,
+              COALESCE(SUM(models.total_pairs), 0) AS total_pairs,
+              GROUP_CONCAT(DISTINCT models.model_code) AS model_codes
        FROM production_orders AS orders
        LEFT JOIN production_order_models AS models ON models.order_id = orders.id
+       LEFT JOIN production_users AS users ON users.id = orders.seller_user_id
        WHERE orders.client_id = ? AND orders.establishment_id = ? AND orders.deleted_at IS NULL
        GROUP BY orders.id ORDER BY orders.order_date DESC, orders.id DESC`
     ).all(client.id, business.id);
-    res.json({ ...client, visits, orders });
+    const totalPairs = orders.reduce((sum, order) => sum + Number(order.total_pairs || 0), 0);
+    const lastActivity = [
+      ...visits.map((visit) => visit.visit_date || visit.created_at),
+      ...orders.map((order) => order.order_date)
+    ].filter(Boolean).sort().at(-1) || null;
+    const nextVisit = visits
+      .filter((visit) => visit.next_visit_date && visit.next_visit_date >= new Date().toISOString().slice(0, 10))
+      .sort((a, b) => a.next_visit_date.localeCompare(b.next_visit_date))[0]?.next_visit_date || null;
+    res.json({
+      ...client,
+      visits,
+      orders,
+      summary: {
+        visit_count: visits.length,
+        order_count: orders.length,
+        total_pairs: totalPairs,
+        last_activity: lastActivity,
+        next_visit: nextVisit
+      }
+    });
   });
 
   app.post('/api/producalza/clients', requireProductionUser, (req, res) => {
@@ -522,13 +552,31 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       'SELECT id FROM production_clients WHERE id = ? AND establishment_id = ?'
     ).get(req.params.id, business.id);
     if (!client) return res.status(404).json({ message: 'Cliente no encontrado' });
+    const requestedUserId = Number(req.body.visited_by_user_id || 0);
+    const visitedByUserId = isProductionAdmin(req)
+      ? requestedUserId || null
+      : req.user.productionUserId || null;
+    const orderId = Number(req.body.order_id || 0) || null;
+    if (orderId) {
+      const order = db.prepare(
+        'SELECT id FROM production_orders WHERE id = ? AND client_id = ? AND establishment_id = ? AND deleted_at IS NULL'
+      ).get(orderId, client.id, business.id);
+      if (!order) return res.status(400).json({ message: 'El pedido relacionado no pertenece a este cliente' });
+    }
     const result = db.prepare(
       `INSERT INTO production_client_visits
-       (establishment_id, client_id, visit_date, visit_date_text, pairs, notes)
-       VALUES (?, ?, ?, ?, ?, ?)`
+       (establishment_id, client_id, visited_by_user_id, visitor_name, visit_type, result,
+        next_visit_date, order_id, visit_date, visit_date_text, pairs, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       business.id,
       client.id,
+      visitedByUserId,
+      String(req.body.visitor_name || '').trim(),
+      String(req.body.visit_type || 'visit').trim(),
+      String(req.body.result || '').trim(),
+      req.body.next_visit_date || null,
+      orderId,
       req.body.visit_date || null,
       String(req.body.visit_date_text || req.body.visit_date || '').trim(),
       req.body.pairs === '' || req.body.pairs == null ? null : Math.max(0, Number(req.body.pairs)),
@@ -536,6 +584,101 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     );
     audit(req, 'create', 'client_visit', result.lastInsertRowid, `Cliente ${client.id}`);
     res.status(201).json({ id: result.lastInsertRowid });
+  });
+
+  app.put('/api/producalza/clients/:clientId/visits/:visitId', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const visit = db.prepare(
+      `SELECT * FROM production_client_visits
+       WHERE id = ? AND client_id = ? AND establishment_id = ?`
+    ).get(req.params.visitId, req.params.clientId, business.id);
+    if (!visit) return res.status(404).json({ message: 'Visita no encontrada' });
+    if (!isProductionAdmin(req) && visit.visited_by_user_id && visit.visited_by_user_id !== req.user.productionUserId) {
+      return res.status(403).json({ message: 'Solo puedes editar tus propios seguimientos' });
+    }
+    const requestedUserId = Number(req.body.visited_by_user_id || 0);
+    const visitedByUserId = isProductionAdmin(req)
+      ? requestedUserId || null
+      : req.user.productionUserId || visit.visited_by_user_id || null;
+    const orderId = Number(req.body.order_id || 0) || null;
+    if (orderId) {
+      const order = db.prepare(
+        'SELECT id FROM production_orders WHERE id = ? AND client_id = ? AND establishment_id = ? AND deleted_at IS NULL'
+      ).get(orderId, visit.client_id, business.id);
+      if (!order) return res.status(400).json({ message: 'El pedido relacionado no pertenece a este cliente' });
+    }
+    db.prepare(
+      `UPDATE production_client_visits SET
+       visited_by_user_id = ?, visitor_name = ?, visit_type = ?, result = ?,
+       next_visit_date = ?, order_id = ?, visit_date = ?, visit_date_text = ?,
+       pairs = ?, notes = ?, updated_at = datetime('now', 'localtime')
+       WHERE id = ? AND client_id = ? AND establishment_id = ?`
+    ).run(
+      visitedByUserId,
+      String(req.body.visitor_name || '').trim(),
+      String(req.body.visit_type || 'visit').trim(),
+      String(req.body.result || '').trim(),
+      req.body.next_visit_date || null,
+      orderId,
+      req.body.visit_date || null,
+      String(req.body.visit_date_text || req.body.visit_date || '').trim(),
+      req.body.pairs === '' || req.body.pairs == null ? null : Math.max(0, Number(req.body.pairs)),
+      String(req.body.notes || '').trim(),
+      visit.id,
+      visit.client_id,
+      business.id
+    );
+    audit(req, 'update', 'client_visit', visit.id, `Cliente ${visit.client_id}`);
+    res.json({ ok: true });
+  });
+
+  app.delete('/api/producalza/clients/:clientId/visits/:visitId', requireProductionAdmin, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const result = db.prepare(
+      `DELETE FROM production_client_visits
+       WHERE id = ? AND client_id = ? AND establishment_id = ?`
+    ).run(req.params.visitId, req.params.clientId, business.id);
+    if (!result.changes) return res.status(404).json({ message: 'Visita no encontrada' });
+    audit(req, 'delete', 'client_visit', req.params.visitId, `Cliente ${req.params.clientId}`);
+    res.json({ ok: true });
+  });
+
+  app.get('/api/producalza/client-activity-report', requireProductionAdmin, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const rows = db.prepare(
+      `SELECT clients.id, clients.name, clients.business_name, clients.city, clients.phone,
+              (SELECT COUNT(*) FROM production_client_visits AS visits
+               WHERE visits.client_id = clients.id) AS visit_count,
+              (SELECT COUNT(*) FROM production_orders AS orders
+               WHERE orders.client_id = clients.id AND orders.deleted_at IS NULL) AS order_count,
+              (SELECT COALESCE(SUM(models.total_pairs), 0)
+               FROM production_order_models AS models
+               JOIN production_orders AS orders ON orders.id = models.order_id
+               WHERE orders.client_id = clients.id AND orders.deleted_at IS NULL) AS total_pairs,
+              NULLIF(MAX(
+                COALESCE(
+                  (SELECT MAX(COALESCE(visits.visit_date, visits.created_at))
+                   FROM production_client_visits AS visits WHERE visits.client_id = clients.id),
+                  '1900-01-01'
+                ),
+                COALESCE(
+                  (SELECT MAX(orders.order_date)
+                   FROM production_orders AS orders WHERE orders.client_id = clients.id AND orders.deleted_at IS NULL),
+                  '1900-01-01'
+                )
+              ), '1900-01-01') AS last_activity,
+              (SELECT MIN(visits.next_visit_date)
+               FROM production_client_visits AS visits
+               WHERE visits.client_id = clients.id AND visits.next_visit_date >= ?) AS next_visit
+       FROM production_clients AS clients
+       WHERE clients.establishment_id = ?
+       ORDER BY COALESCE(last_activity, '1900-01-01') DESC, clients.name`
+    ).all(today, business.id);
+    res.json(rows);
   });
 
   app.get('/api/producalza/orders', requireProductionUser, (req, res) => {

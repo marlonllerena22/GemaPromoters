@@ -2782,6 +2782,201 @@ td {
   overflow-y: auto;
 }
 
+.prod-client-profile {
+  display: grid;
+  gap: 18px;
+}
+
+.prod-client-hero {
+  align-items: center;
+  background: #173f31;
+  border-radius: 7px;
+  color: #ffffff;
+  display: flex;
+  justify-content: space-between;
+  padding: 24px;
+}
+
+.prod-client-hero > div:first-child > span {
+  color: #a9c4b7;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.prod-client-hero h2 {
+  font-size: 28px;
+  margin: 4px 0;
+}
+
+.prod-client-hero p {
+  color: #c9d8d1;
+  margin: 0;
+}
+
+.prod-client-summary {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(90px, 1fr));
+}
+
+.prod-client-summary div {
+  background: rgba(255, 255, 255, 0.09);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 5px;
+  min-width: 100px;
+  padding: 10px;
+}
+
+.prod-client-summary span,
+.prod-client-summary strong {
+  display: block;
+}
+
+.prod-client-summary span {
+  color: #b9cec4;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.prod-client-summary strong {
+  font-size: 15px;
+  margin-top: 4px;
+}
+
+.prod-client-info-grid {
+  display: grid;
+  gap: 15px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.prod-client-record-grid {
+  align-items: start;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1.2fr) minmax(330px, 0.8fr);
+}
+
+.prod-timeline {
+  display: grid;
+  padding-left: 10px;
+}
+
+.prod-timeline > article {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 16px minmax(0, 1fr);
+  position: relative;
+}
+
+.prod-timeline > article:not(:last-child)::before {
+  background: #cad8d1;
+  content: "";
+  left: 7px;
+  position: absolute;
+  top: 17px;
+  bottom: -2px;
+  width: 2px;
+}
+
+.prod-timeline-marker {
+  background: #1d7254;
+  border: 3px solid #dcebe4;
+  border-radius: 50%;
+  height: 16px;
+  margin-top: 15px;
+  position: relative;
+  width: 16px;
+  z-index: 1;
+}
+
+.prod-timeline-content {
+  border-bottom: 1px solid #e1e8e4;
+  padding: 11px 0 16px;
+}
+
+.prod-timeline-content header {
+  align-items: flex-start;
+  display: flex;
+  justify-content: space-between;
+}
+
+.prod-timeline-content header strong,
+.prod-timeline-content header span {
+  display: block;
+}
+
+.prod-timeline-content header span {
+  color: #69786f;
+  font-size: 11px;
+  margin-top: 3px;
+}
+
+.prod-timeline-content p {
+  color: #4e5d55;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 8px 0 0;
+}
+
+.prod-timeline-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.prod-timeline-tags span {
+  background: #edf3f0;
+  border-radius: 4px;
+  color: #436154;
+  font-size: 9px;
+  font-weight: 850;
+  padding: 5px 7px;
+}
+
+.prod-client-orders {
+  display: grid;
+  gap: 8px;
+}
+
+.prod-client-orders button {
+  align-items: center;
+  background: #f7f9f8;
+  border: 1px solid #e0e7e3;
+  border-radius: 6px;
+  color: inherit;
+  display: flex;
+  justify-content: space-between;
+  padding: 12px;
+  text-align: left;
+  width: 100%;
+}
+
+.prod-client-orders button:hover {
+  border-color: #78a18e;
+}
+
+.prod-client-orders strong,
+.prod-client-orders span,
+.prod-client-orders small {
+  display: block;
+}
+
+.prod-client-orders span,
+.prod-client-orders small {
+  color: #6b7971;
+  font-size: 10px;
+  margin-top: 3px;
+}
+
+.prod-client-orders button > div:last-child {
+  align-items: flex-end;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
 .prod-client-list article,
 .prod-user-list article {
   align-items: center;
@@ -3021,6 +3216,20 @@ td {
   .prod-model-meta {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .prod-client-hero {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .prod-client-info-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .prod-client-record-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 620px) {
@@ -3125,6 +3334,18 @@ td {
   .prod-visit-form input:nth-child(3),
   .prod-visit-form button {
     grid-column: 1 / -1;
+  }
+
+  .prod-client-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .prod-client-info-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .prod-timeline-content header {
+    gap: 8px;
   }
 }
 

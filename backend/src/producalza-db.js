@@ -40,13 +40,22 @@ export function initProducalzaDb(db) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       establishment_id INTEGER NOT NULL,
       client_id INTEGER NOT NULL,
+      visited_by_user_id INTEGER,
+      visitor_name TEXT,
+      visit_type TEXT NOT NULL DEFAULT 'visit',
+      result TEXT,
+      next_visit_date TEXT,
+      order_id INTEGER,
       visit_date TEXT,
       visit_date_text TEXT,
       pairs INTEGER,
       notes TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       FOREIGN KEY (establishment_id) REFERENCES establishments(id),
-      FOREIGN KEY (client_id) REFERENCES production_clients(id)
+      FOREIGN KEY (client_id) REFERENCES production_clients(id),
+      FOREIGN KEY (visited_by_user_id) REFERENCES production_users(id),
+      FOREIGN KEY (order_id) REFERENCES production_orders(id)
     );
 
     CREATE TABLE IF NOT EXISTS production_orders (
@@ -137,6 +146,20 @@ export function initProducalzaDb(db) {
       ON production_order_models(order_id, status);
   `);
 
+  addColumnIfMissing(db, 'production_client_visits', 'visited_by_user_id', 'INTEGER');
+  addColumnIfMissing(db, 'production_client_visits', 'visitor_name', 'TEXT');
+  addColumnIfMissing(db, 'production_client_visits', 'visit_type', "TEXT NOT NULL DEFAULT 'visit'");
+  addColumnIfMissing(db, 'production_client_visits', 'result', 'TEXT');
+  addColumnIfMissing(db, 'production_client_visits', 'next_visit_date', 'TEXT');
+  addColumnIfMissing(db, 'production_client_visits', 'order_id', 'INTEGER');
+  addColumnIfMissing(db, 'production_client_visits', 'updated_at', "TEXT NOT NULL DEFAULT ''");
+  db.prepare(
+    `UPDATE production_client_visits
+     SET updated_at = COALESCE(NULLIF(updated_at, ''), created_at),
+         visit_type = COALESCE(NULLIF(visit_type, ''), 'visit')
+     WHERE updated_at IS NULL OR updated_at = '' OR visit_type IS NULL OR visit_type = ''`
+  ).run();
+
   let establishment = db.prepare("SELECT * FROM establishments WHERE name = 'PRODUCALZA'").get();
   if (!establishment) {
     const result = db
@@ -167,4 +190,11 @@ export function initProducalzaDb(db) {
      VALUES (?, 'next_card_number', '62')`
   ).run(establishment.id);
 
+}
+
+function addColumnIfMissing(db, table, column, definition) {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!columns.some((item) => item.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
 }

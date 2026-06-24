@@ -76,6 +76,28 @@ const emptyUser = {
   status: 'active'
 };
 
+const emptyVisit = {
+  visit_date: new Date().toISOString().slice(0, 10),
+  visited_by_user_id: '',
+  visitor_name: '',
+  visit_type: 'visit',
+  result: '',
+  next_visit_date: '',
+  order_id: '',
+  pairs: '',
+  notes: ''
+};
+
+const VISIT_TYPE_LABELS = {
+  visit: 'Visita presencial',
+  call: 'Llamada',
+  whatsapp: 'WhatsApp',
+  follow_up: 'Seguimiento',
+  collection: 'Cobranza',
+  delivery: 'Entrega',
+  other: 'Otro'
+};
+
 function emptyModel() {
   return {
     model_code: '',
@@ -125,6 +147,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
   const [clients, setClients] = useState([]);
   const [orders, setOrders] = useState([]);
   const [production, setProduction] = useState([]);
+  const [clientActivity, setClientActivity] = useState([]);
   const [users, setUsers] = useState([]);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [editingOrder, setEditingOrder] = useState(null);
@@ -139,18 +162,20 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
     setLoading(true);
     setError('');
     try {
-      const [nextBootstrap, nextDashboard, nextClients, nextOrders, nextProduction] = await Promise.all([
+      const [nextBootstrap, nextDashboard, nextClients, nextOrders, nextProduction, nextClientActivity] = await Promise.all([
         api(scope('/producalza/bootstrap')),
         api(scope('/producalza/dashboard')),
         api(scope('/producalza/clients')),
         api(scope('/producalza/orders')),
-        api(scope('/producalza/production'))
+        api(scope('/producalza/production')),
+        isAdmin ? api(scope('/producalza/client-activity-report')) : Promise.resolve([])
       ]);
       setBootstrap(nextBootstrap);
       setDashboard(nextDashboard);
       setClients(nextClients);
       setOrders(nextOrders);
       setProduction(nextProduction);
+      setClientActivity(nextClientActivity);
       setUsers(nextBootstrap.users || []);
     } catch (err) {
       setError(err.message);
@@ -265,7 +290,9 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
         <ClientsView
           clients={clients}
           isAdmin={isAdmin}
+          users={users}
           scope={scope}
+          onOpenOrder={openOrder}
           onRefresh={refresh}
           setError={setError}
         />
@@ -281,7 +308,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
           onPrint={preparePrint}
         />
       )}
-      {view === 'reports' && isAdmin && <ProductionReports dashboard={dashboard} orders={orders} />}
+      {view === 'reports' && isAdmin && <ProductionReports dashboard={dashboard} orders={orders} clientActivity={clientActivity} />}
       {view === 'users' && isAdmin && (
         <UsersView users={users} scope={scope} onRefresh={refresh} setError={setError} />
       )}
@@ -715,12 +742,15 @@ function OrderDetail({ order, isAdmin, onBack, onEdit, onPrint }) {
   );
 }
 
-function ClientsView({ clients, isAdmin, scope, onRefresh, setError }) {
+function ClientsView({ clients, isAdmin, users, scope, onOpenOrder, onRefresh, setError }) {
   const [search, setSearch] = useState('');
   const [form, setForm] = useState(emptyClient);
   const [editingId, setEditingId] = useState(null);
   const [selected, setSelected] = useState(null);
-  const [visit, setVisit] = useState({ visit_date: '', pairs: '', notes: '' });
+  const [visit, setVisit] = useState(emptyVisit);
+  const [editingVisitId, setEditingVisitId] = useState(null);
+  const [showVisitForm, setShowVisitForm] = useState(false);
+  const [showClientForm, setShowClientForm] = useState(false);
   const filtered = useMemo(() => {
     const text = search.toLowerCase();
     return clients.filter((client) => `${client.name} ${client.business_name} ${client.city} ${client.phone}`.toLowerCase().includes(text));
@@ -728,13 +758,16 @@ function ClientsView({ clients, isAdmin, scope, onRefresh, setError }) {
 
   async function saveClient() {
     try {
+      const currentId = editingId;
       await api(scope(editingId ? `/producalza/clients/${editingId}` : '/producalza/clients'), {
         method: editingId ? 'PUT' : 'POST',
         body: JSON.stringify(form)
       });
       setForm(emptyClient);
       setEditingId(null);
-      onRefresh(editingId ? 'Cliente actualizado' : 'Cliente creado');
+      setShowClientForm(false);
+      await onRefresh(currentId ? 'Cliente actualizado' : 'Cliente creado');
+      if (currentId) await openClient(currentId);
     } catch (err) {
       setError(err.message);
     }
@@ -750,12 +783,44 @@ function ClientsView({ clients, isAdmin, scope, onRefresh, setError }) {
 
   async function addVisit() {
     try {
-      await api(scope(`/producalza/clients/${selected.id}/visits`), {
-        method: 'POST',
+      await api(scope(editingVisitId
+        ? `/producalza/clients/${selected.id}/visits/${editingVisitId}`
+        : `/producalza/clients/${selected.id}/visits`), {
+        method: editingVisitId ? 'PUT' : 'POST',
         body: JSON.stringify(visit)
       });
-      setVisit({ visit_date: '', pairs: '', notes: '' });
+      setVisit(emptyVisit);
+      setEditingVisitId(null);
+      setShowVisitForm(false);
       await openClient(selected.id);
+      await onRefresh(editingVisitId ? 'Visita actualizada' : 'Seguimiento registrado');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  function editVisit(item) {
+    setEditingVisitId(item.id);
+    setVisit({
+      visit_date: item.visit_date || '',
+      visited_by_user_id: item.visited_by_user_id ? String(item.visited_by_user_id) : '',
+      visitor_name: item.visitor_name || '',
+      visit_type: item.visit_type || 'visit',
+      result: item.result || '',
+      next_visit_date: item.next_visit_date || '',
+      order_id: item.order_id ? String(item.order_id) : '',
+      pairs: item.pairs ?? '',
+      notes: item.notes || ''
+    });
+    setShowVisitForm(true);
+  }
+
+  async function deleteVisit(item) {
+    if (!window.confirm('Seguro que deseas eliminar este registro de visita?')) return;
+    try {
+      await api(scope(`/producalza/clients/${selected.id}/visits/${item.id}`), { method: 'DELETE' });
+      await openClient(selected.id);
+      await onRefresh('Visita eliminada');
     } catch (err) {
       setError(err.message);
     }
@@ -780,6 +845,172 @@ function ClientsView({ clients, isAdmin, scope, onRefresh, setError }) {
   function edit(client) {
     setEditingId(client.id);
     setForm(Object.fromEntries(Object.keys(emptyClient).map((key) => [key, client[key] || ''])));
+    setShowClientForm(true);
+  }
+
+  if (selected) {
+    return (
+      <div className="prod-client-profile">
+        <div className="prod-detail-actions">
+          <button className="prod-secondary-button" onClick={() => {
+            setSelected(null);
+            setShowVisitForm(false);
+            setShowClientForm(false);
+            setEditingVisitId(null);
+          }}><ChevronLeft size={17} />Volver a clientes</button>
+          <div>
+            <button className="prod-secondary-button" onClick={() => edit(selected)}><Pencil size={17} />Editar cliente</button>
+            <button className="prod-primary-button" onClick={() => {
+              setVisit(emptyVisit);
+              setEditingVisitId(null);
+              setShowVisitForm(true);
+            }}><Plus size={17} />Registrar seguimiento</button>
+          </div>
+        </div>
+
+        <section className="prod-client-hero">
+          <div>
+            <span>Expediente del cliente</span>
+            <h2>{selected.name}</h2>
+            <p>{selected.business_name || 'Sin razon social'} · {selected.city || 'Sin ciudad'}</p>
+          </div>
+          <div className="prod-client-summary">
+            <div><span>Visitas</span><strong>{selected.summary?.visit_count || 0}</strong></div>
+            <div><span>Pedidos</span><strong>{selected.summary?.order_count || 0}</strong></div>
+            <div><span>Pares</span><strong>{selected.summary?.total_pairs || 0}</strong></div>
+            <div><span>Proxima visita</span><strong>{selected.summary?.next_visit ? displayDate(selected.summary.next_visit) : 'Sin agendar'}</strong></div>
+          </div>
+        </section>
+
+        {showClientForm && (
+          <section className="prod-panel">
+            <div className="prod-panel-title">
+              <div><span>Informacion general</span><h2>Editar cliente</h2></div>
+              <button className="prod-icon-button" onClick={() => setShowClientForm(false)}><X size={17} /></button>
+            </div>
+            <ClientFields value={form} onChange={setForm} />
+            <div className="prod-form-actions">
+              <button className="prod-secondary-button" onClick={() => setShowClientForm(false)}>Cancelar</button>
+              <button className="prod-primary-button" onClick={saveClient}><Save size={17} />Guardar cambios</button>
+            </div>
+          </section>
+        )}
+
+        <section className="prod-panel">
+          <div className="prod-panel-title"><div><span>Datos registrados</span><h2>Informacion del cliente</h2></div></div>
+          <div className="prod-client-info-grid">
+            <Detail label="Telefono / WhatsApp" value={selected.phone} />
+            <Detail label="Correo" value={selected.email} />
+            <Detail label="RUC o cedula" value={selected.tax_id} />
+            <Detail label="Direccion" value={selected.address} />
+            <Detail label="Marca" value={selected.brand} />
+            <Detail label="Forma de pago" value={selected.payment_method} />
+            <Detail label="Referencia bancaria" value={selected.bank_reference} />
+            <Detail label="Clasificacion" value={selected.classification} />
+            <Detail label="Vendedor historico" value={selected.imported_seller_code} />
+            <Detail label="Ultima actividad" value={selected.summary?.last_activity ? displayDate(selected.summary.last_activity.slice(0, 10)) : ''} />
+          </div>
+          {selected.general_notes && <div className="prod-note"><strong>Observaciones generales</strong><p>{selected.general_notes}</p></div>}
+        </section>
+
+        {showVisitForm && (
+          <section className="prod-panel prod-followup-form">
+            <div className="prod-panel-title">
+              <div><span>Actividad comercial</span><h2>{editingVisitId ? 'Editar seguimiento' : 'Nuevo seguimiento'}</h2></div>
+              <button className="prod-icon-button" onClick={() => {
+                setShowVisitForm(false);
+                setEditingVisitId(null);
+                setVisit(emptyVisit);
+              }}><X size={17} /></button>
+            </div>
+            <div className="prod-form-grid">
+              <label>Fecha<input type="date" value={visit.visit_date} onChange={(event) => setVisit({ ...visit, visit_date: event.target.value })} /></label>
+              <label>Tipo de contacto
+                <select value={visit.visit_type} onChange={(event) => setVisit({ ...visit, visit_type: event.target.value })}>
+                  {Object.entries(VISIT_TYPE_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+                </select>
+              </label>
+              {isAdmin ? (
+                <label>Quien realizo la visita
+                  <select value={visit.visited_by_user_id} onChange={(event) => setVisit({ ...visit, visited_by_user_id: event.target.value })}>
+                    <option value="">Nombre manual / historico</option>
+                    {users.filter((item) => item.status === 'active').map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}
+                  </select>
+                </label>
+              ) : null}
+              <label>Nombre manual del responsable<input value={visit.visitor_name} onChange={(event) => setVisit({ ...visit, visitor_name: event.target.value })} /></label>
+              <label>Pedido relacionado
+                <select value={visit.order_id} onChange={(event) => setVisit({ ...visit, order_id: event.target.value })}>
+                  <option value="">Sin pedido relacionado</option>
+                  {selected.orders.map((order) => <option value={order.id} key={order.id}>{order.order_number}</option>)}
+                </select>
+              </label>
+              <label>Pares conversados o solicitados<input type="number" min="0" value={visit.pairs} onChange={(event) => setVisit({ ...visit, pairs: event.target.value })} /></label>
+              <label>Proxima visita<input type="date" value={visit.next_visit_date} onChange={(event) => setVisit({ ...visit, next_visit_date: event.target.value })} /></label>
+              <label className="span-full">Resultado de la visita<textarea value={visit.result} onChange={(event) => setVisit({ ...visit, result: event.target.value })} /></label>
+              <label className="span-full">Observaciones y acuerdos<textarea value={visit.notes} onChange={(event) => setVisit({ ...visit, notes: event.target.value })} /></label>
+            </div>
+            <div className="prod-form-actions">
+              <button className="prod-secondary-button" onClick={() => setShowVisitForm(false)}>Cancelar</button>
+              <button className="prod-primary-button" onClick={addVisit}><Save size={17} />Guardar seguimiento</button>
+            </div>
+          </section>
+        )}
+
+        <div className="prod-client-record-grid">
+          <section className="prod-panel">
+            <div className="prod-panel-title"><div><span>Actividad acumulada</span><h2>Visitas y seguimientos</h2></div></div>
+            <div className="prod-timeline">
+              {selected.visits.map((item) => (
+                <article key={item.id}>
+                  <div className="prod-timeline-marker" />
+                  <div className="prod-timeline-content">
+                    <header>
+                      <div>
+                        <strong>{item.visit_date ? displayDate(item.visit_date) : item.visit_date_text || 'Fecha no especificada'}</strong>
+                        <span>{VISIT_TYPE_LABELS[item.visit_type] || item.visit_type || 'Visita'} · {item.visited_by_name}</span>
+                      </div>
+                      <div className="prod-row-actions">
+                        <button title="Editar visita" onClick={() => editVisit(item)}><Pencil size={15} /></button>
+                        {isAdmin && <button className="danger" title="Eliminar visita" onClick={() => deleteVisit(item)}><Trash2 size={15} /></button>}
+                      </div>
+                    </header>
+                    <div className="prod-timeline-tags">
+                      {item.pairs != null && <span>{item.pairs} pares</span>}
+                      {item.related_order_number && <span>Pedido {item.related_order_number}</span>}
+                      {item.next_visit_date && <span>Proxima: {displayDate(item.next_visit_date)}</span>}
+                    </div>
+                    {item.result && <p><strong>Resultado:</strong> {item.result}</p>}
+                    {item.notes && <p>{item.notes}</p>}
+                  </div>
+                </article>
+              ))}
+              {!selected.visits.length && <div className="prod-empty">Todavia no hay visitas o seguimientos.</div>}
+            </div>
+          </section>
+
+          <section className="prod-panel">
+            <div className="prod-panel-title"><div><span>Compras realizadas</span><h2>Historial de pedidos</h2></div></div>
+            <div className="prod-client-orders">
+              {selected.orders.map((order) => (
+                <button key={order.id} onClick={() => onOpenOrder(order.id)}>
+                  <div>
+                    <strong>{order.order_number}</strong>
+                    <span>{displayDate(order.order_date)} · {order.seller_name || 'Sin vendedor'}</span>
+                    <small>{order.model_codes || 'Sin modelos detallados'}</small>
+                  </div>
+                  <div>
+                    <b>{order.total_pairs} pares</b>
+                    <StatusBadge status={order.status} />
+                  </div>
+                </button>
+              ))}
+              {!selected.orders.length && <div className="prod-empty">Este cliente aun no tiene pedidos registrados.</div>}
+            </div>
+          </section>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -804,7 +1035,7 @@ function ClientsView({ clients, isAdmin, scope, onRefresh, setError }) {
                 <span>{client.business_name || 'Sin razon social'} · {client.city || 'Sin ciudad'}</span>
                 <small>{client.phone || 'Sin telefono'} · {client.visit_count} antecedentes · {client.order_count} pedidos</small>
               </button>
-              <button className="prod-icon-button" onClick={() => edit(client)}><Pencil size={16} /></button>
+              <button className="prod-icon-button" onClick={() => edit(client)} title="Editar cliente"><Pencil size={16} /></button>
             </article>
           ))}
         </div>
@@ -818,39 +1049,6 @@ function ClientsView({ clients, isAdmin, scope, onRefresh, setError }) {
             <button className="prod-primary-button" onClick={saveClient}><Save size={17} />Guardar cliente</button>
           </div>
         </section>
-        {selected && (
-          <section className="prod-panel prod-client-detail">
-            <div className="prod-panel-title">
-              <div><span>Historial del cliente</span><h2>{selected.name}</h2></div>
-              <button className="prod-icon-button" onClick={() => setSelected(null)}><X size={17} /></button>
-            </div>
-            <div className="prod-detail-grid">
-              <Detail label="Ciudad" value={selected.city} />
-              <Detail label="Telefono" value={selected.phone} />
-              <Detail label="Razon social" value={selected.business_name} />
-              <Detail label="RUC" value={selected.tax_id} />
-              <Detail label="Clasificacion" value={selected.classification} />
-              <Detail label="Forma de pago" value={selected.payment_method} />
-              <Detail label="Vendedor historico" value={selected.imported_seller_code} />
-            </div>
-            <div className="prod-visit-form">
-              <input type="date" value={visit.visit_date} onChange={(event) => setVisit({ ...visit, visit_date: event.target.value })} />
-              <input type="number" min="0" placeholder="Pares" value={visit.pairs} onChange={(event) => setVisit({ ...visit, pairs: event.target.value })} />
-              <input placeholder="Observacion de visita" value={visit.notes} onChange={(event) => setVisit({ ...visit, notes: event.target.value })} />
-              <button className="prod-secondary-button" onClick={addVisit}><Plus size={16} />Agregar</button>
-            </div>
-            <div className="prod-history-list">
-              {selected.visits.map((item) => (
-                <div key={item.id}>
-                  <strong>{item.visit_date ? displayDate(item.visit_date) : item.visit_date_text || 'Fecha no especificada'}</strong>
-                  <span>{item.pairs != null ? `${item.pairs} pares` : 'Cantidad no indicada'}</span>
-                  <small>{item.notes}</small>
-                </div>
-              ))}
-              {!selected.visits.length && <div className="prod-empty">Sin visitas registradas.</div>}
-            </div>
-          </section>
-        )}
       </div>
     </div>
   );
@@ -973,7 +1171,7 @@ function UsersView({ users, scope, onRefresh, setError }) {
   );
 }
 
-function ProductionReports({ dashboard, orders }) {
+function ProductionReports({ dashboard, orders, clientActivity }) {
   const byStatus = Object.entries(ORDER_STATUS_LABELS).map(([key, label]) => ({
     key,
     label,
@@ -1011,6 +1209,31 @@ function ProductionReports({ dashboard, orders }) {
           </div>
         </section>
       </div>
+      <section className="prod-panel">
+        <div className="prod-panel-title">
+          <div><span>Relacion comercial</span><h2>Actividad por cliente</h2></div>
+        </div>
+        <div className="prod-table-wrap">
+          <table className="prod-table">
+            <thead>
+              <tr><th>Cliente</th><th>Ciudad</th><th>Visitas</th><th>Pedidos</th><th>Pares</th><th>Ultima actividad</th><th>Proxima visita</th></tr>
+            </thead>
+            <tbody>
+              {(clientActivity || []).map((client) => (
+                <tr key={client.id}>
+                  <td><strong>{client.name}</strong><small>{client.business_name || client.phone || ''}</small></td>
+                  <td>{client.city || '-'}</td>
+                  <td>{client.visit_count}</td>
+                  <td>{client.order_count}</td>
+                  <td>{client.total_pairs}</td>
+                  <td>{client.last_activity ? displayDate(client.last_activity.slice(0, 10)) : 'Sin actividad'}</td>
+                  <td>{client.next_visit ? displayDate(client.next_visit) : 'Sin agendar'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   );
 }
