@@ -29,6 +29,7 @@ import {
   WalletCards
 } from 'lucide-react';
 import { api, clearToken, getToken, getUser, setToken, setUser } from './api.js';
+import ProducalzaApp from './ProducalzaApp.jsx';
 import './styles.css';
 
 const emptyPromoter = {
@@ -117,6 +118,7 @@ const emptyEstablishment = {
   name: '',
   display_name: '',
   business_type: 'event',
+  module_type: 'promoters',
   code_prefix: '',
   theme: '',
   logo_url: '',
@@ -272,6 +274,14 @@ function App() {
 
   if (user?.role === 'promoter') {
     return <PromoterAppPremium user={user} onLogout={() => {
+      clearToken();
+      saveToken(null);
+      saveUser(null);
+    }} />;
+  }
+
+  if (['production_admin', 'production_vendor'].includes(user?.role)) {
+    return <ProducalzaApp user={user} onLogout={() => {
       clearToken();
       saveToken(null);
       saveUser(null);
@@ -504,6 +514,32 @@ function AdminApp({ user, onLogout }) {
     const defaultEstablishment = establishments.find((item) => item.name === 'GEMASHOW') || establishments[0];
     const establishmentId = nextEstablishmentId || defaultEstablishment?.id || '';
     const nextEstablishment = establishments.find((item) => String(item.id) === String(establishmentId));
+    if (nextEstablishment?.module_type === 'production') {
+      if (view !== 'establishments') {
+        setView('production');
+      }
+      if (establishmentId && String(establishmentId) !== String(selectedEstablishmentId)) {
+        setSelectedEstablishmentId(String(establishmentId));
+      }
+      setSelectedEventId('');
+      setData((current) => ({
+        ...current,
+        establishments,
+        branches: [],
+        events: [],
+        promoters: [],
+        sales: [],
+        ranking: [],
+        withdrawals: [],
+        locations: [],
+        banners: []
+      }));
+      setLoading(false);
+      return;
+    }
+    if (view === 'production') {
+      setView('dashboard');
+    }
     if (nextEstablishment?.business_type === 'commercial' && view === 'events') {
       setView('branches');
     }
@@ -552,8 +588,12 @@ function AdminApp({ user, onLogout }) {
 
   const currentEstablishment = data.establishments.find((item) => String(item.id) === String(selectedEstablishmentId));
   const isCommercialBusiness = currentEstablishment?.business_type === 'commercial';
+  const isProductionBusiness = currentEstablishment?.module_type === 'production';
   const canSwitchBusiness = user?.role === 'supreme' && data.establishments.length > 1;
-  const nav = [
+  const nav = isProductionBusiness ? [
+    ...(user?.role === 'supreme' ? [['establishments', 'Negocios', Building2]] : []),
+    ['production', 'Producalza', Settings]
+  ] : [
     ...(user?.role === 'supreme' ? [['establishments', 'Negocios', Building2]] : []),
     ['dashboard', 'Panel', BarChart3],
     ...(!isCommercialBusiness ? [['events', 'Eventos', CalendarDays]] : []),
@@ -613,7 +653,7 @@ function AdminApp({ user, onLogout }) {
               </select>
             </label>
           )}
-          {!isCommercialBusiness && (
+          {!isCommercialBusiness && !isProductionBusiness && (
             <label className="event-selector">
               Evento
               <select value={selectedEventId} onChange={(e) => loadAll(e.target.value)}>
@@ -633,7 +673,14 @@ function AdminApp({ user, onLogout }) {
             {view === 'establishments' && (
               <Establishments establishments={data.establishments} onRefresh={refresh} />
             )}
-            {view === 'dashboard' && <Dashboard stats={data.dashboard} sales={data.sales} />}
+            {view === 'production' && isProductionBusiness && (
+              <ProducalzaApp
+                embedded
+                establishmentId={selectedEstablishmentId}
+                user={{ ...user, establishment_id: Number(selectedEstablishmentId), role: user.role === 'supreme' ? 'supreme' : 'admin' }}
+              />
+            )}
+            {view === 'dashboard' && !isProductionBusiness && <Dashboard stats={data.dashboard} sales={data.sales} />}
             {view === 'branches' && isCommercialBusiness && (
               <Branches branches={data.branches} establishmentId={selectedEstablishmentId} onRefresh={refresh} />
             )}
@@ -717,6 +764,7 @@ function Establishments({ establishments, onRefresh }) {
       name: establishment.name,
       display_name: establishment.display_name || establishment.name,
       business_type: establishment.business_type || 'event',
+      module_type: establishment.module_type || 'promoters',
       code_prefix: establishment.code_prefix || '',
       theme: establishment.theme || '',
       logo_url: establishment.logo_url || '',
@@ -756,9 +804,28 @@ function Establishments({ establishments, onRefresh }) {
           <Input label="Tema visual" value={form.theme} onChange={(theme) => setForm({ ...form, theme })} />
           <Input label="Logo URL" value={form.logo_url} onChange={(logo_url) => setForm({ ...form, logo_url })} />
           <label>
+            Modulo del negocio
+            <select
+              value={form.module_type}
+              onChange={(e) => {
+                const module_type = e.target.value;
+                setForm({
+                  ...form,
+                  module_type,
+                  business_type: module_type === 'production' ? 'commercial' : form.business_type,
+                  promoter_sales_enabled: module_type === 'production' ? false : form.promoter_sales_enabled
+                });
+              }}
+            >
+              <option value="promoters">Promotores, eventos o local comercial</option>
+              <option value="production">Produccion y pedidos</option>
+            </select>
+          </label>
+          <label>
             Tipo de negocio
             <select
               value={form.business_type}
+              disabled={form.module_type === 'production'}
               onChange={(e) => {
                 const business_type = e.target.value;
                 setForm({
@@ -785,10 +852,14 @@ function Establishments({ establishments, onRefresh }) {
             <input
               type="checkbox"
               checked={form.promoter_sales_enabled}
-              disabled={form.business_type === 'commercial'}
+              disabled={form.business_type === 'commercial' || form.module_type === 'production'}
               onChange={(e) => setForm({ ...form, promoter_sales_enabled: e.target.checked })}
             />
-            {form.business_type === 'commercial' ? 'Local comercial: ventas solo por administrador' : 'Promotores pueden registrar ventas desde su cuenta'}
+            {form.module_type === 'production'
+              ? 'Produccion: usuarios, clientes y pedidos propios'
+              : form.business_type === 'commercial'
+                ? 'Local comercial: ventas solo por administrador'
+                : 'Promotores pueden registrar ventas desde su cuenta'}
           </label>
           {error && <div className="alert error">{error}</div>}
           <button className="primary-button" type="submit">

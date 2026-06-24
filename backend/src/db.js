@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { initProducalzaDb } from './producalza-db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -163,6 +164,7 @@ export function initDb() {
 
   migrateEventsForEstablishments();
   addColumnIfMissing('establishments', 'business_type', "TEXT NOT NULL DEFAULT 'event'");
+  addColumnIfMissing('establishments', 'module_type', "TEXT NOT NULL DEFAULT 'promoters'");
   addColumnIfMissing('establishments', 'code_prefix', "TEXT NOT NULL DEFAULT 'GEMA'");
   addColumnIfMissing('establishments', 'theme', "TEXT NOT NULL DEFAULT 'gemashow'");
   addColumnIfMissing('establishments', 'logo_url', 'TEXT');
@@ -293,6 +295,7 @@ export function initDb() {
   seedDefaultEventSettings(defaultEvent.id);
   ensureMarjorieEstablishment();
   ensureDigitalesClubEstablishment();
+  initProducalzaDb(db);
 }
 
 export function toMoney(value) {

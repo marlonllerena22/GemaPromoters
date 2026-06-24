@@ -6,6 +6,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createToken, requireAdmin, requireAuth, requirePromoter, requireSupreme } from './auth.js';
 import { db, initDb, normalizeCode, normalizeLookup, toMoney } from './db.js';
+import {
+  findProductionUserForLogin,
+  productionLoginResponse,
+  registerProducalzaRoutes
+} from './producalza-routes.js';
 
 dotenv.config();
 initDb();
@@ -507,9 +512,15 @@ app.post('/api/auth/login', (req, res) => {
         role: 'admin',
         establishment_id: owner.id,
         establishment_name: owner.name,
-        establishment_display_name: owner.display_name || owner.name
+        establishment_display_name: owner.display_name || owner.name,
+        establishment_module_type: owner.module_type || 'promoters'
       }
     });
+  }
+
+  const productionUser = findProductionUserForLogin(db, username, password);
+  if (productionUser) {
+    return res.json(productionLoginResponse(productionUser));
   }
 
   return res.status(401).json({ message: 'Usuario o contrasena incorrectos' });
@@ -652,6 +663,7 @@ app.post('/api/establishments', requireSupreme, (req, res) => {
   const name = String(req.body.name || '').trim();
   const displayName = String(req.body.display_name || '').trim();
   const businessType = req.body.business_type === 'commercial' ? 'commercial' : 'event';
+  const moduleType = req.body.module_type === 'production' ? 'production' : 'promoters';
   const codePrefix = normalizeLookup(req.body.code_prefix || name).slice(0, 12) || 'PROMO';
   const theme = normalizeLookup(req.body.theme || name).toLowerCase() || 'custom';
   const logoUrl = String(req.body.logo_url || '').trim();
@@ -666,12 +678,14 @@ app.post('/api/establishments', requireSupreme, (req, res) => {
 
   try {
     const result = db
-      .prepare('INSERT INTO establishments (name, display_name, business_type, code_prefix, theme, logo_url, admin_username, admin_password, status, promoter_sales_enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(name, displayName || name, businessType, codePrefix, theme, logoUrl, adminUsername, adminPassword, status, promoterSalesEnabled);
-    const eventResult = db
-      .prepare('INSERT INTO events (establishment_id, name, description, status, is_active) VALUES (?, ?, ?, ?, 1)')
-      .run(result.lastInsertRowid, name.toUpperCase(), `Evento principal ${name}`, 'active');
-    seedEventSettingsFromActive(eventResult.lastInsertRowid);
+      .prepare('INSERT INTO establishments (name, display_name, business_type, module_type, code_prefix, theme, logo_url, admin_username, admin_password, status, promoter_sales_enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(name, displayName || name, businessType, moduleType, codePrefix, theme, logoUrl, adminUsername, adminPassword, status, promoterSalesEnabled);
+    if (moduleType !== 'production') {
+      const eventResult = db
+        .prepare('INSERT INTO events (establishment_id, name, description, status, is_active) VALUES (?, ?, ?, ?, 1)')
+        .run(result.lastInsertRowid, name.toUpperCase(), `Evento principal ${name}`, 'active');
+      seedEventSettingsFromActive(eventResult.lastInsertRowid);
+    }
     return res.status(201).json(db.prepare('SELECT * FROM establishments WHERE id = ?').get(result.lastInsertRowid));
   } catch {
     return res.status(409).json({ message: 'El establecimiento ya existe' });
@@ -682,6 +696,7 @@ app.put('/api/establishments/:id', requireSupreme, (req, res) => {
   const name = String(req.body.name || '').trim();
   const displayName = String(req.body.display_name || '').trim();
   const businessType = req.body.business_type === 'commercial' ? 'commercial' : 'event';
+  const moduleType = req.body.module_type === 'production' ? 'production' : 'promoters';
   const codePrefix = normalizeLookup(req.body.code_prefix || name).slice(0, 12) || 'PROMO';
   const theme = normalizeLookup(req.body.theme || name).toLowerCase() || 'custom';
   const logoUrl = String(req.body.logo_url || '').trim();
@@ -696,8 +711,8 @@ app.put('/api/establishments/:id', requireSupreme, (req, res) => {
 
   try {
     const result = db
-      .prepare('UPDATE establishments SET name = ?, display_name = ?, business_type = ?, code_prefix = ?, theme = ?, logo_url = ?, admin_username = ?, admin_password = ?, status = ?, promoter_sales_enabled = ? WHERE id = ?')
-      .run(name, displayName || name, businessType, codePrefix, theme, logoUrl, adminUsername, adminPassword, status, promoterSalesEnabled, req.params.id);
+      .prepare('UPDATE establishments SET name = ?, display_name = ?, business_type = ?, module_type = ?, code_prefix = ?, theme = ?, logo_url = ?, admin_username = ?, admin_password = ?, status = ?, promoter_sales_enabled = ? WHERE id = ?')
+      .run(name, displayName || name, businessType, moduleType, codePrefix, theme, logoUrl, adminUsername, adminPassword, status, promoterSalesEnabled, req.params.id);
     if (!result.changes) {
       return res.status(404).json({ message: 'Establecimiento no encontrado' });
     }
@@ -1683,6 +1698,8 @@ app.post('/api/verify', (req, res) => {
     }
   });
 });
+
+registerProducalzaRoutes(app, db, getRequestEstablishmentId);
 
 recalculateAllCommissions();
 

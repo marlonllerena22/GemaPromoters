@@ -46,3 +46,21 @@ export function requirePromoter(req, res, next) {
     return next();
   });
 }
+
+export function requireProductionUser(req, res, next) {
+  requireAuth(req, res, () => {
+    if (!['admin', 'supreme', 'production_admin', 'production_vendor'].includes(req.user?.role)) {
+      return res.status(403).json({ message: 'Acceso exclusivo de Producalza' });
+    }
+    return next();
+  });
+}
+
+export function requireProductionAdmin(req, res, next) {
+  requireAuth(req, res, () => {
+    if (!['admin', 'supreme', 'production_admin'].includes(req.user?.role)) {
+      return res.status(403).json({ message: 'Solo administrador de Producalza' });
+    }
+    return next();
+  });
+}
