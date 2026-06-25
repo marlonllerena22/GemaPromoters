@@ -2349,6 +2349,20 @@ td {
   background: #263f82;
 }
 
+.prod-primary-button.whatsapp {
+  background: #168a58;
+  border-color: #168a58;
+}
+
+.prod-primary-button.whatsapp:hover {
+  background: #107347;
+}
+
+.prod-primary-button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
 .prod-secondary-button {
   background: #ffffff;
   border: 1px solid #c8d2cd;
@@ -4196,7 +4210,7 @@ td {
   .prod-print-info {
     display: grid;
     gap: 1.5mm;
-    grid-template-columns: repeat(6, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     margin: 3mm 0;
   }
 
@@ -4257,6 +4271,34 @@ td {
 
   .prod-print-order-table th {
     font-size: 6.5pt;
+  }
+
+  .prod-print-order-table .prod-col-card {
+    width: 5%;
+  }
+
+  .prod-print-order-table .prod-col-model {
+    width: 7%;
+  }
+
+  .prod-print-order-table .prod-col-description {
+    width: 14%;
+  }
+
+  .prod-print-order-table .prod-col-size {
+    width: 3.3%;
+  }
+
+  .prod-print-order-table .prod-col-total {
+    width: 5%;
+  }
+
+  .prod-print-order-table .prod-col-process {
+    width: 2.8%;
+  }
+
+  .prod-print-order-table .prod-col-notes {
+    width: 19.2%;
   }
 
   .prod-print-order-table td:nth-child(2),

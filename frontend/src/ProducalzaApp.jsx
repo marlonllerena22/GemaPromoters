@@ -8,7 +8,9 @@ import {
   FilePlus2,
   Filter,
   Image as ImageIcon,
+  FileDown,
   LogOut,
+  MessageCircle,
   PackageCheck,
   Pencil,
   Plus,
@@ -23,7 +25,7 @@ import {
   UsersRound,
   X
 } from 'lucide-react';
-import { api } from './api.js';
+import { api, downloadApiFile } from './api.js';
 
 const SIZES = [34, 35, 36, 37, 38, 39, 40, 41, 42, 43];
 const ORDER_STATUS_LABELS = {
@@ -160,6 +162,22 @@ function displayDate(value) {
   if (!value) return 'Sin fecha';
   const date = new Date(`${value}T12:00:00`);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('es-EC');
+}
+
+function whatsappNumber(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('593')) return digits;
+  if (digits.startsWith('0')) return `593${digits.slice(1)}`;
+  return digits;
+}
+
+function safeFilename(value) {
+  return String(value || 'Cliente')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9 -]/g, '')
+    .trim() || 'Cliente';
 }
 
 function normalizeGuideText(value) {
@@ -964,6 +982,7 @@ function OrderForm({ clients, users, isAdmin, scope, initialOrder, onCancel, onS
 }
 
 function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint, onUpdated, guideTemplates }) {
+  const [sendingPdf, setSendingPdf] = useState(false);
   const [models, setModels] = useState(order.models);
   const [dirtyIds, setDirtyIds] = useState([]);
   const [saving, setSaving] = useState(false);
@@ -1028,6 +1047,41 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
     }
   }
 
+  async function sendOrderToClient() {
+    const phone = whatsappNumber(order.phone);
+    if (!phone) {
+      setError('Este cliente no tiene un numero de WhatsApp registrado.');
+      return;
+    }
+    const today = new Date().toLocaleDateString('es-EC', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
+    const message = `Buenas tardes, estimado/estimada ${order.client_name}. Le envio el pedido realizado en fecha ${today}. Por favor, revise el documento adjunto. Muchas gracias.`;
+    const whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+    const whatsappWindow = window.open('', '_blank');
+    if (whatsappWindow) {
+      whatsappWindow.opener = null;
+      whatsappWindow.location.href = whatsappUrl;
+    }
+    try {
+      setSendingPdf(true);
+      await downloadApiFile(
+        scope(`/producalza/orders/${order.id}/pdf`),
+        `Pedido Producalza ${safeFilename(order.client_name)}.pdf`
+      );
+      if (!whatsappWindow) {
+        window.location.href = whatsappUrl;
+      }
+    } catch (error) {
+      whatsappWindow?.close();
+      setError(error.message);
+    } finally {
+      setSendingPdf(false);
+    }
+  }
+
   return (
     <div className="prod-stack">
       <div className="prod-detail-actions">
@@ -1035,6 +1089,10 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
         <div>
           <button className="prod-secondary-button" onClick={onEdit}><Pencil size={17} />Editar</button>
           <button className="prod-primary-button" onClick={() => onPrint('sheets')}><Printer size={17} />Hoja unica del pedido</button>
+          <button className="prod-primary-button whatsapp" disabled={sendingPdf} onClick={sendOrderToClient}>
+            {sendingPdf ? <FileDown size={17} /> : <MessageCircle size={17} />}
+            {sendingPdf ? 'Descargando PDF...' : 'Enviar pedido por WhatsApp'}
+          </button>
           <button className="prod-primary-button dark" onClick={() => onPrint('cards')}><Printer size={17} />Tarjetas</button>
           <button className="prod-primary-button guide" onClick={() => onPrint('guides')}><Tags size={17} />Guias para cajas</button>
           {isAdmin && dirtyIds.length > 0 && (
@@ -2281,29 +2339,30 @@ function ProductionOrderSheet({ order }) {
       <header><div><strong>PRODUCALZA</strong><span>HOJA UNICA DE PEDIDO Y PRODUCCION</span></div><b>{order.order_number}</b></header>
       <section className="prod-print-info">
         <div><span>Cliente</span><strong>{order.client_name}</strong></div>
-        <div><span>Razon social</span><strong>{order.business_name || '-'}</strong></div>
-        <div><span>RUC / Cedula</span><strong>{order.tax_id || '-'}</strong></div>
         <div><span>Fecha</span><strong>{displayDate(order.order_date)}</strong></div>
-        <div><span>Vendedor</span><strong>{order.seller_name || 'Sin asignar'}</strong></div>
-        <div><span>Ciudad</span><strong>{order.city || 'Sin ciudad'}</strong></div>
-        <div><span>Direccion</span><strong>{order.address || '-'}</strong></div>
-        <div><span>Telefono</span><strong>{order.phone || '-'}</strong></div>
-        <div><span>Correo</span><strong>{order.email || '-'}</strong></div>
         <div><span>Marca</span><strong>{order.brand || '-'}</strong></div>
-        <div><span>Forma de pago</span><strong>{order.payment_method || '-'}</strong></div>
-        <div><span>Referencia bancaria</span><strong>{order.bank_reference || '-'}</strong></div>
+        <div><span>Ciudad</span><strong>{order.city || 'Sin ciudad'}</strong></div>
       </section>
       <div className="prod-print-process-legend">
         {PROCESS_FIELDS.map(([, letter, label]) => <span key={label}><strong>{letter}</strong> {label}</span>)}
       </div>
       <table className="prod-print-order-table">
+        <colgroup>
+          <col className="prod-col-card" />
+          <col className="prod-col-model" />
+          <col className="prod-col-description" />
+          {SIZES.map((size) => <col className="prod-col-size" key={`col-${size}`} />)}
+          <col className="prod-col-total" />
+          {PROCESS_FIELDS.map(([, , label]) => <col className="prod-col-process" key={`col-${label}`} />)}
+          <col className="prod-col-notes" />
+        </colgroup>
         <thead>
           <tr>
             <th>Tarj.</th><th>Modelo</th><th>Color / Material</th>
             {SIZES.map((size) => <th key={size}>{size}</th>)}
             <th>Total</th>
             {PROCESS_FIELDS.map(([, letter, label]) => <th title={label} key={label}>{letter}</th>)}
-            <th>Estado</th><th>Observaciones</th>
+            <th>Observaciones</th>
           </tr>
         </thead>
         <tbody>
@@ -2315,14 +2374,13 @@ function ProductionOrderSheet({ order }) {
               {SIZES.map((size) => <td key={size}>{model.sizes?.[size] || ''}</td>)}
               <td><strong>{model.total_pairs}</strong></td>
               {PROCESS_FIELDS.map(([field, , label]) => <td key={label}>{model[field] ? 'X' : ''}</td>)}
-              <td>{MODEL_STATUS_LABELS[model.status] || model.status}</td>
               <td>{model.notes || ''}</td>
             </tr>
           ))}
           <tr className="prod-print-total-row">
             <td colSpan="13"><strong>TOTAL DEL PEDIDO</strong></td>
             <td><strong>{totalPairs}</strong></td>
-            <td colSpan="8" />
+            <td colSpan="7" />
           </tr>
         </tbody>
       </table>

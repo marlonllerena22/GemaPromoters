@@ -3,4 +3,5 @@ dist/
 .env
 backend/data/
 work/
+tmp/
 *.log

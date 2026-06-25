@@ -1,4 +1,5 @@
 import { createToken, requireProductionAdmin, requireProductionUser } from './auth.js';
+import { createProductionOrderPdf } from './production-pdf.js';
 
 const ORDER_STATUSES = ['draft', 'received', 'reviewed', 'in_production', 'finished', 'delivered', 'cancelled'];
 const MODEL_STATUSES = ['received', 'reviewed', 'in_production', 'cut', 'stitched', 'assembled', 'finished', 'delivered', 'cancelled'];
@@ -775,6 +776,24 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const order = getOrder(req.params.id, req);
     if (!order) return res.status(404).json({ message: 'Pedido no encontrado' });
     res.json(order);
+  });
+
+  app.get('/api/producalza/orders/:id/pdf', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const order = getOrder(req.params.id, req);
+    if (!order) return res.status(404).json({ message: 'Pedido no encontrado' });
+    const safeClientName = String(order.client_name || 'Cliente')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9 -]/g, '')
+      .trim() || 'Cliente';
+    const filename = `Pedido Producalza ${safeClientName}.pdf`;
+    const pdf = createProductionOrderPdf(order);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', pdf.length);
+    res.send(pdf);
   });
 
   app.post('/api/producalza/orders', requireProductionUser, (req, res) => {
