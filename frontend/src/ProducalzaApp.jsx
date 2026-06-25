@@ -167,8 +167,10 @@ function displayDate(value) {
 function whatsappNumber(value) {
   const digits = String(value || '').replace(/\D/g, '');
   if (!digits) return '';
+  if (digits.startsWith('5930')) return `593${digits.slice(4)}`;
   if (digits.startsWith('593')) return digits;
   if (digits.startsWith('0')) return `593${digits.slice(1)}`;
+  if (digits.length === 9) return `593${digits}`;
   return digits;
 }
 
@@ -1060,8 +1062,9 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
     });
     const message = `Buenas tardes, estimado/estimada ${order.client_name}. Le envio el pedido realizado en fecha ${today}. Por favor, revise el documento adjunto. Muchas gracias.`;
     const whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
-    const whatsappWindow = window.open('', '_blank');
-    if (whatsappWindow) {
+    const isMobile = window.matchMedia('(max-width: 620px)').matches;
+    const whatsappWindow = isMobile ? null : window.open('', '_blank');
+    if (!isMobile && whatsappWindow) {
       whatsappWindow.opener = null;
       whatsappWindow.location.href = whatsappUrl;
     }
@@ -1071,8 +1074,8 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
         scope(`/producalza/orders/${order.id}/pdf`),
         `Pedido Producalza ${safeFilename(order.client_name)}.pdf`
       );
-      if (!whatsappWindow) {
-        window.location.href = whatsappUrl;
+      if (isMobile || !whatsappWindow) {
+        window.location.assign(whatsappUrl);
       }
     } catch (error) {
       whatsappWindow?.close();
