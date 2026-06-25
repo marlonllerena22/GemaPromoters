@@ -2358,6 +2358,10 @@ td {
   background: #107347;
 }
 
+.prod-mobile-whatsapp-action {
+  display: none;
+}
+
 .prod-primary-button:disabled {
   cursor: wait;
   opacity: 0.7;
@@ -3729,6 +3733,41 @@ td {
   .prod-order-summary .prod-form-actions {
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .prod-mobile-whatsapp-action {
+    align-items: center;
+    display: flex;
+    justify-content: flex-start;
+    min-height: 62px;
+    padding: 11px 14px;
+    text-align: left;
+    width: 100%;
+  }
+
+  .prod-mobile-whatsapp-action > span {
+    display: grid;
+    gap: 2px;
+  }
+
+  .prod-mobile-whatsapp-action strong,
+  .prod-mobile-whatsapp-action small {
+    color: #ffffff;
+    display: block;
+  }
+
+  .prod-mobile-whatsapp-action strong {
+    font-size: 14px;
+  }
+
+  .prod-mobile-whatsapp-action small {
+    font-size: 11px;
+    font-weight: 500;
+    opacity: 0.86;
+  }
+
+  .prod-desktop-whatsapp-action {
+    display: none;
   }
 
   .prod-order-hero > div:last-child {

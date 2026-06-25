@@ -1084,12 +1084,23 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
 
   return (
     <div className="prod-stack">
+      <button
+        className="prod-primary-button whatsapp prod-mobile-whatsapp-action"
+        disabled={sendingPdf}
+        onClick={sendOrderToClient}
+      >
+        {sendingPdf ? <FileDown size={19} /> : <MessageCircle size={19} />}
+        <span>
+          <strong>{sendingPdf ? 'Descargando PDF...' : 'Enviar pedido por WhatsApp'}</strong>
+          {!sendingPdf && <small>Descarga el PDF y abre el chat del cliente</small>}
+        </span>
+      </button>
       <div className="prod-detail-actions">
         <button className="prod-secondary-button" onClick={onBack}><ChevronLeft size={17} />Volver</button>
         <div>
           <button className="prod-secondary-button" onClick={onEdit}><Pencil size={17} />Editar</button>
           <button className="prod-primary-button" onClick={() => onPrint('sheets')}><Printer size={17} />Hoja unica del pedido</button>
-          <button className="prod-primary-button whatsapp" disabled={sendingPdf} onClick={sendOrderToClient}>
+          <button className="prod-primary-button whatsapp prod-desktop-whatsapp-action" disabled={sendingPdf} onClick={sendOrderToClient}>
             {sendingPdf ? <FileDown size={17} /> : <MessageCircle size={17} />}
             {sendingPdf ? 'Descargando PDF...' : 'Enviar pedido por WhatsApp'}
           </button>
