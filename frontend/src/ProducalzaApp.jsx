@@ -173,6 +173,13 @@ function displayDate(value) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('es-EC');
 }
 
+function displayNumber(value, decimals = 0) {
+  return Number(value || 0).toLocaleString('es-EC', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals
+  });
+}
+
 function whatsappNumber(value) {
   const digits = String(value || '').replace(/\D/g, '');
   if (!digits) return '';
@@ -648,7 +655,15 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
           onPrint={preparePrint}
         />
       )}
-      {view === 'reports' && isAdmin && <ProductionReports dashboard={dashboard} orders={orders} clientActivity={clientActivity} />}
+      {view === 'reports' && isAdmin && (
+        <ProductionReports
+          dashboard={dashboard}
+          orders={orders}
+          clientActivity={clientActivity}
+          scope={scope}
+          setError={setError}
+        />
+      )}
       {view === 'guide-templates' && isAdmin && (
         <GuideTemplatesView
           templates={guideTemplates}
@@ -745,8 +760,36 @@ function ProductionDashboard({ data, orders, onOpen }) {
   ];
   const followUpAlerts = data?.follow_up_alerts || [];
   const today = new Date().toISOString().slice(0, 10);
+  const alertSection = followUpAlerts.length > 0 && (
+    <section className="prod-panel prod-followup-alerts top">
+      <div className="prod-panel-title">
+        <div><span>Seguimientos</span><h2>Alertas proximas</h2></div>
+        <strong>{followUpAlerts.length}</strong>
+      </div>
+      <div className="prod-followup-alert-list">
+        {followUpAlerts.map((item) => {
+          const isOverdue = item.next_visit_date < today;
+          const isToday = item.next_visit_date === today;
+          const isPhysicalVisit = Number(item.alert_hours || 24) === 72;
+          return (
+            <article className={`${isOverdue ? 'overdue' : isToday ? 'today' : ''} ${isPhysicalVisit ? 'visit-window' : ''}`} key={item.id}>
+              <div>
+                <strong>{item.client_name}</strong>
+                <span>{item.city || 'Sin ciudad'} - {VISIT_TYPE_LABELS[item.next_visit_type] || VISIT_TYPE_LABELS[item.visit_type] || 'Seguimiento'}</span>
+              </div>
+              <div>
+                <b>{isOverdue ? 'Vencido' : isToday ? 'Hoy' : isPhysicalVisit ? 'Visita 72h' : 'Manana'}</b>
+                <small>{displayDate(item.next_visit_date)}</small>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
   return (
     <div className="prod-stack">
+      {alertSection}
       <section className="prod-metrics">
         {metrics.map(([label, value, Icon]) => (
           <article key={label}>
@@ -792,32 +835,6 @@ function ProductionDashboard({ data, orders, onOpen }) {
           </div>
         </section>
       </div>
-      {followUpAlerts.length > 0 && (
-        <section className="prod-panel prod-followup-alerts">
-          <div className="prod-panel-title">
-            <div><span>Seguimientos</span><h2>Alertas proximas</h2></div>
-            <strong>{followUpAlerts.length}</strong>
-          </div>
-          <div className="prod-followup-alert-list">
-            {followUpAlerts.map((item) => {
-              const isOverdue = item.next_visit_date < today;
-              const isToday = item.next_visit_date === today;
-              return (
-                <article className={isOverdue ? 'overdue' : isToday ? 'today' : ''} key={item.id}>
-                  <div>
-                    <strong>{item.client_name}</strong>
-                    <span>{item.city || 'Sin ciudad'} - {VISIT_TYPE_LABELS[item.next_visit_type] || VISIT_TYPE_LABELS[item.visit_type] || 'Seguimiento'}</span>
-                  </div>
-                  <div>
-                    <b>{isOverdue ? 'Vencido' : isToday ? 'Hoy' : 'Manana'}</b>
-                    <small>{displayDate(item.next_visit_date)}</small>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        </section>
-      )}
     </div>
   );
 }
@@ -2046,7 +2063,7 @@ function UsersView({ users, scope, onRefresh, setError }) {
   );
 }
 
-function ProductionReports({ dashboard, orders, clientActivity }) {
+function ProductionReports({ dashboard, orders, clientActivity, scope, setError }) {
   const emptyReportFilters = {
     client: '',
     city: '',
@@ -2063,6 +2080,15 @@ function ProductionReports({ dashboard, orders, clientActivity }) {
     next_status: 'all'
   };
   const [reportFilters, setReportFilters] = useState(emptyReportFilters);
+  const today = new Date().toISOString().slice(0, 10);
+  const [monthlyFilters, setMonthlyFilters] = useState({
+    date_from: `${today.slice(0, 8)}01`,
+    date_to: today,
+    days: '22'
+  });
+  const [monthlyReport, setMonthlyReport] = useState(null);
+  const [excludedClients, setExcludedClients] = useState([]);
+  const [monthlyLoading, setMonthlyLoading] = useState(false);
   const byStatus = Object.entries(ORDER_STATUS_LABELS).map(([key, label]) => ({
     key,
     label,
@@ -2095,7 +2121,41 @@ function ProductionReports({ dashboard, orders, clientActivity }) {
       inDateRange(client.next_visit, reportFilters.next_from, reportFilters.next_to) &&
       matchesNextStatus;
   });
+  const monthlyRows = monthlyReport?.rows || [];
+  const monthlyClients = [...new Set(monthlyRows.map((row) => row.client_name).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+  const visibleMonthlyRows = monthlyRows.filter((row) => !excludedClients.includes(row.client_name));
+  const monthlyDays = Math.max(1, Number(monthlyFilters.days || 1) || 1);
+  const monthlyEntered = visibleMonthlyRows.reduce((sum, row) => sum + Number(row.entered_pairs || 0), 0);
+  const monthlyDispatched = visibleMonthlyRows.reduce((sum, row) => sum + Number(row.dispatched_pairs || 0), 0);
   const updateReportFilter = (key, value) => setReportFilters((current) => ({ ...current, [key]: value }));
+  const updateMonthlyFilter = (key, value) => setMonthlyFilters((current) => ({ ...current, [key]: value }));
+
+  async function loadMonthlyReport() {
+    setMonthlyLoading(true);
+    try {
+      const query = new URLSearchParams();
+      query.set('date_from', monthlyFilters.date_from);
+      query.set('date_to', monthlyFilters.date_to);
+      query.set('days', String(monthlyDays));
+      const report = await api(scope(`/producalza/monthly-report?${query.toString()}`));
+      setMonthlyReport(report);
+      setExcludedClients([]);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setMonthlyLoading(false);
+    }
+  }
+
+  function toggleClient(clientName) {
+    setExcludedClients((current) =>
+      current.includes(clientName)
+        ? current.filter((item) => item !== clientName)
+        : [...current, clientName]
+    );
+  }
+
   return (
     <div className="prod-stack">
       <section className="prod-metrics">
@@ -2103,6 +2163,85 @@ function ProductionReports({ dashboard, orders, clientActivity }) {
         <article><Boxes size={21} /><span>Total de pares</span><strong>{totalPairs}</strong></article>
         <article><Factory size={21} /><span>Pares pendientes</span><strong>{dashboard?.pending_pairs || 0}</strong></article>
         <article><PackageCheck size={21} /><span>Pedidos terminados</span><strong>{dashboard?.finished || 0}</strong></article>
+      </section>
+      <section className="prod-panel prod-monthly-report">
+        <div className="prod-panel-title">
+          <div><span>Produccion mensual</span><h2>Informe mensual de pedidos</h2></div>
+          <button className="prod-primary-button" disabled={monthlyLoading} onClick={loadMonthlyReport}>
+            <Filter size={17} />
+            {monthlyLoading ? 'Generando...' : 'Generar reporte'}
+          </button>
+        </div>
+        <div className="prod-monthly-controls">
+          <label>Desde<input type="date" value={monthlyFilters.date_from} onChange={(event) => updateMonthlyFilter('date_from', event.target.value)} /></label>
+          <label>Hasta<input type="date" value={monthlyFilters.date_to} onChange={(event) => updateMonthlyFilter('date_to', event.target.value)} /></label>
+          <label>Dias de trabajo<input type="number" min="1" value={monthlyFilters.days} onChange={(event) => updateMonthlyFilter('days', event.target.value)} /></label>
+          {monthlyReport && (
+            <button className="prod-secondary-button" onClick={() => window.print()}>
+              <Printer size={17} />
+              Imprimir reporte
+            </button>
+          )}
+        </div>
+        {monthlyReport && (
+          <>
+            <div className="prod-monthly-summary">
+              <article><span>Ingresados</span><strong>{displayNumber(monthlyEntered)}</strong><small>{displayNumber(monthlyEntered / monthlyDays, 1)} pares/dia</small></article>
+              <article><span>Despachados</span><strong>{displayNumber(monthlyDispatched)}</strong><small>{displayNumber(monthlyDispatched / monthlyDays, 1)} pares/dia</small></article>
+              <article><span>Clientes incluidos</span><strong>{monthlyClients.length - excludedClients.length}</strong><small>{excludedClients.length} excluidos</small></article>
+              <article><span>Historico cargado</span><strong>{(monthlyReport.stored_months || []).length}</strong><small>ENERO-MAYO 2026</small></article>
+            </div>
+            <div className="prod-monthly-client-picker">
+              <div><span>Clientes del reporte</span><strong>Desmarca los que no quieres incluir</strong></div>
+              <div>
+                {monthlyClients.map((client) => (
+                  <label key={client} className={excludedClients.includes(client) ? 'excluded' : ''}>
+                    <input
+                      type="checkbox"
+                      checked={!excludedClients.includes(client)}
+                      onChange={() => toggleClient(client)}
+                    />
+                    {client}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="prod-table-wrap prod-monthly-print">
+              <div className="prod-monthly-print-title">
+                <h2>INFORME MENSUAL DE PEDIDOS</h2>
+                <span>{displayDate(monthlyReport.date_from)} - {displayDate(monthlyReport.date_to)}</span>
+              </div>
+              <table className="prod-table prod-monthly-table">
+                <thead>
+                  <tr>
+                    <th>Fecha</th><th>Cliente</th><th>Pares</th><th>Observaciones</th><th>Despachado</th><th>Fecha</th><th>Origen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleMonthlyRows.map((row) => (
+                    <tr key={row.source_key}>
+                      <td>{row.entry_date ? displayDate(row.entry_date) : ''}</td>
+                      <td><strong>{row.client_name}</strong></td>
+                      <td>{row.entered_pairs || ''}</td>
+                      <td>{row.observations || ''}</td>
+                      <td>{row.dispatched_pairs || ''}</td>
+                      <td>{row.dispatched_date ? displayDate(row.dispatched_date) : ''}</td>
+                      <td>{row.row_source === 'historico' ? 'Historico' : 'Sistema'}</td>
+                    </tr>
+                  ))}
+                  <tr className="prod-monthly-total-row">
+                    <td colSpan="2"><strong>TOTALES</strong></td>
+                    <td><strong>{displayNumber(monthlyEntered)}</strong></td>
+                    <td><strong>Dias: {monthlyDays}</strong></td>
+                    <td><strong>{displayNumber(monthlyDispatched)}</strong></td>
+                    <td colSpan="2"><strong>Promedios: {displayNumber(monthlyEntered / monthlyDays, 1)} / {displayNumber(monthlyDispatched / monthlyDays, 1)}</strong></td>
+                  </tr>
+                </tbody>
+              </table>
+              {!visibleMonthlyRows.length && <div className="prod-empty">No hay filas para este rango o todos los clientes estan excluidos.</div>}
+            </div>
+          </>
+        )}
       </section>
       <div className="prod-dashboard-grid">
         <section className="prod-panel">

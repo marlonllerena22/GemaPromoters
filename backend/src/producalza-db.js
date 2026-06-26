@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+
 export function initProducalzaDb(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS production_users (
@@ -146,6 +148,23 @@ export function initProducalzaDb(db) {
       UNIQUE(establishment_id, template_key)
     );
 
+    CREATE TABLE IF NOT EXISTS production_monthly_report_rows (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      source_key TEXT NOT NULL,
+      report_month TEXT NOT NULL,
+      entry_date TEXT,
+      client_name TEXT NOT NULL,
+      entered_pairs INTEGER,
+      observations TEXT,
+      dispatched_pairs INTEGER,
+      dispatched_date TEXT,
+      source TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      UNIQUE(establishment_id, source_key)
+    );
+
     CREATE TABLE IF NOT EXISTS production_audit_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       establishment_id INTEGER NOT NULL,
@@ -164,6 +183,8 @@ export function initProducalzaDb(db) {
       ON production_orders(establishment_id, order_date, status);
     CREATE INDEX IF NOT EXISTS idx_production_models_order
       ON production_order_models(order_id, status);
+    CREATE INDEX IF NOT EXISTS idx_production_monthly_rows_business
+      ON production_monthly_report_rows(establishment_id, report_month, entry_date, dispatched_date);
   `);
 
   addColumnIfMissing(db, 'production_client_visits', 'visited_by_user_id', 'INTEGER');
@@ -217,6 +238,7 @@ export function initProducalzaDb(db) {
      VALUES (?, 'next_card_number', '62')`
   ).run(establishment.id);
 
+  seedMonthlyHistory(db, establishment.id);
 }
 
 function addColumnIfMissing(db, table, column, definition) {
@@ -224,4 +246,38 @@ function addColumnIfMissing(db, table, column, definition) {
   if (!columns.some((item) => item.name === column)) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
+}
+
+function seedMonthlyHistory(db, establishmentId) {
+  const historyUrl = new URL('./producalza-monthly-history.json', import.meta.url);
+  if (!fs.existsSync(historyUrl)) return;
+  let rows = [];
+  try {
+    rows = JSON.parse(fs.readFileSync(historyUrl, 'utf8'));
+  } catch {
+    rows = [];
+  }
+  if (!Array.isArray(rows) || !rows.length) return;
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO production_monthly_report_rows
+     (establishment_id, source_key, report_month, entry_date, client_name, entered_pairs,
+      observations, dispatched_pairs, dispatched_date, source)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  db.transaction(() => {
+    for (const row of rows) {
+      insert.run(
+        establishmentId,
+        String(row.source_key || '').trim(),
+        String(row.report_month || '').trim(),
+        row.entry_date || null,
+        String(row.client_name || '').trim(),
+        row.entered_pairs == null ? null : Number(row.entered_pairs),
+        String(row.observations || '').trim(),
+        row.dispatched_pairs == null ? null : Number(row.dispatched_pairs),
+        row.dispatched_date || null,
+        String(row.source || '').trim()
+      );
+    }
+  })();
 }

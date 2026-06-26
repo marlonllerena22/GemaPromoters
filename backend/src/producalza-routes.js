@@ -128,6 +128,11 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     return String(value || '').trim().replace(/\s+/g, ' ').toUpperCase();
   }
 
+  function normalizeDateInput(value, fallback = '') {
+    const text = String(value || '').trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : fallback;
+  }
+
   function slugFromName(value) {
     return normalizeTemplateName(value)
       .normalize('NFD')
@@ -352,14 +357,25 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       `SELECT visits.id, visits.client_id, visits.next_visit_date, visits.next_visit_type,
               visits.visit_type, visits.result, visits.notes,
               clients.name AS client_name, clients.city, clients.phone,
-              COALESCE(users.name, visits.visitor_name, clients.imported_seller_code, 'Sin responsable') AS responsible_name
+              COALESCE(users.name, visits.visitor_name, clients.imported_seller_code, 'Sin responsable') AS responsible_name,
+              CASE
+                WHEN COALESCE(NULLIF(visits.next_visit_type, ''), visits.visit_type) = 'visit' THEN 72
+                ELSE 24
+              END AS alert_hours
        FROM production_client_visits AS visits
        JOIN production_clients AS clients ON clients.id = visits.client_id
        LEFT JOIN production_users AS users ON users.id = visits.visited_by_user_id
        WHERE visits.establishment_id = ?
          AND visits.next_visit_date IS NOT NULL
          AND visits.next_visit_date <> ''
-         AND visits.next_visit_date <= date('now', 'localtime', '+1 day')
+         AND visits.next_visit_date <= date(
+           'now',
+           'localtime',
+           CASE
+             WHEN COALESCE(NULLIF(visits.next_visit_type, ''), visits.visit_type) = 'visit' THEN '+3 day'
+             ELSE '+1 day'
+           END
+         )
          ${alertOwnerFilter}
        ORDER BY visits.next_visit_date ASC, visits.id DESC
        LIMIT 12`
@@ -835,6 +851,97 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
        ORDER BY COALESCE(last_activity, '1900-01-01') DESC, clients.name`
     ).all(today, business.id);
     res.json(rows);
+  });
+
+  app.get('/api/producalza/monthly-report', requireProductionAdmin, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const dateFrom = normalizeDateInput(req.query.date_from, today.slice(0, 8) + '01');
+    const dateTo = normalizeDateInput(req.query.date_to, today);
+    const monthFrom = dateFrom.slice(0, 7);
+    const monthTo = dateTo.slice(0, 7);
+    const days = Math.max(1, Number(req.query.days || 1) || 1);
+
+    const historicalRows = db.prepare(
+      `SELECT source_key, report_month, entry_date, client_name, entered_pairs,
+              observations, dispatched_pairs, dispatched_date, source, 'historico' AS row_source
+       FROM production_monthly_report_rows
+       WHERE establishment_id = ?
+         AND report_month BETWEEN ? AND ?`
+    ).all(business.id, monthFrom, monthTo);
+
+    const liveEntered = db.prepare(
+      `SELECT 'live-order-' || orders.id AS source_key,
+              substr(orders.order_date, 1, 7) AS report_month,
+              orders.order_date AS entry_date,
+              clients.name AS client_name,
+              COALESCE(SUM(models.total_pairs), 0) AS entered_pairs,
+              orders.general_notes AS observations,
+              NULL AS dispatched_pairs,
+              NULL AS dispatched_date,
+              'Sistema Producalza' AS source,
+              'sistema' AS row_source
+       FROM production_orders AS orders
+       JOIN production_clients AS clients ON clients.id = orders.client_id
+       LEFT JOIN production_order_models AS models ON models.order_id = orders.id
+       WHERE orders.establishment_id = ?
+         AND orders.deleted_at IS NULL
+         AND orders.order_date BETWEEN ? AND ?
+       GROUP BY orders.id`
+    ).all(business.id, dateFrom, dateTo);
+
+    const liveDispatched = db.prepare(
+      `SELECT 'live-dispatch-' || models.id AS source_key,
+              substr(date(models.updated_at), 1, 7) AS report_month,
+              NULL AS entry_date,
+              clients.name AS client_name,
+              NULL AS entered_pairs,
+              models.notes AS observations,
+              models.total_pairs AS dispatched_pairs,
+              date(models.updated_at) AS dispatched_date,
+              'Sistema Producalza' AS source,
+              'sistema' AS row_source
+       FROM production_order_models AS models
+       JOIN production_orders AS orders ON orders.id = models.order_id
+       JOIN production_clients AS clients ON clients.id = orders.client_id
+       WHERE orders.establishment_id = ?
+         AND orders.deleted_at IS NULL
+         AND models.status IN ('finished', 'delivered')
+         AND date(models.updated_at) BETWEEN ? AND ?`
+    ).all(business.id, dateFrom, dateTo);
+
+    const rows = [...historicalRows, ...liveEntered, ...liveDispatched]
+      .filter((row) => row.client_name)
+      .sort((left, right) => {
+        const leftDate = left.entry_date || left.dispatched_date || '';
+        const rightDate = right.entry_date || right.dispatched_date || '';
+        return leftDate.localeCompare(rightDate) || left.client_name.localeCompare(right.client_name);
+      });
+    const totalEntered = rows.reduce((sum, row) => sum + Number(row.entered_pairs || 0), 0);
+    const totalDispatched = rows.reduce((sum, row) => sum + Number(row.dispatched_pairs || 0), 0);
+    const storedMonths = db.prepare(
+      `SELECT report_month, COUNT(*) AS rows_count,
+              COALESCE(SUM(entered_pairs), 0) AS entered_pairs,
+              COALESCE(SUM(dispatched_pairs), 0) AS dispatched_pairs
+       FROM production_monthly_report_rows
+       WHERE establishment_id = ?
+       GROUP BY report_month
+       ORDER BY report_month`
+    ).all(business.id);
+    res.json({
+      date_from: dateFrom,
+      date_to: dateTo,
+      days,
+      rows,
+      stored_months: storedMonths,
+      totals: {
+        entered_pairs: totalEntered,
+        dispatched_pairs: totalDispatched,
+        entered_daily: totalEntered / days,
+        dispatched_daily: totalDispatched / days
+      }
+    });
   });
 
   app.get('/api/producalza/orders', requireProductionUser, (req, res) => {
