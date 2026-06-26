@@ -1321,6 +1321,41 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     res.json(getOrder(order.id, req));
   });
 
+  app.patch('/api/producalza/orders/:id/delivery-note-values', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const order = getOrder(req.params.id, req);
+    if (!order) return res.status(404).json({ message: 'Pedido no encontrado' });
+    const prices = Array.isArray(req.body.models) ? req.body.models : [];
+    const validModelIds = new Set(order.models.map((model) => Number(model.id)));
+
+    db.transaction(() => {
+      db.prepare(
+        `UPDATE production_orders
+         SET shipping_value = ?, discount_value = ?, updated_at = datetime('now', 'localtime')
+         WHERE id = ? AND establishment_id = ?`
+      ).run(
+        moneyValue(req.body.shipping_value),
+        moneyValue(req.body.discount_value),
+        order.id,
+        business.id
+      );
+
+      const updateModel = db.prepare(
+        `UPDATE production_order_models
+         SET unit_price = ?, updated_at = datetime('now', 'localtime')
+         WHERE id = ? AND order_id = ? AND establishment_id = ?`
+      );
+      for (const model of prices) {
+        const modelId = Number(model.id || 0);
+        if (!validModelIds.has(modelId)) continue;
+        updateModel.run(moneyValue(model.unit_price), modelId, order.id, business.id);
+      }
+    })();
+    audit(req, 'update', 'delivery_note_values', order.id, order.order_number);
+    res.json(getOrder(order.id, req));
+  });
+
   app.post('/api/producalza/orders', requireProductionUser, (req, res) => {
     const business = ensureProductionBusiness(req, res);
     if (!business) return;

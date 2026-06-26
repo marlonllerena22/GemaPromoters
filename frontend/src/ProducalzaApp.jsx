@@ -204,6 +204,32 @@ function orderTotalValue(order) {
   return Math.max(0, orderSubtotal(order) + Number(order.shipping_value || 0) - Number(order.discount_value || 0));
 }
 
+function deliveryValuesFromOrder(order) {
+  return {
+    shipping_value: order.shipping_value || '',
+    discount_value: order.discount_value || '',
+    models: (order.models || []).map((model) => ({
+      id: model.id,
+      model_code: model.model_code,
+      material: model.material,
+      color: model.color,
+      total_pairs: Number(model.total_pairs || 0),
+      unit_price: model.unit_price || ''
+    }))
+  };
+}
+
+function deliverySubtotal(form) {
+  return (form.models || []).reduce(
+    (sum, model) => sum + Number(model.total_pairs || 0) * Number(model.unit_price || 0),
+    0
+  );
+}
+
+function deliveryTotal(form) {
+  return Math.max(0, deliverySubtotal(form) + Number(form.shipping_value || 0) - Number(form.discount_value || 0));
+}
+
 function processStateForStatus(status) {
   const order = ['received', 'reviewed', 'in_production', 'cut', 'stitched', 'assembled', 'finished', 'delivered'];
   const step = order.indexOf(status);
@@ -566,10 +592,10 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
     }
   }
 
-  async function preparePrint(orderId, type, modelId = null) {
-    const order = selectedOrder?.id === orderId
+  async function preparePrint(orderId, type, modelId = null, orderOverride = null) {
+    const order = orderOverride || (selectedOrder?.id === orderId
       ? selectedOrder
-      : await api(scope(`/producalza/orders/${orderId}`));
+      : await api(scope(`/producalza/orders/${orderId}`)));
     const guideTemplateKey = resolveGuideTemplateKey(order, guideTemplates);
     if (type === 'guides' && !guideTemplateKey) {
       setError('Asigna un formato de guia al cliente o al pedido antes de imprimir.');
@@ -680,7 +706,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
           setError={setError}
           onBack={() => setView('orders')}
           onEdit={() => editOrder(selectedOrder.id)}
-          onPrint={(type, modelId) => preparePrint(selectedOrder.id, type, modelId)}
+          onPrint={(type, modelId, orderOverride) => preparePrint(selectedOrder.id, type, modelId, orderOverride)}
           onUpdated={async (message = 'Pedido actualizado') => {
             const updatedOrder = await api(scope(`/producalza/orders/${selectedOrder.id}`));
             setSelectedOrder(updatedOrder);
@@ -1262,6 +1288,9 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
   const [models, setModels] = useState(order.models);
   const [dirtyIds, setDirtyIds] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [showDeliveryEditor, setShowDeliveryEditor] = useState(false);
+  const [deliverySaving, setDeliverySaving] = useState(false);
+  const [deliveryForm, setDeliveryForm] = useState(() => deliveryValuesFromOrder(order));
   const [paymentForm, setPaymentForm] = useState(emptyPayment);
   const [editingPaymentId, setEditingPaymentId] = useState(null);
   const [savingPayment, setSavingPayment] = useState(false);
@@ -1275,6 +1304,8 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
   useEffect(() => {
     setModels(order.models);
     setDirtyIds([]);
+    setDeliveryForm(deliveryValuesFromOrder(order));
+    setShowDeliveryEditor(false);
     setPaymentForm(emptyPayment);
     setEditingPaymentId(null);
     setShowInvoiceForm(false);
@@ -1406,6 +1437,32 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
     }
   }
 
+  function updateDeliveryModel(modelId, unitPrice) {
+    setDeliveryForm((current) => ({
+      ...current,
+      models: current.models.map((model) =>
+        model.id === modelId ? { ...model, unit_price: unitPrice } : model
+      )
+    }));
+  }
+
+  async function saveDeliveryValuesAndPrint() {
+    setDeliverySaving(true);
+    try {
+      const updatedOrder = await api(scope(`/producalza/orders/${order.id}/delivery-note-values`), {
+        method: 'PATCH',
+        body: JSON.stringify(deliveryForm)
+      });
+      setShowDeliveryEditor(false);
+      await onUpdated('Valores de nota guardados');
+      onPrint('delivery-note', null, updatedOrder);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDeliverySaving(false);
+    }
+  }
+
   async function saveInvoice() {
     try {
       await api(scope(`/producalza/orders/${order.id}/invoice`), {
@@ -1472,7 +1529,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
           <button className="prod-secondary-button" onClick={onBack}><ChevronLeft size={17} />Volver</button>
         <div>
           <button className="prod-secondary-button" onClick={onEdit}><Pencil size={17} />Editar</button>
-          <button className="prod-primary-button delivery" onClick={() => onPrint('delivery-note')}><Printer size={17} />Nota de entrega</button>
+          <button className="prod-primary-button delivery" onClick={() => setShowDeliveryEditor((value) => !value)}><Printer size={17} />Nota de entrega</button>
           <button className="prod-secondary-button" onClick={() => setShowInvoiceForm((value) => !value)}><FilePlus2 size={17} />Registrar factura</button>
           <button className="prod-primary-button" onClick={() => onPrint('sheets')}><Printer size={17} />Hoja unica del pedido</button>
           <button className="prod-primary-button dark" onClick={() => onPrint('cards')}><Printer size={17} />Tarjetas</button>
@@ -1508,6 +1565,49 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
           )}
         </div>
       </section>
+      {showDeliveryEditor && (
+        <section className="prod-panel prod-delivery-editor">
+          <div className="prod-panel-title">
+            <div><span>Antes de imprimir</span><h2>Valores de nota de entrega</h2></div>
+          </div>
+          <div className="prod-delivery-editor-list">
+            {deliveryForm.models.map((model) => {
+              const quantity = Number(model.total_pairs || 0);
+              const unitPrice = Number(model.unit_price || 0);
+              return (
+                <article key={model.id}>
+                  <div>
+                    <strong>{model.model_code}</strong>
+                    <span>{quantity} pares · {[model.material, model.color].filter(Boolean).join(' ') || 'Sin descripcion'}</span>
+                  </div>
+                  <label>Valor unitario
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={model.unit_price}
+                      onChange={(event) => updateDeliveryModel(model.id, event.target.value)}
+                    />
+                  </label>
+                  <div><span>Total</span><strong>{displayMoney(quantity * unitPrice)}</strong></div>
+                </article>
+              );
+            })}
+          </div>
+          <div className="prod-delivery-editor-totals">
+            <label>Envio<input type="number" min="0" step="0.01" value={deliveryForm.shipping_value} onChange={(event) => setDeliveryForm({ ...deliveryForm, shipping_value: event.target.value })} /></label>
+            <label>Descuento<input type="number" min="0" step="0.01" value={deliveryForm.discount_value} onChange={(event) => setDeliveryForm({ ...deliveryForm, discount_value: event.target.value })} /></label>
+            <div><span>Subtotal</span><strong>{displayMoney(deliverySubtotal(deliveryForm))}</strong></div>
+            <div><span>Total final</span><strong>{displayMoney(deliveryTotal(deliveryForm))}</strong></div>
+          </div>
+          <div className="prod-form-actions">
+            <button className="prod-secondary-button" onClick={() => setShowDeliveryEditor(false)}>Cancelar</button>
+            <button className="prod-primary-button delivery" disabled={deliverySaving} onClick={saveDeliveryValuesAndPrint}>
+              <Printer size={17} />{deliverySaving ? 'Guardando...' : 'Guardar e imprimir'}
+            </button>
+          </div>
+        </section>
+      )}
       <section className="prod-panel">
         <div className="prod-detail-grid">
           <Detail label="Razon social" value={order.business_name} />
