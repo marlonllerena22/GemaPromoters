@@ -864,12 +864,12 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const historicalRows = db.prepare(
       `SELECT source_key,
               report_month,
-              CASE WHEN entry_date BETWEEN ? AND ? THEN entry_date ELSE NULL END AS entry_date,
+              entry_date,
               client_name,
               CASE WHEN entry_date BETWEEN ? AND ? THEN entered_pairs ELSE NULL END AS entered_pairs,
               observations,
               CASE WHEN dispatched_date BETWEEN ? AND ? THEN dispatched_pairs ELSE NULL END AS dispatched_pairs,
-              CASE WHEN dispatched_date BETWEEN ? AND ? THEN dispatched_date ELSE NULL END AS dispatched_date,
+              dispatched_date,
               source,
               'historico' AS row_source
        FROM production_monthly_report_rows
@@ -879,8 +879,6 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
            OR dispatched_date BETWEEN ? AND ?
          )`
     ).all(
-      dateFrom, dateTo,
-      dateFrom, dateTo,
       dateFrom, dateTo,
       dateFrom, dateTo,
       business.id,
@@ -911,7 +909,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const liveDispatched = db.prepare(
       `SELECT 'live-dispatch-' || models.id AS source_key,
               substr(date(models.updated_at), 1, 7) AS report_month,
-              NULL AS entry_date,
+              orders.order_date AS entry_date,
               clients.name AS client_name,
               NULL AS entered_pairs,
               models.notes AS observations,
