@@ -78,6 +78,7 @@ export function initProducalzaDb(db) {
       bank_reference TEXT,
       guide_template_key TEXT,
       general_notes TEXT,
+      dispatched_date TEXT,
       status TEXT NOT NULL DEFAULT 'draft'
         CHECK (status IN ('draft', 'received', 'reviewed', 'in_production', 'finished', 'delivered', 'cancelled')),
       created_by TEXT,
@@ -125,6 +126,26 @@ export function initProducalzaDb(db) {
       FOREIGN KEY (establishment_id) REFERENCES establishments(id),
       FOREIGN KEY (model_id) REFERENCES production_order_models(id),
       UNIQUE(model_id, size)
+    );
+
+    CREATE TABLE IF NOT EXISTS production_order_payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      order_id INTEGER NOT NULL,
+      payment_type TEXT NOT NULL DEFAULT 'abono'
+        CHECK (payment_type IN ('abono', 'cheque', 'transferencia', 'efectivo', 'saldo', 'otro')),
+      amount REAL NOT NULL DEFAULT 0,
+      payment_date TEXT,
+      due_date TEXT,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'paid', 'cancelled')),
+      bank TEXT,
+      reference TEXT,
+      notes TEXT,
+      created_by TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (order_id) REFERENCES production_orders(id)
     );
 
     CREATE TABLE IF NOT EXISTS production_settings (
@@ -185,6 +206,8 @@ export function initProducalzaDb(db) {
       ON production_order_models(order_id, status);
     CREATE INDEX IF NOT EXISTS idx_production_monthly_rows_business
       ON production_monthly_report_rows(establishment_id, report_month, entry_date, dispatched_date);
+    CREATE INDEX IF NOT EXISTS idx_production_order_payments_business
+      ON production_order_payments(establishment_id, due_date, status);
   `);
 
   addColumnIfMissing(db, 'production_client_visits', 'visited_by_user_id', 'INTEGER');
@@ -201,6 +224,7 @@ export function initProducalzaDb(db) {
   addColumnIfMissing(db, 'production_orders', 'delivery_date', 'TEXT');
   addColumnIfMissing(db, 'production_orders', 'origin_label', 'TEXT');
   addColumnIfMissing(db, 'production_orders', 'card_alert', 'TEXT');
+  addColumnIfMissing(db, 'production_orders', 'dispatched_date', 'TEXT');
   db.prepare(
     `UPDATE production_client_visits
      SET updated_at = COALESCE(NULLIF(updated_at, ''), created_at),

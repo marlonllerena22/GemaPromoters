@@ -3,6 +3,8 @@ import { createProductionOrderPdf } from './production-pdf.js';
 
 const ORDER_STATUSES = ['draft', 'received', 'reviewed', 'in_production', 'finished', 'delivered', 'cancelled'];
 const MODEL_STATUSES = ['received', 'reviewed', 'in_production', 'cut', 'stitched', 'assembled', 'finished', 'delivered', 'cancelled'];
+const PAYMENT_TYPES = ['abono', 'cheque', 'transferencia', 'efectivo', 'saldo', 'otro'];
+const PAYMENT_STATUSES = ['pending', 'paid', 'cancelled'];
 const SIZES = [34, 35, 36, 37, 38, 39, 40, 41, 42, 43];
 
 export function findProductionUserForLogin(db, username, password) {
@@ -133,6 +135,26 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : fallback;
   }
 
+  function normalizeOptionalDate(value) {
+    return normalizeDateInput(value, '') || null;
+  }
+
+  function normalizePaymentPayload(body) {
+    const amount = Math.max(0, Number(body.amount || 0) || 0);
+    const paymentType = PAYMENT_TYPES.includes(body.payment_type) ? body.payment_type : 'abono';
+    const status = PAYMENT_STATUSES.includes(body.status) ? body.status : 'pending';
+    return {
+      payment_type: paymentType,
+      amount,
+      payment_date: normalizeOptionalDate(body.payment_date),
+      due_date: normalizeOptionalDate(body.due_date),
+      status,
+      bank: String(body.bank || '').trim(),
+      reference: String(body.reference || '').trim(),
+      notes: String(body.notes || '').trim()
+    };
+  }
+
   function slugFromName(value) {
     return normalizeTemplateName(value)
       .normalize('NFD')
@@ -225,8 +247,16 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
          ORDER BY sizes.size`
       )
       .all(order.id, businessId);
+    const payments = db
+      .prepare(
+        `SELECT * FROM production_order_payments
+         WHERE order_id = ? AND establishment_id = ?
+         ORDER BY COALESCE(due_date, payment_date, created_at) DESC, id DESC`
+      )
+      .all(order.id, businessId);
     return {
       ...order,
+      payments,
       models: models.map((model) => ({
         ...model,
         sizes: Object.fromEntries(
@@ -380,13 +410,35 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
        ORDER BY visits.next_visit_date ASC, visits.id DESC
        LIMIT 12`
     ).all(...alertParams);
+    const paymentAlertParams = [business.id];
+    if (!isProductionAdmin(req)) paymentAlertParams.push(req.user?.productionUserId || 0);
+    const paymentAlerts = db.prepare(
+      `SELECT payments.id, payments.order_id, payments.payment_type, payments.amount,
+              payments.due_date, payments.status, payments.bank, payments.reference,
+              orders.order_number, clients.name AS client_name, clients.city, clients.phone,
+              COALESCE(users.name, 'Sin vendedor') AS seller_name
+       FROM production_order_payments AS payments
+       JOIN production_orders AS orders ON orders.id = payments.order_id
+       JOIN production_clients AS clients ON clients.id = orders.client_id
+       LEFT JOIN production_users AS users ON users.id = orders.seller_user_id
+       WHERE payments.establishment_id = ?
+         AND orders.deleted_at IS NULL
+         AND payments.status = 'pending'
+         AND payments.due_date IS NOT NULL
+         AND payments.due_date <> ''
+         AND payments.due_date <= date('now', 'localtime', '+1 day')
+         ${isProductionAdmin(req) ? '' : 'AND orders.seller_user_id = ?'}
+       ORDER BY payments.due_date ASC, payments.id DESC
+       LIMIT 12`
+    ).all(...paymentAlertParams);
     res.json({
       new_orders: Number(counts.new_orders || 0),
       in_production: Number(counts.in_production || 0),
       finished: Number(counts.finished || 0),
       pending_pairs: Number(pendingPairs || 0),
       by_seller: bySeller,
-      follow_up_alerts: followUpAlerts
+      follow_up_alerts: followUpAlerts,
+      payment_alerts: paymentAlerts
     });
   });
 
@@ -908,13 +960,13 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
 
     const liveDispatched = db.prepare(
       `SELECT 'live-dispatch-' || models.id AS source_key,
-              substr(date(models.updated_at), 1, 7) AS report_month,
+              substr(date(COALESCE(orders.dispatched_date, models.updated_at)), 1, 7) AS report_month,
               orders.order_date AS entry_date,
               clients.name AS client_name,
               NULL AS entered_pairs,
               models.notes AS observations,
               models.total_pairs AS dispatched_pairs,
-              date(models.updated_at) AS dispatched_date,
+              date(COALESCE(orders.dispatched_date, models.updated_at)) AS dispatched_date,
               'Sistema Producalza' AS source,
               'sistema' AS row_source
        FROM production_order_models AS models
@@ -923,7 +975,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
        WHERE orders.establishment_id = ?
          AND orders.deleted_at IS NULL
          AND models.status IN ('finished', 'delivered')
-         AND date(models.updated_at) BETWEEN ? AND ?`
+         AND date(COALESCE(orders.dispatched_date, models.updated_at)) BETWEEN ? AND ?`
     ).all(business.id, dateFrom, dateTo);
 
     const rows = [...historicalRows, ...liveEntered, ...liveDispatched]
@@ -991,18 +1043,28 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       `SELECT orders.*, clients.name AS client_name, clients.city,
               users.name AS seller_name,
               COUNT(models.id) AS model_count,
-              COALESCE(SUM(models.total_pairs), 0) AS total_pairs
+              COALESCE(SUM(models.total_pairs), 0) AS total_pairs,
+              COALESCE(payments.total_paid, 0) AS total_paid,
+              COALESCE(payments.total_pending, 0) AS total_pending
        FROM production_orders AS orders
        JOIN production_clients AS clients ON clients.id = orders.client_id
        LEFT JOIN production_users AS users ON users.id = orders.seller_user_id
        LEFT JOIN production_order_models AS models ON models.order_id = orders.id
+       LEFT JOIN (
+         SELECT order_id,
+                SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END) AS total_paid,
+                SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END) AS total_pending
+         FROM production_order_payments
+         WHERE establishment_id = ?
+         GROUP BY order_id
+       ) AS payments ON payments.order_id = orders.id
        WHERE orders.establishment_id = ? AND orders.deleted_at IS NULL
          AND (orders.order_number LIKE ? OR clients.name LIKE ?)
          ${filters.length ? `AND ${filters.join(' AND ')}` : ''}
          ${visibility.sql}
        GROUP BY orders.id
        ORDER BY orders.order_date DESC, orders.id DESC`
-    ).all(...params);
+    ).all(business.id, ...params);
     res.json(rows);
   });
 
@@ -1030,6 +1092,114 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Length', pdf.length);
     res.send(pdf);
+  });
+
+  app.patch('/api/producalza/orders/:id/shipped', requireProductionAdmin, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const order = getOrder(req.params.id, req);
+    if (!order) return res.status(404).json({ message: 'Pedido no encontrado' });
+    const dispatchedDate = normalizeDateInput(req.body.dispatched_date, new Date().toISOString().slice(0, 10));
+
+    db.transaction(() => {
+      db.prepare(
+        `UPDATE production_order_models
+         SET status = 'delivered',
+             process_cut = 1,
+             process_prepared = 1,
+             process_stitched = 1,
+             process_assembled = 1,
+             process_planted = 1,
+             process_finished = 1,
+             updated_at = datetime('now', 'localtime')
+         WHERE order_id = ? AND establishment_id = ?`
+      ).run(order.id, business.id);
+      db.prepare(
+        `UPDATE production_orders
+         SET status = 'delivered',
+             dispatched_date = ?,
+             updated_at = datetime('now', 'localtime')
+         WHERE id = ? AND establishment_id = ?`
+      ).run(dispatchedDate, order.id, business.id);
+    })();
+    audit(req, 'ship', 'order', order.id, dispatchedDate);
+    res.json(getOrder(order.id, req));
+  });
+
+  app.post('/api/producalza/orders/:id/payments', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const order = getOrder(req.params.id, req);
+    if (!order) return res.status(404).json({ message: 'Pedido no encontrado' });
+    const payment = normalizePaymentPayload(req.body);
+    if (!payment.amount && !payment.due_date && !payment.reference && !payment.notes) {
+      return res.status(400).json({ message: 'Agrega al menos un valor, fecha o detalle del cobro' });
+    }
+    const result = db.prepare(
+      `INSERT INTO production_order_payments
+       (establishment_id, order_id, payment_type, amount, payment_date, due_date,
+        status, bank, reference, notes, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      business.id,
+      order.id,
+      payment.payment_type,
+      payment.amount,
+      payment.payment_date,
+      payment.due_date,
+      payment.status,
+      payment.bank,
+      payment.reference,
+      payment.notes,
+      req.user?.username || req.user?.role || 'system'
+    );
+    audit(req, 'create', 'order_payment', result.lastInsertRowid, order.order_number);
+    res.status(201).json(getOrder(order.id, req));
+  });
+
+  app.patch('/api/producalza/orders/:id/payments/:paymentId', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const order = getOrder(req.params.id, req);
+    if (!order) return res.status(404).json({ message: 'Pedido no encontrado' });
+    const current = db.prepare(
+      'SELECT * FROM production_order_payments WHERE id = ? AND order_id = ? AND establishment_id = ?'
+    ).get(req.params.paymentId, order.id, business.id);
+    if (!current) return res.status(404).json({ message: 'Cobro no encontrado' });
+    const payment = normalizePaymentPayload({ ...current, ...req.body });
+    db.prepare(
+      `UPDATE production_order_payments
+       SET payment_type = ?, amount = ?, payment_date = ?, due_date = ?, status = ?,
+           bank = ?, reference = ?, notes = ?, updated_at = datetime('now', 'localtime')
+       WHERE id = ? AND order_id = ? AND establishment_id = ?`
+    ).run(
+      payment.payment_type,
+      payment.amount,
+      payment.payment_date,
+      payment.due_date,
+      payment.status,
+      payment.bank,
+      payment.reference,
+      payment.notes,
+      current.id,
+      order.id,
+      business.id
+    );
+    audit(req, 'update', 'order_payment', current.id, payment.status);
+    res.json(getOrder(order.id, req));
+  });
+
+  app.delete('/api/producalza/orders/:id/payments/:paymentId', requireProductionAdmin, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const order = getOrder(req.params.id, req);
+    if (!order) return res.status(404).json({ message: 'Pedido no encontrado' });
+    const result = db.prepare(
+      'DELETE FROM production_order_payments WHERE id = ? AND order_id = ? AND establishment_id = ?'
+    ).run(req.params.paymentId, order.id, business.id);
+    if (!result.changes) return res.status(404).json({ message: 'Cobro no encontrado' });
+    audit(req, 'delete', 'order_payment', req.params.paymentId, order.order_number);
+    res.json(getOrder(order.id, req));
   });
 
   app.post('/api/producalza/orders', requireProductionUser, (req, res) => {
@@ -1335,7 +1505,13 @@ function syncOrderStatus(db, orderId, establishmentId) {
   else if (statuses.every((item) => item === 'received')) status = 'received';
   else if (statuses.every((item) => ['received', 'reviewed'].includes(item))) status = 'reviewed';
   db.prepare(
-    `UPDATE production_orders SET status = ?, updated_at = datetime('now', 'localtime')
+    `UPDATE production_orders
+     SET status = ?,
+         dispatched_date = CASE
+           WHEN ? = 'delivered' THEN COALESCE(dispatched_date, date('now', 'localtime'))
+           ELSE dispatched_date
+         END,
+         updated_at = datetime('now', 'localtime')
      WHERE id = ? AND establishment_id = ?`
-  ).run(status, orderId, establishmentId);
+  ).run(status, status, orderId, establishmentId);
 }

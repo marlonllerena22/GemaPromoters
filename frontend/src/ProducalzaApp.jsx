@@ -4,6 +4,7 @@ import {
   Check,
   ChevronLeft,
   ClipboardList,
+  DollarSign,
   Factory,
   FilePlus2,
   Filter,
@@ -34,7 +35,7 @@ const ORDER_STATUS_LABELS = {
   reviewed: 'Revisado',
   in_production: 'En produccion',
   finished: 'Terminado',
-  delivered: 'Entregado',
+  delivered: 'Enviado',
   cancelled: 'Cancelado'
 };
 const MODEL_STATUS_LABELS = {
@@ -45,7 +46,7 @@ const MODEL_STATUS_LABELS = {
   stitched: 'Aparado',
   assembled: 'Armado',
   finished: 'Terminado',
-  delivered: 'Entregado',
+  delivered: 'Enviado',
   cancelled: 'Cancelado'
 };
 const PROCESS_FIELDS = [
@@ -109,6 +110,32 @@ const VISIT_TYPE_LABELS = {
   collection: 'Cobranza',
   delivery: 'Entrega',
   other: 'Otro'
+};
+
+const PAYMENT_TYPE_LABELS = {
+  abono: 'Abono',
+  cheque: 'Cheque',
+  transferencia: 'Transferencia',
+  efectivo: 'Efectivo',
+  saldo: 'Saldo',
+  otro: 'Otro'
+};
+
+const PAYMENT_STATUS_LABELS = {
+  pending: 'Pendiente',
+  paid: 'Pagado',
+  cancelled: 'Cancelado'
+};
+
+const emptyPayment = {
+  payment_type: 'abono',
+  amount: '',
+  payment_date: new Date().toISOString().slice(0, 10),
+  due_date: '',
+  status: 'pending',
+  bank: '',
+  reference: '',
+  notes: ''
 };
 
 function emptyModel() {
@@ -178,6 +205,10 @@ function displayNumber(value, decimals = 0) {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals
   });
+}
+
+function displayMoney(value) {
+  return `$${displayNumber(value, 2)}`;
 }
 
 function whatsappNumber(value) {
@@ -624,10 +655,10 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
           onBack={() => setView('orders')}
           onEdit={() => editOrder(selectedOrder.id)}
           onPrint={(type, modelId) => preparePrint(selectedOrder.id, type, modelId)}
-          onUpdated={async () => {
+          onUpdated={async (message = 'Pedido actualizado') => {
             const updatedOrder = await api(scope(`/producalza/orders/${selectedOrder.id}`));
             setSelectedOrder(updatedOrder);
-            await refresh('Estados del pedido actualizados');
+            await refresh(message);
           }}
           guideTemplates={guideTemplates}
         />
@@ -759,6 +790,7 @@ function ProductionDashboard({ data, orders, onOpen }) {
     ['Pares pendientes', data?.pending_pairs || 0, Boxes]
   ];
   const followUpAlerts = data?.follow_up_alerts || [];
+  const paymentAlerts = data?.payment_alerts || [];
   const today = new Date().toISOString().slice(0, 10);
   const alertSection = followUpAlerts.length > 0 && (
     <section className="prod-panel prod-followup-alerts top">
@@ -787,8 +819,36 @@ function ProductionDashboard({ data, orders, onOpen }) {
       </div>
     </section>
   );
+  const paymentAlertSection = paymentAlerts.length > 0 && (
+    <section className="prod-panel prod-followup-alerts prod-payment-alerts top">
+      <div className="prod-panel-title">
+        <div><span>Cobros</span><h2>Proximos cobros</h2></div>
+        <strong>{paymentAlerts.length}</strong>
+      </div>
+      <div className="prod-followup-alert-list">
+        {paymentAlerts.map((item) => {
+          const isOverdue = item.due_date < today;
+          const isToday = item.due_date === today;
+          return (
+            <article className={`${isOverdue ? 'overdue' : isToday ? 'today' : ''} alert-window payment-window`} key={item.id}>
+              <DollarSign size={19} />
+              <div>
+                <strong>{item.client_name}</strong>
+                <span>{item.order_number} - {PAYMENT_TYPE_LABELS[item.payment_type] || 'Cobro'} - {item.city || 'Sin ciudad'}</span>
+              </div>
+              <div>
+                <b>{displayMoney(item.amount)}</b>
+                <small>{isOverdue ? 'Vencido' : isToday ? 'Hoy' : displayDate(item.due_date)}</small>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
   return (
     <div className="prod-stack">
+      {paymentAlertSection}
       {alertSection}
       <section className="prod-metrics">
         {metrics.map(([label, value, Icon]) => (
@@ -862,6 +922,19 @@ function OrdersList({ orders, users, isAdmin, scope, onOpen, onEdit, onRefresh, 
     }
   }
 
+  async function markShipped(order) {
+    if (!window.confirm(`Marcar el pedido ${order.order_number} como ENVIADO? Se registrara la fecha de despacho de hoy para el reporte mensual.`)) return;
+    try {
+      await api(scope(`/producalza/orders/${order.id}/shipped`), {
+        method: 'PATCH',
+        body: JSON.stringify({ dispatched_date: new Date().toISOString().slice(0, 10) })
+      });
+      onRefresh('Pedido marcado como enviado');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   return (
     <div className="prod-stack">
       <section className="prod-filterbar">
@@ -890,7 +963,7 @@ function OrdersList({ orders, users, isAdmin, scope, onOpen, onEdit, onRefresh, 
       <section className="prod-panel">
         <div className="prod-table-wrap">
           <table className="prod-table">
-            <thead><tr><th>Pedido</th><th>Cliente</th><th>Vendedor</th><th>Fecha</th><th>Modelos</th><th>Pares</th><th>Estado</th><th /></tr></thead>
+            <thead><tr><th>Pedido</th><th>Cliente</th><th>Vendedor</th><th>Fecha</th><th>Modelos</th><th>Pares</th><th>Cobros</th><th>Estado</th><th /></tr></thead>
             <tbody>
               {orders.map((order) => (
                 <tr key={order.id}>
@@ -900,9 +973,13 @@ function OrdersList({ orders, users, isAdmin, scope, onOpen, onEdit, onRefresh, 
                   <td>{displayDate(order.order_date)}</td>
                   <td>{order.model_count}</td>
                   <td>{order.total_pairs}</td>
+                  <td><strong>{displayMoney(order.total_paid)}</strong><small>Pend. {displayMoney(order.total_pending)}</small></td>
                   <td><StatusBadge status={order.status} /></td>
                   <td>
                     <div className="prod-row-actions">
+                      {isAdmin && order.status !== 'delivered' && (
+                        <button className="success text" title="Marcar como enviado" onClick={() => markShipped(order)}>ENVIADO</button>
+                      )}
                       <button title="Editar pedido" onClick={() => onEdit(order.id)}><Pencil size={16} /></button>
                       {isAdmin && <button className="danger" title="Eliminar pedido" onClick={() => remove(order)}><Trash2 size={16} /></button>}
                     </div>
@@ -1150,11 +1227,24 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
   const [models, setModels] = useState(order.models);
   const [dirtyIds, setDirtyIds] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [paymentForm, setPaymentForm] = useState(emptyPayment);
+  const [editingPaymentId, setEditingPaymentId] = useState(null);
+  const [savingPayment, setSavingPayment] = useState(false);
 
   useEffect(() => {
     setModels(order.models);
     setDirtyIds([]);
+    setPaymentForm(emptyPayment);
+    setEditingPaymentId(null);
   }, [order]);
+
+  const payments = order.payments || [];
+  const totalPaid = payments
+    .filter((payment) => payment.status === 'paid')
+    .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+  const totalPending = payments
+    .filter((payment) => payment.status === 'pending')
+    .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
 
   function deriveStatus(model) {
     if (model.process_finished) return 'finished';
@@ -1203,11 +1293,67 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
             }))
         })
       });
-      await onUpdated();
+      await onUpdated('Estados del pedido actualizados');
     } catch (err) {
       setError(err.message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  function editPayment(payment) {
+    setEditingPaymentId(payment.id);
+    setPaymentForm({
+      payment_type: payment.payment_type || 'abono',
+      amount: payment.amount || '',
+      payment_date: payment.payment_date || '',
+      due_date: payment.due_date || '',
+      status: payment.status || 'pending',
+      bank: payment.bank || '',
+      reference: payment.reference || '',
+      notes: payment.notes || ''
+    });
+  }
+
+  async function savePayment() {
+    setSavingPayment(true);
+    try {
+      await api(scope(editingPaymentId
+        ? `/producalza/orders/${order.id}/payments/${editingPaymentId}`
+        : `/producalza/orders/${order.id}/payments`
+      ), {
+        method: editingPaymentId ? 'PATCH' : 'POST',
+        body: JSON.stringify(paymentForm)
+      });
+      setPaymentForm(emptyPayment);
+      setEditingPaymentId(null);
+      await onUpdated(editingPaymentId ? 'Cobro actualizado' : 'Cobro registrado');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSavingPayment(false);
+    }
+  }
+
+  async function updatePaymentStatus(payment, status) {
+    try {
+      await api(scope(`/producalza/orders/${order.id}/payments/${payment.id}`), {
+        method: 'PATCH',
+        body: JSON.stringify({ ...payment, status, payment_date: status === 'paid' ? new Date().toISOString().slice(0, 10) : payment.payment_date })
+      });
+      await onUpdated(status === 'paid' ? 'Cobro marcado como pagado' : 'Cobro marcado como pendiente');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function removePayment(payment) {
+    if (!window.confirm('Seguro que deseas eliminar este registro de cobro?')) return;
+    try {
+      await api(scope(`/producalza/orders/${order.id}/payments/${payment.id}`), { method: 'DELETE' });
+      await onUpdated('Cobro eliminado');
+    } catch (err) {
+      setError(err.message);
     }
   }
 
@@ -1315,8 +1461,70 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
             value={guideTemplates.find((item) => item.key === resolveGuideTemplateKey(order, guideTemplates))?.name}
           />
           <Detail label="Forma de pago" value={order.payment_method} />
+          <Detail label="Fecha de envio" value={order.dispatched_date ? displayDate(order.dispatched_date) : ''} />
         </div>
         {order.general_notes && <div className="prod-note"><strong>Observaciones</strong><p>{order.general_notes}</p></div>}
+      </section>
+      <section className="prod-panel prod-payment-panel">
+        <div className="prod-panel-title">
+          <div><span>Cobros del pedido</span><h2>Pagos, abonos y cheques</h2></div>
+          <div className="prod-payment-totals">
+            <span>Pagado <strong>{displayMoney(totalPaid)}</strong></span>
+            <span>Pendiente <strong>{displayMoney(totalPending)}</strong></span>
+          </div>
+        </div>
+        <div className="prod-payment-layout">
+          <div className="prod-payment-list">
+            {payments.map((payment) => (
+              <article className={`prod-payment-item ${payment.status}`} key={payment.id}>
+                <div>
+                  <strong>{PAYMENT_TYPE_LABELS[payment.payment_type] || payment.payment_type}</strong>
+                  <span>{payment.bank || payment.reference || payment.notes || 'Sin detalle adicional'}</span>
+                  <small>
+                    {payment.due_date ? `Cobrar: ${displayDate(payment.due_date)}` : 'Sin alerta de cobro'}
+                    {payment.payment_date ? ` · Pago: ${displayDate(payment.payment_date)}` : ''}
+                  </small>
+                </div>
+                <div>
+                  <b>{displayMoney(payment.amount)}</b>
+                  <em>{PAYMENT_STATUS_LABELS[payment.status] || payment.status}</em>
+                  <div className="prod-row-actions">
+                    <button title="Editar cobro" onClick={() => editPayment(payment)}><Pencil size={15} /></button>
+                    {payment.status !== 'paid' && <button className="success" title="Marcar pagado" onClick={() => updatePaymentStatus(payment, 'paid')}><Check size={15} /></button>}
+                    {payment.status === 'paid' && <button title="Marcar pendiente" onClick={() => updatePaymentStatus(payment, 'pending')}>Pend.</button>}
+                    {isAdmin && <button className="danger" title="Eliminar cobro" onClick={() => removePayment(payment)}><Trash2 size={15} /></button>}
+                  </div>
+                </div>
+              </article>
+            ))}
+            {!payments.length && <div className="prod-empty">Aun no hay pagos, abonos o cheques registrados para este pedido.</div>}
+          </div>
+          <div className="prod-payment-form">
+            <div className="prod-form-title">
+              <strong>{editingPaymentId ? 'Editar cobro' : 'Nuevo cobro'}</strong>
+              {editingPaymentId && <button className="prod-link-button" onClick={() => { setEditingPaymentId(null); setPaymentForm(emptyPayment); }}>Cancelar</button>}
+            </div>
+            <label>Tipo
+              <select value={paymentForm.payment_type} onChange={(event) => setPaymentForm({ ...paymentForm, payment_type: event.target.value })}>
+                {Object.entries(PAYMENT_TYPE_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+              </select>
+            </label>
+            <label>Valor<input type="number" min="0" step="0.01" value={paymentForm.amount} onChange={(event) => setPaymentForm({ ...paymentForm, amount: event.target.value })} /></label>
+            <label>Fecha de pago<input type="date" value={paymentForm.payment_date} onChange={(event) => setPaymentForm({ ...paymentForm, payment_date: event.target.value })} /></label>
+            <label>Proximo cobro / vencimiento<input type="date" value={paymentForm.due_date} onChange={(event) => setPaymentForm({ ...paymentForm, due_date: event.target.value })} /></label>
+            <label>Estado
+              <select value={paymentForm.status} onChange={(event) => setPaymentForm({ ...paymentForm, status: event.target.value })}>
+                {Object.entries(PAYMENT_STATUS_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+              </select>
+            </label>
+            <label>Banco<input value={paymentForm.bank} onChange={(event) => setPaymentForm({ ...paymentForm, bank: event.target.value })} /></label>
+            <label>Referencia / cheque<input value={paymentForm.reference} onChange={(event) => setPaymentForm({ ...paymentForm, reference: event.target.value })} /></label>
+            <label>Observaciones<textarea rows="3" value={paymentForm.notes} onChange={(event) => setPaymentForm({ ...paymentForm, notes: event.target.value })} /></label>
+            <button className="prod-primary-button" disabled={savingPayment} onClick={savePayment}>
+              <DollarSign size={17} />{savingPayment ? 'Guardando...' : editingPaymentId ? 'Guardar cobro' : 'Registrar cobro'}
+            </button>
+          </div>
+        </div>
       </section>
       <div className="prod-model-stack">
         {models.map((model) => (
