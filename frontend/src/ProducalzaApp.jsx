@@ -128,6 +128,9 @@ function emptyOrder() {
     client_id: '',
     seller_user_id: '',
     order_date: new Date().toISOString().slice(0, 10),
+    delivery_date: '',
+    origin_label: '',
+    card_alert: '',
     brand: '',
     payment_method: '',
     bank_reference: '',
@@ -1035,6 +1038,7 @@ function OrderForm({ clients, users, isAdmin, scope, initialOrder, onCancel, onS
             </div>
           )}
           <label>Fecha<input type="date" value={form.order_date} onChange={(event) => setForm({ ...form, order_date: event.target.value })} /></label>
+          <label>Fecha de entrega<input value={form.delivery_date} onChange={(event) => setForm({ ...form, delivery_date: event.target.value })} /></label>
           {isAdmin && (
             <label>Vendedor
               <select value={form.seller_user_id || ''} onChange={(event) => setForm({ ...form, seller_user_id: event.target.value })}>
@@ -1051,6 +1055,8 @@ function OrderForm({ clients, users, isAdmin, scope, initialOrder, onCancel, onS
           />
           <label>Forma de pago<input value={form.payment_method} onChange={(event) => setForm({ ...form, payment_method: event.target.value })} /></label>
           <label>Referencia bancaria<input value={form.bank_reference} onChange={(event) => setForm({ ...form, bank_reference: event.target.value })} /></label>
+          <label>Etiqueta de origen<input value={form.origin_label} onChange={(event) => setForm({ ...form, origin_label: event.target.value })} /></label>
+          <label>Texto rojo tarjeta<input value={form.card_alert} onChange={(event) => setForm({ ...form, card_alert: event.target.value })} /></label>
           <label className="span-full">Observaciones generales<textarea value={form.general_notes} onChange={(event) => setForm({ ...form, general_notes: event.target.value })} /></label>
         </div>
       </section>
@@ -1087,7 +1093,7 @@ function OrderForm({ clients, users, isAdmin, scope, initialOrder, onCancel, onS
               <label>Codigo o modelo<input value={model.model_code} onChange={(event) => updateModel(index, { model_code: event.target.value })} /></label>
               <label>Color<input value={model.color} onChange={(event) => updateModel(index, { color: event.target.value })} /></label>
               <label>Material o descripcion<input value={model.material} onChange={(event) => updateModel(index, { material: event.target.value })} /></label>
-              <label>Planta o area<input value={model.plant_area} onChange={(event) => updateModel(index, { plant_area: event.target.value })} /></label>
+              <label>Planta<input value={model.plant_area} onChange={(event) => updateModel(index, { plant_area: event.target.value })} /></label>
               <label className="span-full">Observaciones del modelo<textarea value={model.notes} onChange={(event) => updateModel(index, { notes: event.target.value })} /></label>
             </div>
             <div className="prod-size-grid">
@@ -1283,7 +1289,10 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
           <Detail label="Direccion" value={order.address} />
           <Detail label="Vendedor" value={order.seller_name} />
           <Detail label="Fecha" value={displayDate(order.order_date)} />
+          <Detail label="Fecha de entrega" value={order.delivery_date ? displayDate(order.delivery_date) : ''} />
           <Detail label="Marca" value={order.brand} />
+          <Detail label="Etiqueta de origen" value={order.origin_label} />
+          <Detail label="Texto rojo tarjeta" value={order.card_alert} />
           <Detail
             label="Formato de guias"
             value={guideTemplates.find((item) => item.key === resolveGuideTemplateKey(order, guideTemplates))?.name}
@@ -1316,7 +1325,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
             <div className="prod-model-meta">
               <Detail label="Color" value={model.color} />
               <Detail label="Material" value={model.material} />
-              <Detail label="Planta o area" value={model.plant_area} />
+              <Detail label="Planta" value={model.plant_area} />
               <Detail label="Total" value={`${model.total_pairs} pares`} />
             </div>
             <SizeSummary sizes={model.sizes} />
@@ -2422,6 +2431,9 @@ function orderToForm(order) {
     client_id: String(order.client_id),
     seller_user_id: order.seller_user_id ? String(order.seller_user_id) : '',
     order_date: order.order_date,
+    delivery_date: order.delivery_date || '',
+    origin_label: order.origin_label || '',
+    card_alert: order.card_alert || '',
     brand: order.brand || '',
     payment_method: order.payment_method || '',
     bank_reference: order.bank_reference || '',
@@ -2636,8 +2648,10 @@ function ProductionOrderSheet({ order }) {
       <section className="prod-print-info">
         <div><span>Cliente</span><strong>{order.client_name}</strong></div>
         <div><span>Fecha</span><strong>{displayDate(order.order_date)}</strong></div>
+        <div className="print-red-field"><span>Entrega</span><strong>{order.delivery_date ? displayDate(order.delivery_date) : '-'}</strong></div>
         <div><span>Marca</span><strong>{order.brand || '-'}</strong></div>
         <div><span>Ciudad</span><strong>{order.city || 'Sin ciudad'}</strong></div>
+        <div><span>Etiqueta de origen</span><strong>{order.origin_label || '-'}</strong></div>
       </section>
       <div className="prod-print-process-legend">
         {PROCESS_FIELDS.map(([, letter, label]) => <span key={label}><strong>{letter}</strong> {label}</span>)}
@@ -2690,12 +2704,14 @@ function ProductionCard({ order, model }) {
   return (
     <article className="prod-print-card">
       <header><div><strong>PRODUCALZA</strong><span>TARJETA DE PRODUCCION</span></div><b>Nro. {model.card_number}</b></header>
-      <div className="prod-card-client"><span>Cliente</span><strong>{order.client_name}</strong></div>
-      <section>
+      <div className="prod-card-client-row">
+        <div className="prod-card-client"><span>Cliente</span><strong>{order.client_name}</strong></div>
+        <div className="prod-card-red-alert"><span>Entrega / aviso</span><strong>{order.card_alert || (order.delivery_date ? displayDate(order.delivery_date) : '') || '-'}</strong></div>
+      </div>
+      <section className="prod-card-main-data">
         <div><span>Modelo</span><strong>{model.model_code}</strong></div>
         <div><span>Color</span><strong>{model.color || '-'}</strong></div>
-        <div><span>Material</span><strong>{model.material || '-'}</strong></div>
-        <div><span>Planta / area</span><strong>{model.plant_area || '-'}</strong></div>
+        <div className="prod-card-plant"><span>Planta</span><strong>{model.plant_area || '-'}</strong></div>
       </section>
       <table><thead><tr>{SIZES.map((size) => <th key={size}>{size}</th>)}</tr></thead>
         <tbody><tr>{SIZES.map((size) => <td key={size}>{model.sizes?.[size] || ''}</td>)}</tr></tbody>

@@ -934,8 +934,9 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       const orderResult = db.prepare(
         `INSERT INTO production_orders
          (establishment_id, order_number, client_id, seller_user_id, order_date, brand,
-          payment_method, bank_reference, guide_template_key, general_notes, status, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          delivery_date, origin_label, card_alert, payment_method, bank_reference,
+          guide_template_key, general_notes, status, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         business.id,
         orderNumber,
@@ -943,6 +944,9 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         sellerId,
         req.body.order_date || new Date().toISOString().slice(0, 10),
         String(req.body.brand || '').trim(),
+        String(req.body.delivery_date || '').trim(),
+        String(req.body.origin_label || '').trim(),
+        String(req.body.card_alert || '').trim(),
         String(req.body.payment_method || '').trim(),
         String(req.body.bank_reference || '').trim(),
         String(req.body.guide_template_key || '').trim(),
@@ -983,7 +987,8 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     db.transaction(() => {
       db.prepare(
         `UPDATE production_orders SET client_id = ?, seller_user_id = ?, order_date = ?, brand = ?,
-         payment_method = ?, bank_reference = ?, guide_template_key = ?, general_notes = ?, status = ?,
+         delivery_date = ?, origin_label = ?, card_alert = ?, payment_method = ?, bank_reference = ?,
+         guide_template_key = ?, general_notes = ?, status = ?,
          updated_at = datetime('now', 'localtime')
          WHERE id = ? AND establishment_id = ?`
       ).run(
@@ -991,6 +996,9 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         sellerId,
         req.body.order_date || current.order_date,
         String(req.body.brand || '').trim(),
+        String(req.body.delivery_date || '').trim(),
+        String(req.body.origin_label || '').trim(),
+        String(req.body.card_alert || '').trim(),
         String(req.body.payment_method || '').trim(),
         String(req.body.bank_reference || '').trim(),
         String(req.body.guide_template_key || '').trim(),

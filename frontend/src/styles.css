@@ -4328,7 +4328,7 @@ td {
   .prod-print-info {
     display: grid;
     gap: 1.5mm;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: 1.25fr 0.8fr 0.95fr 0.95fr 0.9fr 1.05fr;
     margin: 3mm 0;
   }
 
@@ -4360,6 +4360,13 @@ td {
   .prod-card-client strong {
     font-size: 8pt;
     margin-top: 0.5mm;
+  }
+
+  .prod-print-info .print-red-field strong,
+  .prod-card-red-alert strong {
+    color: #c00000 !important;
+    font-size: 11pt;
+    font-weight: 900;
   }
 
   .prod-print-page table,
@@ -4527,14 +4534,38 @@ td {
     font-weight: 800;
   }
 
-  .prod-card-client {
+  .prod-card-client-row {
+    display: grid;
+    gap: 1.5mm;
+    grid-template-columns: 1.3fr 0.9fr;
     margin: 1.5mm 0;
+  }
+
+  .prod-card-client {
+    margin: 0;
     padding: 1.5mm;
+  }
+
+  .prod-card-red-alert {
+    border: 2px solid #c00000;
+    padding: 1.5mm;
+  }
+
+  .prod-card-red-alert span,
+  .prod-card-red-alert strong {
+    display: block;
+  }
+
+  .prod-card-red-alert span {
+    color: #c00000 !important;
+    font-size: 8pt;
+    font-weight: 800;
+    text-transform: uppercase;
   }
 
   .prod-print-card section {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: 1fr 1fr 2fr;
   }
 
   .prod-print-card section div {
@@ -4544,6 +4575,10 @@ td {
 
   .prod-print-card section div:last-child {
     border-right: 1px solid #777777;
+  }
+
+  .prod-card-plant strong {
+    font-size: 16pt !important;
   }
 
   .prod-print-card table {
@@ -4598,10 +4633,12 @@ td {
   }
 
   .prod-card-process {
-    display: flex;
-    font-size: 10pt;
-    font-weight: bold;
-    justify-content: space-between;
+    border: 1px solid #000000;
+    height: 11mm;
     margin-top: 1.5mm;
+  }
+
+  .prod-card-process span {
+    display: none;
   }
 }

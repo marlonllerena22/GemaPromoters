@@ -61,6 +61,7 @@ export function createProductionOrderPdf(order) {
 
   function text(value, x, top, size = 8, bold = false, options = {}) {
     const font = bold ? 'F2' : 'F1';
+    if (options.color === 'red') commands.push('0.75 0 0 rg');
     commands.push(`BT /${font} ${size.toFixed(2)} Tf ${x.toFixed(2)} ${(PAGE_HEIGHT - top - size).toFixed(2)} Td (${pdfText(value)}) Tj ET`);
     if (options.color) commands.push('0 0 0 rg');
   }
@@ -79,16 +80,18 @@ export function createProductionOrderPdf(order) {
   const info = [
     ['Cliente', order.client_name],
     ['Fecha', displayDate(order.order_date)],
+    ['Entrega', displayDate(order.delivery_date), 'red'],
     ['Marca', order.brand || '-'],
-    ['Ciudad', order.city || '-']
+    ['Ciudad', order.city || '-'],
+    ['Etiqueta origen', order.origin_label || '-']
   ];
   const infoTop = 63;
   const infoWidth = (PAGE_WIDTH - 40) / info.length;
-  info.forEach(([label, value], index) => {
+  info.forEach(([label, value, color], index) => {
     const x = 20 + index * infoWidth;
     rect(x, infoTop, infoWidth, 36);
     text(label.toUpperCase(), x + 5, infoTop + 5, 6.5, true);
-    text(value || '-', x + 5, infoTop + 17, 9, true);
+    text(value || '-', x + 5, infoTop + 17, color === 'red' ? 10 : 8, true, color ? { color } : {});
   });
 
   text('PROCESO: C Cortado | P Preparado | A Aparado | A Armado | P Plantado | T Terminado', 365, 105, 6.5, true);

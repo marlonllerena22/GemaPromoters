@@ -68,6 +68,9 @@ export function initProducalzaDb(db) {
       client_id INTEGER NOT NULL,
       seller_user_id INTEGER,
       order_date TEXT NOT NULL DEFAULT (date('now', 'localtime')),
+      delivery_date TEXT,
+      origin_label TEXT,
+      card_alert TEXT,
       brand TEXT,
       payment_method TEXT,
       bank_reference TEXT,
@@ -174,6 +177,9 @@ export function initProducalzaDb(db) {
   addColumnIfMissing(db, 'production_clients', 'guide_template_key', 'TEXT');
   addColumnIfMissing(db, 'production_clients', 'guide_logo_url', 'TEXT');
   addColumnIfMissing(db, 'production_orders', 'guide_template_key', 'TEXT');
+  addColumnIfMissing(db, 'production_orders', 'delivery_date', 'TEXT');
+  addColumnIfMissing(db, 'production_orders', 'origin_label', 'TEXT');
+  addColumnIfMissing(db, 'production_orders', 'card_alert', 'TEXT');
   db.prepare(
     `UPDATE production_client_visits
      SET updated_at = COALESCE(NULLIF(updated_at, ''), created_at),
