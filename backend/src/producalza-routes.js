@@ -359,7 +359,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
               clients.name AS client_name, clients.city, clients.phone,
               COALESCE(users.name, visits.visitor_name, clients.imported_seller_code, 'Sin responsable') AS responsible_name,
               CASE
-                WHEN COALESCE(NULLIF(visits.next_visit_type, ''), visits.visit_type) = 'visit' THEN 72
+                WHEN COALESCE(NULLIF(visits.next_visit_type, ''), visits.visit_type) = 'visit' THEN 96
                 ELSE 24
               END AS alert_hours
        FROM production_client_visits AS visits
@@ -372,7 +372,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
            'now',
            'localtime',
            CASE
-             WHEN COALESCE(NULLIF(visits.next_visit_type, ''), visits.visit_type) = 'visit' THEN '+3 day'
+             WHEN COALESCE(NULLIF(visits.next_visit_type, ''), visits.visit_type) = 'visit' THEN '+4 day'
              ELSE '+1 day'
            END
          )

@@ -770,15 +770,15 @@ function ProductionDashboard({ data, orders, onOpen }) {
         {followUpAlerts.map((item) => {
           const isOverdue = item.next_visit_date < today;
           const isToday = item.next_visit_date === today;
-          const isPhysicalVisit = Number(item.alert_hours || 24) === 72;
+          const isPhysicalVisit = Number(item.alert_hours || 24) === 96;
           return (
-            <article className={`${isOverdue ? 'overdue' : isToday ? 'today' : ''} ${isPhysicalVisit ? 'visit-window' : ''}`} key={item.id}>
+            <article className={`${isOverdue ? 'overdue' : isToday ? 'today' : ''} alert-window ${isPhysicalVisit ? 'visit-window' : ''}`} key={item.id}>
               <div>
                 <strong>{item.client_name}</strong>
                 <span>{item.city || 'Sin ciudad'} - {VISIT_TYPE_LABELS[item.next_visit_type] || VISIT_TYPE_LABELS[item.visit_type] || 'Seguimiento'}</span>
               </div>
               <div>
-                <b>{isOverdue ? 'Vencido' : isToday ? 'Hoy' : isPhysicalVisit ? 'Visita 72h' : 'Manana'}</b>
+                <b>{isOverdue ? 'Vencido' : isToday ? 'Hoy' : isPhysicalVisit ? 'Visita 96h' : '24h'}</b>
                 <small>{displayDate(item.next_visit_date)}</small>
               </div>
             </article>
@@ -2786,11 +2786,11 @@ function ProductionOrderSheet({ order }) {
       <header><div><strong>PRODUCALZA</strong><span>HOJA UNICA DE PEDIDO Y PRODUCCION</span></div><b>{order.order_number}</b></header>
       <section className="prod-print-info">
         <div><span>Cliente</span><strong>{order.client_name}</strong></div>
-        <div><span>Fecha</span><strong>{displayDate(order.order_date)}</strong></div>
-        <div className="print-red-field"><span>Entrega</span><strong>{order.delivery_date ? displayDate(order.delivery_date) : '-'}</strong></div>
-        <div><span>Marca</span><strong>{order.brand || '-'}</strong></div>
         <div><span>Ciudad</span><strong>{order.city || 'Sin ciudad'}</strong></div>
+        <div><span>Fecha</span><strong>{displayDate(order.order_date)}</strong></div>
+        <div><span>Marca</span><strong>{order.brand || '-'}</strong></div>
         <div><span>Etiqueta de origen</span><strong>{order.origin_label || '-'}</strong></div>
+        <div className="print-red-field"><span>Entrega</span><strong>{order.delivery_date || ''}</strong></div>
       </section>
       <div className="prod-print-process-legend">
         {PROCESS_FIELDS.map(([, letter, label]) => <span key={label}><strong>{letter}</strong> {label}</span>)}
@@ -2845,7 +2845,9 @@ function ProductionCard({ order, model }) {
       <header><div><strong>PRODUCALZA</strong><span>TARJETA DE PRODUCCION</span></div><b>Nro. {model.card_number}</b></header>
       <div className="prod-card-client-row">
         <div className="prod-card-client"><span>Cliente</span><strong>{order.client_name}</strong></div>
-        <div className="prod-card-red-alert"><span>Entrega / aviso</span><strong>{order.card_alert || (order.delivery_date ? displayDate(order.delivery_date) : '') || '-'}</strong></div>
+        <div className="prod-card-red-alert">
+          {order.card_alert && <><span>Entrega / aviso</span><strong>{order.card_alert}</strong></>}
+        </div>
       </div>
       <section className="prod-card-main-data">
         <div><span>Modelo</span><strong>{model.model_code}</strong></div>

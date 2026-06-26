@@ -79,11 +79,11 @@ export function createProductionOrderPdf(order) {
 
   const info = [
     ['Cliente', order.client_name],
-    ['Fecha', displayDate(order.order_date)],
-    ['Entrega', displayDate(order.delivery_date), 'red'],
-    ['Marca', order.brand || '-'],
     ['Ciudad', order.city || '-'],
-    ['Etiqueta origen', order.origin_label || '-']
+    ['Fecha', displayDate(order.order_date)],
+    ['Marca', order.brand || '-'],
+    ['Etiqueta origen', order.origin_label || '-'],
+    ['Entrega', order.delivery_date || '', 'red']
   ];
   const infoTop = 63;
   const infoWidth = (PAGE_WIDTH - 40) / info.length;
