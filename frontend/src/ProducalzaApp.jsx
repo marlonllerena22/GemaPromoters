@@ -230,6 +230,16 @@ function deliveryTotal(form) {
   return Math.max(0, deliverySubtotal(form) + Number(form.shipping_value || 0) - Number(form.discount_value || 0));
 }
 
+function paidAmount(order) {
+  return (order.payments || [])
+    .filter((payment) => payment.status === 'paid')
+    .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+}
+
+function pendingAmountForTotal(total, order) {
+  return Math.max(0, Number(total || 0) - paidAmount(order));
+}
+
 function processStateForStatus(status) {
   const order = ['received', 'reviewed', 'in_production', 'cut', 'stitched', 'assembled', 'finished', 'delivered'];
   const step = order.indexOf(status);
@@ -1325,6 +1335,8 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
     .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
   const subtotal = orderSubtotal({ ...order, models });
   const noteTotal = Math.max(0, subtotal + Number(order.shipping_value || 0) - Number(order.discount_value || 0));
+  const deliveryPaid = paidAmount(order);
+  const deliveryPending = pendingAmountForTotal(deliveryTotal(deliveryForm), order);
 
   function deriveStatus(model) {
     if (model.process_finished) return 'finished';
@@ -1599,6 +1611,8 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
             <label>Descuento<input type="number" min="0" step="0.01" value={deliveryForm.discount_value} onChange={(event) => setDeliveryForm({ ...deliveryForm, discount_value: event.target.value })} /></label>
             <div><span>Subtotal</span><strong>{displayMoney(deliverySubtotal(deliveryForm))}</strong></div>
             <div><span>Total final</span><strong>{displayMoney(deliveryTotal(deliveryForm))}</strong></div>
+            <div><span>Pagado</span><strong>{displayMoney(deliveryPaid)}</strong></div>
+            <div><span>Pendiente</span><strong>{displayMoney(deliveryPending)}</strong></div>
           </div>
           <div className="prod-form-actions">
             <button className="prod-secondary-button" onClick={() => setShowDeliveryEditor(false)}>Cancelar</button>
@@ -3260,6 +3274,8 @@ function DeliveryNoteSheet({ order }) {
   const discount = Number(order.discount_value || 0);
   const shipping = Number(order.shipping_value || 0);
   const total = Math.max(0, subtotal - discount + shipping);
+  const paid = paidAmount(order);
+  const pending = pendingAmountForTotal(total, order);
   const totalPairs = order.models.reduce((sum, model) => sum + Number(model.total_pairs || 0), 0);
   const orderDate = new Date(`${order.order_date || new Date().toISOString().slice(0, 10)}T12:00:00`);
   const day = Number.isNaN(orderDate.getTime()) ? '' : String(orderDate.getDate()).padStart(2, '0');
@@ -3329,6 +3345,8 @@ function DeliveryNoteSheet({ order }) {
           <span>DESC.</span><strong>{displayMoney(discount)}</strong>
           <span>TRANSPORTE:</span><strong>{displayMoney(shipping)}</strong>
           <span>TOTAL FINAL:</span><strong>{displayMoney(total)}</strong>
+          <span>PAGADO:</span><strong>{displayMoney(paid)}</strong>
+          <span>PENDIENTE:</span><strong>{displayMoney(pending)}</strong>
         </div>
       </section>
       <footer><span>ENTREGUE CONFORME</span><span>RECIBI CONFORME</span></footer>
