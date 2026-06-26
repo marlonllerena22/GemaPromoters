@@ -4155,17 +4155,19 @@ td {
 
   .prod-monthly-print .prod-table {
     border-collapse: collapse;
+    border: 1px solid #000000;
     font-size: 11pt;
     width: 100%;
   }
 
   .prod-monthly-print .prod-table th,
   .prod-monthly-print .prod-table td {
-    border: 0;
+    border: 1px solid #000000 !important;
     padding: 1.2mm 2mm;
   }
 
   .prod-monthly-print .prod-table th {
+    background: #f0f0f0 !important;
     color: #000000;
     font-size: 11pt;
     text-transform: uppercase;

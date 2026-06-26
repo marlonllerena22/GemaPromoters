@@ -859,17 +859,34 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const today = new Date().toISOString().slice(0, 10);
     const dateFrom = normalizeDateInput(req.query.date_from, today.slice(0, 8) + '01');
     const dateTo = normalizeDateInput(req.query.date_to, today);
-    const monthFrom = dateFrom.slice(0, 7);
-    const monthTo = dateTo.slice(0, 7);
     const days = Math.max(1, Number(req.query.days || 1) || 1);
 
     const historicalRows = db.prepare(
-      `SELECT source_key, report_month, entry_date, client_name, entered_pairs,
-              observations, dispatched_pairs, dispatched_date, source, 'historico' AS row_source
+      `SELECT source_key,
+              report_month,
+              CASE WHEN entry_date BETWEEN ? AND ? THEN entry_date ELSE NULL END AS entry_date,
+              client_name,
+              CASE WHEN entry_date BETWEEN ? AND ? THEN entered_pairs ELSE NULL END AS entered_pairs,
+              observations,
+              CASE WHEN dispatched_date BETWEEN ? AND ? THEN dispatched_pairs ELSE NULL END AS dispatched_pairs,
+              CASE WHEN dispatched_date BETWEEN ? AND ? THEN dispatched_date ELSE NULL END AS dispatched_date,
+              source,
+              'historico' AS row_source
        FROM production_monthly_report_rows
        WHERE establishment_id = ?
-         AND report_month BETWEEN ? AND ?`
-    ).all(business.id, monthFrom, monthTo);
+         AND (
+           entry_date BETWEEN ? AND ?
+           OR dispatched_date BETWEEN ? AND ?
+         )`
+    ).all(
+      dateFrom, dateTo,
+      dateFrom, dateTo,
+      dateFrom, dateTo,
+      dateFrom, dateTo,
+      business.id,
+      dateFrom, dateTo,
+      dateFrom, dateTo
+    );
 
     const liveEntered = db.prepare(
       `SELECT 'live-order-' || orders.id AS source_key,
