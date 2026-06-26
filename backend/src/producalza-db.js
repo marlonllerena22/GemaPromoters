@@ -47,6 +47,7 @@ export function initProducalzaDb(db) {
       visit_type TEXT NOT NULL DEFAULT 'visit',
       result TEXT,
       next_visit_date TEXT,
+      next_visit_type TEXT,
       order_id INTEGER,
       visit_date TEXT,
       visit_date_text TEXT,
@@ -129,6 +130,19 @@ export function initProducalzaDb(db) {
       FOREIGN KEY (establishment_id) REFERENCES establishments(id)
     );
 
+    CREATE TABLE IF NOT EXISTS production_guide_templates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      template_key TEXT NOT NULL,
+      name TEXT NOT NULL,
+      logo_url TEXT NOT NULL,
+      custom_layout INTEGER NOT NULL DEFAULT 0 CHECK (custom_layout IN (0, 1)),
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      UNIQUE(establishment_id, template_key)
+    );
+
     CREATE TABLE IF NOT EXISTS production_audit_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       establishment_id INTEGER NOT NULL,
@@ -154,6 +168,7 @@ export function initProducalzaDb(db) {
   addColumnIfMissing(db, 'production_client_visits', 'visit_type', "TEXT NOT NULL DEFAULT 'visit'");
   addColumnIfMissing(db, 'production_client_visits', 'result', 'TEXT');
   addColumnIfMissing(db, 'production_client_visits', 'next_visit_date', 'TEXT');
+  addColumnIfMissing(db, 'production_client_visits', 'next_visit_type', 'TEXT');
   addColumnIfMissing(db, 'production_client_visits', 'order_id', 'INTEGER');
   addColumnIfMissing(db, 'production_client_visits', 'updated_at', "TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, 'production_clients', 'guide_template_key', 'TEXT');

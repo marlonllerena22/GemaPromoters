@@ -90,9 +90,15 @@ const emptyVisit = {
   visit_type: 'visit',
   result: '',
   next_visit_date: '',
+  next_visit_type: 'follow_up',
   order_id: '',
   pairs: '',
   notes: ''
+};
+
+const emptyGuideTemplate = {
+  name: '',
+  logo_url: ''
 };
 
 const VISIT_TYPE_LABELS = {
@@ -285,6 +291,92 @@ function resolveGuideTemplateKey(order, templates) {
     || inferGuideTemplate(order, templates);
 }
 
+function guideTemplateSlug(key) {
+  return String(key || 'custom')
+    .replace(/^custom-/, '')
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'custom';
+}
+
+function cloneGuideTemplate(template) {
+  return {
+    ...template,
+    page: { ...(template.page || {}) },
+    columns: (template.columns || []).map((item) => ({ ...item })),
+    rows: (template.rows || []).map((item) => ({ ...item })),
+    logos: [...(template.logos || [])]
+  };
+}
+
+function buildManagedGuideTemplate(row, baseTemplate) {
+  const base = cloneGuideTemplate(baseTemplate || {
+    family: 'standard',
+    capacity: 4,
+    variant: 'classic',
+    page: { paperSize: 'A4', orientation: 'portrait', marginLeftIn: 1.38, marginRightIn: 0.71, marginTopIn: 0.2, marginBottomIn: 0.75 },
+    columns: [
+      { min: 1, max: 1, width: 22.66 },
+      { min: 2, max: 2, width: 10.33 },
+      { min: 3, max: 3, width: 21.16 },
+      { min: 4, max: 4, width: 10 },
+      { min: 5, max: 5, width: 8.33 },
+      { min: 6, max: 7, width: 10.83 }
+    ],
+    rows: [
+      { row: 1, height: 62 },
+      { row: 2, height: 23 },
+      { row: 3, height: 21 },
+      { row: 4, height: 7 },
+      { row: 5, height: 7 },
+      { row: 6, height: 19 },
+      { row: 7, height: 62 },
+      { row: 8, height: 23 },
+      { row: 9, height: 23 },
+      { row: 10, height: 8 },
+      { row: 11, height: 8 }
+    ]
+  });
+  return {
+    ...base,
+    key: row.key,
+    name: row.name,
+    slug: guideTemplateSlug(row.key),
+    family: 'standard',
+    variant: base.variant || 'classic',
+    capacity: Number(base.capacity || 4),
+    logos: row.logo_url ? [row.logo_url] : [],
+    managed: true,
+    customManaged: Boolean(row.custom_layout)
+  };
+}
+
+function mergeGuideTemplates(staticTemplates, managedTemplates) {
+  const templates = (staticTemplates || []).map((template) => cloneGuideTemplate(template));
+  const standardBase = templates.find((item) => item.key === 'standard-f-recalde')
+    || templates.find((item) => item.family === 'standard')
+    || null;
+  const byKey = new Map(templates.map((template) => [template.key, template]));
+  for (const row of managedTemplates || []) {
+    if (!row?.key) continue;
+    if (byKey.has(row.key)) {
+      const existing = byKey.get(row.key);
+      byKey.set(row.key, {
+        ...existing,
+        name: row.name || existing.name,
+        logos: row.logo_url ? [row.logo_url] : existing.logos,
+        managed: true,
+        customManaged: Boolean(row.custom_layout)
+      });
+    } else {
+      const custom = buildManagedGuideTemplate(row, standardBase);
+      templates.push(custom);
+      byKey.set(row.key, custom);
+    }
+  }
+  return templates.map((template) => byKey.get(template.key));
+}
+
 function resizeGuideImage(file) {
   return new Promise((resolve, reject) => {
     if (!file?.type?.startsWith('image/')) {
@@ -341,14 +433,24 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
     setLoading(true);
     setError('');
     try {
-      const [nextBootstrap, nextDashboard, nextClients, nextOrders, nextProduction, nextClientActivity, nextGuideTemplates] = await Promise.all([
+      const [
+        nextBootstrap,
+        nextDashboard,
+        nextClients,
+        nextOrders,
+        nextProduction,
+        nextClientActivity,
+        staticGuideTemplates,
+        managedGuideTemplates
+      ] = await Promise.all([
         api(scope('/producalza/bootstrap')),
         api(scope('/producalza/dashboard')),
         api(scope('/producalza/clients')),
         api(scope('/producalza/orders')),
         api(scope('/producalza/production')),
         isAdmin ? api(scope('/producalza/client-activity-report')) : Promise.resolve([]),
-        fetch('/producalza/guides/templates.json').then((response) => response.ok ? response.json() : [])
+        fetch('/producalza/guides/templates.json').then((response) => response.ok ? response.json() : []),
+        api(scope('/producalza/guide-templates'))
       ]);
       setBootstrap(nextBootstrap);
       setDashboard(nextDashboard);
@@ -357,7 +459,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
       setProduction(nextProduction);
       setClientActivity(nextClientActivity);
       setUsers(nextBootstrap.users || []);
-      setGuideTemplates(nextGuideTemplates || []);
+      setGuideTemplates(mergeGuideTemplates(staticGuideTemplates || [], managedGuideTemplates || []));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -455,6 +557,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
     ['clients', 'Clientes', UsersRound],
     ['production', 'Produccion', Factory],
     ...(isAdmin ? [['reports', 'Reportes', BarChart3]] : []),
+    ...(isAdmin ? [['guide-templates', 'Guias', Tags]] : []),
     ...(isAdmin ? [['users', 'Usuarios', UserPlus]] : [])
   ];
 
@@ -543,6 +646,14 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
         />
       )}
       {view === 'reports' && isAdmin && <ProductionReports dashboard={dashboard} orders={orders} clientActivity={clientActivity} />}
+      {view === 'guide-templates' && isAdmin && (
+        <GuideTemplatesView
+          templates={guideTemplates}
+          scope={scope}
+          onRefresh={refresh}
+          setError={setError}
+        />
+      )}
       {view === 'users' && isAdmin && (
         <UsersView users={users} scope={scope} onRefresh={refresh} setError={setError} />
       )}
@@ -629,6 +740,8 @@ function ProductionDashboard({ data, orders, onOpen }) {
     ['Terminados', data?.finished || 0, PackageCheck],
     ['Pares pendientes', data?.pending_pairs || 0, Boxes]
   ];
+  const followUpAlerts = data?.follow_up_alerts || [];
+  const today = new Date().toISOString().slice(0, 10);
   return (
     <div className="prod-stack">
       <section className="prod-metrics">
@@ -676,6 +789,32 @@ function ProductionDashboard({ data, orders, onOpen }) {
           </div>
         </section>
       </div>
+      {followUpAlerts.length > 0 && (
+        <section className="prod-panel prod-followup-alerts">
+          <div className="prod-panel-title">
+            <div><span>Seguimientos</span><h2>Alertas proximas</h2></div>
+            <strong>{followUpAlerts.length}</strong>
+          </div>
+          <div className="prod-followup-alert-list">
+            {followUpAlerts.map((item) => {
+              const isOverdue = item.next_visit_date < today;
+              const isToday = item.next_visit_date === today;
+              return (
+                <article className={isOverdue ? 'overdue' : isToday ? 'today' : ''} key={item.id}>
+                  <div>
+                    <strong>{item.client_name}</strong>
+                    <span>{item.city || 'Sin ciudad'} - {VISIT_TYPE_LABELS[item.next_visit_type] || VISIT_TYPE_LABELS[item.visit_type] || 'Seguimiento'}</span>
+                  </div>
+                  <div>
+                    <b>{isOverdue ? 'Vencido' : isToday ? 'Hoy' : 'Manana'}</b>
+                    <small>{displayDate(item.next_visit_date)}</small>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
@@ -1261,6 +1400,7 @@ function ClientsView({ clients, isAdmin, users, scope, onOpenOrder, onRefresh, s
       visit_type: item.visit_type || 'visit',
       result: item.result || '',
       next_visit_date: item.next_visit_date || '',
+      next_visit_type: item.next_visit_type || 'follow_up',
       order_id: item.order_id ? String(item.order_id) : '',
       pairs: item.pairs ?? '',
       notes: item.notes || ''
@@ -1423,6 +1563,11 @@ function ClientsView({ clients, isAdmin, users, scope, onOpenOrder, onRefresh, s
               </label>
               <label>Pares conversados o solicitados<input type="number" min="0" value={visit.pairs} onChange={(event) => setVisit({ ...visit, pairs: event.target.value })} /></label>
               <label>Proxima visita<input type="date" value={visit.next_visit_date} onChange={(event) => setVisit({ ...visit, next_visit_date: event.target.value })} /></label>
+              <label>Tipo de proximo seguimiento
+                <select value={visit.next_visit_type} onChange={(event) => setVisit({ ...visit, next_visit_type: event.target.value })}>
+                  {Object.entries(VISIT_TYPE_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+                </select>
+              </label>
               <label className="span-full">Resultado de la visita<textarea value={visit.result} onChange={(event) => setVisit({ ...visit, result: event.target.value })} /></label>
               <label className="span-full">Observaciones y acuerdos<textarea value={visit.notes} onChange={(event) => setVisit({ ...visit, notes: event.target.value })} /></label>
             </div>
@@ -1454,7 +1599,7 @@ function ClientsView({ clients, isAdmin, users, scope, onOpenOrder, onRefresh, s
                     <div className="prod-timeline-tags">
                       {item.pairs != null && <span>{item.pairs} pares</span>}
                       {item.related_order_number && <span>Pedido {item.related_order_number}</span>}
-                      {item.next_visit_date && <span>Proxima: {displayDate(item.next_visit_date)}</span>}
+                      {item.next_visit_date && <span>Proxima: {displayDate(item.next_visit_date)} - {VISIT_TYPE_LABELS[item.next_visit_type] || 'Seguimiento'}</span>}
                     </div>
                     {item.result && <p><strong>Resultado:</strong> {item.result}</p>}
                     {item.notes && <p>{item.notes}</p>}
@@ -1695,6 +1840,143 @@ function ProductionBoard({ items, isAdmin, scope, onOpen, onRefresh, setError, o
         ))}
         {!grouped.length && <div className="prod-empty">No hay pedidos que coincidan con estos filtros.</div>}
       </div>
+    </div>
+  );
+}
+
+function GuideTemplatesView({ templates, scope, onRefresh, setError }) {
+  const [form, setForm] = useState(emptyGuideTemplate);
+  const [selectedKey, setSelectedKey] = useState('');
+  const [selectedLogo, setSelectedLogo] = useState('');
+  const selectedTemplate = templates.find((template) => template.key === selectedKey) || templates[0];
+
+  useEffect(() => {
+    if (!selectedKey && templates.length) {
+      setSelectedKey(templates[0].key);
+    }
+  }, [templates, selectedKey]);
+
+  useEffect(() => {
+    if (!selectedTemplate) return;
+    setSelectedLogo(selectedTemplate.managed ? selectedTemplate.logos?.[0] || '' : '');
+  }, [selectedTemplate?.key]);
+
+  async function imageFromFile(file, next) {
+    if (!file) return;
+    try {
+      next(await resizeGuideImage(file));
+    } catch (error) {
+      setError(error.message);
+    }
+  }
+
+  async function createTemplate() {
+    try {
+      await api(scope('/producalza/guide-templates'), {
+        method: 'POST',
+        body: JSON.stringify(form)
+      });
+      setForm(emptyGuideTemplate);
+      await onRefresh('Formato de guia creado');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function updateTemplate() {
+    if (!selectedTemplate) return;
+    try {
+      await api(scope(`/producalza/guide-templates/${encodeURIComponent(selectedTemplate.key)}`), {
+        method: 'PUT',
+        body: JSON.stringify({
+          name: selectedTemplate.name,
+          logo_url: selectedLogo
+        })
+      });
+      await onRefresh('Imagen de guia actualizada');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  return (
+    <div className="prod-guide-admin-layout">
+      <section className="prod-panel">
+        <div className="prod-panel-title">
+          <div><span>Nuevo formato</span><h2>Crear guia para cliente</h2></div>
+        </div>
+        <div className="prod-form-grid single">
+          <label>Nombre del cliente<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
+          <GuideBrandPreview value={form.logo_url} templateKey="" templates={[]} title="Logo del nuevo formato" />
+          <div className="prod-guide-image-actions">
+            <label className="prod-secondary-button">
+              <Upload size={17} />
+              Cargar logo
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                onChange={(event) => {
+                  imageFromFile(event.target.files?.[0], (logo_url) => setForm((current) => ({ ...current, logo_url })));
+                  event.target.value = '';
+                }}
+              />
+            </label>
+          </div>
+        </div>
+        <div className="prod-form-actions">
+          <button className="prod-primary-button" disabled={!form.name.trim() || !form.logo_url} onClick={createTemplate}>
+            <Save size={17} />
+            Crear formato
+          </button>
+        </div>
+      </section>
+
+      <section className="prod-panel">
+        <div className="prod-panel-title">
+          <div><span>Formatos existentes</span><h2>Editar foto de guia</h2></div>
+        </div>
+        <div className="prod-form-grid single">
+          <label>Formato
+            <select value={selectedTemplate?.key || ''} onChange={(event) => setSelectedKey(event.target.value)}>
+              {templates.map((template) => (
+                <option value={template.key} key={template.key}>
+                  {template.customManaged ? 'Nuevo - ' : ''}{template.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          {selectedTemplate && (
+            <>
+              <GuideBrandPreview
+                value={selectedLogo}
+                templateKey={selectedTemplate.key}
+                templates={templates}
+                title="Foto actual para imprimir"
+              />
+              <div className="prod-guide-image-actions">
+                <label className="prod-secondary-button">
+                  <Upload size={17} />
+                  Reemplazar foto
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    onChange={(event) => {
+                      imageFromFile(event.target.files?.[0], setSelectedLogo);
+                      event.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
+            </>
+          )}
+        </div>
+        <div className="prod-form-actions">
+          <button className="prod-primary-button" disabled={!selectedTemplate || !selectedLogo} onClick={updateTemplate}>
+            <Save size={17} />
+            Guardar foto
+          </button>
+        </div>
+      </section>
     </div>
   );
 }

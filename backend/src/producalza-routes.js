@@ -124,6 +124,34 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     return logo;
   }
 
+  function normalizeTemplateName(value) {
+    return String(value || '').trim().replace(/\s+/g, ' ').toUpperCase();
+  }
+
+  function slugFromName(value) {
+    return normalizeTemplateName(value)
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 42) || 'cliente';
+  }
+
+  function nextCustomTemplateKey(establishmentIdValue, name) {
+    const base = `custom-${slugFromName(name)}`;
+    let key = base;
+    let suffix = 2;
+    const exists = db.prepare(
+      'SELECT id FROM production_guide_templates WHERE establishment_id = ? AND template_key = ?'
+    );
+    while (exists.get(establishmentIdValue, key)) {
+      key = `${base}-${suffix}`;
+      suffix += 1;
+    }
+    return key;
+  }
+
   function normalizeModels(models) {
     if (!Array.isArray(models) || !models.length) {
       throw new Error('Agrega al menos un modelo al pedido');
@@ -223,6 +251,68 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     });
   });
 
+  app.get('/api/producalza/guide-templates', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    res.json(db.prepare(
+      `SELECT template_key AS key, name, logo_url, custom_layout, updated_at
+       FROM production_guide_templates
+       WHERE establishment_id = ?
+       ORDER BY custom_layout DESC, name`
+    ).all(business.id));
+  });
+
+  app.post('/api/producalza/guide-templates', requireProductionAdmin, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const name = normalizeTemplateName(req.body.name);
+    if (!name) return res.status(400).json({ message: 'El nombre del cliente es obligatorio' });
+    let logoUrl;
+    try {
+      logoUrl = normalizeGuideLogo(req.body.logo_url);
+    } catch (error) {
+      return res.status(400).json({ message: error.message });
+    }
+    if (!logoUrl) return res.status(400).json({ message: 'Carga el logo para crear el formato' });
+    const key = nextCustomTemplateKey(business.id, name);
+    const result = db.prepare(
+      `INSERT INTO production_guide_templates
+       (establishment_id, template_key, name, logo_url, custom_layout)
+       VALUES (?, ?, ?, ?, 1)`
+    ).run(business.id, key, name, logoUrl);
+    audit(req, 'create', 'guide_template', result.lastInsertRowid, name);
+    res.status(201).json({ key, name, logo_url: logoUrl, custom_layout: 1 });
+  });
+
+  app.put('/api/producalza/guide-templates/:key', requireProductionAdmin, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const key = String(req.params.key || '').trim();
+    const current = db.prepare(
+      'SELECT * FROM production_guide_templates WHERE establishment_id = ? AND template_key = ?'
+    ).get(business.id, key);
+    const name = normalizeTemplateName(req.body.name) || current?.name || normalizeTemplateName(key.replace(/^custom-/, '').replace(/-/g, ' '));
+    let logoUrl;
+    try {
+      logoUrl = normalizeGuideLogo(req.body.logo_url);
+    } catch (error) {
+      return res.status(400).json({ message: error.message });
+    }
+    if (!logoUrl) return res.status(400).json({ message: 'Carga una imagen para guardar este formato' });
+    db.prepare(
+      `INSERT INTO production_guide_templates
+       (establishment_id, template_key, name, logo_url, custom_layout, updated_at)
+       VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'))
+       ON CONFLICT(establishment_id, template_key) DO UPDATE SET
+         name = excluded.name,
+         logo_url = excluded.logo_url,
+         custom_layout = MAX(production_guide_templates.custom_layout, excluded.custom_layout),
+         updated_at = datetime('now', 'localtime')`
+    ).run(business.id, key, name, logoUrl, current?.custom_layout ? 1 : 0);
+    audit(req, 'update', 'guide_template', current?.id || null, key);
+    res.json({ key, name, logo_url: logoUrl, custom_layout: current?.custom_layout ? 1 : 0 });
+  });
+
   app.get('/api/producalza/dashboard', requireProductionUser, (req, res) => {
     const business = ensureProductionBusiness(req, res);
     if (!business) return;
@@ -251,14 +341,36 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
        LEFT JOIN production_order_models AS models ON models.order_id = orders.id
        WHERE orders.establishment_id = ? AND orders.deleted_at IS NULL ${visibility.sql}
        GROUP BY orders.seller_user_id
-       ORDER BY total_pairs DESC`
+      ORDER BY total_pairs DESC`
     ).all(...params);
+    const alertParams = [business.id];
+    const alertOwnerFilter = isProductionAdmin(req)
+      ? ''
+      : ' AND visits.visited_by_user_id = ?';
+    if (!isProductionAdmin(req)) alertParams.push(req.user?.productionUserId || 0);
+    const followUpAlerts = db.prepare(
+      `SELECT visits.id, visits.client_id, visits.next_visit_date, visits.next_visit_type,
+              visits.visit_type, visits.result, visits.notes,
+              clients.name AS client_name, clients.city, clients.phone,
+              COALESCE(users.name, visits.visitor_name, clients.imported_seller_code, 'Sin responsable') AS responsible_name
+       FROM production_client_visits AS visits
+       JOIN production_clients AS clients ON clients.id = visits.client_id
+       LEFT JOIN production_users AS users ON users.id = visits.visited_by_user_id
+       WHERE visits.establishment_id = ?
+         AND visits.next_visit_date IS NOT NULL
+         AND visits.next_visit_date <> ''
+         AND visits.next_visit_date <= date('now', 'localtime', '+1 day')
+         ${alertOwnerFilter}
+       ORDER BY visits.next_visit_date ASC, visits.id DESC
+       LIMIT 12`
+    ).all(...alertParams);
     res.json({
       new_orders: Number(counts.new_orders || 0),
       in_production: Number(counts.in_production || 0),
       finished: Number(counts.finished || 0),
       pending_pairs: Number(pendingPairs || 0),
-      by_seller: bySeller
+      by_seller: bySeller,
+      follow_up_alerts: followUpAlerts
     });
   });
 
@@ -608,8 +720,8 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const result = db.prepare(
       `INSERT INTO production_client_visits
        (establishment_id, client_id, visited_by_user_id, visitor_name, visit_type, result,
-        next_visit_date, order_id, visit_date, visit_date_text, pairs, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        next_visit_date, next_visit_type, order_id, visit_date, visit_date_text, pairs, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       business.id,
       client.id,
@@ -618,6 +730,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       String(req.body.visit_type || 'visit').trim(),
       String(req.body.result || '').trim(),
       req.body.next_visit_date || null,
+      String(req.body.next_visit_type || '').trim(),
       orderId,
       req.body.visit_date || null,
       String(req.body.visit_date_text || req.body.visit_date || '').trim(),
@@ -653,7 +766,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     db.prepare(
       `UPDATE production_client_visits SET
        visited_by_user_id = ?, visitor_name = ?, visit_type = ?, result = ?,
-       next_visit_date = ?, order_id = ?, visit_date = ?, visit_date_text = ?,
+       next_visit_date = ?, next_visit_type = ?, order_id = ?, visit_date = ?, visit_date_text = ?,
        pairs = ?, notes = ?, updated_at = datetime('now', 'localtime')
        WHERE id = ? AND client_id = ? AND establishment_id = ?`
     ).run(
@@ -662,6 +775,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       String(req.body.visit_type || 'visit').trim(),
       String(req.body.result || '').trim(),
       req.body.next_visit_date || null,
+      String(req.body.next_visit_type || '').trim(),
       orderId,
       req.body.visit_date || null,
       String(req.body.visit_date_text || req.body.visit_date || '').trim(),
