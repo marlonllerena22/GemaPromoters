@@ -2349,6 +2349,15 @@ td {
   background: #263f82;
 }
 
+.prod-primary-button.delivery {
+  background: #8a5a16;
+  border-color: #8a5a16;
+}
+
+.prod-primary-button.delivery:hover {
+  background: #70470f;
+}
+
 .prod-primary-button.whatsapp {
   background: #168a58;
   border-color: #168a58;
@@ -2872,7 +2881,14 @@ td {
   background: #f7faf8;
   border: 1px solid #dce6e1;
   border-radius: 7px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   padding: 14px;
+}
+
+.prod-payment-form .prod-form-title,
+.prod-payment-form label:has(textarea),
+.prod-payment-form .prod-primary-button {
+  grid-column: 1 / -1;
 }
 
 .prod-payment-form label {
@@ -3802,7 +3818,8 @@ td {
   gap: 5px;
 }
 
-.prod-monthly-controls input {
+.prod-monthly-controls input,
+.prod-monthly-controls select {
   background: #ffffff;
   border: 1px solid #c9d4ce;
   border-radius: 5px;
@@ -4016,6 +4033,10 @@ td {
   }
 
   .prod-payment-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .prod-payment-form {
     grid-template-columns: 1fr;
   }
 }
@@ -4237,6 +4258,11 @@ td {
     margin: 6mm;
   }
 
+  @page delivery-note {
+    size: A4 portrait;
+    margin: 7mm;
+  }
+
   @page box-guides {
     size: A4 portrait;
     margin: 0;
@@ -4270,10 +4296,17 @@ td {
 
   .prod-print-root.print-order .prod-print-card-page,
   .prod-print-root.print-order .prod-print-card,
+  .prod-print-root.print-order .prod-delivery-note-page,
   .prod-print-root.print-order .prod-guide-page,
+  .prod-print-root.print-delivery-note .prod-print-page,
+  .prod-print-root.print-delivery-note .prod-print-card-page,
+  .prod-print-root.print-delivery-note .prod-print-card,
+  .prod-print-root.print-delivery-note .prod-guide-page,
   .prod-print-root.print-cards .prod-print-page,
+  .prod-print-root.print-cards .prod-delivery-note-page,
   .prod-print-root.print-cards .prod-guide-page,
   .prod-print-root.print-guides .prod-print-page,
+  .prod-print-root.print-guides .prod-delivery-note-page,
   .prod-print-root.print-guides .prod-print-card-page,
   .prod-print-root.print-guides .prod-print-card {
     display: none !important;
@@ -4340,6 +4373,173 @@ td {
   .prod-monthly-print .prod-table th:nth-child(7),
   .prod-monthly-print .prod-table td:nth-child(7) {
     display: none;
+  }
+
+  .prod-delivery-note-page {
+    background: #ffffff;
+    box-sizing: border-box;
+    color: #000000;
+    font-family: Arial, sans-serif;
+    min-height: 283mm;
+    padding: 5mm 8mm;
+    page: delivery-note;
+    width: 196mm;
+  }
+
+  .prod-delivery-note-page header {
+    align-items: start;
+    display: grid;
+    grid-template-columns: 1fr 92mm;
+    gap: 8mm;
+    min-height: 33mm;
+  }
+
+  .prod-delivery-brand {
+    display: grid;
+    gap: 2mm;
+    padding-top: 6mm;
+    text-align: center;
+  }
+
+  .prod-delivery-brand strong {
+    font-size: 22pt;
+    letter-spacing: 0;
+  }
+
+  .prod-delivery-brand span {
+    font-size: 13pt;
+    font-weight: 800;
+  }
+
+  .prod-delivery-date-grid {
+    display: grid;
+    font-size: 8.5pt;
+    font-weight: 800;
+    grid-template-columns: 16mm 14mm 25mm 22mm 14mm;
+    text-align: center;
+  }
+
+  .prod-delivery-date-grid span,
+  .prod-delivery-date-grid b {
+    border: 1px solid #000000;
+    min-height: 7mm;
+    padding: 1.5mm 1mm;
+  }
+
+  .prod-delivery-client {
+    border: 1px solid #000000;
+    display: grid;
+    font-size: 9.5pt;
+    grid-template-columns: 24mm 1fr 18mm 32mm;
+    margin-bottom: 8mm;
+  }
+
+  .prod-delivery-client span,
+  .prod-delivery-client strong {
+    border: 1px solid #000000;
+    min-height: 7mm;
+    padding: 1.5mm 2mm;
+  }
+
+  .prod-delivery-client span {
+    font-weight: 800;
+  }
+
+  .prod-delivery-table {
+    border-collapse: collapse;
+    font-size: 9.5pt;
+    width: 100%;
+  }
+
+  .prod-delivery-table th,
+  .prod-delivery-table td {
+    border: 1px solid #000000;
+    padding: 1.5mm 2mm;
+  }
+
+  .prod-delivery-table th {
+    font-size: 9pt;
+    text-align: center;
+  }
+
+  .prod-delivery-table td:first-child,
+  .prod-delivery-table td:nth-child(3),
+  .prod-delivery-table td:nth-child(4) {
+    text-align: center;
+  }
+
+  .prod-delivery-table .blank td {
+    height: 7.4mm;
+  }
+
+  .prod-delivery-note-text {
+    border: 1px solid #000000;
+    font-size: 8.5pt;
+    font-weight: 800;
+    margin-top: 4mm;
+    padding: 2mm;
+    text-align: center;
+  }
+
+  .prod-delivery-bottom {
+    display: grid;
+    gap: 6mm;
+    grid-template-columns: 1fr 55mm;
+    margin-top: 3mm;
+  }
+
+  .prod-delivery-payment {
+    border: 1px solid #000000;
+    font-size: 9pt;
+    min-height: 34mm;
+    padding: 2mm;
+  }
+
+  .prod-delivery-payment-list {
+    display: grid;
+    gap: 1mm;
+    margin-top: 2mm;
+  }
+
+  .prod-delivery-payment-list span {
+    border-top: 1px solid #000000;
+    padding-top: 1mm;
+  }
+
+  .prod-delivery-totals {
+    display: grid;
+    font-size: 9pt;
+    grid-template-columns: 1fr 24mm;
+  }
+
+  .prod-delivery-totals span,
+  .prod-delivery-totals strong {
+    border: 1px solid #000000;
+    padding: 1.5mm 2mm;
+  }
+
+  .prod-delivery-totals span {
+    font-weight: 800;
+    text-align: right;
+  }
+
+  .prod-delivery-totals strong {
+    text-align: center;
+  }
+
+  .prod-delivery-note-page footer {
+    display: grid;
+    font-size: 9pt;
+    font-weight: 800;
+    gap: 18mm;
+    grid-template-columns: 1fr 1fr;
+    margin-top: 17mm;
+    text-align: center;
+  }
+
+  .prod-delivery-note-page footer span {
+    border-top: 1px solid #000000;
+    padding-top: 2mm;
   }
 
   .prod-print-page,

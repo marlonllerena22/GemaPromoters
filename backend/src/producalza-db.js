@@ -1,5 +1,3 @@
-import fs from 'node:fs';
-
 export function initProducalzaDb(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS production_users (
@@ -79,6 +77,11 @@ export function initProducalzaDb(db) {
       guide_template_key TEXT,
       general_notes TEXT,
       dispatched_date TEXT,
+      shipping_value REAL NOT NULL DEFAULT 0,
+      discount_value REAL NOT NULL DEFAULT 0,
+      invoice_number TEXT,
+      invoice_date TEXT,
+      invoice_value REAL NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'draft'
         CHECK (status IN ('draft', 'received', 'reviewed', 'in_production', 'finished', 'delivered', 'cancelled')),
       created_by TEXT,
@@ -102,6 +105,7 @@ export function initProducalzaDb(db) {
       notes TEXT,
       plant_area TEXT,
       total_pairs INTEGER NOT NULL DEFAULT 0,
+      unit_price REAL NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'received'
         CHECK (status IN ('received', 'reviewed', 'in_production', 'cut', 'stitched', 'assembled', 'finished', 'delivered', 'cancelled')),
       process_cut INTEGER NOT NULL DEFAULT 0 CHECK (process_cut IN (0, 1)),
@@ -225,6 +229,12 @@ export function initProducalzaDb(db) {
   addColumnIfMissing(db, 'production_orders', 'origin_label', 'TEXT');
   addColumnIfMissing(db, 'production_orders', 'card_alert', 'TEXT');
   addColumnIfMissing(db, 'production_orders', 'dispatched_date', 'TEXT');
+  addColumnIfMissing(db, 'production_orders', 'shipping_value', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'production_orders', 'discount_value', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'production_orders', 'invoice_number', 'TEXT');
+  addColumnIfMissing(db, 'production_orders', 'invoice_date', 'TEXT');
+  addColumnIfMissing(db, 'production_orders', 'invoice_value', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'production_order_models', 'unit_price', 'REAL NOT NULL DEFAULT 0');
   db.prepare(
     `UPDATE production_client_visits
      SET updated_at = COALESCE(NULLIF(updated_at, ''), created_at),
@@ -262,7 +272,7 @@ export function initProducalzaDb(db) {
      VALUES (?, 'next_card_number', '62')`
   ).run(establishment.id);
 
-  seedMonthlyHistory(db, establishment.id);
+  db.prepare('DELETE FROM production_monthly_report_rows WHERE establishment_id = ?').run(establishment.id);
 }
 
 function addColumnIfMissing(db, table, column, definition) {
@@ -270,38 +280,4 @@ function addColumnIfMissing(db, table, column, definition) {
   if (!columns.some((item) => item.name === column)) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
-}
-
-function seedMonthlyHistory(db, establishmentId) {
-  const historyUrl = new URL('./producalza-monthly-history.json', import.meta.url);
-  if (!fs.existsSync(historyUrl)) return;
-  let rows = [];
-  try {
-    rows = JSON.parse(fs.readFileSync(historyUrl, 'utf8'));
-  } catch {
-    rows = [];
-  }
-  if (!Array.isArray(rows) || !rows.length) return;
-  const insert = db.prepare(
-    `INSERT OR IGNORE INTO production_monthly_report_rows
-     (establishment_id, source_key, report_month, entry_date, client_name, entered_pairs,
-      observations, dispatched_pairs, dispatched_date, source)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  );
-  db.transaction(() => {
-    for (const row of rows) {
-      insert.run(
-        establishmentId,
-        String(row.source_key || '').trim(),
-        String(row.report_month || '').trim(),
-        row.entry_date || null,
-        String(row.client_name || '').trim(),
-        row.entered_pairs == null ? null : Number(row.entered_pairs),
-        String(row.observations || '').trim(),
-        row.dispatched_pairs == null ? null : Number(row.dispatched_pairs),
-        row.dispatched_date || null,
-        String(row.source || '').trim()
-      );
-    }
-  })();
 }

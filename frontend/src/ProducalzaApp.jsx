@@ -127,6 +127,14 @@ const PAYMENT_STATUS_LABELS = {
   cancelled: 'Cancelado'
 };
 
+const PAYMENT_METHOD_OPTIONS = [
+  'Credito con cheques: 30-60-90 dias',
+  'Contado: efectivo',
+  'Contado: 50% al pedido y saldo a la entrega',
+  'Abonos: semanales',
+  'Abonos: quincenales'
+];
+
 const emptyPayment = {
   payment_type: 'abono',
   amount: '',
@@ -145,6 +153,7 @@ function emptyModel() {
     material: '',
     notes: '',
     plant_area: '',
+    unit_price: '',
     status: 'received',
     sizes: Object.fromEntries(SIZES.map((size) => [size, 0]))
   };
@@ -163,6 +172,11 @@ function emptyOrder() {
     bank_reference: '',
     guide_template_key: '',
     general_notes: '',
+    shipping_value: '',
+    discount_value: '',
+    invoice_number: '',
+    invoice_date: '',
+    invoice_value: '',
     status: 'draft',
     models: [emptyModel()]
   };
@@ -176,6 +190,18 @@ function withBusiness(path, establishmentId) {
 
 function totalModel(model) {
   return SIZES.reduce((sum, size) => sum + Number(model.sizes?.[size] || 0), 0);
+}
+
+function modelValue(model) {
+  return totalModel(model) * Number(model.unit_price || 0);
+}
+
+function orderSubtotal(order) {
+  return (order.models || []).reduce((sum, model) => sum + modelValue(model), 0);
+}
+
+function orderTotalValue(order) {
+  return Math.max(0, orderSubtotal(order) + Number(order.shipping_value || 0) - Number(order.discount_value || 0));
 }
 
 function processStateForStatus(status) {
@@ -1147,10 +1173,18 @@ function OrderForm({ clients, users, isAdmin, scope, initialOrder, onCancel, onS
             templates={guideTemplates}
             onChange={(guide_template_key) => setForm({ ...form, guide_template_key })}
           />
-          <label>Forma de pago<input value={form.payment_method} onChange={(event) => setForm({ ...form, payment_method: event.target.value })} /></label>
+          <label>Forma de pago
+            <select value={form.payment_method} onChange={(event) => setForm({ ...form, payment_method: event.target.value })}>
+              <option value="">Seleccionar forma de pago</option>
+              {PAYMENT_METHOD_OPTIONS.map((item) => <option value={item} key={item}>{item}</option>)}
+              {form.payment_method && !PAYMENT_METHOD_OPTIONS.includes(form.payment_method) && <option value={form.payment_method}>{form.payment_method}</option>}
+            </select>
+          </label>
           <label>Referencia bancaria<input value={form.bank_reference} onChange={(event) => setForm({ ...form, bank_reference: event.target.value })} /></label>
           <label>Etiqueta de origen<input value={form.origin_label} onChange={(event) => setForm({ ...form, origin_label: event.target.value })} /></label>
           <label>Texto rojo tarjeta<input value={form.card_alert} onChange={(event) => setForm({ ...form, card_alert: event.target.value })} /></label>
+          <label>Valor envio<input type="number" min="0" step="0.01" value={form.shipping_value} onChange={(event) => setForm({ ...form, shipping_value: event.target.value })} /></label>
+          <label>Descuento<input type="number" min="0" step="0.01" value={form.discount_value} onChange={(event) => setForm({ ...form, discount_value: event.target.value })} /></label>
           <label className="span-full">Observaciones generales<textarea value={form.general_notes} onChange={(event) => setForm({ ...form, general_notes: event.target.value })} /></label>
         </div>
       </section>
@@ -1188,6 +1222,7 @@ function OrderForm({ clients, users, isAdmin, scope, initialOrder, onCancel, onS
               <label>Color<input value={model.color} onChange={(event) => updateModel(index, { color: event.target.value })} /></label>
               <label>Material o descripcion<input value={model.material} onChange={(event) => updateModel(index, { material: event.target.value })} /></label>
               <label>Planta<input value={model.plant_area} onChange={(event) => updateModel(index, { plant_area: event.target.value })} /></label>
+              <label>Precio unitario<input type="number" min="0" step="0.01" value={model.unit_price || ''} onChange={(event) => updateModel(index, { unit_price: event.target.value })} /></label>
               <label className="span-full">Observaciones del modelo<textarea value={model.notes} onChange={(event) => updateModel(index, { notes: event.target.value })} /></label>
             </div>
             <div className="prod-size-grid">
@@ -1204,7 +1239,7 @@ function OrderForm({ clients, users, isAdmin, scope, initialOrder, onCancel, onS
                 </label>
               ))}
             </div>
-            <div className="prod-model-total">Total del modelo <strong>{totalModel(model)} pares</strong></div>
+            <div className="prod-model-total">Total del modelo <strong>{totalModel(model)} pares · {displayMoney(modelValue(model))}</strong></div>
           </section>
         ))}
       </div>
@@ -1212,7 +1247,7 @@ function OrderForm({ clients, users, isAdmin, scope, initialOrder, onCancel, onS
         <Plus size={19} />Agregar otro modelo
       </button>
       <section className="prod-order-summary">
-        <div><span>Resumen del pedido</span><strong>{form.models.length} modelos · {grandTotal} pares</strong></div>
+        <div><span>Resumen del pedido</span><strong>{form.models.length} modelos · {grandTotal} pares · {displayMoney(orderTotalValue(form))}</strong></div>
         <div className="prod-form-actions">
           <button className="prod-secondary-button" disabled={saving} onClick={() => save('draft')}><Save size={17} />Guardar borrador</button>
           <button className="prod-primary-button" disabled={saving} onClick={() => save('received')}><Check size={17} />Confirmar pedido</button>
@@ -1230,12 +1265,24 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
   const [paymentForm, setPaymentForm] = useState(emptyPayment);
   const [editingPaymentId, setEditingPaymentId] = useState(null);
   const [savingPayment, setSavingPayment] = useState(false);
+  const [showInvoiceForm, setShowInvoiceForm] = useState(false);
+  const [invoiceForm, setInvoiceForm] = useState({
+    invoice_number: order.invoice_number || '',
+    invoice_date: order.invoice_date || new Date().toISOString().slice(0, 10),
+    invoice_value: order.invoice_value || ''
+  });
 
   useEffect(() => {
     setModels(order.models);
     setDirtyIds([]);
     setPaymentForm(emptyPayment);
     setEditingPaymentId(null);
+    setShowInvoiceForm(false);
+    setInvoiceForm({
+      invoice_number: order.invoice_number || '',
+      invoice_date: order.invoice_date || new Date().toISOString().slice(0, 10),
+      invoice_value: order.invoice_value || ''
+    });
   }, [order]);
 
   const payments = order.payments || [];
@@ -1245,6 +1292,8 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
   const totalPending = payments
     .filter((payment) => payment.status === 'pending')
     .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+  const subtotal = orderSubtotal({ ...order, models });
+  const noteTotal = Math.max(0, subtotal + Number(order.shipping_value || 0) - Number(order.discount_value || 0));
 
   function deriveStatus(model) {
     if (model.process_finished) return 'finished';
@@ -1357,6 +1406,19 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
     }
   }
 
+  async function saveInvoice() {
+    try {
+      await api(scope(`/producalza/orders/${order.id}/invoice`), {
+        method: 'PATCH',
+        body: JSON.stringify(invoiceForm)
+      });
+      setShowInvoiceForm(false);
+      await onUpdated('Factura registrada');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   async function sendOrderToClient() {
     const phone = whatsappNumber(order.phone);
     if (!phone) {
@@ -1407,10 +1469,12 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
         </span>
       </button>
       <div className="prod-detail-actions">
-        <button className="prod-secondary-button" onClick={onBack}><ChevronLeft size={17} />Volver</button>
+          <button className="prod-secondary-button" onClick={onBack}><ChevronLeft size={17} />Volver</button>
         <div>
           <button className="prod-secondary-button" onClick={onEdit}><Pencil size={17} />Editar</button>
           <button className="prod-primary-button" onClick={() => onPrint('sheets')}><Printer size={17} />Hoja unica del pedido</button>
+          <button className="prod-primary-button delivery" onClick={() => onPrint('delivery-note')}><Printer size={17} />Nota de entrega</button>
+          <button className="prod-secondary-button" onClick={() => setShowInvoiceForm((value) => !value)}><FilePlus2 size={17} />Registrar factura</button>
           <button className="prod-primary-button whatsapp prod-desktop-whatsapp-action" disabled={sendingPdf} onClick={sendOrderToClient}>
             {sendingPdf ? <FileDown size={17} /> : <MessageCircle size={17} />}
             {sendingPdf ? 'Descargando PDF...' : 'Enviar pedido por WhatsApp'}
@@ -1462,9 +1526,28 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
           />
           <Detail label="Forma de pago" value={order.payment_method} />
           <Detail label="Fecha de envio" value={order.dispatched_date ? displayDate(order.dispatched_date) : ''} />
+          <Detail label="Subtotal" value={displayMoney(subtotal)} />
+          <Detail label="Descuento" value={displayMoney(order.discount_value)} />
+          <Detail label="Transporte" value={displayMoney(order.shipping_value)} />
+          <Detail label="Total nota" value={displayMoney(noteTotal)} />
+          <Detail label="Factura" value={order.invoice_number ? `${order.invoice_number} · ${displayDate(order.invoice_date)} · ${displayMoney(order.invoice_value)}` : ''} />
         </div>
         {order.general_notes && <div className="prod-note"><strong>Observaciones</strong><p>{order.general_notes}</p></div>}
       </section>
+      {showInvoiceForm && (
+        <section className="prod-panel prod-invoice-panel">
+          <div className="prod-panel-title"><div><span>Registro opcional</span><h2>Factura del pedido</h2></div></div>
+          <div className="prod-form-grid">
+            <label>Numero de factura<input value={invoiceForm.invoice_number} onChange={(event) => setInvoiceForm({ ...invoiceForm, invoice_number: event.target.value })} /></label>
+            <label>Fecha<input type="date" value={invoiceForm.invoice_date} onChange={(event) => setInvoiceForm({ ...invoiceForm, invoice_date: event.target.value })} /></label>
+            <label>Valor<input type="number" min="0" step="0.01" value={invoiceForm.invoice_value} onChange={(event) => setInvoiceForm({ ...invoiceForm, invoice_value: event.target.value })} /></label>
+            <div className="prod-form-actions align-end">
+              <button className="prod-secondary-button" onClick={() => setShowInvoiceForm(false)}>Cancelar</button>
+              <button className="prod-primary-button" onClick={saveInvoice}><Save size={17} />Guardar factura</button>
+            </div>
+          </div>
+        </section>
+      )}
       <section className="prod-panel prod-payment-panel">
         <div className="prod-panel-title">
           <div><span>Cobros del pedido</span><h2>Pagos, abonos y cheques</h2></div>
@@ -2297,6 +2380,13 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
   const [monthlyReport, setMonthlyReport] = useState(null);
   const [excludedClients, setExcludedClients] = useState([]);
   const [monthlyLoading, setMonthlyLoading] = useState(false);
+  const [dispatchFilters, setDispatchFilters] = useState({
+    date_from: `${today.slice(0, 8)}01`,
+    date_to: today,
+    status: 'all'
+  });
+  const [dispatchReport, setDispatchReport] = useState(null);
+  const [dispatchLoading, setDispatchLoading] = useState(false);
   const byStatus = Object.entries(ORDER_STATUS_LABELS).map(([key, label]) => ({
     key,
     label,
@@ -2338,6 +2428,7 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
   const monthlyDispatched = visibleMonthlyRows.reduce((sum, row) => sum + Number(row.dispatched_pairs || 0), 0);
   const updateReportFilter = (key, value) => setReportFilters((current) => ({ ...current, [key]: value }));
   const updateMonthlyFilter = (key, value) => setMonthlyFilters((current) => ({ ...current, [key]: value }));
+  const updateDispatchFilter = (key, value) => setDispatchFilters((current) => ({ ...current, [key]: value }));
 
   async function loadMonthlyReport() {
     setMonthlyLoading(true);
@@ -2362,6 +2453,21 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
         ? current.filter((item) => item !== clientName)
         : [...current, clientName]
     );
+  }
+
+  async function loadDispatchReport() {
+    setDispatchLoading(true);
+    try {
+      const query = new URLSearchParams();
+      if (dispatchFilters.date_from) query.set('date_from', dispatchFilters.date_from);
+      if (dispatchFilters.date_to) query.set('date_to', dispatchFilters.date_to);
+      query.set('status', dispatchFilters.status);
+      setDispatchReport(await api(scope(`/producalza/dispatch-collections-report?${query.toString()}`)));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDispatchLoading(false);
+    }
   }
 
   return (
@@ -2397,7 +2503,7 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
               <article><span>Ingresados</span><strong>{displayNumber(monthlyEntered)}</strong><small>{displayNumber(monthlyEntered / monthlyDays, 1)} pares/dia</small></article>
               <article><span>Despachados</span><strong>{displayNumber(monthlyDispatched)}</strong><small>{displayNumber(monthlyDispatched / monthlyDays, 1)} pares/dia</small></article>
               <article><span>Clientes incluidos</span><strong>{monthlyClients.length - excludedClients.length}</strong><small>{excludedClients.length} excluidos</small></article>
-              <article><span>Historico cargado</span><strong>{(monthlyReport.stored_months || []).length}</strong><small>ENERO-MAYO 2026</small></article>
+              <article><span>Base del informe</span><strong>Sistema</strong><small>Desde el primer pedido registrado</small></article>
             </div>
             <div className="prod-monthly-client-picker">
               <div><span>Clientes del reporte</span><strong>Desmarca los que no quieres incluir</strong></div>
@@ -2447,6 +2553,64 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
                 </tbody>
               </table>
               {!visibleMonthlyRows.length && <div className="prod-empty">No hay filas para este rango o todos los clientes estan excluidos.</div>}
+            </div>
+          </>
+        )}
+      </section>
+      <section className="prod-panel prod-dispatch-report">
+        <div className="prod-panel-title">
+          <div><span>Despachos y cobros</span><h2>Reporte de valores por cobrar</h2></div>
+          <button className="prod-primary-button" disabled={dispatchLoading} onClick={loadDispatchReport}>
+            <Filter size={17} />
+            {dispatchLoading ? 'Generando...' : 'Generar reporte'}
+          </button>
+        </div>
+        <div className="prod-monthly-controls">
+          <label>Desde<input type="date" value={dispatchFilters.date_from} onChange={(event) => updateDispatchFilter('date_from', event.target.value)} /></label>
+          <label>Hasta<input type="date" value={dispatchFilters.date_to} onChange={(event) => updateDispatchFilter('date_to', event.target.value)} /></label>
+          <label>Estado
+            <select value={dispatchFilters.status} onChange={(event) => updateDispatchFilter('status', event.target.value)}>
+              <option value="all">Todos</option>
+              <option value="pending">Pendientes</option>
+              <option value="paid">Pagados</option>
+            </select>
+          </label>
+        </div>
+        {dispatchReport && (
+          <>
+            <div className="prod-monthly-summary">
+              <article><span>Total despachado</span><strong>{displayMoney(dispatchReport.totals?.total)}</strong><small>{dispatchReport.rows.length} pedidos</small></article>
+              <article><span>Pagado</span><strong>{displayMoney(dispatchReport.totals?.paid)}</strong><small>Valores confirmados</small></article>
+              <article><span>Saldo</span><strong>{displayMoney(dispatchReport.totals?.balance)}</strong><small>Pendiente de cobro</small></article>
+              <article><span>Filtro</span><strong>{dispatchFilters.status === 'all' ? 'Todos' : dispatchFilters.status === 'paid' ? 'Pagados' : 'Pendientes'}</strong><small>{displayDate(dispatchReport.date_from)} - {displayDate(dispatchReport.date_to)}</small></article>
+            </div>
+            <div className="prod-table-wrap">
+              <table className="prod-table prod-dispatch-table">
+                <thead>
+                  <tr>
+                    <th>Fecha despacho</th><th>Cliente</th><th>Forma de pago</th><th>Valor inicial</th><th>Abonos</th><th>Saldo</th><th>Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dispatchReport.rows.map((row) => (
+                    <tr key={row.id}>
+                      <td>{displayDate(row.dispatched_date)}</td>
+                      <td><strong>{row.client_name}</strong><small>{row.order_number} · {row.city || 'Sin ciudad'}</small></td>
+                      <td>{row.payment_method || '-'}</td>
+                      <td>{displayMoney(row.total)}</td>
+                      <td>
+                        <strong>{displayMoney(row.paid_total)}</strong>
+                        {(row.payment_rows || []).slice(0, 3).map((payment, index) => (
+                          <small key={index}>{PAYMENT_TYPE_LABELS[payment.payment_type] || payment.payment_type}: {displayMoney(payment.amount)} {payment.due_date ? `· ${displayDate(payment.due_date)}` : ''}</small>
+                        ))}
+                      </td>
+                      <td>{displayMoney(row.balance)}</td>
+                      <td><span className={`prod-status ${row.payment_status === 'paid' ? 'status-delivered' : 'status-received'}`}>{row.payment_status === 'paid' ? 'Pagado' : 'Pendiente'}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {!dispatchReport.rows.length && <div className="prod-empty">No hay despachos con esos filtros.</div>}
             </div>
           </>
         )}
@@ -2786,9 +2950,15 @@ function orderToForm(order) {
     bank_reference: order.bank_reference || '',
     guide_template_key: order.guide_template_key || order.client_guide_template_key || '',
     general_notes: order.general_notes || '',
+    shipping_value: order.shipping_value || '',
+    discount_value: order.discount_value || '',
+    invoice_number: order.invoice_number || '',
+    invoice_date: order.invoice_date || '',
+    invoice_value: order.invoice_value || '',
     status: order.status,
     models: order.models.map((model) => ({
       ...model,
+      unit_price: model.unit_price || '',
       sizes: Object.fromEntries(SIZES.map((size) => [size, Number(model.sizes?.[size] || 0)]))
     }))
   };
@@ -2888,9 +3058,10 @@ function PrintLayouts({ state, guideTemplates }) {
   }
   return (
     <div className={`prod-print-root ${
-      type === 'sheets' ? 'print-order' : type === 'guides' ? 'print-guides' : 'print-cards'
+      type === 'sheets' ? 'print-order' : type === 'delivery-note' ? 'print-delivery-note' : type === 'guides' ? 'print-guides' : 'print-cards'
     }`}>
       {type === 'sheets' && <ProductionOrderSheet order={order} />}
+      {type === 'delivery-note' && <DeliveryNoteSheet order={order} />}
       {(type === 'cards' || type === 'card') && cardPages.map((pageModels, pageIndex) => (
         <article className="prod-print-card-page" key={`card-page-${pageIndex}`}>
           {pageModels.map((model) => <ProductionCard order={order} model={model} key={`card-${model.id}`} />)}
@@ -2981,6 +3152,80 @@ function GuideLabel({ guide, order, template }) {
       <div className="prod-guide-size"><strong>{size}</strong></div>
       <div className="prod-guide-origin"><span>MADE IN EC</span><strong>BY PRODUCALZA</strong></div>
     </div>
+  );
+}
+
+function DeliveryNoteSheet({ order }) {
+  const subtotal = orderSubtotal(order);
+  const discount = Number(order.discount_value || 0);
+  const shipping = Number(order.shipping_value || 0);
+  const total = Math.max(0, subtotal - discount + shipping);
+  const totalPairs = order.models.reduce((sum, model) => sum + Number(model.total_pairs || 0), 0);
+  const orderDate = new Date(`${order.order_date || new Date().toISOString().slice(0, 10)}T12:00:00`);
+  const day = Number.isNaN(orderDate.getTime()) ? '' : String(orderDate.getDate()).padStart(2, '0');
+  const month = Number.isNaN(orderDate.getTime()) ? '' : orderDate.toLocaleDateString('es-EC', { month: 'long' }).toUpperCase();
+  const year = Number.isNaN(orderDate.getTime()) ? '' : orderDate.getFullYear();
+  const paymentRows = (order.payments || []).filter((payment) => payment.due_date || payment.amount || payment.reference);
+  return (
+    <article className="prod-delivery-note-page">
+      <header>
+        <div className="prod-delivery-brand">
+          <strong>PRODUCALZA</strong>
+          <span>NOTA DE ENTREGA</span>
+        </div>
+        <div className="prod-delivery-date-grid">
+          <span>FECHA</span><span>DIA</span><span>CIUDAD</span><span>MES</span><span>ANO</span>
+          <b></b><b>{day}</b><b>{order.city || ''}</b><b>{month}</b><b>{year}</b>
+        </div>
+      </header>
+      <section className="prod-delivery-client">
+        <span>CLIENTE:</span><strong>{order.client_name}</strong><span>RUC:</span><strong>{order.tax_id || ''}</strong>
+        <span>DIRECCION:</span><strong>{order.address || ''}</strong><span>VEND:</span><strong>{order.seller_name || 'FABRICA'}</strong>
+        <span>CIUDAD:</span><strong>{order.city || ''}</strong><span>MARCA:</span><strong>{order.brand || ''}</strong>
+        <span>TELEFONO:</span><strong>{order.phone || ''}</strong><span>PEDIDO:</span><strong>{order.order_number}</strong>
+      </section>
+      <table className="prod-delivery-table">
+        <thead><tr><th>CANT.</th><th>DESCRIPCION</th><th>VALOR UNITARIO</th><th>VALOR TOTAL</th></tr></thead>
+        <tbody>
+          {order.models.map((model) => (
+            <tr key={model.id}>
+              <td>{model.total_pairs}</td>
+              <td>{[model.model_code, model.material, model.color].filter(Boolean).join(' ')}</td>
+              <td>{model.unit_price ? displayMoney(model.unit_price) : ''}</td>
+              <td>{model.unit_price ? displayMoney(Number(model.unit_price) * Number(model.total_pairs || 0)) : ''}</td>
+            </tr>
+          ))}
+          {Array.from({ length: Math.max(0, 11 - order.models.length) }).map((_, index) => (
+            <tr className="blank" key={`blank-${index}`}><td></td><td></td><td></td><td></td></tr>
+          ))}
+        </tbody>
+      </table>
+      <section className="prod-delivery-note-text">
+        NOTA: LOS PRECIOS INDICADOS NO INCLUYEN IVA, SI REQUIERE FACTURA SE AGREGA EL VALOR CORRESPONDIENTE DEL IVA.
+      </section>
+      <section className="prod-delivery-bottom">
+        <div className="prod-delivery-payment">
+          <strong>FORMA DE PAGO: {order.payment_method || ''}</strong>
+          {paymentRows.length > 0 && (
+            <div className="prod-delivery-payment-list">
+              {paymentRows.slice(0, 5).map((payment) => (
+                <span key={payment.id || `${payment.due_date}-${payment.amount}`}>
+                  {payment.due_date ? displayDate(payment.due_date) : 'Sin fecha'} - {displayMoney(payment.amount)} - {PAYMENT_TYPE_LABELS[payment.payment_type] || payment.payment_type}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="prod-delivery-totals">
+          <span>TOTAL PARES</span><strong>{totalPairs}</strong>
+          <span>SUB TOTAL:</span><strong>{displayMoney(subtotal)}</strong>
+          <span>DESC.</span><strong>{displayMoney(discount)}</strong>
+          <span>TRANSPORTE:</span><strong>{displayMoney(shipping)}</strong>
+          <span>TOTAL FINAL:</span><strong>{displayMoney(total)}</strong>
+        </div>
+      </section>
+      <footer><span>ENTREGUE CONFORME</span><span>RECIBI CONFORME</span></footer>
+    </article>
   );
 }
 

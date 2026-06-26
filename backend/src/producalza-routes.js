@@ -155,6 +155,10 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     };
   }
 
+  function moneyValue(value) {
+    return Math.max(0, Math.round((Number(value || 0) || 0) * 100) / 100);
+  }
+
   function slugFromName(value) {
     return normalizeTemplateName(value)
       .normalize('NFD')
@@ -204,6 +208,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         material: String(model.material || '').trim(),
         notes: String(model.notes || '').trim(),
         plant_area: String(model.plant_area || '').trim(),
+        unit_price: moneyValue(model.unit_price),
         status: MODEL_STATUSES.includes(model.status) ? model.status : 'received',
         card_number: Number(model.card_number || 0) || null,
         sizes: quantities,
@@ -1011,6 +1016,99 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     });
   });
 
+  app.get('/api/producalza/dispatch-collections-report', requireProductionAdmin, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const status = String(req.query.status || 'all').trim();
+    const today = new Date().toISOString().slice(0, 10);
+    const dateFrom = normalizeDateInput(req.query.date_from, '');
+    const dateTo = normalizeDateInput(req.query.date_to, today);
+    const filters = ["orders.status = 'delivered'", 'orders.deleted_at IS NULL'];
+    const params = [business.id];
+    if (dateFrom) {
+      filters.push('date(COALESCE(orders.dispatched_date, orders.updated_at)) >= ?');
+      params.push(dateFrom);
+    }
+    if (dateTo) {
+      filters.push('date(COALESCE(orders.dispatched_date, orders.updated_at)) <= ?');
+      params.push(dateTo);
+    }
+
+    const rows = db.prepare(
+      `SELECT orders.id, orders.order_number, orders.order_date,
+              date(COALESCE(orders.dispatched_date, orders.updated_at)) AS dispatched_date,
+              orders.payment_method, orders.shipping_value, orders.discount_value,
+              clients.name AS client_name, clients.city,
+              COALESCE(model_totals.subtotal, 0) AS subtotal,
+              COALESCE(payments.paid_total, 0) AS paid_total,
+              COALESCE(payments.pending_total, 0) AS pending_total,
+              GROUP_CONCAT(
+                CASE
+                  WHEN pay_rows.id IS NULL THEN NULL
+                  ELSE pay_rows.payment_type || '|' || pay_rows.amount || '|' || COALESCE(pay_rows.due_date, '') || '|' || COALESCE(pay_rows.payment_date, '') || '|' || pay_rows.status
+                END,
+                ';;'
+              ) AS payment_rows
+       FROM production_orders AS orders
+       JOIN production_clients AS clients ON clients.id = orders.client_id
+       LEFT JOIN (
+         SELECT order_id, COALESCE(SUM(total_pairs * unit_price), 0) AS subtotal
+         FROM production_order_models
+         WHERE establishment_id = ?
+         GROUP BY order_id
+       ) AS model_totals ON model_totals.order_id = orders.id
+       LEFT JOIN (
+         SELECT order_id,
+                SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END) AS paid_total,
+                SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END) AS pending_total
+         FROM production_order_payments
+         WHERE establishment_id = ?
+         GROUP BY order_id
+       ) AS payments ON payments.order_id = orders.id
+       LEFT JOIN production_order_payments AS pay_rows
+         ON pay_rows.order_id = orders.id AND pay_rows.establishment_id = orders.establishment_id
+       WHERE orders.establishment_id = ?
+         AND ${filters.join(' AND ')}
+       GROUP BY orders.id
+       ORDER BY dispatched_date ASC, orders.id ASC`
+    ).all(business.id, business.id, ...params);
+
+    const normalized = rows.map((row) => {
+      const subtotal = moneyValue(row.subtotal);
+      const total = moneyValue(subtotal + Number(row.shipping_value || 0) - Number(row.discount_value || 0));
+      const paid = moneyValue(row.paid_total);
+      const balance = moneyValue(Math.max(0, total - paid));
+      const paymentStatus = balance <= 0 ? 'paid' : 'pending';
+      return {
+        ...row,
+        subtotal,
+        total,
+        paid_total: paid,
+        balance,
+        payment_status: paymentStatus,
+        payment_rows: String(row.payment_rows || '')
+          .split(';;')
+          .filter(Boolean)
+          .map((item) => {
+            const [payment_type, amount, due_date, payment_date, payment_status] = item.split('|');
+            return { payment_type, amount: Number(amount || 0), due_date, payment_date, status: payment_status };
+          })
+      };
+    }).filter((row) => status === 'all' || row.payment_status === status);
+
+    res.json({
+      date_from: dateFrom,
+      date_to: dateTo,
+      status,
+      rows: normalized,
+      totals: {
+        total: normalized.reduce((sum, row) => sum + Number(row.total || 0), 0),
+        paid: normalized.reduce((sum, row) => sum + Number(row.paid_total || 0), 0),
+        balance: normalized.reduce((sum, row) => sum + Number(row.balance || 0), 0)
+      }
+    });
+  });
+
   app.get('/api/producalza/orders', requireProductionUser, (req, res) => {
     const business = ensureProductionBusiness(req, res);
     if (!business) return;
@@ -1202,6 +1300,27 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     res.json(getOrder(order.id, req));
   });
 
+  app.patch('/api/producalza/orders/:id/invoice', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const order = getOrder(req.params.id, req);
+    if (!order) return res.status(404).json({ message: 'Pedido no encontrado' });
+    db.prepare(
+      `UPDATE production_orders
+       SET invoice_number = ?, invoice_date = ?, invoice_value = ?,
+           updated_at = datetime('now', 'localtime')
+       WHERE id = ? AND establishment_id = ?`
+    ).run(
+      String(req.body.invoice_number || '').trim(),
+      normalizeOptionalDate(req.body.invoice_date),
+      moneyValue(req.body.invoice_value),
+      order.id,
+      business.id
+    );
+    audit(req, 'update', 'order_invoice', order.id, req.body.invoice_number || '');
+    res.json(getOrder(order.id, req));
+  });
+
   app.post('/api/producalza/orders', requireProductionUser, (req, res) => {
     const business = ensureProductionBusiness(req, res);
     if (!business) return;
@@ -1227,8 +1346,9 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         `INSERT INTO production_orders
          (establishment_id, order_number, client_id, seller_user_id, order_date, brand,
           delivery_date, origin_label, card_alert, payment_method, bank_reference,
-          guide_template_key, general_notes, status, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          guide_template_key, general_notes, shipping_value, discount_value,
+          invoice_number, invoice_date, invoice_value, status, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         business.id,
         orderNumber,
@@ -1243,6 +1363,11 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         String(req.body.bank_reference || '').trim(),
         String(req.body.guide_template_key || '').trim(),
         String(req.body.general_notes || '').trim(),
+        moneyValue(req.body.shipping_value),
+        moneyValue(req.body.discount_value),
+        String(req.body.invoice_number || '').trim(),
+        normalizeOptionalDate(req.body.invoice_date),
+        moneyValue(req.body.invoice_value),
         status,
         req.user.username || req.user.role
       );
@@ -1280,7 +1405,8 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       db.prepare(
         `UPDATE production_orders SET client_id = ?, seller_user_id = ?, order_date = ?, brand = ?,
          delivery_date = ?, origin_label = ?, card_alert = ?, payment_method = ?, bank_reference = ?,
-         guide_template_key = ?, general_notes = ?, status = ?,
+         guide_template_key = ?, general_notes = ?, shipping_value = ?, discount_value = ?,
+         invoice_number = ?, invoice_date = ?, invoice_value = ?, status = ?,
          updated_at = datetime('now', 'localtime')
          WHERE id = ? AND establishment_id = ?`
       ).run(
@@ -1295,6 +1421,11 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         String(req.body.bank_reference || '').trim(),
         String(req.body.guide_template_key || '').trim(),
         String(req.body.general_notes || '').trim(),
+        moneyValue(req.body.shipping_value),
+        moneyValue(req.body.discount_value),
+        String(req.body.invoice_number || '').trim(),
+        normalizeOptionalDate(req.body.invoice_date),
+        moneyValue(req.body.invoice_value),
         status,
         current.id,
         business.id
@@ -1464,8 +1595,8 @@ function deriveModelStatus(model, fallback = 'received') {
 function insertModels(db, establishmentId, orderId, models, nextCardNumber) {
   const insertModel = db.prepare(
     `INSERT INTO production_order_models
-     (establishment_id, order_id, card_number, model_code, color, material, notes, plant_area, total_pairs, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     (establishment_id, order_id, card_number, model_code, color, material, notes, plant_area, total_pairs, unit_price, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const insertSize = db.prepare(
     `INSERT INTO production_model_sizes
@@ -1484,6 +1615,7 @@ function insertModels(db, establishmentId, orderId, models, nextCardNumber) {
       model.notes,
       model.plant_area,
       model.total_pairs,
+      model.unit_price,
       model.status
     );
     for (const [size, quantity] of Object.entries(model.sizes)) {
