@@ -4389,25 +4389,41 @@ td {
   .prod-delivery-note-page header {
     align-items: start;
     display: grid;
-    grid-template-columns: 1fr 92mm;
-    gap: 8mm;
+    grid-template-columns: 54mm 1fr 92mm;
+    gap: 5mm;
     min-height: 33mm;
   }
 
   .prod-delivery-brand {
+    align-items: center;
     display: grid;
-    gap: 2mm;
-    padding-top: 6mm;
-    text-align: center;
+    gap: 1mm;
+    justify-items: center;
   }
 
-  .prod-delivery-brand strong {
-    font-size: 22pt;
-    letter-spacing: 0;
+  .prod-delivery-brand-logo {
+    height: 20mm;
+    object-fit: contain;
+    width: 50mm;
   }
 
-  .prod-delivery-brand span {
-    font-size: 13pt;
+  .prod-delivery-producer-logo {
+    height: 17mm;
+    object-fit: contain;
+    width: 32mm;
+  }
+
+  .prod-delivery-plant {
+    display: grid;
+    font-size: 7.4pt;
+    gap: 0.7mm;
+    line-height: 1.12;
+    padding-top: 2mm;
+    text-align: left;
+  }
+
+  .prod-delivery-plant strong,
+  .prod-delivery-plant b {
     font-weight: 800;
   }
 

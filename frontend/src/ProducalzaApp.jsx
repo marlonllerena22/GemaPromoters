@@ -1472,15 +1472,15 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
           <button className="prod-secondary-button" onClick={onBack}><ChevronLeft size={17} />Volver</button>
         <div>
           <button className="prod-secondary-button" onClick={onEdit}><Pencil size={17} />Editar</button>
-          <button className="prod-primary-button" onClick={() => onPrint('sheets')}><Printer size={17} />Hoja unica del pedido</button>
           <button className="prod-primary-button delivery" onClick={() => onPrint('delivery-note')}><Printer size={17} />Nota de entrega</button>
           <button className="prod-secondary-button" onClick={() => setShowInvoiceForm((value) => !value)}><FilePlus2 size={17} />Registrar factura</button>
+          <button className="prod-primary-button" onClick={() => onPrint('sheets')}><Printer size={17} />Hoja unica del pedido</button>
+          <button className="prod-primary-button dark" onClick={() => onPrint('cards')}><Printer size={17} />Tarjetas</button>
+          <button className="prod-primary-button guide" onClick={() => onPrint('guides')}><Tags size={17} />Guias para cajas</button>
           <button className="prod-primary-button whatsapp prod-desktop-whatsapp-action" disabled={sendingPdf} onClick={sendOrderToClient}>
             {sendingPdf ? <FileDown size={17} /> : <MessageCircle size={17} />}
             {sendingPdf ? 'Descargando PDF...' : 'Enviar pedido por WhatsApp'}
           </button>
-          <button className="prod-primary-button dark" onClick={() => onPrint('cards')}><Printer size={17} />Tarjetas</button>
-          <button className="prod-primary-button guide" onClick={() => onPrint('guides')}><Tags size={17} />Guias para cajas</button>
           {isAdmin && dirtyIds.length > 0 && (
             <button className="prod-primary-button prod-save-order-status" disabled={saving} onClick={saveModelStates}>
               <Save size={17} />Guardar estados ({dirtyIds.length})
@@ -3170,12 +3170,19 @@ function DeliveryNoteSheet({ order }) {
     <article className="prod-delivery-note-page">
       <header>
         <div className="prod-delivery-brand">
-          <strong>PRODUCALZA</strong>
-          <span>NOTA DE ENTREGA</span>
+          <img className="prod-delivery-brand-logo" src="/producalza/nota-logo-marjorie.png" alt="Marjorie Botas" />
+          <img className="prod-delivery-producer-logo" src="/producalza/nota-logo-producalza.jpeg" alt="Producalza" />
+        </div>
+        <div className="prod-delivery-plant">
+          <strong>PLANTA DE PRODUCCION:</strong>
+          <span>Imbabura s/n e Isidro Viteri</span>
+          <span>WhatsApp: 099 5858297</span>
+          <span>Mail: producalza@hotmail.com</span>
+          <b>AMBATO - ECUADOR</b>
         </div>
         <div className="prod-delivery-date-grid">
           <span>FECHA</span><span>DIA</span><span>CIUDAD</span><span>MES</span><span>ANO</span>
-          <b></b><b>{day}</b><b>{order.city || ''}</b><b>{month}</b><b>{year}</b>
+          <b></b><b>{day}</b><b>AMBATO</b><b>{month}</b><b>{year}</b>
         </div>
       </header>
       <section className="prod-delivery-client">
