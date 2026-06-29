@@ -4708,21 +4708,19 @@ td {
   }
 
   .prod-delivery-plant {
-    border: 1px solid #000000;
     display: block;
-    font-size: 7.4pt;
-    line-height: 1.12;
-    overflow: hidden;
-    text-align: center;
+    font-size: 7.8pt;
+    line-height: 1.22;
+    padding-top: 1.5mm;
+    text-align: left;
   }
 
   .prod-delivery-plant strong,
   .prod-delivery-plant span,
   .prod-delivery-plant b {
-    border-bottom: 1px solid #000000;
     display: block;
-    min-height: 5.5mm;
-    padding: 1.1mm 1.4mm;
+    padding: 0.2mm 0;
+    white-space: nowrap;
     width: 100%;
   }
 
@@ -4730,11 +4728,6 @@ td {
   .prod-delivery-plant b {
     font-weight: 800;
   }
-
-  .prod-delivery-plant b {
-    border-bottom: 0;
-  }
-
   .prod-delivery-date-grid {
     display: grid;
     font-size: 8.5pt;
