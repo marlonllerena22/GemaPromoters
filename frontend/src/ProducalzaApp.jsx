@@ -207,7 +207,9 @@ function orderTotalValue(order) {
 function deliveryValuesFromOrder(order) {
   return {
     shipping_value: order.shipping_value || '',
+    discount_mode: 'value',
     discount_value: order.discount_value || '',
+    discount_percent: '',
     models: (order.models || []).map((model) => ({
       id: model.id,
       model_code: model.model_code,
@@ -226,18 +228,16 @@ function deliverySubtotal(form) {
   );
 }
 
+function deliveryDiscountAmount(form) {
+  const subtotal = deliverySubtotal(form);
+  if (form.discount_mode === 'percent') {
+    return Math.max(0, subtotal * (Number(form.discount_percent || 0) / 100));
+  }
+  return Math.max(0, Number(form.discount_value || 0));
+}
+
 function deliveryTotal(form) {
-  return Math.max(0, deliverySubtotal(form) + Number(form.shipping_value || 0) - Number(form.discount_value || 0));
-}
-
-function paidAmount(order) {
-  return (order.payments || [])
-    .filter((payment) => payment.status === 'paid')
-    .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-}
-
-function pendingAmountForTotal(total, order) {
-  return Math.max(0, Number(total || 0) - paidAmount(order));
+  return Math.max(0, deliverySubtotal(form) + Number(form.shipping_value || 0) - deliveryDiscountAmount(form));
 }
 
 function processStateForStatus(status) {
@@ -1335,8 +1335,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
     .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
   const subtotal = orderSubtotal({ ...order, models });
   const noteTotal = Math.max(0, subtotal + Number(order.shipping_value || 0) - Number(order.discount_value || 0));
-  const deliveryPaid = paidAmount(order);
-  const deliveryPending = pendingAmountForTotal(deliveryTotal(deliveryForm), order);
+  const deliveryDiscount = deliveryDiscountAmount(deliveryForm);
 
   function deriveStatus(model) {
     if (model.process_finished) return 'finished';
@@ -1463,10 +1462,13 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
     try {
       const updatedOrder = await api(scope(`/producalza/orders/${order.id}/delivery-note-values`), {
         method: 'PATCH',
-        body: JSON.stringify(deliveryForm)
+        body: JSON.stringify({
+          ...deliveryForm,
+          discount_value: deliveryDiscount
+        })
       });
       setShowDeliveryEditor(false);
-      await onUpdated('Valores de nota guardados');
+      await onUpdated('Valores de nota y cobro pendiente guardados');
       onPrint('delivery-note', null, updatedOrder);
     } catch (err) {
       setError(err.message);
@@ -1608,11 +1610,24 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
           </div>
           <div className="prod-delivery-editor-totals">
             <label>Envio<input type="number" min="0" step="0.01" value={deliveryForm.shipping_value} onChange={(event) => setDeliveryForm({ ...deliveryForm, shipping_value: event.target.value })} /></label>
-            <label>Descuento<input type="number" min="0" step="0.01" value={deliveryForm.discount_value} onChange={(event) => setDeliveryForm({ ...deliveryForm, discount_value: event.target.value })} /></label>
+            <label>Tipo descuento
+              <select value={deliveryForm.discount_mode} onChange={(event) => setDeliveryForm({ ...deliveryForm, discount_mode: event.target.value })}>
+                <option value="value">Valor</option>
+                <option value="percent">Porcentaje</option>
+              </select>
+            </label>
+            {deliveryForm.discount_mode === 'percent' ? (
+              <label>Descuento %
+                <input type="number" min="0" step="0.01" value={deliveryForm.discount_percent} onChange={(event) => setDeliveryForm({ ...deliveryForm, discount_percent: event.target.value })} />
+              </label>
+            ) : (
+              <label>Descuento
+                <input type="number" min="0" step="0.01" value={deliveryForm.discount_value} onChange={(event) => setDeliveryForm({ ...deliveryForm, discount_value: event.target.value })} />
+              </label>
+            )}
             <div><span>Subtotal</span><strong>{displayMoney(deliverySubtotal(deliveryForm))}</strong></div>
-            <div><span>Total final</span><strong>{displayMoney(deliveryTotal(deliveryForm))}</strong></div>
-            <div><span>Pagado</span><strong>{displayMoney(deliveryPaid)}</strong></div>
-            <div><span>Pendiente</span><strong>{displayMoney(deliveryPending)}</strong></div>
+            <div><span>Desc. aplicado</span><strong>{displayMoney(deliveryDiscount)}</strong></div>
+            <div><span>Total</span><strong>{displayMoney(deliveryTotal(deliveryForm))}</strong></div>
           </div>
           <div className="prod-form-actions">
             <button className="prod-secondary-button" onClick={() => setShowDeliveryEditor(false)}>Cancelar</button>
@@ -3274,8 +3289,6 @@ function DeliveryNoteSheet({ order }) {
   const discount = Number(order.discount_value || 0);
   const shipping = Number(order.shipping_value || 0);
   const total = Math.max(0, subtotal - discount + shipping);
-  const paid = paidAmount(order);
-  const pending = pendingAmountForTotal(total, order);
   const totalPairs = order.models.reduce((sum, model) => sum + Number(model.total_pairs || 0), 0);
   const orderDate = new Date(`${order.order_date || new Date().toISOString().slice(0, 10)}T12:00:00`);
   const day = Number.isNaN(orderDate.getTime()) ? '' : String(orderDate.getDate()).padStart(2, '0');
@@ -3322,6 +3335,9 @@ function DeliveryNoteSheet({ order }) {
             <tr className="blank" key={`blank-${index}`}><td></td><td></td><td></td><td></td></tr>
           ))}
         </tbody>
+        <tfoot>
+          <tr className="prod-delivery-total-pairs"><td>{totalPairs}</td><td>TOTAL PARES</td><td></td><td></td></tr>
+        </tfoot>
       </table>
       <section className="prod-delivery-note-text">
         NOTA: LOS PRECIOS INDICADOS NO INCLUYEN IVA, SI REQUIERE FACTURA SE AGREGA EL VALOR CORRESPONDIENTE DEL IVA.
@@ -3340,13 +3356,10 @@ function DeliveryNoteSheet({ order }) {
           )}
         </div>
         <div className="prod-delivery-totals">
-          <span>TOTAL PARES</span><strong>{totalPairs}</strong>
           <span>SUB TOTAL:</span><strong>{displayMoney(subtotal)}</strong>
           <span>DESC.</span><strong>{displayMoney(discount)}</strong>
           <span>TRANSPORTE:</span><strong>{displayMoney(shipping)}</strong>
-          <span>TOTAL FINAL:</span><strong>{displayMoney(total)}</strong>
-          <span>PAGADO:</span><strong>{displayMoney(paid)}</strong>
-          <span>PENDIENTE:</span><strong>{displayMoney(pending)}</strong>
+          <span>TOTAL:</span><strong>{displayMoney(total)}</strong>
         </div>
       </section>
       <footer><span>ENTREGUE CONFORME</span><span>RECIBI CONFORME</span></footer>

@@ -2841,7 +2841,8 @@ td {
 }
 
 .prod-delivery-editor-list input,
-.prod-delivery-editor-totals input {
+.prod-delivery-editor-totals input,
+.prod-delivery-editor-totals select {
   background: #ffffff;
   border: 1px solid #d8be83;
   border-radius: 6px;
@@ -4503,17 +4504,31 @@ td {
   }
 
   .prod-delivery-plant {
-    display: grid;
+    border: 1px solid #000000;
+    display: block;
     font-size: 7.4pt;
-    gap: 0.7mm;
     line-height: 1.12;
-    padding-top: 2mm;
-    text-align: left;
+    overflow: hidden;
+    text-align: center;
+  }
+
+  .prod-delivery-plant strong,
+  .prod-delivery-plant span,
+  .prod-delivery-plant b {
+    border-bottom: 1px solid #000000;
+    display: block;
+    min-height: 5.5mm;
+    padding: 1.1mm 1.4mm;
+    width: 100%;
   }
 
   .prod-delivery-plant strong,
   .prod-delivery-plant b {
     font-weight: 800;
+  }
+
+  .prod-delivery-plant b {
+    border-bottom: 0;
   }
 
   .prod-delivery-date-grid {
@@ -4575,6 +4590,16 @@ td {
 
   .prod-delivery-table .blank td {
     height: 7.4mm;
+  }
+
+  .prod-delivery-table tfoot td {
+    border: 1px solid #000000;
+    font-weight: 800;
+  }
+
+  .prod-delivery-total-pairs td:first-child {
+    font-size: 10.5pt;
+    text-align: center;
   }
 
   .prod-delivery-note-text {

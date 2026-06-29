@@ -6,6 +6,7 @@ const MODEL_STATUSES = ['received', 'reviewed', 'in_production', 'cut', 'stitche
 const PAYMENT_TYPES = ['abono', 'cheque', 'transferencia', 'efectivo', 'saldo', 'otro'];
 const PAYMENT_STATUSES = ['pending', 'paid', 'cancelled'];
 const SIZES = [34, 35, 36, 37, 38, 39, 40, 41, 42, 43];
+const DELIVERY_NOTE_BALANCE_REF = 'AUTO-NOTA-ENTREGA';
 
 export function findProductionUserForLogin(db, username, password) {
   return db
@@ -1328,6 +1329,18 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     if (!order) return res.status(404).json({ message: 'Pedido no encontrado' });
     const prices = Array.isArray(req.body.models) ? req.body.models : [];
     const validModelIds = new Set(order.models.map((model) => Number(model.id)));
+    const priceByModelId = new Map(
+      prices
+        .map((model) => [Number(model.id || 0), moneyValue(model.unit_price)])
+        .filter(([modelId]) => validModelIds.has(modelId))
+    );
+    const subtotal = order.models.reduce((sum, model) => {
+      const price = priceByModelId.has(Number(model.id)) ? priceByModelId.get(Number(model.id)) : moneyValue(model.unit_price);
+      return sum + Number(model.total_pairs || 0) * price;
+    }, 0);
+    const shippingValue = moneyValue(req.body.shipping_value);
+    const discountValue = moneyValue(req.body.discount_value);
+    const totalValue = moneyValue(Math.max(0, subtotal + shippingValue - discountValue));
 
     db.transaction(() => {
       db.prepare(
@@ -1335,8 +1348,8 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
          SET shipping_value = ?, discount_value = ?, updated_at = datetime('now', 'localtime')
          WHERE id = ? AND establishment_id = ?`
       ).run(
-        moneyValue(req.body.shipping_value),
-        moneyValue(req.body.discount_value),
+        shippingValue,
+        discountValue,
         order.id,
         business.id
       );
@@ -1350,6 +1363,37 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         const modelId = Number(model.id || 0);
         if (!validModelIds.has(modelId)) continue;
         updateModel.run(moneyValue(model.unit_price), modelId, order.id, business.id);
+      }
+
+      const paymentTotals = db.prepare(
+        `SELECT
+           COALESCE(SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END), 0) AS paid_total,
+           COALESCE(SUM(CASE WHEN status = 'pending' AND COALESCE(reference, '') <> ? THEN amount ELSE 0 END), 0) AS manual_pending_total
+         FROM production_order_payments
+         WHERE order_id = ? AND establishment_id = ?`
+      ).get(DELIVERY_NOTE_BALANCE_REF, order.id, business.id);
+      const pendingBalance = moneyValue(Math.max(
+        0,
+        totalValue - Number(paymentTotals.paid_total || 0) - Number(paymentTotals.manual_pending_total || 0)
+      ));
+      db.prepare(
+        `DELETE FROM production_order_payments
+         WHERE order_id = ? AND establishment_id = ? AND status = 'pending' AND reference = ?`
+      ).run(order.id, business.id, DELIVERY_NOTE_BALANCE_REF);
+      if (pendingBalance > 0) {
+        db.prepare(
+          `INSERT INTO production_order_payments
+           (establishment_id, order_id, payment_type, amount, payment_date, due_date,
+            status, bank, reference, notes, created_by)
+           VALUES (?, ?, 'saldo', ?, NULL, NULL, 'pending', '', ?, ?, ?)`
+        ).run(
+          business.id,
+          order.id,
+          pendingBalance,
+          DELIVERY_NOTE_BALANCE_REF,
+          'Saldo automatico de nota de entrega',
+          req.user?.username || req.user?.role || 'system'
+        );
       }
     })();
     audit(req, 'update', 'delivery_note_values', order.id, order.order_number);
