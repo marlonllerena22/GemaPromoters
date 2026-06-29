@@ -16,7 +16,8 @@
     "express": "^4.21.2",
     "gemapromoters": "file:..",
     "jsonwebtoken": "^9.0.2",
-    "nodemailer": "^9.0.1"
+    "nodemailer": "^9.0.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "nodemon": "^3.1.9"

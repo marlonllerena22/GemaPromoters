@@ -190,6 +190,79 @@ export function initProducalzaDb(db) {
       UNIQUE(establishment_id, source_key)
     );
 
+    CREATE TABLE IF NOT EXISTS production_employees (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      source_name TEXT,
+      pay_type TEXT NOT NULL DEFAULT 'salary' CHECK (pay_type IN ('salary', 'piecework')),
+      monthly_salary REAL NOT NULL DEFAULT 0,
+      default_iess REAL NOT NULL DEFAULT 0,
+      late_penalty REAL NOT NULL DEFAULT 5,
+      normal_start TEXT NOT NULL DEFAULT '08:00',
+      normal_end TEXT NOT NULL DEFAULT '16:30',
+      grace_minutes INTEGER NOT NULL DEFAULT 5,
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      UNIQUE(establishment_id, name)
+    );
+
+    CREATE TABLE IF NOT EXISTS production_payroll_periods (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      label TEXT NOT NULL,
+      date_from TEXT NOT NULL,
+      date_to TEXT NOT NULL,
+      source_filename TEXT,
+      status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'closed')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      UNIQUE(establishment_id, label)
+    );
+
+    CREATE TABLE IF NOT EXISTS production_payroll_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      period_id INTEGER NOT NULL,
+      employee_id INTEGER,
+      employee_name TEXT NOT NULL,
+      source_name TEXT,
+      pay_type TEXT NOT NULL DEFAULT 'salary',
+      monthly_salary REAL NOT NULL DEFAULT 0,
+      hourly_rate REAL NOT NULL DEFAULT 0,
+      overtime_rate REAL NOT NULL DEFAULT 0,
+      work_days INTEGER NOT NULL DEFAULT 0,
+      attendance_days INTEGER NOT NULL DEFAULT 0,
+      absent_days INTEGER NOT NULL DEFAULT 0,
+      late_days INTEGER NOT NULL DEFAULT 0,
+      late_minutes INTEGER NOT NULL DEFAULT 0,
+      early_leave_days INTEGER NOT NULL DEFAULT 0,
+      overtime_hours REAL NOT NULL DEFAULT 0,
+      manual_unworked_hours REAL NOT NULL DEFAULT 0,
+      late_penalty REAL NOT NULL DEFAULT 0,
+      iess_amount REAL NOT NULL DEFAULT 0,
+      advance_amount REAL NOT NULL DEFAULT 0,
+      savings_amount REAL NOT NULL DEFAULT 0,
+      footwear_amount REAL NOT NULL DEFAULT 0,
+      other_deductions REAL NOT NULL DEFAULT 0,
+      other_income REAL NOT NULL DEFAULT 0,
+      piece_income REAL NOT NULL DEFAULT 0,
+      total_income REAL NOT NULL DEFAULT 0,
+      total_deductions REAL NOT NULL DEFAULT 0,
+      net_pay REAL NOT NULL DEFAULT 0,
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (period_id) REFERENCES production_payroll_periods(id),
+      FOREIGN KEY (employee_id) REFERENCES production_employees(id),
+      UNIQUE(establishment_id, period_id, employee_name)
+    );
+
     CREATE TABLE IF NOT EXISTS production_audit_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       establishment_id INTEGER NOT NULL,
@@ -212,6 +285,8 @@ export function initProducalzaDb(db) {
       ON production_monthly_report_rows(establishment_id, report_month, entry_date, dispatched_date);
     CREATE INDEX IF NOT EXISTS idx_production_order_payments_business
       ON production_order_payments(establishment_id, due_date, status);
+    CREATE INDEX IF NOT EXISTS idx_production_payroll_entries_period
+      ON production_payroll_entries(establishment_id, period_id, employee_name);
   `);
 
   addColumnIfMissing(db, 'production_client_visits', 'visited_by_user_id', 'INTEGER');
@@ -235,6 +310,16 @@ export function initProducalzaDb(db) {
   addColumnIfMissing(db, 'production_orders', 'invoice_date', 'TEXT');
   addColumnIfMissing(db, 'production_orders', 'invoice_value', 'REAL NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'production_order_models', 'unit_price', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'production_employees', 'source_name', 'TEXT');
+  addColumnIfMissing(db, 'production_employees', 'pay_type', "TEXT NOT NULL DEFAULT 'salary'");
+  addColumnIfMissing(db, 'production_employees', 'monthly_salary', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'production_employees', 'default_iess', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'production_employees', 'late_penalty', 'REAL NOT NULL DEFAULT 5');
+  addColumnIfMissing(db, 'production_employees', 'normal_start', "TEXT NOT NULL DEFAULT '08:00'");
+  addColumnIfMissing(db, 'production_employees', 'normal_end', "TEXT NOT NULL DEFAULT '16:30'");
+  addColumnIfMissing(db, 'production_employees', 'grace_minutes', 'INTEGER NOT NULL DEFAULT 5');
+  addColumnIfMissing(db, 'production_employees', 'status', "TEXT NOT NULL DEFAULT 'active'");
+  addColumnIfMissing(db, 'production_employees', 'notes', 'TEXT');
   db.prepare(
     `UPDATE production_client_visits
      SET updated_at = COALESCE(NULLIF(updated_at, ''), created_at),

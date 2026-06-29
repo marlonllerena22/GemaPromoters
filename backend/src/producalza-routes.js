@@ -7,6 +7,151 @@ const PAYMENT_TYPES = ['abono', 'cheque', 'transferencia', 'efectivo', 'saldo', 
 const PAYMENT_STATUSES = ['pending', 'paid', 'cancelled'];
 const SIZES = [34, 35, 36, 37, 38, 39, 40, 41, 42, 43];
 const DELIVERY_NOTE_BALANCE_REF = 'AUTO-NOTA-ENTREGA';
+const DEFAULT_PAYROLL_START = '08:00';
+const DEFAULT_PAYROLL_END = '16:30';
+const NORMA_LLAMUCA_KEY = 'norma llamuca';
+
+function cleanEmployeeName(value = '') {
+  return String(value || '')
+    .replace(/^Nombre\s*:\s*/i, '')
+    .replace(/^(SRTA\.?|SRA\.?|SR\.?)\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function employeeKey(value = '') {
+  return cleanEmployeeName(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function money2(value) {
+  return Math.round((Number(value || 0) || 0) * 100) / 100;
+}
+
+function parseNumberFromText(value) {
+  const match = String(value || '').replace(',', '.').match(/-?\d+(\.\d+)?/);
+  return match ? Number(match[0]) : 0;
+}
+
+function parseClockMinutes(value) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date) return value.getHours() * 60 + value.getMinutes();
+  if (typeof value === 'number') {
+    const totalMinutes = Math.round(value * 24 * 60);
+    return totalMinutes >= 0 && totalMinutes < 24 * 60 ? totalMinutes : null;
+  }
+  const match = String(value).match(/(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return null;
+  return hours * 60 + minutes;
+}
+
+function parseHoursValue(value) {
+  if (typeof value === 'number') return value;
+  const text = String(value || '').trim().replace(',', '.');
+  if (!text || /feriado/i.test(text)) return 0;
+  const match = text.match(/-?\d+(\.\d+)?/);
+  return match ? Number(match[0]) : 0;
+}
+
+function sheetRows(xlsx, workbook, preferredNames = []) {
+  const sheetName = preferredNames.find((name) => workbook.Sheets[name])
+    || workbook.SheetNames.find((name) => preferredNames.some((preferred) => name.trim().toLowerCase() === preferred.trim().toLowerCase()))
+    || workbook.SheetNames[0];
+  if (!sheetName) return [];
+  return xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, raw: true, defval: null });
+}
+
+function parseSalaryDefaults(xlsx, workbook) {
+  const rows = sheetRows(xlsx, workbook, ['ROLL (2)', 'ROLL']);
+  const defaults = new Map();
+  const readCard = (rowIndex, nameCol, valueCol) => {
+    const name = cleanEmployeeName(rows[rowIndex]?.[nameCol]);
+    if (!name) return;
+    const salary = money2(rows[rowIndex + 4]?.[valueCol]);
+    const defaultIess = money2(rows[rowIndex + 10]?.[valueCol]);
+    if (salary || defaultIess) {
+      defaults.set(employeeKey(name), { name, salary, defaultIess });
+    }
+  };
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index] || [];
+    if (typeof row[1] === 'string' && /Nombre|^SR|^SRA|^SRTA/i.test(row[1])) readCard(index, 1, 2);
+    if (typeof row[5] === 'string' && /Nombre|^SR|^SRA|^SRTA/i.test(row[5])) readCard(index, 5, 6);
+  }
+  return defaults;
+}
+
+function parseAttendanceDetail(xlsx, workbook) {
+  const rows = sheetRows(xlsx, workbook, ['DETALLE ', 'DETALLE']);
+  const blocks = [];
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+    const row = rows[rowIndex] || [];
+    if (!String(row[0] || '').includes('ID:') || !String(row[2] || '').includes('Nombre:')) continue;
+    const sourceName = cleanEmployeeName(row[2]);
+    const nextHeader = rows.findIndex((nextRow, nextIndex) =>
+      nextIndex > rowIndex && String(nextRow?.[0] || '').includes('ID:') && String(nextRow?.[2] || '').includes('Nombre:')
+    );
+    const endIndex = nextHeader > rowIndex ? nextHeader : rows.length;
+    const summary = rows[rowIndex + 1] || [];
+    const block = {
+      source_name: sourceName,
+      name: sourceName,
+      work_days: parseNumberFromText(summary[0]),
+      attendance_days_reported: parseNumberFromText(summary[2]),
+      absent_days: parseNumberFromText(summary[8]),
+      early_leave_days: parseNumberFromText(summary[6]),
+      late_days_reported: parseNumberFromText(summary[4]),
+      attendance_days: 0,
+      late_days: 0,
+      late_minutes: 0,
+      overtime_hours: 0
+    };
+    const isNorma = employeeKey(sourceName).includes('norma') && employeeKey(sourceName).includes('llamuca');
+    const startMinutes = parseClockMinutes(DEFAULT_PAYROLL_START) + 5;
+    const normalEnd = isNorma ? '17:00' : DEFAULT_PAYROLL_END;
+    const endMinutes = parseClockMinutes(normalEnd);
+    const processDay = (dataRow, offset) => {
+      if (!dataRow?.[offset]) return;
+      const candidateTimes = [dataRow[offset + 2], dataRow[offset + 4], dataRow[offset + 6]]
+        .map(parseClockMinutes)
+        .filter((value) => value != null);
+      const outTimes = [dataRow[offset + 3], dataRow[offset + 5], dataRow[offset + 7]]
+        .map(parseClockMinutes)
+        .filter((value) => value != null);
+      if (candidateTimes.length || outTimes.length) {
+        block.attendance_days += 1;
+      }
+      if (candidateTimes.length) {
+        const firstIn = Math.min(...candidateTimes);
+        if (firstIn > startMinutes) {
+          block.late_days += 1;
+          block.late_minutes += firstIn - startMinutes;
+        }
+      }
+      if (outTimes.length && endMinutes && Math.max(...outTimes) < endMinutes) {
+        block.early_leave_days += 1;
+      }
+      block.overtime_hours += parseHoursValue(dataRow[offset + 6]);
+    };
+    for (let dataRowIndex = rowIndex + 5; dataRowIndex < endIndex; dataRowIndex += 1) {
+      processDay(rows[dataRowIndex], 0);
+      processDay(rows[dataRowIndex], 8);
+    }
+    blocks.push({
+      ...block,
+      overtime_hours: money2(block.overtime_hours)
+    });
+  }
+  return blocks;
+}
 
 export function findProductionUserForLogin(db, username, password) {
   return db
@@ -156,6 +301,84 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     };
   }
 
+  function normalizeEmployeePayload(body) {
+    const name = cleanEmployeeName(body.name);
+    if (!name) throw new Error('El nombre del empleado es obligatorio');
+    const key = employeeKey(name);
+    return {
+      name,
+      source_name: String(body.source_name || name).trim(),
+      pay_type: body.pay_type === 'piecework' ? 'piecework' : 'salary',
+      monthly_salary: moneyValue(body.monthly_salary),
+      default_iess: moneyValue(body.default_iess),
+      late_penalty: moneyValue(body.late_penalty ?? 5),
+      normal_start: /^\d{2}:\d{2}$/.test(String(body.normal_start || '')) ? body.normal_start : DEFAULT_PAYROLL_START,
+      normal_end: /^\d{2}:\d{2}$/.test(String(body.normal_end || ''))
+        ? body.normal_end
+        : key.includes('norma') && key.includes('llamuca') ? '17:00' : DEFAULT_PAYROLL_END,
+      grace_minutes: Math.max(0, Number(body.grace_minutes ?? 5) || 0),
+      status: body.status === 'inactive' ? 'inactive' : 'active',
+      notes: String(body.notes || '').trim()
+    };
+  }
+
+  function payrollMath(entry) {
+    const monthlySalary = moneyValue(entry.monthly_salary);
+    const hourlyRate = moneyValue(entry.hourly_rate || (monthlySalary ? monthlySalary / 240 : 0));
+    const overtimeRate = moneyValue(entry.overtime_rate || (hourlyRate * 1.5));
+    const overtimePay = moneyValue(Number(entry.overtime_hours || 0) * overtimeRate);
+    const unworkedDiscount = moneyValue(Number(entry.manual_unworked_hours || 0) * hourlyRate);
+    const lateDiscount = moneyValue(Number(entry.late_days || 0) * Number(entry.late_penalty || 0));
+    const salaryIncome = entry.pay_type === 'piecework' ? 0 : monthlySalary;
+    const totalIncome = moneyValue(salaryIncome + overtimePay + Number(entry.other_income || 0) + Number(entry.piece_income || 0));
+    const totalDeductions = moneyValue(
+      Number(entry.iess_amount || 0)
+      + Number(entry.advance_amount || 0)
+      + Number(entry.savings_amount || 0)
+      + Number(entry.footwear_amount || 0)
+      + Number(entry.other_deductions || 0)
+      + unworkedDiscount
+      + lateDiscount
+    );
+    return {
+      ...entry,
+      monthly_salary: monthlySalary,
+      hourly_rate: hourlyRate,
+      overtime_rate: overtimeRate,
+      total_income: totalIncome,
+      total_deductions: totalDeductions,
+      net_pay: moneyValue(totalIncome - totalDeductions)
+    };
+  }
+
+  function getPayrollPeriod(periodId, req) {
+    const businessId = establishmentId(req);
+    const period = db.prepare(
+      'SELECT * FROM production_payroll_periods WHERE id = ? AND establishment_id = ?'
+    ).get(periodId, businessId);
+    if (!period) return null;
+    const entries = db.prepare(
+      `SELECT entries.*, employees.normal_start, employees.normal_end, employees.grace_minutes
+       FROM production_payroll_entries AS entries
+       LEFT JOIN production_employees AS employees ON employees.id = entries.employee_id
+       WHERE entries.period_id = ? AND entries.establishment_id = ?
+       ORDER BY entries.employee_name`
+    ).all(period.id, businessId);
+    return { ...period, entries };
+  }
+
+  function payrollPeriodSummary(period) {
+    const entries = db.prepare(
+      `SELECT COUNT(*) AS employees_count,
+              COALESCE(SUM(total_income), 0) AS total_income,
+              COALESCE(SUM(total_deductions), 0) AS total_deductions,
+              COALESCE(SUM(net_pay), 0) AS net_pay
+       FROM production_payroll_entries
+       WHERE period_id = ? AND establishment_id = ?`
+    ).get(period.id, period.establishment_id);
+    return { ...period, ...entries };
+  }
+
   function moneyValue(value) {
     return Math.max(0, Math.round((Number(value || 0) || 0) * 100) / 100);
   }
@@ -290,6 +513,352 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       order_statuses: ORDER_STATUSES,
       model_statuses: MODEL_STATUSES
     });
+  });
+
+  app.get('/api/producalza/employees', requireProductionAdmin, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const rows = db.prepare(
+      `SELECT * FROM production_employees
+       WHERE establishment_id = ?
+       ORDER BY status DESC, name`
+    ).all(business.id);
+    res.json(rows);
+  });
+
+  app.post('/api/producalza/employees', requireProductionAdmin, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    let employee;
+    try {
+      employee = normalizeEmployeePayload(req.body);
+    } catch (error) {
+      return res.status(400).json({ message: error.message });
+    }
+    try {
+      const result = db.prepare(
+        `INSERT INTO production_employees
+         (establishment_id, name, source_name, pay_type, monthly_salary, default_iess,
+          late_penalty, normal_start, normal_end, grace_minutes, status, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        business.id,
+        employee.name,
+        employee.source_name,
+        employee.pay_type,
+        employee.monthly_salary,
+        employee.default_iess,
+        employee.late_penalty,
+        employee.normal_start,
+        employee.normal_end,
+        employee.grace_minutes,
+        employee.status,
+        employee.notes
+      );
+      audit(req, 'create', 'production_employee', result.lastInsertRowid, employee.name);
+      res.status(201).json(db.prepare('SELECT * FROM production_employees WHERE id = ?').get(result.lastInsertRowid));
+    } catch {
+      res.status(409).json({ message: 'Ya existe un empleado con ese nombre' });
+    }
+  });
+
+  app.put('/api/producalza/employees/:id', requireProductionAdmin, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const current = db.prepare(
+      'SELECT * FROM production_employees WHERE id = ? AND establishment_id = ?'
+    ).get(req.params.id, business.id);
+    if (!current) return res.status(404).json({ message: 'Empleado no encontrado' });
+    let employee;
+    try {
+      employee = normalizeEmployeePayload({ ...current, ...req.body });
+    } catch (error) {
+      return res.status(400).json({ message: error.message });
+    }
+    try {
+      db.prepare(
+        `UPDATE production_employees
+         SET name = ?, source_name = ?, pay_type = ?, monthly_salary = ?, default_iess = ?,
+             late_penalty = ?, normal_start = ?, normal_end = ?, grace_minutes = ?,
+             status = ?, notes = ?, updated_at = datetime('now', 'localtime')
+         WHERE id = ? AND establishment_id = ?`
+      ).run(
+        employee.name,
+        employee.source_name,
+        employee.pay_type,
+        employee.monthly_salary,
+        employee.default_iess,
+        employee.late_penalty,
+        employee.normal_start,
+        employee.normal_end,
+        employee.grace_minutes,
+        employee.status,
+        employee.notes,
+        current.id,
+        business.id
+      );
+      audit(req, 'update', 'production_employee', current.id, employee.name);
+      res.json({ ok: true });
+    } catch {
+      res.status(409).json({ message: 'Ya existe otro empleado con ese nombre' });
+    }
+  });
+
+  app.get('/api/producalza/payroll-periods', requireProductionAdmin, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const periods = db.prepare(
+      `SELECT * FROM production_payroll_periods
+       WHERE establishment_id = ?
+       ORDER BY date_from DESC, id DESC`
+    ).all(business.id).map(payrollPeriodSummary);
+    res.json(periods);
+  });
+
+  app.get('/api/producalza/payroll-periods/:id', requireProductionAdmin, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const period = getPayrollPeriod(req.params.id, req);
+    if (!period) return res.status(404).json({ message: 'Rol no encontrado' });
+    res.json(period);
+  });
+
+  app.post('/api/producalza/payroll-periods/import-detail', requireProductionAdmin, async (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const dateFrom = normalizeDateInput(req.body.date_from, '');
+    const dateTo = normalizeDateInput(req.body.date_to, '');
+    const label = String(req.body.label || '').trim() || (dateFrom && dateTo ? `${dateFrom} / ${dateTo}` : '');
+    const fileBase64 = String(req.body.file_base64 || '').replace(/^data:.*?;base64,/, '');
+    if (!dateFrom || !dateTo || !label) {
+      return res.status(400).json({ message: 'Selecciona fecha inicial, fecha final y nombre del rol' });
+    }
+    if (!fileBase64) {
+      return res.status(400).json({ message: 'Sube el archivo Excel del detalle' });
+    }
+    let xlsx;
+    try {
+      const xlsxModule = await import('xlsx');
+      xlsx = xlsxModule.default || xlsxModule;
+    } catch {
+      return res.status(500).json({ message: 'Falta instalar la libreria de Excel. Sube los cambios y Render la instalara automaticamente.' });
+    }
+    let attendanceRows;
+    let salaryDefaults;
+    try {
+      const workbook = xlsx.read(Buffer.from(fileBase64, 'base64'), { type: 'buffer', cellDates: true });
+      attendanceRows = parseAttendanceDetail(xlsx, workbook);
+      salaryDefaults = parseSalaryDefaults(xlsx, workbook);
+    } catch (error) {
+      return res.status(400).json({ message: `No se pudo leer el Excel: ${error.message}` });
+    }
+    if (!attendanceRows.length) {
+      return res.status(400).json({ message: 'No encontre trabajadores en la hoja DETALLE' });
+    }
+
+    let periodId;
+    db.transaction(() => {
+      const periodResult = db.prepare(
+        `INSERT INTO production_payroll_periods
+         (establishment_id, label, date_from, date_to, source_filename)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(establishment_id, label) DO UPDATE SET
+           date_from = excluded.date_from,
+           date_to = excluded.date_to,
+           source_filename = excluded.source_filename,
+           updated_at = datetime('now', 'localtime')`
+      ).run(business.id, label, dateFrom, dateTo, String(req.body.filename || '').trim());
+      const period = db.prepare(
+        'SELECT id FROM production_payroll_periods WHERE establishment_id = ? AND label = ?'
+      ).get(business.id, label);
+      periodId = period.id;
+
+      const employees = db.prepare('SELECT * FROM production_employees WHERE establishment_id = ?').all(business.id);
+      const findEmployee = (name) => employees.find((employee) =>
+        employeeKey(employee.name) === employeeKey(name) || employeeKey(employee.source_name) === employeeKey(name)
+      );
+      const insertEmployee = db.prepare(
+        `INSERT INTO production_employees
+         (establishment_id, name, source_name, monthly_salary, default_iess, normal_end)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      );
+      const updateEmployeeDefaults = db.prepare(
+        `UPDATE production_employees
+         SET source_name = ?,
+             monthly_salary = CASE WHEN monthly_salary = 0 THEN ? ELSE monthly_salary END,
+             default_iess = CASE WHEN default_iess = 0 THEN ? ELSE default_iess END,
+             normal_end = CASE WHEN ? = 1 THEN '17:00' ELSE normal_end END,
+             updated_at = datetime('now', 'localtime')
+         WHERE id = ? AND establishment_id = ?`
+      );
+      const upsertEntry = db.prepare(
+        `INSERT INTO production_payroll_entries
+         (establishment_id, period_id, employee_id, employee_name, source_name, pay_type,
+          monthly_salary, hourly_rate, overtime_rate, work_days, attendance_days, absent_days,
+          late_days, late_minutes, early_leave_days, overtime_hours, manual_unworked_hours,
+          late_penalty, iess_amount, advance_amount, savings_amount, footwear_amount,
+          other_deductions, other_income, piece_income, total_income, total_deductions, net_pay, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(establishment_id, period_id, employee_name) DO UPDATE SET
+           employee_id = excluded.employee_id,
+           source_name = excluded.source_name,
+           pay_type = excluded.pay_type,
+           monthly_salary = excluded.monthly_salary,
+           hourly_rate = excluded.hourly_rate,
+           overtime_rate = excluded.overtime_rate,
+           work_days = excluded.work_days,
+           attendance_days = excluded.attendance_days,
+           absent_days = excluded.absent_days,
+           late_days = excluded.late_days,
+           late_minutes = excluded.late_minutes,
+           early_leave_days = excluded.early_leave_days,
+           overtime_hours = excluded.overtime_hours,
+           late_penalty = excluded.late_penalty,
+           iess_amount = CASE WHEN production_payroll_entries.iess_amount = 0 THEN excluded.iess_amount ELSE production_payroll_entries.iess_amount END,
+           total_income = excluded.total_income,
+           total_deductions = excluded.total_deductions,
+           net_pay = excluded.net_pay,
+           updated_at = datetime('now', 'localtime')`
+      );
+
+      for (const attendance of attendanceRows) {
+        const defaults = salaryDefaults.get(employeeKey(attendance.name)) || {};
+        let employee = findEmployee(attendance.name);
+        const isNorma = employeeKey(attendance.name).includes('norma') && employeeKey(attendance.name).includes('llamuca');
+        if (!employee) {
+          const employeeResult = insertEmployee.run(
+            business.id,
+            attendance.name,
+            attendance.source_name,
+            moneyValue(defaults.salary),
+            moneyValue(defaults.defaultIess),
+            isNorma ? '17:00' : DEFAULT_PAYROLL_END
+          );
+          employee = db.prepare('SELECT * FROM production_employees WHERE id = ?').get(employeeResult.lastInsertRowid);
+          employees.push(employee);
+        } else {
+          updateEmployeeDefaults.run(
+            attendance.source_name,
+            moneyValue(defaults.salary),
+            moneyValue(defaults.defaultIess),
+            isNorma ? 1 : 0,
+            employee.id,
+            business.id
+          );
+          employee = db.prepare('SELECT * FROM production_employees WHERE id = ?').get(employee.id);
+        }
+        const calculated = payrollMath({
+          ...attendance,
+          employee_id: employee.id,
+          employee_name: employee.name,
+          source_name: attendance.source_name,
+          pay_type: employee.pay_type,
+          monthly_salary: employee.monthly_salary || defaults.salary || 0,
+          hourly_rate: (employee.monthly_salary || defaults.salary || 0) / 240,
+          overtime_rate: ((employee.monthly_salary || defaults.salary || 0) / 240) * 1.5,
+          manual_unworked_hours: 0,
+          late_penalty: employee.late_penalty,
+          iess_amount: employee.default_iess || defaults.defaultIess || 0,
+          advance_amount: 0,
+          savings_amount: 0,
+          footwear_amount: 0,
+          other_deductions: 0,
+          other_income: 0,
+          piece_income: 0,
+          notes: ''
+        });
+        upsertEntry.run(
+          business.id,
+          periodId,
+          calculated.employee_id,
+          calculated.employee_name,
+          calculated.source_name,
+          calculated.pay_type,
+          calculated.monthly_salary,
+          calculated.hourly_rate,
+          calculated.overtime_rate,
+          calculated.work_days,
+          calculated.attendance_days,
+          calculated.absent_days,
+          calculated.late_days,
+          calculated.late_minutes,
+          calculated.early_leave_days,
+          calculated.overtime_hours,
+          calculated.manual_unworked_hours,
+          calculated.late_penalty,
+          calculated.iess_amount,
+          calculated.advance_amount,
+          calculated.savings_amount,
+          calculated.footwear_amount,
+          calculated.other_deductions,
+          calculated.other_income,
+          calculated.piece_income,
+          calculated.total_income,
+          calculated.total_deductions,
+          calculated.net_pay,
+          calculated.notes
+        );
+      }
+    })();
+
+    audit(req, 'import', 'production_payroll', periodId, label);
+    res.status(201).json(getPayrollPeriod(periodId, req));
+  });
+
+  app.patch('/api/producalza/payroll-entries/:id', requireProductionAdmin, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const current = db.prepare(
+      'SELECT * FROM production_payroll_entries WHERE id = ? AND establishment_id = ?'
+    ).get(req.params.id, business.id);
+    if (!current) return res.status(404).json({ message: 'Registro de rol no encontrado' });
+    const updated = payrollMath({
+      ...current,
+      monthly_salary: req.body.monthly_salary ?? current.monthly_salary,
+      overtime_hours: req.body.overtime_hours ?? current.overtime_hours,
+      manual_unworked_hours: req.body.manual_unworked_hours ?? current.manual_unworked_hours,
+      late_penalty: req.body.late_penalty ?? current.late_penalty,
+      iess_amount: req.body.iess_amount ?? current.iess_amount,
+      advance_amount: req.body.advance_amount ?? current.advance_amount,
+      savings_amount: req.body.savings_amount ?? current.savings_amount,
+      footwear_amount: req.body.footwear_amount ?? current.footwear_amount,
+      other_deductions: req.body.other_deductions ?? current.other_deductions,
+      other_income: req.body.other_income ?? current.other_income,
+      piece_income: req.body.piece_income ?? current.piece_income,
+      notes: req.body.notes ?? current.notes
+    });
+    db.prepare(
+      `UPDATE production_payroll_entries
+       SET monthly_salary = ?, hourly_rate = ?, overtime_rate = ?, overtime_hours = ?,
+           manual_unworked_hours = ?, late_penalty = ?, iess_amount = ?,
+           advance_amount = ?, savings_amount = ?, footwear_amount = ?,
+           other_deductions = ?, other_income = ?, piece_income = ?,
+           total_income = ?, total_deductions = ?, net_pay = ?, notes = ?,
+           updated_at = datetime('now', 'localtime')
+       WHERE id = ? AND establishment_id = ?`
+    ).run(
+      updated.monthly_salary,
+      updated.hourly_rate,
+      updated.overtime_rate,
+      moneyValue(updated.overtime_hours),
+      moneyValue(updated.manual_unworked_hours),
+      moneyValue(updated.late_penalty),
+      moneyValue(updated.iess_amount),
+      moneyValue(updated.advance_amount),
+      moneyValue(updated.savings_amount),
+      moneyValue(updated.footwear_amount),
+      moneyValue(updated.other_deductions),
+      moneyValue(updated.other_income),
+      moneyValue(updated.piece_income),
+      updated.total_income,
+      updated.total_deductions,
+      updated.net_pay,
+      String(updated.notes || '').trim(),
+      current.id,
+      business.id
+    );
+    audit(req, 'update', 'production_payroll_entry', current.id, current.employee_name);
+    res.json(getPayrollPeriod(current.period_id, req));
   });
 
   app.get('/api/producalza/guide-templates', requireProductionUser, (req, res) => {

@@ -513,6 +513,15 @@ function resizeGuideImage(file) {
   });
 }
 
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('No se pudo leer el archivo'));
+    reader.onload = () => resolve(reader.result);
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function ProducalzaApp({ user, onLogout, embedded = false, establishmentId = '' }) {
   const [view, setView] = useState('dashboard');
   const [bootstrap, setBootstrap] = useState(null);
@@ -523,6 +532,8 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
   const [clientActivity, setClientActivity] = useState([]);
   const [users, setUsers] = useState([]);
   const [guideTemplates, setGuideTemplates] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const [payrollPeriods, setPayrollPeriods] = useState([]);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [editingOrder, setEditingOrder] = useState(null);
   const [notice, setNotice] = useState('');
@@ -544,7 +555,9 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
         nextProduction,
         nextClientActivity,
         staticGuideTemplates,
-        managedGuideTemplates
+        managedGuideTemplates,
+        nextEmployees,
+        nextPayrollPeriods
       ] = await Promise.all([
         api(scope('/producalza/bootstrap')),
         api(scope('/producalza/dashboard')),
@@ -553,7 +566,9 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
         api(scope('/producalza/production')),
         isAdmin ? api(scope('/producalza/client-activity-report')) : Promise.resolve([]),
         fetch('/producalza/guides/templates.json').then((response) => response.ok ? response.json() : []),
-        api(scope('/producalza/guide-templates'))
+        api(scope('/producalza/guide-templates')),
+        isAdmin ? api(scope('/producalza/employees')) : Promise.resolve([]),
+        isAdmin ? api(scope('/producalza/payroll-periods')) : Promise.resolve([])
       ]);
       setBootstrap(nextBootstrap);
       setDashboard(nextDashboard);
@@ -563,6 +578,8 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
       setClientActivity(nextClientActivity);
       setUsers(nextBootstrap.users || []);
       setGuideTemplates(mergeGuideTemplates(staticGuideTemplates || [], managedGuideTemplates || []));
+      setEmployees(nextEmployees || []);
+      setPayrollPeriods(nextPayrollPeriods || []);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -660,6 +677,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
     ['clients', 'Clientes', UsersRound],
     ['production', 'Produccion', Factory],
     ...(isAdmin ? [['reports', 'Reportes', BarChart3]] : []),
+    ...(isAdmin ? [['payroll', 'Roles', DollarSign]] : []),
     ...(isAdmin ? [['guide-templates', 'Guias', Tags]] : []),
     ...(isAdmin ? [['users', 'Usuarios', UserPlus]] : [])
   ];
@@ -754,6 +772,15 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
           orders={orders}
           clientActivity={clientActivity}
           scope={scope}
+          setError={setError}
+        />
+      )}
+      {view === 'payroll' && isAdmin && (
+        <PayrollView
+          employees={employees}
+          periods={payrollPeriods}
+          scope={scope}
+          onRefresh={refresh}
           setError={setError}
         />
       )}
@@ -2286,6 +2313,291 @@ function ProductionBoard({ items, isAdmin, scope, onOpen, onRefresh, setError, o
         ))}
         {!grouped.length && <div className="prod-empty">No hay pedidos que coincidan con estos filtros.</div>}
       </div>
+    </div>
+  );
+}
+
+const emptyEmployeeForm = {
+  name: '',
+  pay_type: 'salary',
+  monthly_salary: '',
+  default_iess: '',
+  late_penalty: 5,
+  normal_start: '08:00',
+  normal_end: '16:30',
+  grace_minutes: 5,
+  status: 'active',
+  notes: ''
+};
+
+function payrollPeriodLabel() {
+  const today = new Date();
+  const first = new Date(today.getFullYear(), today.getMonth(), 1);
+  const last = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+  return {
+    label: today.toLocaleDateString('es-EC', { month: 'long', year: 'numeric' }).toUpperCase(),
+    date_from: first.toISOString().slice(0, 10),
+    date_to: last.toISOString().slice(0, 10)
+  };
+}
+
+function PayrollView({ employees, periods, scope, onRefresh, setError }) {
+  const initialPeriod = payrollPeriodLabel();
+  const [selected, setSelected] = useState(null);
+  const [loadingPeriod, setLoadingPeriod] = useState(false);
+  const [employeeForm, setEmployeeForm] = useState(emptyEmployeeForm);
+  const [editingEmployeeId, setEditingEmployeeId] = useState(null);
+  const [periodForm, setPeriodForm] = useState(initialPeriod);
+  const [payrollFile, setPayrollFile] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [printMode, setPrintMode] = useState('');
+
+  useEffect(() => {
+    if (!printMode) return undefined;
+    const timer = window.setTimeout(() => window.print(), 160);
+    const clear = () => setPrintMode('');
+    window.addEventListener('afterprint', clear, { once: true });
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('afterprint', clear);
+    };
+  }, [printMode]);
+
+  async function openPeriod(id) {
+    setLoadingPeriod(true);
+    try {
+      setSelected(await api(scope(`/producalza/payroll-periods/${id}`)));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoadingPeriod(false);
+    }
+  }
+
+  async function importPayroll() {
+    if (!payrollFile) {
+      setError('Selecciona el Excel descargado del reloj antes de importar.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const fileData = await fileToDataUrl(payrollFile);
+      const period = await api(scope('/producalza/payroll-periods/import-detail'), {
+        method: 'POST',
+        body: JSON.stringify({
+          ...periodForm,
+          filename: payrollFile.name,
+          file_base64: fileData
+        })
+      });
+      setSelected(period);
+      setPayrollFile(null);
+      await onRefresh('Rol importado y calculado');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function editEmployee(employee) {
+    setEditingEmployeeId(employee.id);
+    setEmployeeForm({
+      name: employee.name || '',
+      pay_type: employee.pay_type || 'salary',
+      monthly_salary: employee.monthly_salary || '',
+      default_iess: employee.default_iess || '',
+      late_penalty: employee.late_penalty ?? 5,
+      normal_start: employee.normal_start || '08:00',
+      normal_end: employee.normal_end || '16:30',
+      grace_minutes: employee.grace_minutes ?? 5,
+      status: employee.status || 'active',
+      notes: employee.notes || ''
+    });
+  }
+
+  async function saveEmployee() {
+    setSaving(true);
+    try {
+      await api(scope(editingEmployeeId ? `/producalza/employees/${editingEmployeeId}` : '/producalza/employees'), {
+        method: editingEmployeeId ? 'PUT' : 'POST',
+        body: JSON.stringify(employeeForm)
+      });
+      setEditingEmployeeId(null);
+      setEmployeeForm(emptyEmployeeForm);
+      await onRefresh(editingEmployeeId ? 'Empleado actualizado' : 'Empleado creado');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function updateEntry(entry, patch) {
+    try {
+      const period = await api(scope(`/producalza/payroll-entries/${entry.id}`), {
+        method: 'PATCH',
+        body: JSON.stringify(patch)
+      });
+      setSelected(period);
+      await onRefresh('Rol actualizado');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  const totals = selected?.entries?.reduce((acc, entry) => ({
+    income: acc.income + Number(entry.total_income || 0),
+    deductions: acc.deductions + Number(entry.total_deductions || 0),
+    net: acc.net + Number(entry.net_pay || 0)
+  }), { income: 0, deductions: 0, net: 0 }) || { income: 0, deductions: 0, net: 0 };
+
+  return (
+    <div className="prod-payroll-layout">
+      <section className="prod-panel prod-payroll-import">
+        <div className="prod-panel-title">
+          <div><span>Roles de pago</span><h2>Importar detalle del reloj</h2></div>
+        </div>
+        <div className="prod-form-grid">
+          <label>Nombre del rol<input value={periodForm.label} onChange={(event) => setPeriodForm({ ...periodForm, label: event.target.value })} /></label>
+          <label>Desde<input type="date" value={periodForm.date_from} onChange={(event) => setPeriodForm({ ...periodForm, date_from: event.target.value })} /></label>
+          <label>Hasta<input type="date" value={periodForm.date_to} onChange={(event) => setPeriodForm({ ...periodForm, date_to: event.target.value })} /></label>
+          <label>Excel DETALLE<input type="file" accept=".xlsx,.xls" onChange={(event) => setPayrollFile(event.target.files?.[0] || null)} /></label>
+        </div>
+        <div className="prod-form-actions">
+          <button className="prod-primary-button" disabled={saving} onClick={importPayroll}><Upload size={17} />{saving ? 'Importando...' : 'Importar y calcular'}</button>
+        </div>
+      </section>
+
+      <section className="prod-panel">
+        <div className="prod-panel-title"><div><span>Historial</span><h2>Roles generados</h2></div></div>
+        <div className="prod-payroll-periods">
+          {periods.map((period) => (
+            <button key={period.id} className={selected?.id === period.id ? 'active' : ''} onClick={() => openPeriod(period.id)}>
+              <strong>{period.label}</strong>
+              <span>{displayDate(period.date_from)} - {displayDate(period.date_to)}</span>
+              <small>{period.employees_count || 0} empleados · {displayMoney(period.net_pay)}</small>
+            </button>
+          ))}
+          {!periods.length && <div className="prod-empty">Aun no hay roles importados.</div>}
+        </div>
+      </section>
+
+      {selected && (
+        <section className="prod-panel prod-payroll-period-detail">
+          <div className="prod-panel-title">
+            <div><span>{loadingPeriod ? 'Cargando...' : 'Rol mensual'}</span><h2>{selected.label}</h2></div>
+            <div className="prod-payroll-actions">
+              <button className="prod-secondary-button" onClick={() => setPrintMode('cards')}><Printer size={17} />Imprimir tarjetas</button>
+              <button className="prod-primary-button" onClick={() => setPrintMode('report')}><Printer size={17} />Reporte mensual</button>
+            </div>
+          </div>
+          <div className="prod-monthly-summary">
+            <article><span>Ingresos</span><strong>{displayMoney(totals.income)}</strong><small>Sueldo + extras</small></article>
+            <article><span>Egresos</span><strong>{displayMoney(totals.deductions)}</strong><small>IESS + descuentos</small></article>
+            <article><span>A pagar</span><strong>{displayMoney(totals.net)}</strong><small>Reporte mensual</small></article>
+          </div>
+          <div className="prod-table-wrap prod-payroll-table">
+            <table>
+              <thead><tr><th>Empleado</th><th>Atrasos</th><th>Horas extra</th><th>Horas no trabajadas</th><th>IESS</th><th>Adelanto</th><th>Otros desc.</th><th>A recibir</th></tr></thead>
+              <tbody>
+                {selected.entries.map((entry) => (
+                  <tr key={entry.id}>
+                    <td><strong>{entry.employee_name}</strong><small>{entry.attendance_days} asistencias · {entry.absent_days} ausencias</small></td>
+                    <td>{entry.late_days}<small>{entry.late_minutes} min</small></td>
+                    <td><input type="number" step="0.01" defaultValue={entry.overtime_hours} onBlur={(event) => updateEntry(entry, { overtime_hours: event.target.value })} /></td>
+                    <td><input type="number" step="0.01" defaultValue={entry.manual_unworked_hours} onBlur={(event) => updateEntry(entry, { manual_unworked_hours: event.target.value })} /></td>
+                    <td><input type="number" step="0.01" defaultValue={entry.iess_amount} onBlur={(event) => updateEntry(entry, { iess_amount: event.target.value })} /></td>
+                    <td><input type="number" step="0.01" defaultValue={entry.advance_amount} onBlur={(event) => updateEntry(entry, { advance_amount: event.target.value })} /></td>
+                    <td><input type="number" step="0.01" defaultValue={entry.other_deductions} onBlur={(event) => updateEntry(entry, { other_deductions: event.target.value })} /></td>
+                    <td><strong>{displayMoney(entry.net_pay)}</strong></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      <section className="prod-panel">
+        <div className="prod-panel-title"><div><span>Configuracion</span><h2>Empleados</h2></div></div>
+        <div className="prod-form-grid">
+          <label>Nombre<input value={employeeForm.name} onChange={(event) => setEmployeeForm({ ...employeeForm, name: event.target.value })} /></label>
+          <label>Tipo
+            <select value={employeeForm.pay_type} onChange={(event) => setEmployeeForm({ ...employeeForm, pay_type: event.target.value })}>
+              <option value="salary">Sueldo</option>
+              <option value="piecework">Por obra</option>
+            </select>
+          </label>
+          <label>Sueldo mensual<input type="number" step="0.01" value={employeeForm.monthly_salary} onChange={(event) => setEmployeeForm({ ...employeeForm, monthly_salary: event.target.value })} /></label>
+          <label>IESS fijo<input type="number" step="0.01" value={employeeForm.default_iess} onChange={(event) => setEmployeeForm({ ...employeeForm, default_iess: event.target.value })} /></label>
+          <label>Multa atraso<input type="number" step="0.01" value={employeeForm.late_penalty} onChange={(event) => setEmployeeForm({ ...employeeForm, late_penalty: event.target.value })} /></label>
+          <label>Entrada<input type="time" value={employeeForm.normal_start} onChange={(event) => setEmployeeForm({ ...employeeForm, normal_start: event.target.value })} /></label>
+          <label>Salida<input type="time" value={employeeForm.normal_end} onChange={(event) => setEmployeeForm({ ...employeeForm, normal_end: event.target.value })} /></label>
+          <label>Gracia minutos<input type="number" value={employeeForm.grace_minutes} onChange={(event) => setEmployeeForm({ ...employeeForm, grace_minutes: event.target.value })} /></label>
+        </div>
+        <div className="prod-form-actions">
+          {editingEmployeeId && <button className="prod-secondary-button" onClick={() => { setEditingEmployeeId(null); setEmployeeForm(emptyEmployeeForm); }}>Cancelar</button>}
+          <button className="prod-primary-button" disabled={saving} onClick={saveEmployee}><Save size={17} />{editingEmployeeId ? 'Guardar empleado' : 'Crear empleado'}</button>
+        </div>
+        <div className="prod-employee-list">
+          {employees.map((employee) => (
+            <article key={employee.id}>
+              <div><strong>{employee.name}</strong><span>{employee.normal_start} - {employee.normal_end} · {employee.pay_type === 'piecework' ? 'Por obra' : displayMoney(employee.monthly_salary)}</span></div>
+              <button className="prod-secondary-button" onClick={() => editEmployee(employee)}><Pencil size={16} />Editar</button>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      {printMode && selected && (
+        <PayrollPrintRoot mode={printMode} period={selected} totals={totals} />
+      )}
+    </div>
+  );
+}
+
+function PayrollPrintRoot({ mode, period, totals }) {
+  return (
+    <div className={`prod-print-root prod-payroll-print-root print-payroll-${mode}`}>
+      {mode === 'report' ? (
+        <article className="prod-payroll-report-page">
+          <h1>REPORTE DE PAGO MENSUAL</h1>
+          <h2>MES: {period.label}</h2>
+          <table>
+            <thead><tr><th>Nro.</th><th>Nombre</th><th>Sueldo a recibir</th><th>Adelanto</th><th>Saldo</th><th>Firma</th></tr></thead>
+            <tbody>
+              {period.entries.map((entry, index) => (
+                <tr key={entry.id}><td>{index + 1}</td><td>{entry.employee_name}</td><td>{displayMoney(entry.net_pay)}</td><td>{displayMoney(entry.advance_amount)}</td><td></td><td></td></tr>
+              ))}
+              <tr><td></td><td>TOTAL</td><td>{displayMoney(totals.net)}</td><td></td><td></td><td></td></tr>
+            </tbody>
+          </table>
+        </article>
+      ) : (
+        <div className="prod-payroll-cards-page">
+          {period.entries.map((entry) => (
+            <article className="prod-payroll-card" key={entry.id}>
+              <h2>ROL DE PAGOS</h2>
+              <p>Fecha: {displayDate(period.date_from)} - {displayDate(period.date_to)}</p>
+              <h3>Nombre: {entry.employee_name}</h3>
+              <div className="prod-payroll-card-grid">
+                <span>Dia de llegar tarde</span><strong>{entry.late_days}</strong>
+                <span>Trabajo hora extra</span><strong>{entry.overtime_hours}</strong>
+                <span>Sueldo</span><strong>{displayMoney(entry.monthly_salary)}</strong>
+                <span>Horas extras 50%</span><strong>{displayMoney(Number(entry.overtime_hours || 0) * Number(entry.overtime_rate || 0))}</strong>
+                <span>Total ingresos</span><strong>{displayMoney(entry.total_income)}</strong>
+                <span>Aporte IESS</span><strong>{displayMoney(entry.iess_amount)}</strong>
+                <span>Desc. atrasos</span><strong>{displayMoney(Number(entry.late_days || 0) * Number(entry.late_penalty || 0))}</strong>
+                <span>Desc. horas no trabajadas</span><strong>{displayMoney(Number(entry.manual_unworked_hours || 0) * Number(entry.hourly_rate || 0))}</strong>
+                <span>Total egresos</span><strong>{displayMoney(entry.total_deductions)}</strong>
+                <span>Total a recibir</span><strong>{displayMoney(entry.net_pay)}</strong>
+              </div>
+              <footer>FIRMA</footer>
+            </article>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
