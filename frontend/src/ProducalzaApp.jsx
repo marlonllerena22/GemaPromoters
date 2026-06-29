@@ -536,6 +536,8 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
   const [payrollPeriods, setPayrollPeriods] = useState([]);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [editingOrder, setEditingOrder] = useState(null);
+  const [clientAlertTarget, setClientAlertTarget] = useState(null);
+  const [paymentAlertTarget, setPaymentAlertTarget] = useState(null);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -691,7 +693,21 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
     <>
       {error && <div className="alert error prod-alert">{error}</div>}
       {notice && <div className="alert success prod-alert">{notice}</div>}
-      {view === 'dashboard' && <ProductionDashboard data={dashboard} orders={orders} onOpen={openOrder} />}
+      {view === 'dashboard' && (
+        <ProductionDashboard
+          data={dashboard}
+          orders={orders}
+          onOpen={openOrder}
+          onOpenFollowUp={(item) => {
+            setClientAlertTarget({ clientId: item.client_id, visitId: item.id, token: Date.now() });
+            setView('clients');
+          }}
+          onOpenPayment={(item) => {
+            setPaymentAlertTarget({ orderId: item.order_id, paymentId: item.id, token: Date.now() });
+            openOrder(item.order_id);
+          }}
+        />
+      )}
       {view === 'orders' && (
         <OrdersList
           orders={orders}
@@ -741,6 +757,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
             await refresh(message);
           }}
           guideTemplates={guideTemplates}
+          focusPayment={paymentAlertTarget}
         />
       )}
       {view === 'clients' && (
@@ -753,6 +770,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
           onRefresh={refresh}
           setError={setError}
           guideTemplates={guideTemplates}
+          alertTarget={clientAlertTarget}
         />
       )}
       {view === 'production' && (
@@ -871,7 +889,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
   );
 }
 
-function ProductionDashboard({ data, orders, onOpen }) {
+function ProductionDashboard({ data, orders, onOpen, onOpenFollowUp, onOpenPayment }) {
   const metrics = [
     ['Pedidos nuevos', data?.new_orders || 0, ClipboardList],
     ['En produccion', data?.in_production || 0, Factory],
@@ -893,7 +911,7 @@ function ProductionDashboard({ data, orders, onOpen }) {
           const isToday = item.next_visit_date === today;
           const isPhysicalVisit = Number(item.alert_hours || 24) === 96;
           return (
-            <article className={`${isOverdue ? 'overdue' : isToday ? 'today' : ''} alert-window ${isPhysicalVisit ? 'visit-window' : ''}`} key={item.id}>
+            <button type="button" className={`${isOverdue ? 'overdue' : isToday ? 'today' : ''} alert-window ${isPhysicalVisit ? 'visit-window' : ''}`} key={item.id} onClick={() => onOpenFollowUp?.(item)}>
               <div>
                 <strong>{item.client_name}</strong>
                 <span>{item.city || 'Sin ciudad'} - {VISIT_TYPE_LABELS[item.next_visit_type] || VISIT_TYPE_LABELS[item.visit_type] || 'Seguimiento'}</span>
@@ -902,7 +920,7 @@ function ProductionDashboard({ data, orders, onOpen }) {
                 <b>{isOverdue ? 'Vencido' : isToday ? 'Hoy' : isPhysicalVisit ? 'Visita 96h' : '24h'}</b>
                 <small>{displayDate(item.next_visit_date)}</small>
               </div>
-            </article>
+            </button>
           );
         })}
       </div>
@@ -919,7 +937,7 @@ function ProductionDashboard({ data, orders, onOpen }) {
           const isOverdue = item.due_date < today;
           const isToday = item.due_date === today;
           return (
-            <article className={`${isOverdue ? 'overdue' : isToday ? 'today' : ''} alert-window payment-window`} key={item.id}>
+            <button type="button" className={`${isOverdue ? 'overdue' : isToday ? 'today' : ''} alert-window payment-window`} key={item.id} onClick={() => onOpenPayment?.(item)}>
               <DollarSign size={19} />
               <div>
                 <strong>{item.client_name}</strong>
@@ -929,7 +947,7 @@ function ProductionDashboard({ data, orders, onOpen }) {
                 <b>{displayMoney(item.amount)}</b>
                 <small>{isOverdue ? 'Vencido' : isToday ? 'Hoy' : displayDate(item.due_date)}</small>
               </div>
-            </article>
+            </button>
           );
         })}
       </div>
@@ -1320,7 +1338,7 @@ function OrderForm({ clients, users, isAdmin, scope, initialOrder, onCancel, onS
   );
 }
 
-function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint, onUpdated, guideTemplates }) {
+function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint, onUpdated, guideTemplates, focusPayment }) {
   const [sendingPdf, setSendingPdf] = useState(false);
   const [models, setModels] = useState(order.models);
   const [dirtyIds, setDirtyIds] = useState([]);
@@ -1352,6 +1370,12 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
       invoice_value: order.invoice_value || ''
     });
   }, [order]);
+
+  useEffect(() => {
+    if (!focusPayment?.paymentId || Number(focusPayment.orderId) !== Number(order.id)) return;
+    const payment = (order.payments || []).find((item) => Number(item.id) === Number(focusPayment.paymentId));
+    if (payment) editPayment(payment);
+  }, [focusPayment?.token, order.id, order.payments]);
 
   const payments = order.payments || [];
   const totalPaid = payments
@@ -1807,7 +1831,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
   );
 }
 
-function ClientsView({ clients, isAdmin, users, scope, onOpenOrder, onRefresh, setError, guideTemplates }) {
+function ClientsView({ clients, isAdmin, users, scope, onOpenOrder, onRefresh, setError, guideTemplates, alertTarget }) {
   const [search, setSearch] = useState('');
   const [form, setForm] = useState(emptyClient);
   const [editingId, setEditingId] = useState(null);
@@ -1816,6 +1840,7 @@ function ClientsView({ clients, isAdmin, users, scope, onOpenOrder, onRefresh, s
   const [editingVisitId, setEditingVisitId] = useState(null);
   const [showVisitForm, setShowVisitForm] = useState(false);
   const [showClientForm, setShowClientForm] = useState(false);
+  const [handledAlertToken, setHandledAlertToken] = useState(null);
   const filtered = useMemo(() => {
     const text = search.toLowerCase();
     return clients.filter((client) => `${client.name} ${client.business_name} ${client.city} ${client.phone}`.toLowerCase().includes(text));
@@ -1845,6 +1870,11 @@ function ClientsView({ clients, isAdmin, users, scope, onOpenOrder, onRefresh, s
       setError(err.message);
     }
   }
+
+  useEffect(() => {
+    if (!alertTarget?.clientId || alertTarget.token === handledAlertToken) return;
+    openClient(alertTarget.clientId);
+  }, [alertTarget?.token, alertTarget?.clientId, handledAlertToken]);
 
   async function addVisit() {
     try {
@@ -1880,6 +1910,15 @@ function ClientsView({ clients, isAdmin, users, scope, onOpenOrder, onRefresh, s
     });
     setShowVisitForm(true);
   }
+
+  useEffect(() => {
+    if (!selected || !alertTarget?.visitId || alertTarget.token === handledAlertToken) return;
+    if (Number(selected.id) !== Number(alertTarget.clientId)) return;
+    const item = (selected.visits || []).find((visitItem) => Number(visitItem.id) === Number(alertTarget.visitId));
+    if (!item) return;
+    editVisit(item);
+    setHandledAlertToken(alertTarget.token);
+  }, [selected, alertTarget?.token, alertTarget?.visitId, alertTarget?.clientId, handledAlertToken]);
 
   async function deleteVisit(item) {
     if (!window.confirm('Seguro que deseas eliminar este registro de visita?')) return;

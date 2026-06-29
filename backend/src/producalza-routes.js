@@ -973,6 +973,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
        WHERE visits.establishment_id = ?
          AND visits.next_visit_date IS NOT NULL
          AND visits.next_visit_date <> ''
+         AND visits.next_visit_date >= date('now', 'localtime', '-1 day')
          AND visits.next_visit_date <= date(
            'now',
            'localtime',
@@ -1001,6 +1002,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
          AND payments.status = 'pending'
          AND payments.due_date IS NOT NULL
          AND payments.due_date <> ''
+         AND payments.due_date >= date('now', 'localtime', '-1 day')
          AND payments.due_date <= date('now', 'localtime', '+1 day')
          ${isProductionAdmin(req) ? '' : 'AND orders.seller_user_id = ?'}
        ORDER BY payments.due_date ASC, payments.id DESC
