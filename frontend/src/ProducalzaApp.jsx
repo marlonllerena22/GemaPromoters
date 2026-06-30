@@ -4,6 +4,7 @@ import {
   Check,
   ChevronLeft,
   ClipboardList,
+  Copy,
   DollarSign,
   Factory,
   FilePlus2,
@@ -1154,6 +1155,27 @@ function OrderForm({ clients, users, isAdmin, scope, initialOrder, onCancel, onS
     updateModel(index, { sizes: { ...form.models[index].sizes, [size]: quantity } });
   }
 
+  function duplicateModel(index) {
+    setForm((current) => {
+      const source = current.models[index] || emptyModel();
+      const duplicated = {
+        ...source,
+        id: undefined,
+        card_number: undefined,
+        model_code: '',
+        sizes: { ...(source.sizes || {}) }
+      };
+      return {
+        ...current,
+        models: [
+          ...current.models.slice(0, index + 1),
+          duplicated,
+          ...current.models.slice(index + 1)
+        ]
+      };
+    });
+  }
+
   async function createClient() {
     try {
       const created = await api(scope('/producalza/clients'), {
@@ -1292,11 +1314,16 @@ function OrderForm({ clients, users, isAdmin, scope, initialOrder, onCancel, onS
           <section className="prod-panel prod-model-card" key={index}>
             <div className="prod-panel-title">
               <div><span>Modelo {index + 1}</span><h2>{model.model_code || 'Sin codigo'}</h2></div>
-              {form.models.length > 1 && (
-                <button className="prod-icon-button danger" onClick={() => setForm({ ...form, models: form.models.filter((_, itemIndex) => itemIndex !== index) })}>
-                  <Trash2 size={17} />
+              <div className="prod-row-actions">
+                <button className="prod-secondary-button compact" type="button" onClick={() => duplicateModel(index)}>
+                  <Copy size={16} />Duplicar
                 </button>
-              )}
+                {form.models.length > 1 && (
+                  <button className="prod-icon-button danger" type="button" onClick={() => setForm({ ...form, models: form.models.filter((_, itemIndex) => itemIndex !== index) })}>
+                    <Trash2 size={17} />
+                  </button>
+                )}
+              </div>
             </div>
             <div className="prod-form-grid">
               <label>Codigo o modelo<input value={model.model_code} onChange={(event) => updateModel(index, { model_code: event.target.value })} /></label>

@@ -2413,6 +2413,13 @@ td {
   width: auto;
 }
 
+.prod-row-actions .prod-secondary-button.compact {
+  height: 36px;
+  min-height: 36px;
+  padding: 0 10px;
+  width: auto;
+}
+
 .prod-import-button {
   align-items: center;
   background: #ffffff;
