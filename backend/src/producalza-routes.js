@@ -288,17 +288,65 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
   function normalizePaymentPayload(body) {
     const amount = Math.max(0, Number(body.amount || 0) || 0);
     const paymentType = PAYMENT_TYPES.includes(body.payment_type) ? body.payment_type : 'abono';
-    const status = PAYMENT_STATUSES.includes(body.status) ? body.status : 'pending';
+    const status = PAYMENT_STATUSES.includes(body.status) ? body.status : 'paid';
     return {
       payment_type: paymentType,
       amount,
-      payment_date: normalizeOptionalDate(body.payment_date),
+      payment_date: normalizeOptionalDate(body.payment_date) || (status === 'paid' ? new Date().toISOString().slice(0, 10) : null),
       due_date: normalizeOptionalDate(body.due_date),
       status,
       bank: String(body.bank || '').trim(),
       reference: String(body.reference || '').trim(),
       notes: String(body.notes || '').trim()
     };
+  }
+
+  function refreshDeliveryNoteBalance(orderId, businessId, userLabel = 'system') {
+    const order = db.prepare(
+      `SELECT id, shipping_value, discount_value
+       FROM production_orders
+       WHERE id = ? AND establishment_id = ? AND deleted_at IS NULL`
+    ).get(orderId, businessId);
+    if (!order) return;
+    const subtotal = db.prepare(
+      `SELECT COALESCE(SUM(total_pairs * unit_price), 0) AS subtotal
+       FROM production_order_models
+       WHERE order_id = ? AND establishment_id = ?`
+    ).get(orderId, businessId).subtotal;
+    const totalValue = moneyValue(Math.max(
+      0,
+      Number(subtotal || 0) + Number(order.shipping_value || 0) - Number(order.discount_value || 0)
+    ));
+    const paymentTotals = db.prepare(
+      `SELECT
+         COALESCE(SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END), 0) AS paid_total,
+         COALESCE(SUM(CASE WHEN status = 'pending' AND COALESCE(reference, '') <> ? THEN amount ELSE 0 END), 0) AS manual_pending_total
+       FROM production_order_payments
+       WHERE order_id = ? AND establishment_id = ?`
+    ).get(DELIVERY_NOTE_BALANCE_REF, orderId, businessId);
+    const pendingBalance = moneyValue(Math.max(
+      0,
+      totalValue - Number(paymentTotals.paid_total || 0) - Number(paymentTotals.manual_pending_total || 0)
+    ));
+    db.prepare(
+      `DELETE FROM production_order_payments
+       WHERE order_id = ? AND establishment_id = ? AND status = 'pending' AND reference = ?`
+    ).run(orderId, businessId, DELIVERY_NOTE_BALANCE_REF);
+    if (pendingBalance > 0) {
+      db.prepare(
+        `INSERT INTO production_order_payments
+         (establishment_id, order_id, payment_type, amount, payment_date, due_date,
+          status, bank, reference, notes, created_by)
+         VALUES (?, ?, 'saldo', ?, NULL, NULL, 'pending', '', ?, ?, ?)`
+      ).run(
+        businessId,
+        orderId,
+        pendingBalance,
+        DELIVERY_NOTE_BALANCE_REF,
+        'Saldo automatico de nota de entrega',
+        userLabel
+      );
+    }
   }
 
   function normalizeEmployeePayload(body) {
@@ -448,6 +496,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       .prepare(
         `SELECT orders.*, clients.name AS client_name, clients.business_name, clients.tax_id,
                 clients.city, clients.address, clients.phone, clients.email,
+                clients.classification AS client_classification,
                 clients.guide_template_key AS client_guide_template_key,
                 clients.guide_logo_url AS client_guide_logo_url,
                 users.name AS seller_name
@@ -1805,24 +1854,29 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     if (!payment.amount && !payment.due_date && !payment.reference && !payment.notes) {
       return res.status(400).json({ message: 'Agrega al menos un valor, fecha o detalle del cobro' });
     }
-    const result = db.prepare(
-      `INSERT INTO production_order_payments
-       (establishment_id, order_id, payment_type, amount, payment_date, due_date,
-        status, bank, reference, notes, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      business.id,
-      order.id,
-      payment.payment_type,
-      payment.amount,
-      payment.payment_date,
-      payment.due_date,
-      payment.status,
-      payment.bank,
-      payment.reference,
-      payment.notes,
-      req.user?.username || req.user?.role || 'system'
-    );
+    const userLabel = req.user?.username || req.user?.role || 'system';
+    const result = db.transaction(() => {
+      const insert = db.prepare(
+        `INSERT INTO production_order_payments
+         (establishment_id, order_id, payment_type, amount, payment_date, due_date,
+          status, bank, reference, notes, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        business.id,
+        order.id,
+        payment.payment_type,
+        payment.amount,
+        payment.payment_date,
+        payment.due_date,
+        payment.status,
+        payment.bank,
+        payment.reference,
+        payment.notes,
+        userLabel
+      );
+      refreshDeliveryNoteBalance(order.id, business.id, userLabel);
+      return insert;
+    })();
     audit(req, 'create', 'order_payment', result.lastInsertRowid, order.order_number);
     res.status(201).json(getOrder(order.id, req));
   });
@@ -1837,24 +1891,27 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     ).get(req.params.paymentId, order.id, business.id);
     if (!current) return res.status(404).json({ message: 'Cobro no encontrado' });
     const payment = normalizePaymentPayload({ ...current, ...req.body });
-    db.prepare(
-      `UPDATE production_order_payments
-       SET payment_type = ?, amount = ?, payment_date = ?, due_date = ?, status = ?,
-           bank = ?, reference = ?, notes = ?, updated_at = datetime('now', 'localtime')
-       WHERE id = ? AND order_id = ? AND establishment_id = ?`
-    ).run(
-      payment.payment_type,
-      payment.amount,
-      payment.payment_date,
-      payment.due_date,
-      payment.status,
-      payment.bank,
-      payment.reference,
-      payment.notes,
-      current.id,
-      order.id,
-      business.id
-    );
+    db.transaction(() => {
+      db.prepare(
+        `UPDATE production_order_payments
+         SET payment_type = ?, amount = ?, payment_date = ?, due_date = ?, status = ?,
+             bank = ?, reference = ?, notes = ?, updated_at = datetime('now', 'localtime')
+         WHERE id = ? AND order_id = ? AND establishment_id = ?`
+      ).run(
+        payment.payment_type,
+        payment.amount,
+        payment.payment_date,
+        payment.due_date,
+        payment.status,
+        payment.bank,
+        payment.reference,
+        payment.notes,
+        current.id,
+        order.id,
+        business.id
+      );
+      refreshDeliveryNoteBalance(order.id, business.id, req.user?.username || req.user?.role || 'system');
+    })();
     audit(req, 'update', 'order_payment', current.id, payment.status);
     res.json(getOrder(order.id, req));
   });
@@ -1864,9 +1921,15 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     if (!business) return;
     const order = getOrder(req.params.id, req);
     if (!order) return res.status(404).json({ message: 'Pedido no encontrado' });
-    const result = db.prepare(
-      'DELETE FROM production_order_payments WHERE id = ? AND order_id = ? AND establishment_id = ?'
-    ).run(req.params.paymentId, order.id, business.id);
+    let result;
+    db.transaction(() => {
+      result = db.prepare(
+        'DELETE FROM production_order_payments WHERE id = ? AND order_id = ? AND establishment_id = ?'
+      ).run(req.params.paymentId, order.id, business.id);
+      if (result.changes) {
+        refreshDeliveryNoteBalance(order.id, business.id, req.user?.username || req.user?.role || 'system');
+      }
+    })();
     if (!result.changes) return res.status(404).json({ message: 'Cobro no encontrado' });
     audit(req, 'delete', 'order_payment', req.params.paymentId, order.order_number);
     res.json(getOrder(order.id, req));
@@ -1900,18 +1963,8 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     if (!order) return res.status(404).json({ message: 'Pedido no encontrado' });
     const prices = Array.isArray(req.body.models) ? req.body.models : [];
     const validModelIds = new Set(order.models.map((model) => Number(model.id)));
-    const priceByModelId = new Map(
-      prices
-        .map((model) => [Number(model.id || 0), moneyValue(model.unit_price)])
-        .filter(([modelId]) => validModelIds.has(modelId))
-    );
-    const subtotal = order.models.reduce((sum, model) => {
-      const price = priceByModelId.has(Number(model.id)) ? priceByModelId.get(Number(model.id)) : moneyValue(model.unit_price);
-      return sum + Number(model.total_pairs || 0) * price;
-    }, 0);
     const shippingValue = moneyValue(req.body.shipping_value);
     const discountValue = moneyValue(req.body.discount_value);
-    const totalValue = moneyValue(Math.max(0, subtotal + shippingValue - discountValue));
 
     db.transaction(() => {
       db.prepare(
@@ -1935,37 +1988,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         if (!validModelIds.has(modelId)) continue;
         updateModel.run(moneyValue(model.unit_price), modelId, order.id, business.id);
       }
-
-      const paymentTotals = db.prepare(
-        `SELECT
-           COALESCE(SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END), 0) AS paid_total,
-           COALESCE(SUM(CASE WHEN status = 'pending' AND COALESCE(reference, '') <> ? THEN amount ELSE 0 END), 0) AS manual_pending_total
-         FROM production_order_payments
-         WHERE order_id = ? AND establishment_id = ?`
-      ).get(DELIVERY_NOTE_BALANCE_REF, order.id, business.id);
-      const pendingBalance = moneyValue(Math.max(
-        0,
-        totalValue - Number(paymentTotals.paid_total || 0) - Number(paymentTotals.manual_pending_total || 0)
-      ));
-      db.prepare(
-        `DELETE FROM production_order_payments
-         WHERE order_id = ? AND establishment_id = ? AND status = 'pending' AND reference = ?`
-      ).run(order.id, business.id, DELIVERY_NOTE_BALANCE_REF);
-      if (pendingBalance > 0) {
-        db.prepare(
-          `INSERT INTO production_order_payments
-           (establishment_id, order_id, payment_type, amount, payment_date, due_date,
-            status, bank, reference, notes, created_by)
-           VALUES (?, ?, 'saldo', ?, NULL, NULL, 'pending', '', ?, ?, ?)`
-        ).run(
-          business.id,
-          order.id,
-          pendingBalance,
-          DELIVERY_NOTE_BALANCE_REF,
-          'Saldo automatico de nota de entrega',
-          req.user?.username || req.user?.role || 'system'
-        );
-      }
+      refreshDeliveryNoteBalance(order.id, business.id, req.user?.username || req.user?.role || 'system');
     })();
     audit(req, 'update', 'delivery_note_values', order.id, order.order_number);
     res.json(getOrder(order.id, req));

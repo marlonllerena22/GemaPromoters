@@ -141,7 +141,7 @@ const emptyPayment = {
   amount: '',
   payment_date: new Date().toISOString().slice(0, 10),
   due_date: '',
-  status: 'pending',
+  status: 'paid',
   bank: '',
   reference: '',
   notes: ''
@@ -282,6 +282,31 @@ function whatsappNumber(value) {
   if (digits.startsWith('0')) return `593${digits.slice(1)}`;
   if (digits.length === 9) return `593${digits}`;
   return digits;
+}
+
+function normalizeText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function clientGender(order) {
+  const text = normalizeText(`${order.client_classification || ''} ${order.client_name || ''}`);
+  if (/\b(mujer|femenino|senora|sra|srta|miss)\b/.test(text)) return 'female';
+  if (/\b(hombre|masculino|senor|sr|mister)\b/.test(text)) return 'male';
+  return '';
+}
+
+function orderWhatsappMessage(order, today) {
+  const gender = clientGender(order);
+  if (gender === 'female') {
+    return `Buenas tardes, estimada ${order.client_name}. Le compartimos el pedido registrado el ${today} para su revision. Quedamos atentos a cualquier observacion. Muchas gracias.`;
+  }
+  if (gender === 'male') {
+    return `Buenas tardes, estimado ${order.client_name}. Le compartimos el pedido registrado el ${today} para su revision. Quedamos atentos a cualquier observacion. Muchas gracias.`;
+  }
+  return `Buenas tardes. Le compartimos el pedido registrado a nombre de ${order.client_name} el ${today} para su revision. Quedamos atentos a cualquier observacion. Muchas gracias.`;
 }
 
 function safeFilename(value) {
@@ -1579,7 +1604,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
       month: '2-digit',
       year: 'numeric'
     });
-    const message = `Buenas tardes, estimado/estimada ${order.client_name}. Le envio el pedido realizado en fecha ${today}. Por favor, revise el documento adjunto. Muchas gracias.`;
+    const message = orderWhatsappMessage(order, today);
     const whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
     const isMobile = window.matchMedia('(max-width: 620px)').matches;
     const whatsappWindow = isMobile ? null : window.open('', '_blank');
