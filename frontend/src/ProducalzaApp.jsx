@@ -3641,6 +3641,16 @@ function GuidePrintPage({ guides, order, template }) {
   );
 }
 
+function splitJEnriquezCode(value) {
+  const code = String(value || '').trim();
+  const match = code.match(/^(.+?)(\d+\s*1\/2)$/);
+  if (!match) return { main: code, fraction: '' };
+  return {
+    main: match[1].trim(),
+    fraction: match[2].replace(/\s+/g, '')
+  };
+}
+
 function GuideLabel({ guide, order, template }) {
   const { model, size } = guide;
   const customLogo = order.client_guide_logo_url || '';
@@ -3670,6 +3680,7 @@ function GuideLabel({ guide, order, template }) {
       </div>
     );
   }
+  const jEnriquezCode = template.slug === 'j-enriquez' ? splitJEnriquezCode(model.model_code) : null;
   return (
     <div className={`prod-guide-label standard template-${template.slug}`}>
       <div className="prod-guide-logo">
@@ -3678,7 +3689,14 @@ function GuideLabel({ guide, order, template }) {
           : <strong>{order.brand || order.client_name || template.name}</strong>}
       </div>
       <div className="prod-guide-model">
-        <strong>{model.model_code}</strong>
+        {jEnriquezCode ? (
+          <strong className={jEnriquezCode.fraction ? 'split-code' : ''}>
+            <span className="guide-code-main">{jEnriquezCode.main}</span>
+            {jEnriquezCode.fraction && <span className="guide-code-fraction">{jEnriquezCode.fraction}</span>}
+          </strong>
+        ) : (
+          <strong>{model.model_code}</strong>
+        )}
         <span>{description}</span>
       </div>
       <div className="prod-guide-size"><strong>{size}</strong></div>

@@ -5067,6 +5067,39 @@ td {
     margin: 0 0 0 1mm;
   }
 
+  .template-j-enriquez .prod-guide-model strong {
+    color: #892106;
+    display: inline-flex;
+    flex-direction: column;
+    font-size: 10.5pt;
+    line-height: 0.98;
+    min-width: 13mm;
+    overflow-wrap: normal;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  .template-j-enriquez .prod-guide-model strong.split-code {
+    gap: 0.4mm;
+  }
+
+  .template-j-enriquez .prod-guide-model strong .guide-code-main,
+  .template-j-enriquez .prod-guide-model strong .guide-code-fraction {
+    color: #892106;
+    display: block;
+    margin: 0;
+    overflow-wrap: normal;
+    white-space: nowrap;
+  }
+
+  .template-j-enriquez .prod-guide-model > span {
+    flex: 1;
+    font-size: 7.8pt;
+    line-height: 0.95;
+    min-width: 0;
+    text-align: center;
+  }
+
   .template-j-enriquez .prod-guide-size {
     border: 1.5px solid #805b00;
     grid-row: 2;
