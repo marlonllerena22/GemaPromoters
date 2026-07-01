@@ -5209,7 +5209,6 @@ td {
 
   .template-j-enriquez .prod-guide-size {
     border: 1.5px solid #805b00;
-    border-bottom: 0;
     grid-column: 3;
     grid-row: 3;
   }
@@ -5223,16 +5222,14 @@ td {
 
   .template-j-enriquez .prod-guide-origin {
     align-items: center;
-    border: 1.5px solid #805b00;
-    border-top: 0;
-    border-left: 0;
+    border: 0;
     display: flex;
     flex-direction: column;
     grid-column: 3;
     grid-row: 4;
-    justify-content: center;
+    justify-content: flex-start;
     line-height: 0.9;
-    padding: 0;
+    padding-top: 0.4mm;
   }
 
   .template-j-enriquez .prod-guide-origin span,
