@@ -358,6 +358,24 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     ).run(orderId, businessId, DELIVERY_NOTE_BALANCE_REF);
   }
 
+  function createInitialPendingBalance(orderId, businessId, amount, userLabel = 'system') {
+    const pendingAmount = moneyValue(amount);
+    if (pendingAmount <= 0) return;
+    db.prepare(
+      `INSERT INTO production_order_payments
+       (establishment_id, order_id, payment_type, amount, payment_date, due_date,
+        status, bank, reference, notes, created_by)
+       VALUES (?, ?, 'saldo', ?, NULL, NULL, 'pending', '', ?, ?, ?)`
+    ).run(
+      businessId,
+      orderId,
+      pendingAmount,
+      MANUAL_PENDING_TOTAL_REF,
+      'Saldo pendiente generado desde nota de entrega',
+      userLabel
+    );
+  }
+
   function paymentTotalsForOrder(orderId, businessId, excludedRefs = [DELIVERY_NOTE_BALANCE_REF]) {
     const refs = excludedRefs.length ? excludedRefs : [''];
     const placeholders = refs.map(() => '?').join(', ');
@@ -2102,6 +2120,9 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         updateModel.run(moneyValue(model.unit_price), modelId, order.id, business.id);
       }
       deleteAutomaticDeliveryBalance(order.id, business.id);
+      if (paymentBalance <= 0.009) {
+        createInitialPendingBalance(order.id, business.id, noteTotal, req.user?.username || req.user?.role || 'system');
+      }
     })();
     audit(req, 'update', 'delivery_note_values', order.id, order.order_number);
     res.json(getOrder(order.id, req));
