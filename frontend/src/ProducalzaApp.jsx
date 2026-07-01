@@ -230,14 +230,15 @@ function deliveryValuesFromOrder(order) {
       material: model.material,
       color: model.color,
       total_pairs: Number(model.total_pairs || 0),
-      unit_price: model.unit_price || ''
+      unit_price: model.unit_price || '',
+      not_sent: false
     }))
   };
 }
 
 function deliverySubtotal(form) {
   return (form.models || []).reduce(
-    (sum, model) => sum + Number(model.total_pairs || 0) * Number(model.unit_price || 0),
+    (sum, model) => model.not_sent ? sum : sum + Number(model.total_pairs || 0) * Number(model.unit_price || 0),
     0
   );
 }
@@ -1650,19 +1651,46 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
     }));
   }
 
+  function toggleDeliveryNotSent(modelId, notSent) {
+    setDeliveryForm((current) => ({
+      ...current,
+      models: current.models.map((model) =>
+        model.id === modelId ? { ...model, not_sent: notSent } : model
+      )
+    }));
+  }
+
   async function saveDeliveryValuesAndPrint() {
     setDeliverySaving(true);
     try {
+      const sentModels = deliveryForm.models.filter((model) => !model.not_sent);
+      if (!sentModels.length) {
+        setError('Selecciona al menos un modelo enviado para generar la nota.');
+        return;
+      }
+      const sentModelIds = sentModels.map((model) => Number(model.id));
+      const isPartialDelivery = deliveryForm.models.some((model) => model.not_sent);
       const updatedOrder = await api(scope(`/producalza/orders/${order.id}/delivery-note-values`), {
         method: 'PATCH',
         body: JSON.stringify({
           ...deliveryForm,
-          discount_value: deliveryDiscount
+          discount_value: deliveryDiscount,
+          partial_delivery: isPartialDelivery,
+          sent_model_ids: sentModelIds
         })
       });
+      const priceByModel = new Map(deliveryForm.models.map((model) => [Number(model.id), model.unit_price]));
+      const deliveryPrintOrder = {
+        ...updatedOrder,
+        shipping_value: deliveryForm.shipping_value,
+        discount_value: deliveryDiscount,
+        models: updatedOrder.models
+          .filter((model) => sentModelIds.includes(Number(model.id)))
+          .map((model) => ({ ...model, unit_price: priceByModel.get(Number(model.id)) ?? model.unit_price }))
+      };
       setShowDeliveryEditor(false);
       await onUpdated('Valores de nota guardados');
-      onPrint('delivery-note', null, updatedOrder);
+      onPrint('delivery-note', null, deliveryPrintOrder);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -1796,7 +1824,18 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
                       onChange={(event) => updateDeliveryModel(model.id, event.target.value)}
                     />
                   </label>
-                  <div><span>Total</span><strong>{displayMoney(quantity * unitPrice)}</strong></div>
+                  <label className="prod-delivery-not-sent">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(model.not_sent)}
+                      onChange={(event) => toggleDeliveryNotSent(model.id, event.target.checked)}
+                    />
+                    No enviado
+                  </label>
+                  <div>
+                    <span>{model.not_sent ? 'Estado' : 'Total'}</span>
+                    <strong>{model.not_sent ? 'No enviado' : displayMoney(quantity * unitPrice)}</strong>
+                  </div>
                 </article>
               );
             })}

@@ -2859,6 +2859,18 @@ td {
   padding: 8px 10px;
 }
 
+.prod-delivery-not-sent {
+  align-items: center !important;
+  display: flex !important;
+  gap: 8px !important;
+  justify-content: center;
+}
+
+.prod-delivery-not-sent input {
+  min-height: 16px;
+  width: 16px;
+}
+
 .prod-delivery-editor-totals {
   align-items: end;
   background: #fffdf8;
@@ -4972,14 +4984,14 @@ td {
 
   .prod-guide-page {
     background: #ffffff;
-    break-after: page;
+    break-after: auto;
     break-inside: avoid;
     box-sizing: border-box;
     height: 296mm;
     margin: 0;
     overflow: hidden;
     page: box-guides;
-    page-break-after: always;
+    page-break-after: auto;
     page-break-inside: avoid;
     position: relative;
     print-color-adjust: exact;

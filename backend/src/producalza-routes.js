@@ -2166,10 +2166,20 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     if (!order) return res.status(404).json({ message: 'Pedido no encontrado' });
     const prices = Array.isArray(req.body.models) ? req.body.models : [];
     const validModelIds = new Set(order.models.map((model) => Number(model.id)));
+    const isPartialDelivery = Boolean(req.body.partial_delivery);
+    const sentModelIds = Array.isArray(req.body.sent_model_ids)
+      ? req.body.sent_model_ids.map((id) => Number(id || 0)).filter((id) => validModelIds.has(id))
+      : [];
+    if (isPartialDelivery && !sentModelIds.length) {
+      return res.status(400).json({ message: 'Selecciona al menos un modelo enviado para generar la nota.' });
+    }
+    const modelsForNote = isPartialDelivery
+      ? order.models.filter((model) => sentModelIds.includes(Number(model.id)))
+      : order.models;
     const shippingValue = moneyValue(req.body.shipping_value);
     const discountValue = moneyValue(req.body.discount_value);
     const priceByModel = new Map(prices.map((model) => [Number(model.id || 0), moneyValue(model.unit_price)]));
-    const noteSubtotal = order.models.reduce((sum, model) => {
+    const noteSubtotal = modelsForNote.reduce((sum, model) => {
       const unitPrice = priceByModel.has(Number(model.id))
         ? priceByModel.get(Number(model.id))
         : moneyValue(model.unit_price);
@@ -2178,23 +2188,25 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const noteTotal = moneyValue(Math.max(0, noteSubtotal + shippingValue - discountValue));
     const paymentTotals = paymentTotalsForOrder(order.id, business.id);
     const paymentBalance = moneyValue(Number(paymentTotals.paid_total || 0) + Number(paymentTotals.pending_total || 0));
-    if (paymentBalance > 0.009 && Math.abs(noteTotal - paymentBalance) > 0.009) {
+    if (!isPartialDelivery && paymentBalance > 0.009 && Math.abs(noteTotal - paymentBalance) > 0.009) {
       return res.status(400).json({
         message: `El total de la nota (${displayMoneyValue(noteTotal)}) no coincide con pagado + pendiente (${displayMoneyValue(paymentBalance)}). Corrige los cobros del pedido antes de imprimir.`
       });
     }
 
     db.transaction(() => {
-      db.prepare(
-        `UPDATE production_orders
-         SET shipping_value = ?, discount_value = ?, updated_at = datetime('now', 'localtime')
-         WHERE id = ? AND establishment_id = ?`
-      ).run(
-        shippingValue,
-        discountValue,
-        order.id,
-        business.id
-      );
+      if (!isPartialDelivery) {
+        db.prepare(
+          `UPDATE production_orders
+           SET shipping_value = ?, discount_value = ?, updated_at = datetime('now', 'localtime')
+           WHERE id = ? AND establishment_id = ?`
+        ).run(
+          shippingValue,
+          discountValue,
+          order.id,
+          business.id
+        );
+      }
 
       const updateModel = db.prepare(
         `UPDATE production_order_models
@@ -2204,10 +2216,13 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       for (const model of prices) {
         const modelId = Number(model.id || 0);
         if (!validModelIds.has(modelId)) continue;
+        if (isPartialDelivery) continue;
         updateModel.run(moneyValue(model.unit_price), modelId, order.id, business.id);
       }
       deleteAutomaticDeliveryBalance(order.id, business.id);
-      if (paymentBalance <= 0.009) {
+      if (isPartialDelivery) {
+        addPendingBalance(order.id, business.id, noteTotal, req.user?.username || req.user?.role || 'system');
+      } else if (paymentBalance <= 0.009) {
         createInitialPendingBalance(order.id, business.id, noteTotal, req.user?.username || req.user?.role || 'system');
       }
     })();
