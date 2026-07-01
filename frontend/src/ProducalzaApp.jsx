@@ -3585,8 +3585,8 @@ function PrintLayouts({ state, guideTemplates }) {
     }
   }
   const cardPages = [];
-  for (let index = 0; index < models.length; index += 2) {
-    cardPages.push(models.slice(index, index + 2));
+  for (let index = 0; index < models.length; index += 3) {
+    cardPages.push(models.slice(index, index + 3));
   }
   return (
     <div className={`prod-print-root ${
