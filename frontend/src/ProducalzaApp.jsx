@@ -3893,7 +3893,7 @@ function GuideLabel({ guide, order, template }) {
         </div>
         <div className="prod-guide-je-color"><span>{description}</span></div>
         <div className="prod-guide-size"><strong>{size}</strong></div>
-        <div className="prod-guide-origin"><span>MADE IN EC</span><strong>BY</strong></div>
+        <div className="prod-guide-origin"><span>MADE IN EC</span><strong>BY PRODUCALZA</strong></div>
       </div>
     );
   }
