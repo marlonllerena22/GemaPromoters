@@ -4830,6 +4830,11 @@ td {
     width: 100%;
   }
 
+  .prod-delivery-table thead,
+  .prod-delivery-table tfoot {
+    display: table-row-group;
+  }
+
   .prod-delivery-table th,
   .prod-delivery-table td {
     border: 1px solid #000000;

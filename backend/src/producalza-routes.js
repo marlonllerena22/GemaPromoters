@@ -376,6 +376,52 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     );
   }
 
+  function reducePendingBalance(orderId, businessId, amount, excludedPaymentId = null) {
+    let remaining = moneyValue(amount);
+    if (remaining <= 0) return;
+    const rows = db.prepare(
+      `SELECT id, amount
+       FROM production_order_payments
+       WHERE order_id = ? AND establishment_id = ?
+         AND status = 'pending'
+         AND id <> COALESCE(?, -1)
+       ORDER BY
+         CASE
+           WHEN reference = ? THEN 0
+           WHEN reference = ? THEN 1
+           WHEN reference = ? THEN 2
+           WHEN payment_type = 'saldo' THEN 3
+           ELSE 4
+         END,
+         id DESC`
+    ).all(
+      orderId,
+      businessId,
+      excludedPaymentId,
+      MANUAL_PENDING_TOTAL_REF,
+      DELIVERY_NOTE_BALANCE_REF,
+      MANUAL_PAID_TOTAL_REF
+    );
+    const remove = db.prepare('DELETE FROM production_order_payments WHERE id = ? AND order_id = ? AND establishment_id = ?');
+    const update = db.prepare(
+      `UPDATE production_order_payments
+       SET amount = ?, updated_at = datetime('now', 'localtime')
+       WHERE id = ? AND order_id = ? AND establishment_id = ?`
+    );
+    for (const row of rows) {
+      if (remaining <= 0) break;
+      const currentAmount = moneyValue(row.amount);
+      if (currentAmount <= 0) continue;
+      if (currentAmount <= remaining + 0.009) {
+        remove.run(row.id, orderId, businessId);
+        remaining = moneyValue(remaining - currentAmount);
+      } else {
+        update.run(moneyValue(currentAmount - remaining), row.id, orderId, businessId);
+        remaining = 0;
+      }
+    }
+  }
+
   function paymentTotalsForOrder(orderId, businessId, excludedRefs = [DELIVERY_NOTE_BALANCE_REF]) {
     const refs = excludedRefs.length ? excludedRefs : [''];
     const placeholders = refs.map(() => '?').join(', ');
@@ -1921,6 +1967,9 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         userLabel
       );
       deleteAutomaticDeliveryBalance(order.id, business.id);
+      if ((payment.status === 'paid' || payment.status === 'pending') && payment.amount > 0) {
+        reducePendingBalance(order.id, business.id, payment.amount, insert.lastInsertRowid);
+      }
       return insert;
     })();
     audit(req, 'create', 'order_payment', result.lastInsertRowid, order.order_number);

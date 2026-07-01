@@ -129,6 +129,8 @@ const PAYMENT_STATUS_LABELS = {
 };
 
 const PAYMENT_METHOD_OPTIONS = [
+  'Credito con cheques: 30 dias',
+  'Credito con cheques: 30-60 dias',
   'Credito con cheques: 30-60-90 dias',
   'Contado: efectivo',
   'Contado: 50% al pedido y saldo a la entrega',
@@ -142,6 +144,17 @@ const emptyPayment = {
   payment_date: new Date().toISOString().slice(0, 10),
   due_date: '',
   status: 'paid',
+  bank: '',
+  reference: '',
+  notes: ''
+};
+
+const emptyUpcomingPayment = {
+  payment_type: 'cheque',
+  amount: '',
+  payment_date: '',
+  due_date: '',
+  status: 'pending',
   bank: '',
   reference: '',
   notes: ''
@@ -1415,9 +1428,12 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
   const [deliverySaving, setDeliverySaving] = useState(false);
   const [deliveryForm, setDeliveryForm] = useState(() => deliveryValuesFromOrder(order));
   const [paymentForm, setPaymentForm] = useState(emptyPayment);
+  const [upcomingPaymentForm, setUpcomingPaymentForm] = useState(emptyUpcomingPayment);
   const [paymentSummaryForm, setPaymentSummaryForm] = useState(() => paymentSummaryValues(order.payments || []));
   const [editingPaymentId, setEditingPaymentId] = useState(null);
+  const [editingUpcomingPaymentId, setEditingUpcomingPaymentId] = useState(null);
   const [savingPayment, setSavingPayment] = useState(false);
+  const [savingUpcomingPayment, setSavingUpcomingPayment] = useState(false);
   const [savingPaymentSummary, setSavingPaymentSummary] = useState(false);
   const [showInvoiceForm, setShowInvoiceForm] = useState(false);
   const [invoiceForm, setInvoiceForm] = useState({
@@ -1432,8 +1448,10 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
     setDeliveryForm(deliveryValuesFromOrder(order));
     setShowDeliveryEditor(false);
     setPaymentForm(emptyPayment);
+    setUpcomingPaymentForm(emptyUpcomingPayment);
     setPaymentSummaryForm(paymentSummaryValues(order.payments || []));
     setEditingPaymentId(null);
+    setEditingUpcomingPaymentId(null);
     setShowInvoiceForm(false);
     setInvoiceForm({
       invoice_number: order.invoice_number || '',
@@ -1445,10 +1463,13 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
   useEffect(() => {
     if (!focusPayment?.paymentId || Number(focusPayment.orderId) !== Number(order.id)) return;
     const payment = (order.payments || []).find((item) => Number(item.id) === Number(focusPayment.paymentId));
-    if (payment) editPayment(payment);
+    if (payment?.status === 'pending') editUpcomingPayment(payment);
+    else if (payment) editPayment(payment);
   }, [focusPayment?.token, order.id, order.payments]);
 
   const payments = order.payments || [];
+  const paidPayments = payments.filter((payment) => payment.status === 'paid');
+  const upcomingPayments = payments.filter((payment) => payment.status === 'pending');
   const paymentTotals = paymentTotalsFromList(payments);
   const totalPaid = paymentTotals.paid;
   const totalPending = paymentTotals.pending;
@@ -1521,8 +1542,22 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
       payment_type: payment.payment_type || 'abono',
       amount: payment.amount || '',
       payment_date: payment.payment_date || '',
+      due_date: '',
+      status: 'paid',
+      bank: payment.bank || '',
+      reference: payment.reference || '',
+      notes: payment.notes || ''
+    });
+  }
+
+  function editUpcomingPayment(payment) {
+    setEditingUpcomingPaymentId(payment.id);
+    setUpcomingPaymentForm({
+      payment_type: payment.payment_type || 'cheque',
+      amount: payment.amount || '',
+      payment_date: '',
       due_date: payment.due_date || '',
-      status: payment.status || 'pending',
+      status: 'pending',
       bank: payment.bank || '',
       reference: payment.reference || '',
       notes: payment.notes || ''
@@ -1537,7 +1572,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
         : `/producalza/orders/${order.id}/payments`
       ), {
         method: editingPaymentId ? 'PATCH' : 'POST',
-        body: JSON.stringify(paymentForm)
+        body: JSON.stringify({ ...paymentForm, status: 'paid', due_date: '' })
       });
       setPaymentForm(emptyPayment);
       setEditingPaymentId(null);
@@ -1546,6 +1581,26 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
       setError(err.message);
     } finally {
       setSavingPayment(false);
+    }
+  }
+
+  async function saveUpcomingPayment() {
+    setSavingUpcomingPayment(true);
+    try {
+      await api(scope(editingUpcomingPaymentId
+        ? `/producalza/orders/${order.id}/payments/${editingUpcomingPaymentId}`
+        : `/producalza/orders/${order.id}/payments`
+      ), {
+        method: editingUpcomingPaymentId ? 'PATCH' : 'POST',
+        body: JSON.stringify({ ...upcomingPaymentForm, status: 'pending', payment_date: '' })
+      });
+      setUpcomingPaymentForm(emptyUpcomingPayment);
+      setEditingUpcomingPaymentId(null);
+      await onUpdated(editingUpcomingPaymentId ? 'Proximo cobro actualizado' : 'Proximo cobro registrado');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSavingUpcomingPayment(false);
     }
   }
 
@@ -1857,29 +1912,24 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
         </div>
         <div className="prod-payment-layout">
           <div className="prod-payment-list">
-            {payments.map((payment) => (
+            {paidPayments.map((payment) => (
               <article className={`prod-payment-item ${payment.status}`} key={payment.id}>
                 <div>
                   <strong>{PAYMENT_TYPE_LABELS[payment.payment_type] || payment.payment_type}</strong>
                   <span>{payment.bank || payment.reference || payment.notes || 'Sin detalle adicional'}</span>
-                  <small>
-                    {payment.due_date ? `Cobrar: ${displayDate(payment.due_date)}` : 'Sin alerta de cobro'}
-                    {payment.payment_date ? ` · Pago: ${displayDate(payment.payment_date)}` : ''}
-                  </small>
+                  <small>{payment.payment_date ? `Pago: ${displayDate(payment.payment_date)}` : 'Cobro verificado'}</small>
                 </div>
                 <div>
                   <b>{displayMoney(payment.amount)}</b>
-                  <em>{PAYMENT_STATUS_LABELS[payment.status] || payment.status}</em>
+                  <em>Verificado</em>
                   <div className="prod-row-actions">
                     <button title="Editar cobro" onClick={() => editPayment(payment)}><Pencil size={15} /></button>
-                    {payment.status !== 'paid' && <button className="success" title="Marcar pagado" onClick={() => updatePaymentStatus(payment, 'paid')}><Check size={15} /></button>}
-                    {payment.status === 'paid' && <button title="Marcar pendiente" onClick={() => updatePaymentStatus(payment, 'pending')}>Pend.</button>}
                     {isAdmin && <button className="danger" title="Eliminar cobro" onClick={() => removePayment(payment)}><Trash2 size={15} /></button>}
                   </div>
                 </div>
               </article>
             ))}
-            {!payments.length && <div className="prod-empty">Aun no hay pagos, abonos o cheques registrados para este pedido.</div>}
+            {!paidPayments.length && <div className="prod-empty">Aun no hay pagos, abonos o cheques registrados para este pedido.</div>}
           </div>
           <div className="prod-payment-form">
             <div className="prod-form-title">
@@ -1893,17 +1943,58 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
             </label>
             <label>Valor<input type="number" min="0" step="0.01" value={paymentForm.amount} onChange={(event) => setPaymentForm({ ...paymentForm, amount: event.target.value })} /></label>
             <label>Fecha de pago<input type="date" value={paymentForm.payment_date} onChange={(event) => setPaymentForm({ ...paymentForm, payment_date: event.target.value })} /></label>
-            <label>Proximo cobro / vencimiento<input type="date" value={paymentForm.due_date} onChange={(event) => setPaymentForm({ ...paymentForm, due_date: event.target.value })} /></label>
-            <label>Estado
-              <select value={paymentForm.status} onChange={(event) => setPaymentForm({ ...paymentForm, status: event.target.value })}>
-                {Object.entries(PAYMENT_STATUS_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
-              </select>
-            </label>
             <label>Banco<input value={paymentForm.bank} onChange={(event) => setPaymentForm({ ...paymentForm, bank: event.target.value })} /></label>
             <label>Referencia / cheque<input value={paymentForm.reference} onChange={(event) => setPaymentForm({ ...paymentForm, reference: event.target.value })} /></label>
             <label>Observaciones<textarea rows="3" value={paymentForm.notes} onChange={(event) => setPaymentForm({ ...paymentForm, notes: event.target.value })} /></label>
             <button className="prod-primary-button" disabled={savingPayment} onClick={savePayment}>
               <DollarSign size={17} />{savingPayment ? 'Guardando...' : editingPaymentId ? 'Guardar cobro' : 'Registrar cobro'}
+            </button>
+          </div>
+        </div>
+      </section>
+      <section className="prod-panel prod-payment-panel prod-upcoming-payment-panel">
+        <div className="prod-panel-title">
+          <div><span>Alertas de cobro</span><h2>Proximos cobros</h2></div>
+        </div>
+        <div className="prod-payment-layout">
+          <div className="prod-payment-list">
+            {upcomingPayments.map((payment) => (
+              <article className="prod-payment-item pending" key={payment.id}>
+                <div>
+                  <strong>{PAYMENT_TYPE_LABELS[payment.payment_type] || payment.payment_type}</strong>
+                  <span>{payment.bank || payment.reference || payment.notes || 'Sin detalle adicional'}</span>
+                  <small>{payment.due_date ? `Cobrar: ${displayDate(payment.due_date)}` : 'Sin fecha de alerta'}</small>
+                </div>
+                <div>
+                  <b>{displayMoney(payment.amount)}</b>
+                  <em>Pendiente</em>
+                  <div className="prod-row-actions">
+                    <button title="Editar proximo cobro" onClick={() => editUpcomingPayment(payment)}><Pencil size={15} /></button>
+                    <button className="success" title="Marcar cobrado" onClick={() => updatePaymentStatus(payment, 'paid')}><Check size={15} /></button>
+                    {isAdmin && <button className="danger" title="Eliminar proximo cobro" onClick={() => removePayment(payment)}><Trash2 size={15} /></button>}
+                  </div>
+                </div>
+              </article>
+            ))}
+            {!upcomingPayments.length && <div className="prod-empty">Aun no hay proximos cobros para alertar.</div>}
+          </div>
+          <div className="prod-payment-form">
+            <div className="prod-form-title">
+              <strong>{editingUpcomingPaymentId ? 'Editar proximo cobro' : 'Nuevo proximo cobro'}</strong>
+              {editingUpcomingPaymentId && <button className="prod-link-button" onClick={() => { setEditingUpcomingPaymentId(null); setUpcomingPaymentForm(emptyUpcomingPayment); }}>Cancelar</button>}
+            </div>
+            <label>Tipo
+              <select value={upcomingPaymentForm.payment_type} onChange={(event) => setUpcomingPaymentForm({ ...upcomingPaymentForm, payment_type: event.target.value })}>
+                {Object.entries(PAYMENT_TYPE_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+              </select>
+            </label>
+            <label>Valor<input type="number" min="0" step="0.01" value={upcomingPaymentForm.amount} onChange={(event) => setUpcomingPaymentForm({ ...upcomingPaymentForm, amount: event.target.value })} /></label>
+            <label>Fecha de alerta<input type="date" value={upcomingPaymentForm.due_date} onChange={(event) => setUpcomingPaymentForm({ ...upcomingPaymentForm, due_date: event.target.value })} /></label>
+            <label>Banco<input value={upcomingPaymentForm.bank} onChange={(event) => setUpcomingPaymentForm({ ...upcomingPaymentForm, bank: event.target.value })} /></label>
+            <label>Referencia / cheque<input value={upcomingPaymentForm.reference} onChange={(event) => setUpcomingPaymentForm({ ...upcomingPaymentForm, reference: event.target.value })} /></label>
+            <label>Observaciones<textarea rows="3" value={upcomingPaymentForm.notes} onChange={(event) => setUpcomingPaymentForm({ ...upcomingPaymentForm, notes: event.target.value })} /></label>
+            <button className="prod-primary-button" disabled={savingUpcomingPayment} onClick={saveUpcomingPayment}>
+              <DollarSign size={17} />{savingUpcomingPayment ? 'Guardando...' : editingUpcomingPaymentId ? 'Guardar alerta' : 'Registrar alerta'}
             </button>
           </div>
         </div>
