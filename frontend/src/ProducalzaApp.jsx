@@ -3878,6 +3878,25 @@ function GuideLabel({ guide, order, template }) {
     );
   }
   const jEnriquezCode = template.slug === 'j-enriquez' ? splitJEnriquezCode(model.model_code) : null;
+  if (jEnriquezCode) {
+    return (
+      <div className={`prod-guide-label standard template-${template.slug}`}>
+        <div className="prod-guide-logo">
+          {logos[0] ? <img src={logos[0]} alt="" /> : null}
+        </div>
+        <div className="prod-guide-je-head"><span>CODIG</span><span>COLOR</span><span>TALLA</span></div>
+        <div className="prod-guide-model">
+          <strong className={jEnriquezCode.fraction ? 'split-code' : ''}>
+            <span className="guide-code-main">{jEnriquezCode.main}</span>
+            {jEnriquezCode.fraction && <span className="guide-code-fraction">{jEnriquezCode.fraction}</span>}
+          </strong>
+        </div>
+        <div className="prod-guide-je-color"><span>{description}</span></div>
+        <div className="prod-guide-size"><strong>{size}</strong></div>
+        <div className="prod-guide-origin"><span>MADE IN EC</span><strong>BY</strong></div>
+      </div>
+    );
+  }
   return (
     <div className={`prod-guide-label standard template-${template.slug}`}>
       <div className="prod-guide-logo">
@@ -3885,18 +3904,8 @@ function GuideLabel({ guide, order, template }) {
           ? <img src={logos[0]} alt="" />
           : null}
       </div>
-      {template.slug === 'j-enriquez' && (
-        <div className="prod-guide-je-head"><span>CODIGO</span><span>COLOR</span><span>TALLA</span></div>
-      )}
       <div className="prod-guide-model">
-        {jEnriquezCode ? (
-          <strong className={jEnriquezCode.fraction ? 'split-code' : ''}>
-            <span className="guide-code-main">{jEnriquezCode.main}</span>
-            {jEnriquezCode.fraction && <span className="guide-code-fraction">{jEnriquezCode.fraction}</span>}
-          </strong>
-        ) : (
-          <strong>{model.model_code}</strong>
-        )}
+        <strong>{model.model_code}</strong>
         <span>{description}</span>
       </div>
       <div className="prod-guide-size"><strong>{size}</strong></div>
