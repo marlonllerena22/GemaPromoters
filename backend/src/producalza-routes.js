@@ -2073,7 +2073,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const noteTotal = moneyValue(Math.max(0, noteSubtotal + shippingValue - discountValue));
     const paymentTotals = paymentTotalsForOrder(order.id, business.id);
     const paymentBalance = moneyValue(Number(paymentTotals.paid_total || 0) + Number(paymentTotals.pending_total || 0));
-    if (Math.abs(noteTotal - paymentBalance) > 0.009) {
+    if (paymentBalance > 0.009 && Math.abs(noteTotal - paymentBalance) > 0.009) {
       return res.status(400).json({
         message: `El total de la nota (${displayMoneyValue(noteTotal)}) no coincide con pagado + pendiente (${displayMoneyValue(paymentBalance)}). Corrige los cobros del pedido antes de imprimir.`
       });

@@ -1457,7 +1457,8 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
   const deliveryDiscount = deliveryDiscountAmount(deliveryForm);
   const deliveryFormTotal = deliveryTotal(deliveryForm);
   const paymentBalance = Number(totalPaid || 0) + Number(totalPending || 0);
-  const deliveryPaymentMismatch = Math.abs(deliveryFormTotal - paymentBalance) > 0.009;
+  const hasPaymentValues = paymentBalance > 0.009;
+  const deliveryPaymentMismatch = hasPaymentValues && Math.abs(deliveryFormTotal - paymentBalance) > 0.009;
 
   function deriveStatus(model) {
     if (model.process_finished) return 'finished';
