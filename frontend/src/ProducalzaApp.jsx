@@ -241,6 +241,22 @@ function deliveryTotal(form) {
   return Math.max(0, deliverySubtotal(form) + Number(form.shipping_value || 0) - deliveryDiscountAmount(form));
 }
 
+function paymentTotalsFromList(payments = []) {
+  return payments.reduce((totals, payment) => {
+    if (payment.status === 'paid') totals.paid += Number(payment.amount || 0);
+    if (payment.status === 'pending') totals.pending += Number(payment.amount || 0);
+    return totals;
+  }, { paid: 0, pending: 0 });
+}
+
+function paymentSummaryValues(payments = []) {
+  const totals = paymentTotalsFromList(payments);
+  return {
+    paid_total: totals.paid.toFixed(2),
+    pending_total: totals.pending.toFixed(2)
+  };
+}
+
 function processStateForStatus(status) {
   const order = ['received', 'reviewed', 'in_production', 'cut', 'stitched', 'assembled', 'finished', 'delivered'];
   const step = order.indexOf(status);
@@ -1399,8 +1415,10 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
   const [deliverySaving, setDeliverySaving] = useState(false);
   const [deliveryForm, setDeliveryForm] = useState(() => deliveryValuesFromOrder(order));
   const [paymentForm, setPaymentForm] = useState(emptyPayment);
+  const [paymentSummaryForm, setPaymentSummaryForm] = useState(() => paymentSummaryValues(order.payments || []));
   const [editingPaymentId, setEditingPaymentId] = useState(null);
   const [savingPayment, setSavingPayment] = useState(false);
+  const [savingPaymentSummary, setSavingPaymentSummary] = useState(false);
   const [showInvoiceForm, setShowInvoiceForm] = useState(false);
   const [invoiceForm, setInvoiceForm] = useState({
     invoice_number: order.invoice_number || '',
@@ -1414,6 +1432,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
     setDeliveryForm(deliveryValuesFromOrder(order));
     setShowDeliveryEditor(false);
     setPaymentForm(emptyPayment);
+    setPaymentSummaryForm(paymentSummaryValues(order.payments || []));
     setEditingPaymentId(null);
     setShowInvoiceForm(false);
     setInvoiceForm({
@@ -1430,15 +1449,15 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
   }, [focusPayment?.token, order.id, order.payments]);
 
   const payments = order.payments || [];
-  const totalPaid = payments
-    .filter((payment) => payment.status === 'paid')
-    .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-  const totalPending = payments
-    .filter((payment) => payment.status === 'pending')
-    .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+  const paymentTotals = paymentTotalsFromList(payments);
+  const totalPaid = paymentTotals.paid;
+  const totalPending = paymentTotals.pending;
   const subtotal = orderSubtotal({ ...order, models });
   const noteTotal = Math.max(0, subtotal + Number(order.shipping_value || 0) - Number(order.discount_value || 0));
   const deliveryDiscount = deliveryDiscountAmount(deliveryForm);
+  const deliveryFormTotal = deliveryTotal(deliveryForm);
+  const paymentBalance = Number(totalPaid || 0) + Number(totalPending || 0);
+  const deliveryPaymentMismatch = Math.abs(deliveryFormTotal - paymentBalance) > 0.009;
 
   function deriveStatus(model) {
     if (model.process_finished) return 'finished';
@@ -1529,6 +1548,21 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
     }
   }
 
+  async function savePaymentSummary() {
+    setSavingPaymentSummary(true);
+    try {
+      await api(scope(`/producalza/orders/${order.id}/payment-summary`), {
+        method: 'PATCH',
+        body: JSON.stringify(paymentSummaryForm)
+      });
+      await onUpdated('Totales de cobro actualizados');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSavingPaymentSummary(false);
+    }
+  }
+
   async function updatePaymentStatus(payment, status) {
     try {
       await api(scope(`/producalza/orders/${order.id}/payments/${payment.id}`), {
@@ -1571,7 +1605,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
         })
       });
       setShowDeliveryEditor(false);
-      await onUpdated('Valores de nota y cobro pendiente guardados');
+      await onUpdated('Valores de nota guardados');
       onPrint('delivery-note', null, updatedOrder);
     } catch (err) {
       setError(err.message);
@@ -1730,8 +1764,13 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
             )}
             <div><span>Subtotal</span><strong>{displayMoney(deliverySubtotal(deliveryForm))}</strong></div>
             <div><span>Desc. aplicado</span><strong>{displayMoney(deliveryDiscount)}</strong></div>
-            <div><span>Total</span><strong>{displayMoney(deliveryTotal(deliveryForm))}</strong></div>
+            <div><span>Total</span><strong>{displayMoney(deliveryFormTotal)}</strong></div>
           </div>
+          {deliveryPaymentMismatch && (
+            <div className="prod-payment-warning">
+              El total de la nota debe coincidir con Pagado + Pendiente. Nota: {displayMoney(deliveryFormTotal)} / Cobros: {displayMoney(paymentBalance)}.
+            </div>
+          )}
           <div className="prod-form-actions">
             <button className="prod-secondary-button" onClick={() => setShowDeliveryEditor(false)}>Cancelar</button>
             <button className="prod-primary-button delivery" disabled={deliverySaving} onClick={saveDeliveryValuesAndPrint}>
@@ -1787,6 +1826,33 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
             <span>Pagado <strong>{displayMoney(totalPaid)}</strong></span>
             <span>Pendiente <strong>{displayMoney(totalPending)}</strong></span>
           </div>
+        </div>
+        <div className="prod-payment-summary-editor">
+          <div>
+            <strong>Ajustar totales manualmente</strong>
+            <span>Usa esto para cuadrar el valor pagado y pendiente del pedido.</span>
+          </div>
+          <label>Pagado
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={paymentSummaryForm.paid_total}
+              onChange={(event) => setPaymentSummaryForm({ ...paymentSummaryForm, paid_total: event.target.value })}
+            />
+          </label>
+          <label>Pendiente
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={paymentSummaryForm.pending_total}
+              onChange={(event) => setPaymentSummaryForm({ ...paymentSummaryForm, pending_total: event.target.value })}
+            />
+          </label>
+          <button className="prod-secondary-button" disabled={savingPaymentSummary} onClick={savePaymentSummary}>
+            <Save size={16} />{savingPaymentSummary ? 'Guardando...' : 'Guardar totales'}
+          </button>
         </div>
         <div className="prod-payment-layout">
           <div className="prod-payment-list">

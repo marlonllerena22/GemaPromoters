@@ -3009,6 +3009,52 @@ td {
   gap: 10px;
 }
 
+.prod-payment-summary-editor {
+  align-items: end;
+  background: #fffaf0;
+  border: 1px solid #efd28d;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(180px, 1fr) repeat(2, minmax(120px, 0.24fr)) auto;
+  margin-bottom: 14px;
+  padding: 12px;
+}
+
+.prod-payment-summary-editor div,
+.prod-payment-summary-editor label {
+  display: grid;
+  gap: 4px;
+}
+
+.prod-payment-summary-editor strong {
+  color: #1d3128;
+}
+
+.prod-payment-summary-editor span,
+.prod-payment-summary-editor label {
+  color: #6b5a34;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.prod-payment-summary-editor input {
+  border: 1px solid #d8be83;
+  border-radius: 7px;
+  padding: 10px 11px;
+}
+
+.prod-payment-warning {
+  background: #fff2f2;
+  border: 1px solid #f0b8b8;
+  border-radius: 8px;
+  color: #9b1c1c;
+  font-size: 13px;
+  font-weight: 850;
+  margin-top: 12px;
+  padding: 11px 12px;
+}
+
 .prod-payment-item {
   align-items: center;
   background: #f8faf9;
@@ -4226,6 +4272,15 @@ td {
 
   .prod-payment-layout {
     grid-template-columns: 1fr;
+  }
+
+  .prod-payment-summary-editor {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .prod-payment-summary-editor > div,
+  .prod-payment-summary-editor .prod-secondary-button {
+    grid-column: 1 / -1;
   }
 
   .prod-delivery-editor-list article,
