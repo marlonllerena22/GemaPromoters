@@ -4945,11 +4945,9 @@ td {
 
   .prod-print-page {
     break-after: auto;
-    break-inside: avoid;
     box-sizing: border-box;
-    height: 186mm;
-    max-height: 186mm;
-    overflow: hidden;
+    min-height: 186mm;
+    overflow: visible;
     page: order-sheet;
     padding: 2.5mm;
     width: 273mm;
@@ -5107,18 +5105,32 @@ td {
 
   .prod-guide-label.standard.template-j-enriquez {
     grid-template-columns: minmax(0, 2fr) minmax(15mm, 1fr);
-    grid-template-rows: 55% 45%;
+    grid-template-rows: 52% 13% 26% 9%;
   }
 
   .template-j-enriquez .prod-guide-logo {
     grid-row: 1;
   }
 
+  .template-j-enriquez .prod-guide-je-head {
+    align-items: center;
+    color: #000000;
+    display: grid;
+    font-family: Calibri, Arial, sans-serif;
+    font-size: 6.5pt;
+    font-weight: 800;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    grid-template-columns: 0.95fr 1.15fr 0.85fr;
+    line-height: 1;
+    text-align: center;
+  }
+
   .template-j-enriquez .prod-guide-model {
     border: 1.5px solid #805b00;
     color: #892106;
     flex-direction: row;
-    grid-row: 2;
+    grid-row: 3 / 5;
     justify-content: center;
   }
 
@@ -5162,7 +5174,8 @@ td {
 
   .template-j-enriquez .prod-guide-size {
     border: 1.5px solid #805b00;
-    grid-row: 2;
+    border-bottom: 0;
+    grid-row: 3;
   }
 
   .template-j-enriquez .prod-guide-size strong {
@@ -5172,7 +5185,24 @@ td {
   }
 
   .template-j-enriquez .prod-guide-origin {
-    display: none;
+    align-items: center;
+    border: 1.5px solid #805b00;
+    border-top: 0;
+    display: flex;
+    flex-direction: column;
+    grid-column: 2;
+    grid-row: 4;
+    justify-content: center;
+    line-height: 0.9;
+    padding: 0;
+  }
+
+  .template-j-enriquez .prod-guide-origin span,
+  .template-j-enriquez .prod-guide-origin strong {
+    color: #805b00 !important;
+    font-size: 3.6pt;
+    line-height: 0.9;
+    margin: 0;
   }
 
   .prod-guide-label.special {
@@ -5456,9 +5486,13 @@ td {
   .prod-print-page.dense th,
   .prod-print-page.dense td {
     font-size: 6pt;
-    height: calc(90mm / var(--order-model-count));
-    max-height: 8mm;
+    height: 5.8mm;
     padding: 0.5mm;
+  }
+
+  .prod-print-order-table tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
 
   .prod-print-page.dense .prod-print-notes {

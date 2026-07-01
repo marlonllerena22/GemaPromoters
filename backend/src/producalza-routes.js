@@ -376,6 +376,30 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     );
   }
 
+  function addPendingBalance(orderId, businessId, amount, userLabel = 'system') {
+    const pendingAmount = moneyValue(amount);
+    if (pendingAmount <= 0) return;
+    const current = db.prepare(
+      `SELECT id, amount
+       FROM production_order_payments
+       WHERE order_id = ? AND establishment_id = ?
+         AND status = 'pending'
+         AND reference = ?
+         AND due_date IS NULL
+       ORDER BY id DESC
+       LIMIT 1`
+    ).get(orderId, businessId, MANUAL_PENDING_TOTAL_REF);
+    if (current) {
+      db.prepare(
+        `UPDATE production_order_payments
+         SET amount = ?, updated_at = datetime('now', 'localtime')
+         WHERE id = ? AND order_id = ? AND establishment_id = ?`
+      ).run(moneyValue(Number(current.amount || 0) + pendingAmount), current.id, orderId, businessId);
+      return;
+    }
+    createInitialPendingBalance(orderId, businessId, pendingAmount, userLabel);
+  }
+
   function reducePendingBalance(orderId, businessId, amount, excludedPaymentId = null) {
     let remaining = moneyValue(amount);
     if (remaining <= 0) return;
@@ -2006,6 +2030,14 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         business.id
       );
       deleteAutomaticDeliveryBalance(order.id, business.id);
+      const userLabel = req.user?.username || req.user?.role || 'system';
+      if (current.status === payment.status && (payment.status === 'paid' || payment.status === 'pending')) {
+        const delta = moneyValue(payment.amount - Number(current.amount || 0));
+        if (delta > 0) reducePendingBalance(order.id, business.id, delta, current.id);
+        if (delta < 0) addPendingBalance(order.id, business.id, Math.abs(delta), userLabel);
+      } else if (current.status === 'paid' && payment.status !== 'paid') {
+        addPendingBalance(order.id, business.id, current.amount, userLabel);
+      }
     })();
     audit(req, 'update', 'order_payment', current.id, payment.status);
     res.json(getOrder(order.id, req));
@@ -2016,6 +2048,10 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     if (!business) return;
     const order = getOrder(req.params.id, req);
     if (!order) return res.status(404).json({ message: 'Pedido no encontrado' });
+    const current = db.prepare(
+      'SELECT * FROM production_order_payments WHERE id = ? AND order_id = ? AND establishment_id = ?'
+    ).get(req.params.paymentId, order.id, business.id);
+    if (!current) return res.status(404).json({ message: 'Cobro no encontrado' });
     let result;
     db.transaction(() => {
       result = db.prepare(
@@ -2023,9 +2059,11 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       ).run(req.params.paymentId, order.id, business.id);
       if (result.changes) {
         deleteAutomaticDeliveryBalance(order.id, business.id);
+        if ((current.status === 'paid' || current.status === 'pending') && Number(current.amount || 0) > 0) {
+          addPendingBalance(order.id, business.id, current.amount, req.user?.username || req.user?.role || 'system');
+        }
       }
     })();
-    if (!result.changes) return res.status(404).json({ message: 'Cobro no encontrado' });
     audit(req, 'delete', 'order_payment', req.params.paymentId, order.order_number);
     res.json(getOrder(order.id, req));
   });

@@ -1469,7 +1469,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
 
   const payments = order.payments || [];
   const paidPayments = payments.filter((payment) => payment.status === 'paid');
-  const upcomingPayments = payments.filter((payment) => payment.status === 'pending');
+  const upcomingPayments = payments.filter((payment) => payment.status === 'pending' && payment.due_date);
   const paymentTotals = paymentTotalsFromList(payments);
   const totalPaid = paymentTotals.paid;
   const totalPending = paymentTotals.pending;
@@ -3844,8 +3844,11 @@ function GuideLabel({ guide, order, template }) {
       <div className="prod-guide-logo">
         {logos[0]
           ? <img src={logos[0]} alt="" />
-          : <strong>{order.brand || order.client_name || template.name}</strong>}
+          : null}
       </div>
+      {template.slug === 'j-enriquez' && (
+        <div className="prod-guide-je-head"><span>CODIGO</span><span>COLOR</span><span>TALLA</span></div>
+      )}
       <div className="prod-guide-model">
         {jEnriquezCode ? (
           <strong className={jEnriquezCode.fraction ? 'split-code' : ''}>
