@@ -323,6 +323,44 @@ function orderForReturnDestination(order, destination, note = null) {
   };
 }
 
+function returnedRowsForOrder(order) {
+  const rowsByKey = new Map();
+  for (const item of order.returned_allocations || []) {
+    const key = `${item.source_model_id}-${item.destination}`;
+    const current = rowsByKey.get(key) || {
+      id: key,
+      source_model_id: Number(item.source_model_id || 0),
+      destination: item.destination,
+      return_order_number: item.return_order_number,
+      model_code: item.model_code,
+      material: item.material,
+      color: item.color,
+      unit_price: Number(item.unit_price || 0),
+      total_pairs: 0,
+      sizes: Object.fromEntries(SIZES.map((size) => [size, 0]))
+    };
+    const quantity = Number(item.quantity || 0);
+    current.total_pairs += quantity;
+    current.sizes[Number(item.size)] = Number(current.sizes[Number(item.size)] || 0) + quantity;
+    rowsByKey.set(key, current);
+  }
+  return [...rowsByKey.values()];
+}
+
+function returnedPairsByModel(order) {
+  return returnedRowsForOrder(order).reduce((map, row) => {
+    map[row.source_model_id] = Number(map[row.source_model_id] || 0) + Number(row.total_pairs || 0);
+    return map;
+  }, {});
+}
+
+function returnedCreditForOrder(order) {
+  return returnedRowsForOrder(order).reduce(
+    (sum, row) => sum + Number(row.total_pairs || 0) * Number(row.unit_price || 0),
+    0
+  );
+}
+
 function deliveryOrderFromNote(order, note) {
   if (order.order_type === 'return' && note?.destination) {
     return orderForReturnDestination(order, note.destination, note);
@@ -335,6 +373,7 @@ function deliveryOrderFromNote(order, note) {
     discount_value: note.discount_value || 0,
     delivery_note_title: note.title,
     delivery_note_number: note.note_number,
+    returned_allocations: (order.returned_allocations || []).filter((item) => modelIds.has(Number(item.source_model_id))),
     models: (order.models || [])
       .filter((model) => modelIds.has(Number(model.id)))
       .map((model) => ({
@@ -1619,9 +1658,11 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
   const totalPaid = paymentTotals.paid;
   const totalPending = paymentTotals.pending;
   const subtotal = orderSubtotal({ ...order, models });
-  const noteTotal = Math.max(0, subtotal + Number(order.shipping_value || 0) - Number(order.discount_value || 0));
+  const returnedRows = returnedRowsForOrder(order);
+  const returnedCredit = returnedCreditForOrder(order);
+  const noteTotal = Math.max(0, subtotal - returnedCredit + Number(order.shipping_value || 0) - Number(order.discount_value || 0));
   const deliveryDiscount = deliveryDiscountAmount(deliveryForm);
-  const deliveryFormTotal = deliveryTotal(deliveryForm);
+  const deliveryFormTotal = Math.max(0, deliveryTotal(deliveryForm) - returnedCredit);
   const deliveryNotes = order.delivery_notes || [];
   const isReturnOrder = order.order_type === 'return';
   const isSampleOrder = Boolean(order.is_sample);
@@ -2232,6 +2273,21 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
                 </article>
               );
             })}
+            {returnedRows.map((row) => (
+              <article className="prod-delivery-return-row" key={`returned-${row.id}`}>
+                <div>
+                  <strong>DEVOLUCION · {row.model_code}</strong>
+                  <span>{row.total_pairs} pares · {[row.material, row.color].filter(Boolean).join(' ') || 'Sin descripcion'} · {shortDestinationName(row.destination)}</span>
+                </div>
+                <label>Valor unitario
+                  <input type="number" value="0.00" disabled readOnly />
+                </label>
+                <div>
+                  <span>Estado</span>
+                  <strong>Precio 0</strong>
+                </div>
+              </article>
+            ))}
           </div>
           <div className="prod-delivery-editor-totals">
             <label>Envio<input type="number" min="0" step="0.01" value={deliveryForm.shipping_value} onChange={(event) => setDeliveryForm({ ...deliveryForm, shipping_value: event.target.value })} /></label>
@@ -2251,6 +2307,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
               </label>
             )}
             <div><span>Subtotal</span><strong>{displayMoney(deliverySubtotal(deliveryForm))}</strong></div>
+            {returnedCredit > 0 && <div className="prod-delivery-return-total"><span>Devoluciones</span><strong>-{displayMoney(returnedCredit)}</strong></div>}
             <div><span>Desc. aplicado</span><strong>{displayMoney(deliveryDiscount)}</strong></div>
             <div><span>Total</span><strong>{displayMoney(deliveryFormTotal)}</strong></div>
           </div>
@@ -2282,6 +2339,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
           <Detail label="Forma de pago" value={order.payment_method} />
           <Detail label="Fecha de envio" value={order.dispatched_date ? displayDate(order.dispatched_date) : ''} />
           <Detail label="Subtotal" value={displayMoney(subtotal)} />
+          {returnedCredit > 0 && <Detail label="Devoluciones" value={`-${displayMoney(returnedCredit)}`} />}
           <Detail label="Descuento" value={displayMoney(order.discount_value)} />
           <Detail label="Transporte" value={displayMoney(order.shipping_value)} />
           <Detail label="Total nota" value={displayMoney(noteTotal)} />
@@ -4444,11 +4502,20 @@ function GuideLabel({ guide, order, template }) {
 }
 
 function DeliveryNoteSheet({ order }) {
-  const subtotal = orderSubtotal(order);
+  const returnedRows = returnedRowsForOrder(order);
+  const returnedPairs = returnedPairsByModel(order);
+  const printableModels = (order.models || []).map((model) => ({
+    ...model,
+    delivery_pairs: Math.max(0, Number(model.total_pairs || 0) - Number(returnedPairs[Number(model.id)] || 0))
+  })).filter((model) => Number(model.delivery_pairs || 0) > 0);
+  const subtotal = printableModels.reduce(
+    (sum, model) => sum + Number(model.delivery_pairs || 0) * Number(model.unit_price || 0),
+    0
+  );
   const discount = Number(order.discount_value || 0);
   const shipping = Number(order.shipping_value || 0);
   const total = Math.max(0, subtotal - discount + shipping);
-  const totalPairs = order.models.reduce((sum, model) => sum + Number(model.total_pairs || 0), 0);
+  const totalPairs = printableModels.reduce((sum, model) => sum + Number(model.delivery_pairs || 0), 0);
   const isReturnOrder = order.order_type === 'return';
   const isSampleOrder = Boolean(order.is_sample);
   const orderDate = new Date();
@@ -4484,15 +4551,23 @@ function DeliveryNoteSheet({ order }) {
       <table className="prod-delivery-table">
         <thead><tr><th>CANT.</th><th>DESCRIPCION</th><th>VALOR UNITARIO</th><th>VALOR TOTAL</th></tr></thead>
         <tbody>
-          {order.models.map((model) => (
+          {printableModels.map((model) => (
             <tr key={model.id}>
-              <td>{model.total_pairs}</td>
+              <td>{model.delivery_pairs}</td>
               <td>{[model.model_code, model.material, model.color].filter(Boolean).join(' ')}</td>
               <td>{model.unit_price ? displayMoney(model.unit_price) : ''}</td>
-              <td>{model.unit_price ? displayMoney(Number(model.unit_price) * Number(model.total_pairs || 0)) : ''}</td>
+              <td>{model.unit_price ? displayMoney(Number(model.unit_price) * Number(model.delivery_pairs || 0)) : ''}</td>
             </tr>
           ))}
-          {Array.from({ length: Math.max(0, 11 - order.models.length) }).map((_, index) => (
+          {returnedRows.map((row) => (
+            <tr className="prod-delivery-return-print-row" key={`return-${row.id}`}>
+              <td>{row.total_pairs}</td>
+              <td>DEVOLUCION {row.return_order_number || ''} · {[row.model_code, row.material, row.color, shortDestinationName(row.destination)].filter(Boolean).join(' ')}</td>
+              <td>{displayMoney(0)}</td>
+              <td>{displayMoney(0)}</td>
+            </tr>
+          ))}
+          {Array.from({ length: Math.max(0, 11 - printableModels.length - returnedRows.length) }).map((_, index) => (
             <tr className="blank" key={`blank-${index}`}><td></td><td></td><td></td><td></td></tr>
           ))}
         </tbody>

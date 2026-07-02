@@ -494,6 +494,24 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     ).get(orderId, businessId, ...refs);
   }
 
+  function returnedCreditForSourceModels(orderId, businessId, modelIds = []) {
+    const ids = modelIds.map((id) => Number(id || 0)).filter(Boolean);
+    const idFilter = ids.length
+      ? `AND allocations.source_model_id IN (${ids.map(() => '?').join(', ')})`
+      : '';
+    const row = db.prepare(
+      `SELECT COALESCE(SUM(allocations.quantity * COALESCE(source_models.unit_price, 0)), 0) AS total
+       FROM production_return_allocations AS allocations
+       JOIN production_orders AS returns ON returns.id = allocations.return_order_id
+       LEFT JOIN production_order_models AS source_models ON source_models.id = allocations.source_model_id
+       WHERE allocations.source_order_id = ?
+         AND allocations.establishment_id = ?
+         AND returns.deleted_at IS NULL
+         ${idFilter}`
+    ).get(orderId, businessId, ...ids);
+    return moneyValue(row?.total || 0);
+  }
+
   function displayMoneyValue(value) {
     return `$${moneyValue(value).toFixed(2)}`;
   }
@@ -705,11 +723,27 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
          ORDER BY allocations.destination, models.id, allocations.size`
       )
       .all(order.id, businessId);
+    const returnedAllocations = db
+      .prepare(
+        `SELECT allocations.*, returns.order_number AS return_order_number,
+                returns.order_date AS return_order_date,
+                source_models.model_code, source_models.color, source_models.material,
+                source_models.unit_price
+         FROM production_return_allocations AS allocations
+         JOIN production_orders AS returns ON returns.id = allocations.return_order_id
+         LEFT JOIN production_order_models AS source_models ON source_models.id = allocations.source_model_id
+         WHERE allocations.source_order_id = ?
+           AND allocations.establishment_id = ?
+           AND returns.deleted_at IS NULL
+         ORDER BY returns.order_date DESC, returns.id DESC, allocations.source_model_id, allocations.destination, allocations.size`
+      )
+      .all(order.id, businessId);
     return {
       ...order,
       payments,
       delivery_notes: deliveryNotes,
       return_allocations: returnAllocations,
+      returned_allocations: returnedAllocations,
       models: models.map((model) => ({
         ...model,
         sizes: Object.fromEntries(
@@ -2473,7 +2507,12 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         : moneyValue(model.unit_price);
       return sum + (Number(model.total_pairs || 0) * unitPrice);
     }, 0);
-    const noteTotal = moneyValue(Math.max(0, noteSubtotal + shippingValue - discountValue));
+    const returnCredit = returnedCreditForSourceModels(
+      order.id,
+      business.id,
+      modelsForNote.map((model) => Number(model.id))
+    );
+    const noteTotal = moneyValue(Math.max(0, noteSubtotal - returnCredit + shippingValue - discountValue));
     const paymentTotals = paymentTotalsForOrder(order.id, business.id);
     const paymentBalance = moneyValue(Number(paymentTotals.paid_total || 0) + Number(paymentTotals.pending_total || 0));
     const pricesById = Object.fromEntries(prices.map((model) => [Number(model.id || 0), moneyValue(model.unit_price)]));
@@ -2617,6 +2656,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     let returnOrderId;
     let insertedModels = [];
     const userLabel = req.user.username || req.user.role;
+    let sourceReturnCredit = 0;
 
     db.transaction(() => {
       const orderResult = db.prepare(
@@ -2681,6 +2721,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
           totalValue += Number(item.quantity || 0) * unitPrice;
         }
         const noteTotal = moneyValue(totalValue);
+        sourceReturnCredit = moneyValue(sourceReturnCredit + noteTotal);
         createDeliveryNoteRecord({
           orderId: returnOrderId,
           businessId: business.id,
@@ -2695,6 +2736,9 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
           userLabel
         });
         addPendingBalance(returnOrderId, business.id, noteTotal, userLabel);
+      }
+      if (sourceReturnCredit > 0) {
+        reducePendingBalance(sourceOrder.id, business.id, sourceReturnCredit);
       }
     })();
     audit(req, 'create', 'return_order', returnOrderId, `${orderNumber} desde ${sourceOrder.order_number}`);
