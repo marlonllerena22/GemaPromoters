@@ -695,7 +695,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
     let fallbackTimer;
     const previousTitle = document.title;
     if (printState.type === 'guides') {
-      document.title = ' ';
+      document.title = '\u200b';
     }
     const clearPrint = () => {
       document.title = previousTitle;
@@ -3831,8 +3831,8 @@ function GuidePrintPage({ guides, order, template }) {
           className="prod-guide-slot"
           key={index}
           style={{
-            left: `${slot.left}mm`,
-            top: `${slot.top}mm`,
+            left: `${slot.left + (template.family === 'standard' && index % 2 === 1 ? 12 : 0)}mm`,
+            top: `${slot.top - 3}mm`,
             width: `${slot.width}mm`,
             height: `${slot.height}mm`
           }}
