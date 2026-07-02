@@ -1,7 +1,9 @@
 import jwt from 'jsonwebtoken';
 
 export function createToken(payload) {
-  return jwt.sign(payload, process.env.JWT_SECRET || 'dev-secret', { expiresIn: '8h' });
+  return jwt.sign(payload, process.env.JWT_SECRET || 'dev-secret', {
+    expiresIn: process.env.JWT_EXPIRES_IN || '365d'
+  });
 }
 
 export function requireAuth(req, res, next) {

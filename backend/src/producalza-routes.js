@@ -434,6 +434,71 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     createInitialPendingBalance(orderId, businessId, pendingAmount, userLabel);
   }
 
+  function orderTotalFromModels(models = [], shippingValue = 0, discountValue = 0) {
+    const subtotal = models.reduce(
+      (sum, model) => sum + Number(model.total_pairs || 0) * moneyValue(model.unit_price),
+      0
+    );
+    return moneyValue(Math.max(0, subtotal + moneyValue(shippingValue) - moneyValue(discountValue)));
+  }
+
+  function syncInitialPendingBalance(orderId, businessId, amount, userLabel = 'system') {
+    const pendingAmount = moneyValue(amount);
+    const lockedTotals = db.prepare(
+      `SELECT COALESCE(SUM(amount), 0) AS total
+       FROM production_order_payments
+       WHERE order_id = ? AND establishment_id = ?
+         AND status IN ('paid', 'pending')
+         AND COALESCE(reference, '') NOT IN (?, ?)`
+    ).get(
+      orderId,
+      businessId,
+      MANUAL_PENDING_TOTAL_REF,
+      DELIVERY_NOTE_BALANCE_REF
+    );
+    if (Number(lockedTotals?.total || 0) > 0) return;
+
+    const current = db.prepare(
+      `SELECT id
+       FROM production_order_payments
+       WHERE order_id = ? AND establishment_id = ?
+         AND status = 'pending'
+         AND reference = ?
+       ORDER BY id DESC
+       LIMIT 1`
+    ).get(orderId, businessId, MANUAL_PENDING_TOTAL_REF);
+    db.prepare(
+      `DELETE FROM production_order_payments
+       WHERE order_id = ? AND establishment_id = ?
+         AND status = 'pending'
+         AND reference = ?
+         AND id <> COALESCE(?, -1)`
+    ).run(orderId, businessId, MANUAL_PENDING_TOTAL_REF, current?.id || -1);
+
+    if (pendingAmount <= 0) {
+      if (current) {
+        db.prepare('DELETE FROM production_order_payments WHERE id = ? AND order_id = ? AND establishment_id = ?')
+          .run(current.id, orderId, businessId);
+      }
+      return;
+    }
+    if (current) {
+      db.prepare(
+        `UPDATE production_order_payments
+         SET amount = ?, notes = ?, updated_at = datetime('now', 'localtime')
+         WHERE id = ? AND order_id = ? AND establishment_id = ?`
+      ).run(
+        pendingAmount,
+        'Saldo pendiente automatico del pedido',
+        current.id,
+        orderId,
+        businessId
+      );
+      return;
+    }
+    createInitialPendingBalance(orderId, businessId, pendingAmount, userLabel);
+  }
+
   function reducePendingBalance(orderId, businessId, amount, excludedPaymentId = null) {
     let remaining = moneyValue(amount);
     if (remaining <= 0) return;
@@ -2582,6 +2647,8 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         }
       } else if (paymentBalance <= 0.009) {
         createInitialPendingBalance(order.id, business.id, noteTotal, userLabel);
+      } else {
+        syncInitialPendingBalance(order.id, business.id, noteTotal, userLabel);
       }
     })();
     audit(req, 'update', 'delivery_note_values', order.id, order.order_number);
@@ -2769,6 +2836,9 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     }
     const orderNumber = isSample ? nextSampleNumber(business.id) : nextOrderNumber(business.id);
     let orderId;
+    const shippingValue = moneyValue(req.body.shipping_value);
+    const discountValue = moneyValue(req.body.discount_value);
+    const userLabel = req.user.username || req.user.role;
 
     db.transaction(() => {
       const orderResult = db.prepare(
@@ -2794,16 +2864,22 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         String(req.body.guide_template_key || '').trim(),
         isSample ? sampleDestination : '',
         String(req.body.general_notes || '').trim(),
-        moneyValue(req.body.shipping_value),
-        moneyValue(req.body.discount_value),
+        shippingValue,
+        discountValue,
         String(req.body.invoice_number || '').trim(),
         normalizeOptionalDate(req.body.invoice_date),
         moneyValue(req.body.invoice_value),
         status,
-        req.user.username || req.user.role
+        userLabel
       );
       orderId = Number(orderResult.lastInsertRowid);
       insertModels(db, business.id, orderId, models, nextCardNumber);
+      syncInitialPendingBalance(
+        orderId,
+        business.id,
+        orderTotalFromModels(models, shippingValue, discountValue),
+        userLabel
+      );
     })();
     audit(req, 'create', 'order', orderId, orderNumber);
     res.status(201).json(getOrder(orderId, req));
@@ -2836,6 +2912,8 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     if (isSample && current.order_type !== 'return' && !RETURN_DESTINATIONS.includes(sampleDestination)) {
       return res.status(400).json({ message: 'Selecciona el local destino para el pedido de muestras.' });
     }
+    const shippingValue = moneyValue(req.body.shipping_value);
+    const discountValue = moneyValue(req.body.discount_value);
 
     db.transaction(() => {
       db.prepare(
@@ -2859,8 +2937,8 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         isSample ? 1 : 0,
         isSample ? sampleDestination : '',
         String(req.body.general_notes || '').trim(),
-        moneyValue(req.body.shipping_value),
-        moneyValue(req.body.discount_value),
+        shippingValue,
+        discountValue,
         String(req.body.invoice_number || '').trim(),
         normalizeOptionalDate(req.body.invoice_date),
         moneyValue(req.body.invoice_value),
@@ -2876,6 +2954,12 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         'DELETE FROM production_order_models WHERE order_id = ? AND establishment_id = ?'
       ).run(current.id, business.id);
       insertModels(db, business.id, current.id, models, nextCardNumber);
+      syncInitialPendingBalance(
+        current.id,
+        business.id,
+        orderTotalFromModels(models, shippingValue, discountValue),
+        req.user?.username || req.user?.role || 'system'
+      );
     })();
     audit(req, 'update', 'order', current.id, current.order_number);
     res.json(getOrder(current.id, req));
