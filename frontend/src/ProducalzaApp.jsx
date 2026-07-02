@@ -138,6 +138,13 @@ const PAYMENT_METHOD_OPTIONS = [
   'Abonos: quincenales'
 ];
 
+const RETURN_DESTINATIONS = [
+  'Local Marjorie Botas Norte',
+  'Local Marjorie Botas Sur',
+  'Local Marjorie Botas Valle',
+  'Sebastians'
+];
+
 const emptyPayment = {
   payment_type: 'abono',
   amount: '',
@@ -767,7 +774,9 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
   ];
 
   const currentLabel = nav.find(([key]) => key === view)?.[1]
-    || (view === 'order-detail' ? 'Detalle del pedido' : 'Producalza');
+    || (view === 'order-detail'
+      ? selectedOrder?.order_type === 'return' ? 'Detalle de devolucion' : 'Detalle del pedido'
+      : 'Producalza');
 
   const content = loading ? (
     <div className="prod-empty">Cargando Producalza...</div>
@@ -837,6 +846,11 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
             const updatedOrder = await api(scope(`/producalza/orders/${selectedOrder.id}`));
             setSelectedOrder(updatedOrder);
             await refresh(message);
+          }}
+          onReturnCreated={async (returnOrder) => {
+            setSelectedOrder(returnOrder);
+            setView('order-detail');
+            await refresh('Devolucion creada');
           }}
           guideTemplates={guideTemplates}
           focusPayment={paymentAlertTarget}
@@ -1156,7 +1170,10 @@ function OrdersList({ orders, users, isAdmin, scope, onOpen, onEdit, onRefresh, 
             <tbody>
               {orders.map((order) => (
                 <tr key={order.id}>
-                  <td><button className="prod-link-button" onClick={() => onOpen(order.id)}>{order.order_number}</button></td>
+                  <td>
+                    <button className="prod-link-button" onClick={() => onOpen(order.id)}>{order.order_number}</button>
+                    {order.order_type === 'return' && <small className="prod-return-chip">Devolucion de {order.parent_order_number || 'pedido'}</small>}
+                  </td>
                   <td><strong>{order.client_name}</strong><small>{order.city}</small></td>
                   <td>{order.seller_name || 'Sin asignar'}</td>
                   <td>{displayDate(order.order_date)}</td>
@@ -1446,7 +1463,7 @@ function OrderForm({ clients, users, isAdmin, scope, initialOrder, onCancel, onS
   );
 }
 
-function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint, onUpdated, guideTemplates, focusPayment }) {
+function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint, onUpdated, onReturnCreated, guideTemplates, focusPayment }) {
   const [sendingPdf, setSendingPdf] = useState(false);
   const [models, setModels] = useState(order.models);
   const [dirtyIds, setDirtyIds] = useState([]);
@@ -1463,6 +1480,9 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
   const [savingUpcomingPayment, setSavingUpcomingPayment] = useState(false);
   const [savingPaymentSummary, setSavingPaymentSummary] = useState(false);
   const [showInvoiceForm, setShowInvoiceForm] = useState(false);
+  const [showReturnForm, setShowReturnForm] = useState(false);
+  const [savingReturn, setSavingReturn] = useState(false);
+  const [returnAllocations, setReturnAllocations] = useState({});
   const [invoiceForm, setInvoiceForm] = useState({
     invoice_number: order.invoice_number || '',
     invoice_date: order.invoice_date || new Date().toISOString().slice(0, 10),
@@ -1480,6 +1500,8 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
     setEditingPaymentId(null);
     setEditingUpcomingPaymentId(null);
     setShowInvoiceForm(false);
+    setShowReturnForm(false);
+    setReturnAllocations({});
     setInvoiceForm({
       invoice_number: order.invoice_number || '',
       invoice_date: order.invoice_date || new Date().toISOString().slice(0, 10),
@@ -1505,6 +1527,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
   const deliveryDiscount = deliveryDiscountAmount(deliveryForm);
   const deliveryFormTotal = deliveryTotal(deliveryForm);
   const deliveryNotes = order.delivery_notes || [];
+  const isReturnOrder = order.order_type === 'return';
 
   function deriveStatus(model) {
     if (model.process_finished) return 'finished';
@@ -1735,6 +1758,65 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
     }
   }
 
+  function updateReturnAllocation(modelId, size, destination, value) {
+    const quantity = Math.max(0, Math.floor(Number(value || 0)));
+    setReturnAllocations((current) => ({
+      ...current,
+      [modelId]: {
+        ...(current[modelId] || {}),
+        [size]: {
+          ...((current[modelId] || {})[size] || {}),
+          [destination]: quantity
+        }
+      }
+    }));
+  }
+
+  function returnSizeTotal(modelId, size) {
+    return RETURN_DESTINATIONS.reduce(
+      (sum, destination) => sum + Number(returnAllocations[modelId]?.[size]?.[destination] || 0),
+      0
+    );
+  }
+
+  async function saveReturnOrder() {
+    const allocations = [];
+    for (const model of order.models || []) {
+      for (const size of SIZES) {
+        const available = Number(model.sizes?.[size] || 0);
+        const selected = returnSizeTotal(model.id, size);
+        if (selected > available) {
+          setError(`En ${model.model_code}, talla ${size}, seleccionaste ${selected} pares pero solo hay ${available}.`);
+          return;
+        }
+        for (const destination of RETURN_DESTINATIONS) {
+          const quantity = Number(returnAllocations[model.id]?.[size]?.[destination] || 0);
+          if (quantity > 0) {
+            allocations.push({ model_id: model.id, size, destination, quantity });
+          }
+        }
+      }
+    }
+    if (!allocations.length) {
+      setError('Selecciona al menos una talla devuelta.');
+      return;
+    }
+    setSavingReturn(true);
+    try {
+      const created = await api(scope(`/producalza/orders/${order.id}/returns`), {
+        method: 'POST',
+        body: JSON.stringify({ allocations })
+      });
+      setShowReturnForm(false);
+      setReturnAllocations({});
+      await onReturnCreated(created);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSavingReturn(false);
+    }
+  }
+
   async function sendOrderToClient() {
     const phone = whatsappNumber(order.phone);
     if (!phone) {
@@ -1789,8 +1871,11 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
         <div>
           <button className="prod-secondary-button" onClick={onEdit}><Pencil size={17} />Editar</button>
           <button className="prod-primary-button delivery" onClick={() => setShowDeliveryEditor((value) => !value)}><Printer size={17} />Nota de entrega</button>
+          {isAdmin && !isReturnOrder && (
+            <button className="prod-secondary-button return" onClick={() => setShowReturnForm((value) => !value)}><PackageCheck size={17} />Registrar devolucion</button>
+          )}
           <button className="prod-secondary-button" onClick={() => setShowInvoiceForm((value) => !value)}><FilePlus2 size={17} />Registrar factura</button>
-          <button className="prod-primary-button" onClick={() => onPrint('sheets')}><Printer size={17} />Hoja unica del pedido</button>
+          <button className="prod-primary-button" onClick={() => onPrint('sheets')}><Printer size={17} />{isReturnOrder ? 'Hoja de devolucion' : 'Hoja unica del pedido'}</button>
           <button className="prod-primary-button dark" onClick={() => onPrint('cards')}><Printer size={17} />Tarjetas</button>
           <button className="prod-primary-button guide" onClick={() => onPrint('guides')}><Tags size={17} />Guias para cajas</button>
           <button className="prod-primary-button whatsapp prod-desktop-whatsapp-action" disabled={sendingPdf} onClick={sendOrderToClient}>
@@ -1806,9 +1891,9 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
       </div>
       <section className="prod-order-hero">
         <div>
-          <span>Pedido</span>
+          <span>{isReturnOrder ? 'Devolucion' : 'Pedido'}</span>
           <h2>{order.order_number}</h2>
-          <p>{order.client_name} · {order.city || 'Sin ciudad'}</p>
+          <p>{order.client_name} · {order.city || 'Sin ciudad'}{isReturnOrder && order.parent_order_number ? ` · Origen ${order.parent_order_number}` : ''}</p>
         </div>
         <div>
           <StatusBadge status={order.status} />
@@ -1824,6 +1909,80 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
           )}
         </div>
       </section>
+      {isReturnOrder && (
+        <section className="prod-panel prod-return-detail-panel">
+          <div className="prod-panel-title">
+            <div><span>Detalle de devolucion</span><h2>Destino de pares devueltos</h2></div>
+          </div>
+          <div className="prod-table-wrap">
+            <table className="prod-table">
+              <thead><tr><th>Destino</th><th>Modelo</th><th>Talla</th><th>Pares</th></tr></thead>
+              <tbody>
+                {(order.return_allocations || []).map((item) => (
+                  <tr key={item.id}>
+                    <td>{item.destination}</td>
+                    <td><strong>{item.model_code}</strong><small>{[item.color, item.material].filter(Boolean).join(' ')}</small></td>
+                    <td>{item.size}</td>
+                    <td>{item.quantity}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!(order.return_allocations || []).length && <div className="prod-empty">Sin asignaciones de devolucion.</div>}
+          </div>
+        </section>
+      )}
+      {showReturnForm && !isReturnOrder && (
+        <section className="prod-panel prod-return-form-panel">
+          <div className="prod-panel-title">
+            <div><span>Devoluciones</span><h2>Seleccionar tallas y destino</h2></div>
+          </div>
+          <div className="prod-return-form-help">
+            Selecciona cuantos pares devuelve el cliente y a que local se enviaran. El sistema creara un nuevo Detalle de Devolucion.
+          </div>
+          <div className="prod-return-models">
+            {order.models.map((model) => (
+              <article key={model.id} className="prod-return-model-card">
+                <div className="prod-return-model-head">
+                  <div><span>Modelo</span><strong>{model.model_code}</strong><small>{[model.color, model.material].filter(Boolean).join(' ')}</small></div>
+                  <b>{model.total_pairs} pares vendidos</b>
+                </div>
+                <div className="prod-return-size-list">
+                  {SIZES.filter((size) => Number(model.sizes?.[size] || 0) > 0).map((size) => {
+                    const selected = returnSizeTotal(model.id, size);
+                    const available = Number(model.sizes?.[size] || 0);
+                    return (
+                      <div className={`prod-return-size-row ${selected > available ? 'over' : ''}`} key={size}>
+                        <div><strong>Talla {size}</strong><span>{selected}/{available} pares</span></div>
+                        <div className="prod-return-destinations">
+                          {RETURN_DESTINATIONS.map((destination) => (
+                            <label key={destination}>
+                              <span>{destination.replace('Local Marjorie Botas ', '')}</span>
+                              <input
+                                type="number"
+                                min="0"
+                                max={available}
+                                value={returnAllocations[model.id]?.[size]?.[destination] || ''}
+                                onChange={(event) => updateReturnAllocation(model.id, size, destination, event.target.value)}
+                              />
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </article>
+            ))}
+          </div>
+          <div className="prod-form-actions">
+            <button className="prod-secondary-button" onClick={() => setShowReturnForm(false)}>Cancelar</button>
+            <button className="prod-primary-button" disabled={savingReturn} onClick={saveReturnOrder}>
+              <Save size={17} />{savingReturn ? 'Creando...' : 'Crear devolucion'}
+            </button>
+          </div>
+        </section>
+      )}
       {showDeliveryEditor && (
         <section className="prod-panel prod-delivery-editor">
           <div className="prod-panel-title">
@@ -3159,6 +3318,12 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
   });
   const [dispatchReport, setDispatchReport] = useState(null);
   const [dispatchLoading, setDispatchLoading] = useState(false);
+  const [returnsFilters, setReturnsFilters] = useState({
+    date_from: `${today.slice(0, 8)}01`,
+    date_to: today
+  });
+  const [returnsReport, setReturnsReport] = useState(null);
+  const [returnsLoading, setReturnsLoading] = useState(false);
   const byStatus = Object.entries(ORDER_STATUS_LABELS).map(([key, label]) => ({
     key,
     label,
@@ -3213,6 +3378,7 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
   const updateReportFilter = (key, value) => setReportFilters((current) => ({ ...current, [key]: value }));
   const updateMonthlyFilter = (key, value) => setMonthlyFilters((current) => ({ ...current, [key]: value }));
   const updateDispatchFilter = (key, value) => setDispatchFilters((current) => ({ ...current, [key]: value }));
+  const updateReturnsFilter = (key, value) => setReturnsFilters((current) => ({ ...current, [key]: value }));
 
   async function loadMonthlyReport() {
     setMonthlyLoading(true);
@@ -3252,6 +3418,20 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
       setError(err.message);
     } finally {
       setDispatchLoading(false);
+    }
+  }
+
+  async function loadReturnsReport() {
+    setReturnsLoading(true);
+    try {
+      const query = new URLSearchParams();
+      if (returnsFilters.date_from) query.set('date_from', returnsFilters.date_from);
+      if (returnsFilters.date_to) query.set('date_to', returnsFilters.date_to);
+      setReturnsReport(await api(scope(`/producalza/returns-report?${query.toString()}`)));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setReturnsLoading(false);
     }
   }
 
@@ -3427,6 +3607,57 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
                 </tbody>
               </table>
               {!visibleDispatchRows.length && <div className="prod-empty">No hay despachos con esos filtros o todos los clientes estan excluidos.</div>}
+            </div>
+          </>
+        )}
+      </section>
+      <section className="prod-panel prod-returns-report">
+        <div className="prod-panel-title">
+          <div><span>Devoluciones</span><h2>Reporte de pares devueltos</h2></div>
+          <button className="prod-primary-button" disabled={returnsLoading} onClick={loadReturnsReport}>
+            <Filter size={17} />
+            {returnsLoading ? 'Generando...' : 'Generar reporte'}
+          </button>
+        </div>
+        <div className="prod-monthly-controls">
+          <label>Desde<input type="date" value={returnsFilters.date_from} onChange={(event) => updateReturnsFilter('date_from', event.target.value)} /></label>
+          <label>Hasta<input type="date" value={returnsFilters.date_to} onChange={(event) => updateReturnsFilter('date_to', event.target.value)} /></label>
+        </div>
+        {returnsReport && (
+          <>
+            <div className="prod-monthly-summary">
+              <article><span>Pares devueltos</span><strong>{displayNumber(returnsReport.totals?.pairs || 0)}</strong><small>{displayDate(returnsReport.date_from)} - {displayDate(returnsReport.date_to)}</small></article>
+              <article><span>Valor devuelto</span><strong>{displayMoney(returnsReport.totals?.value || 0)}</strong><small>Segun valor unitario</small></article>
+              <article><span>Pendiente devoluciones</span><strong>{displayMoney(returnsReport.totals?.pending_returns || 0)}</strong><small>Notas de devolucion pendientes</small></article>
+            </div>
+            <div className="prod-return-destination-summary">
+              {(returnsReport.by_destination || []).map((item) => (
+                <article key={item.destination}>
+                  <span>{item.destination}</span>
+                  <strong>{displayNumber(item.pairs)} pares</strong>
+                  <small>{displayMoney(item.value)}</small>
+                </article>
+              ))}
+            </div>
+            <div className="prod-table-wrap">
+              <table className="prod-table">
+                <thead><tr><th>Fecha</th><th>Devolucion</th><th>Cliente</th><th>Destino</th><th>Modelo</th><th>Talla</th><th>Pares</th><th>Valor</th></tr></thead>
+                <tbody>
+                  {(returnsReport.rows || []).map((row, index) => (
+                    <tr key={`${row.id}-${row.destination}-${row.model_code}-${row.size}-${index}`}>
+                      <td>{displayDate(row.order_date)}</td>
+                      <td><strong>{row.order_number}</strong><small>Origen {row.source_order_number || '-'}</small></td>
+                      <td><strong>{row.client_name}</strong><small>{row.city || ''}</small></td>
+                      <td>{row.destination}</td>
+                      <td><strong>{row.model_code}</strong><small>{[row.color, row.material].filter(Boolean).join(' ')}</small></td>
+                      <td>{row.size}</td>
+                      <td>{row.quantity}</td>
+                      <td>{displayMoney(row.line_total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {!(returnsReport.rows || []).length && <div className="prod-empty">No hay devoluciones en ese rango.</div>}
             </div>
           </>
         )}
@@ -4024,6 +4255,7 @@ function DeliveryNoteSheet({ order }) {
   const shipping = Number(order.shipping_value || 0);
   const total = Math.max(0, subtotal - discount + shipping);
   const totalPairs = order.models.reduce((sum, model) => sum + Number(model.total_pairs || 0), 0);
+  const isReturnOrder = order.order_type === 'return';
   const orderDate = new Date(`${order.order_date || new Date().toISOString().slice(0, 10)}T12:00:00`);
   const day = Number.isNaN(orderDate.getTime()) ? '' : String(orderDate.getDate()).padStart(2, '0');
   const month = Number.isNaN(orderDate.getTime()) ? '' : orderDate.toLocaleDateString('es-EC', { month: 'long' }).toUpperCase();
@@ -4052,7 +4284,7 @@ function DeliveryNoteSheet({ order }) {
         <span>CLIENTE:</span><strong>{order.client_name}</strong><span>RUC:</span><strong>{order.tax_id || ''}</strong>
         <span>DIRECCION:</span><strong>{order.address || ''}</strong><span>VEND:</span><strong>{order.seller_name || 'FABRICA'}</strong>
         <span>CIUDAD:</span><strong>{order.city || ''}</strong><span>MARCA:</span><strong>{order.brand || ''}</strong>
-        <span>TELEFONO:</span><strong>{order.phone || ''}</strong><span>PEDIDO:</span><strong>{order.delivery_note_number ? `${order.order_number} / Nota ${order.delivery_note_number}` : order.order_number}</strong>
+        <span>TELEFONO:</span><strong>{order.phone || ''}</strong><span>{isReturnOrder ? 'DEVOLUCION:' : 'PEDIDO:'}</span><strong>{order.delivery_note_number ? `${order.order_number} / Nota ${order.delivery_note_number}` : order.order_number}</strong>
       </section>
       <table className="prod-delivery-table">
         <thead><tr><th>CANT.</th><th>DESCRIPCION</th><th>VALOR UNITARIO</th><th>VALOR TOTAL</th></tr></thead>
@@ -4103,12 +4335,13 @@ function DeliveryNoteSheet({ order }) {
 
 function ProductionOrderSheet({ order }) {
   const totalPairs = order.models.reduce((sum, model) => sum + Number(model.total_pairs || 0), 0);
+  const isReturnOrder = order.order_type === 'return';
   return (
     <article
       className={`prod-print-page ${order.models.length > 8 ? 'dense' : ''}`}
       style={{ '--order-model-count': Math.max(order.models.length, 1) }}
     >
-      <header><div><strong>PRODUCALZA</strong><span>HOJA UNICA DE PEDIDO Y PRODUCCION</span></div><b>{order.order_number}</b></header>
+      <header><div><strong>PRODUCALZA</strong><span>{isReturnOrder ? 'HOJA UNICA DE DEVOLUCION' : 'HOJA UNICA DE PEDIDO Y PRODUCCION'}</span></div><b>{order.order_number}</b></header>
       <section className="prod-print-info">
         <div><span>Cliente</span><strong>{order.client_name}</strong></div>
         <div><span>Ciudad</span><strong>{order.city || 'Sin ciudad'}</strong></div>
@@ -4152,7 +4385,7 @@ function ProductionOrderSheet({ order }) {
             </tr>
           ))}
           <tr className="prod-print-total-row">
-            <td colSpan="13"><strong>TOTAL DEL PEDIDO</strong></td>
+            <td colSpan="13"><strong>{isReturnOrder ? 'TOTAL DE DEVOLUCION' : 'TOTAL DEL PEDIDO'}</strong></td>
             <td><strong>{totalPairs}</strong></td>
             <td colSpan="7" />
           </tr>
@@ -4165,9 +4398,10 @@ function ProductionOrderSheet({ order }) {
 }
 
 function ProductionCard({ order, model }) {
+  const isReturnOrder = order.order_type === 'return';
   return (
     <article className="prod-print-card">
-      <header><div><strong>PRODUCALZA</strong><span>TARJETA DE PRODUCCION</span></div><b>Nro. {model.card_number}</b></header>
+      <header><div><strong>PRODUCALZA</strong><span>{isReturnOrder ? 'TARJETA DE DEVOLUCION' : 'TARJETA DE PRODUCCION'}</span></div><b>Nro. {model.card_number}</b></header>
       <div className="prod-card-client-row">
         <div className="prod-card-client"><span>Cliente</span><strong>{order.client_name}</strong></div>
         <div className="prod-card-red-alert">

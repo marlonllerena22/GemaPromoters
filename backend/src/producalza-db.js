@@ -64,6 +64,8 @@ export function initProducalzaDb(db) {
     CREATE TABLE IF NOT EXISTS production_orders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       establishment_id INTEGER NOT NULL,
+      order_type TEXT NOT NULL DEFAULT 'order' CHECK (order_type IN ('order', 'return')),
+      parent_order_id INTEGER,
       order_number TEXT,
       client_id INTEGER NOT NULL,
       seller_user_id INTEGER,
@@ -89,6 +91,7 @@ export function initProducalzaDb(db) {
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (parent_order_id) REFERENCES production_orders(id),
       FOREIGN KEY (client_id) REFERENCES production_clients(id),
       FOREIGN KEY (seller_user_id) REFERENCES production_users(id),
       UNIQUE(establishment_id, order_number)
@@ -168,6 +171,22 @@ export function initProducalzaDb(db) {
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       FOREIGN KEY (establishment_id) REFERENCES establishments(id),
       FOREIGN KEY (order_id) REFERENCES production_orders(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS production_return_allocations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      return_order_id INTEGER NOT NULL,
+      return_model_id INTEGER NOT NULL,
+      source_order_id INTEGER,
+      source_model_id INTEGER,
+      size INTEGER NOT NULL CHECK (size BETWEEN 20 AND 50),
+      destination TEXT NOT NULL,
+      quantity INTEGER NOT NULL DEFAULT 0 CHECK (quantity >= 0),
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (return_order_id) REFERENCES production_orders(id),
+      FOREIGN KEY (return_model_id) REFERENCES production_order_models(id)
     );
 
     CREATE TABLE IF NOT EXISTS production_settings (
@@ -305,6 +324,8 @@ export function initProducalzaDb(db) {
       ON production_order_payments(establishment_id, due_date, status);
     CREATE INDEX IF NOT EXISTS idx_production_delivery_notes_order
       ON production_delivery_notes(establishment_id, order_id, note_number);
+    CREATE INDEX IF NOT EXISTS idx_production_return_allocations_order
+      ON production_return_allocations(establishment_id, return_order_id, destination);
     CREATE INDEX IF NOT EXISTS idx_production_payroll_entries_period
       ON production_payroll_entries(establishment_id, period_id, employee_name);
   `);
@@ -319,6 +340,8 @@ export function initProducalzaDb(db) {
   addColumnIfMissing(db, 'production_client_visits', 'updated_at', "TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, 'production_clients', 'guide_template_key', 'TEXT');
   addColumnIfMissing(db, 'production_clients', 'guide_logo_url', 'TEXT');
+  addColumnIfMissing(db, 'production_orders', 'order_type', "TEXT NOT NULL DEFAULT 'order'");
+  addColumnIfMissing(db, 'production_orders', 'parent_order_id', 'INTEGER');
   addColumnIfMissing(db, 'production_orders', 'guide_template_key', 'TEXT');
   addColumnIfMissing(db, 'production_orders', 'delivery_date', 'TEXT');
   addColumnIfMissing(db, 'production_orders', 'origin_label', 'TEXT');

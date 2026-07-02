@@ -6,6 +6,12 @@ const MODEL_STATUSES = ['received', 'reviewed', 'in_production', 'cut', 'stitche
 const PAYMENT_TYPES = ['abono', 'cheque', 'transferencia', 'efectivo', 'saldo', 'otro'];
 const PAYMENT_STATUSES = ['pending', 'paid', 'cancelled'];
 const SIZES = [34, 35, 36, 37, 38, 39, 40, 41, 42, 43];
+const RETURN_DESTINATIONS = [
+  'Local Marjorie Botas Norte',
+  'Local Marjorie Botas Sur',
+  'Local Marjorie Botas Valle',
+  'Sebastians'
+];
 const DELIVERY_NOTE_BALANCE_REF = 'AUTO-NOTA-ENTREGA';
 const MANUAL_PAID_TOTAL_REF = 'MANUAL-TOTAL-PAGADO';
 const MANUAL_PENDING_TOTAL_REF = 'MANUAL-TOTAL-PENDIENTE';
@@ -238,6 +244,20 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
   function nextOrderNumber(establishmentIdValue) {
     const year = new Date().getFullYear();
     const prefix = `PC-${year}-`;
+    const latest = db
+      .prepare(
+        `SELECT order_number FROM production_orders
+         WHERE establishment_id = ? AND order_number LIKE ?
+         ORDER BY id DESC LIMIT 1`
+      )
+      .get(establishmentIdValue, `${prefix}%`);
+    const lastNumber = Number(String(latest?.order_number || '').split('-').pop()) || 0;
+    return `${prefix}${String(lastNumber + 1).padStart(4, '0')}`;
+  }
+
+  function nextReturnNumber(establishmentIdValue) {
+    const year = new Date().getFullYear();
+    const prefix = `DEV-${year}-`;
     const latest = db
       .prepare(
         `SELECT order_number FROM production_orders
@@ -609,7 +629,8 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const visibility = orderVisibility(req);
     const order = db
       .prepare(
-        `SELECT orders.*, clients.name AS client_name, clients.business_name, clients.tax_id,
+        `SELECT orders.*, parent.order_number AS parent_order_number,
+                clients.name AS client_name, clients.business_name, clients.tax_id,
                 clients.city, clients.address, clients.phone, clients.email,
                 clients.classification AS client_classification,
                 clients.guide_template_key AS client_guide_template_key,
@@ -617,6 +638,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
                 users.name AS seller_name
          FROM production_orders AS orders
          JOIN production_clients AS clients ON clients.id = orders.client_id
+         LEFT JOIN production_orders AS parent ON parent.id = orders.parent_order_id
          LEFT JOIN production_users AS users ON users.id = orders.seller_user_id
          WHERE orders.id = ? AND orders.establishment_id = ? AND orders.deleted_at IS NULL
          ${visibility.sql}`
@@ -660,10 +682,20 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         model_ids: parseJsonValue(note.model_ids_json, []),
         model_prices: parseJsonValue(note.model_prices_json, {})
       }));
+    const returnAllocations = db
+      .prepare(
+        `SELECT allocations.*, models.model_code, models.color, models.material
+         FROM production_return_allocations AS allocations
+         LEFT JOIN production_order_models AS models ON models.id = allocations.return_model_id
+         WHERE allocations.return_order_id = ? AND allocations.establishment_id = ?
+         ORDER BY allocations.destination, models.id, allocations.size`
+      )
+      .all(order.id, businessId);
     return {
       ...order,
       payments,
       delivery_notes: deliveryNotes,
+      return_allocations: returnAllocations,
       models: models.map((model) => ({
         ...model,
         sizes: Object.fromEntries(
@@ -1900,6 +1932,73 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     });
   });
 
+  app.get('/api/producalza/returns-report', requireProductionAdmin, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const dateFrom = normalizeDateInput(req.query.date_from, '');
+    const dateTo = normalizeDateInput(req.query.date_to, today);
+    const filters = ["returns.order_type = 'return'", 'returns.deleted_at IS NULL'];
+    const params = [business.id];
+    if (dateFrom) {
+      filters.push('returns.order_date >= ?');
+      params.push(dateFrom);
+    }
+    if (dateTo) {
+      filters.push('returns.order_date <= ?');
+      params.push(dateTo);
+    }
+    const rows = db.prepare(
+      `SELECT returns.id, returns.order_number, returns.order_date, returns.invoice_value,
+              source.order_number AS source_order_number,
+              clients.name AS client_name, clients.city,
+              models.model_code, models.color, models.material, models.unit_price,
+              allocations.size, allocations.destination, allocations.quantity,
+              COALESCE(payments.paid_total, 0) AS paid_total,
+              COALESCE(payments.pending_total, 0) AS pending_total
+       FROM production_return_allocations AS allocations
+       JOIN production_orders AS returns ON returns.id = allocations.return_order_id
+       LEFT JOIN production_orders AS source ON source.id = returns.parent_order_id
+       JOIN production_clients AS clients ON clients.id = returns.client_id
+       JOIN production_order_models AS models ON models.id = allocations.return_model_id
+       LEFT JOIN (
+         SELECT order_id,
+                SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END) AS paid_total,
+                SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END) AS pending_total
+         FROM production_order_payments
+         WHERE establishment_id = ?
+         GROUP BY order_id
+       ) AS payments ON payments.order_id = returns.id
+       WHERE returns.establishment_id = ?
+         AND ${filters.join(' AND ')}
+       ORDER BY returns.order_date DESC, returns.id DESC, allocations.destination, models.id, allocations.size`
+    ).all(business.id, ...params);
+    const normalized = rows.map((row) => ({
+      ...row,
+      line_total: moneyValue(Number(row.quantity || 0) * Number(row.unit_price || 0))
+    }));
+    const byDestination = RETURN_DESTINATIONS.map((destination) => {
+      const items = normalized.filter((row) => row.destination === destination);
+      return {
+        destination,
+        pairs: items.reduce((sum, row) => sum + Number(row.quantity || 0), 0),
+        value: items.reduce((sum, row) => sum + Number(row.line_total || 0), 0)
+      };
+    });
+    res.json({
+      date_from: dateFrom,
+      date_to: dateTo,
+      rows: normalized,
+      by_destination: byDestination,
+      totals: {
+        pairs: normalized.reduce((sum, row) => sum + Number(row.quantity || 0), 0),
+        value: normalized.reduce((sum, row) => sum + Number(row.line_total || 0), 0),
+        pending_returns: [...new Map(normalized.map((row) => [row.id, row])).values()]
+          .reduce((sum, row) => sum + Number(row.pending_total || 0), 0)
+      }
+    });
+  });
+
   app.get('/api/producalza/orders', requireProductionUser, (req, res) => {
     const business = ensureProductionBusiness(req, res);
     if (!business) return;
@@ -1931,6 +2030,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const rows = db.prepare(
       `SELECT orders.*, clients.name AS client_name, clients.city,
               users.name AS seller_name,
+              parent.order_number AS parent_order_number,
               COUNT(models.id) AS model_count,
               COALESCE(SUM(models.total_pairs), 0) AS total_pairs,
               COALESCE(payments.total_paid, 0) AS total_paid,
@@ -1938,6 +2038,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
        FROM production_orders AS orders
        JOIN production_clients AS clients ON clients.id = orders.client_id
        LEFT JOIN production_users AS users ON users.id = orders.seller_user_id
+       LEFT JOIN production_orders AS parent ON parent.id = orders.parent_order_id
        LEFT JOIN production_order_models AS models ON models.order_id = orders.id
        LEFT JOIN (
          SELECT order_id,
@@ -2315,6 +2416,125 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     res.json(getOrder(order.id, req));
   });
 
+  app.post('/api/producalza/orders/:id/returns', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const sourceOrder = getOrder(req.params.id, req);
+    if (!sourceOrder) return res.status(404).json({ message: 'Pedido no encontrado' });
+    if (sourceOrder.order_type === 'return') {
+      return res.status(400).json({ message: 'No se puede crear una devolucion desde otra devolucion.' });
+    }
+    const rawAllocations = Array.isArray(req.body.allocations) ? req.body.allocations : [];
+    const allocations = rawAllocations
+      .map((item) => ({
+        model_id: Number(item.model_id || 0),
+        size: Number(item.size || 0),
+        destination: String(item.destination || '').trim(),
+        quantity: Math.floor(Math.max(0, Number(item.quantity || 0)))
+      }))
+      .filter((item) => item.quantity > 0);
+    if (!allocations.length) {
+      return res.status(400).json({ message: 'Selecciona al menos una talla devuelta.' });
+    }
+    for (const item of allocations) {
+      if (!SIZES.includes(item.size)) {
+        return res.status(400).json({ message: 'Hay una talla no valida en la devolucion.' });
+      }
+      if (!RETURN_DESTINATIONS.includes(item.destination)) {
+        return res.status(400).json({ message: 'Selecciona un destino valido para cada talla.' });
+      }
+    }
+
+    const sourceModels = new Map(sourceOrder.models.map((model) => [Number(model.id), model]));
+    const totalsByModelSize = new Map();
+    for (const item of allocations) {
+      const sourceModel = sourceModels.get(item.model_id);
+      if (!sourceModel) return res.status(400).json({ message: 'Un modelo seleccionado no pertenece a este pedido.' });
+      const key = `${item.model_id}-${item.size}`;
+      const nextTotal = (totalsByModelSize.get(key) || 0) + item.quantity;
+      const available = Number(sourceModel.sizes?.[item.size] || 0);
+      if (nextTotal > available) {
+        return res.status(400).json({ message: `No puedes devolver mas pares de la talla ${item.size} del modelo ${sourceModel.model_code}.` });
+      }
+      totalsByModelSize.set(key, nextTotal);
+    }
+
+    const grouped = new Map();
+    for (const item of allocations) {
+      const sourceModel = sourceModels.get(item.model_id);
+      if (!grouped.has(item.model_id)) {
+        grouped.set(item.model_id, {
+          id: item.model_id,
+          model_code: sourceModel.model_code,
+          color: sourceModel.color,
+          material: sourceModel.material,
+          notes: `Devolucion del pedido ${sourceOrder.order_number}`,
+          plant_area: 'Devolucion',
+          unit_price: sourceModel.unit_price,
+          status: 'received',
+          sizes: Object.fromEntries(SIZES.map((size) => [size, 0]))
+        });
+      }
+      const model = grouped.get(item.model_id);
+      model.sizes[item.size] += item.quantity;
+    }
+
+    const models = normalizeModels([...grouped.values()]);
+    const orderNumber = nextReturnNumber(business.id);
+    let returnOrderId;
+    let insertedModels = [];
+
+    db.transaction(() => {
+      const orderResult = db.prepare(
+        `INSERT INTO production_orders
+         (establishment_id, order_type, parent_order_id, order_number, client_id, seller_user_id,
+          order_date, brand, delivery_date, origin_label, card_alert, payment_method, bank_reference,
+          guide_template_key, general_notes, shipping_value, discount_value,
+          invoice_number, invoice_date, invoice_value, status, created_by)
+         VALUES (?, 'return', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, '', NULL, 0, 'received', ?)`
+      ).run(
+        business.id,
+        sourceOrder.id,
+        orderNumber,
+        sourceOrder.client_id,
+        sourceOrder.seller_user_id || null,
+        req.body.order_date || new Date().toISOString().slice(0, 10),
+        sourceOrder.brand || '',
+        sourceOrder.delivery_date || '',
+        sourceOrder.origin_label || '',
+        sourceOrder.card_alert || '',
+        sourceOrder.payment_method || '',
+        sourceOrder.bank_reference || '',
+        sourceOrder.guide_template_key || sourceOrder.client_guide_template_key || '',
+        `Devolucion generada desde ${sourceOrder.order_number}`,
+        req.user.username || req.user.role
+      );
+      returnOrderId = Number(orderResult.lastInsertRowid);
+      insertedModels = insertModels(db, business.id, returnOrderId, models, nextCardNumber);
+      const insertedBySource = new Map(insertedModels.map((item) => [Number(item.source_id), Number(item.id)]));
+      const insertAllocation = db.prepare(
+        `INSERT INTO production_return_allocations
+         (establishment_id, return_order_id, return_model_id, source_order_id, source_model_id,
+          size, destination, quantity)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      for (const item of allocations) {
+        insertAllocation.run(
+          business.id,
+          returnOrderId,
+          insertedBySource.get(item.model_id),
+          sourceOrder.id,
+          item.model_id,
+          item.size,
+          item.destination,
+          item.quantity
+        );
+      }
+    })();
+    audit(req, 'create', 'return_order', returnOrderId, `${orderNumber} desde ${sourceOrder.order_number}`);
+    res.status(201).json(getOrder(returnOrderId, req));
+  });
+
   app.post('/api/producalza/orders', requireProductionUser, (req, res) => {
     const business = ensureProductionBusiness(req, res);
     if (!business) return;
@@ -2597,6 +2817,7 @@ function insertModels(db, establishmentId, orderId, models, nextCardNumber) {
      (establishment_id, model_id, size, quantity)
      VALUES (?, ?, ?, ?)`
   );
+  const inserted = [];
   for (const model of models) {
     const cardNumber = model.card_number || nextCardNumber(establishmentId);
     const result = insertModel.run(
@@ -2615,7 +2836,9 @@ function insertModels(db, establishmentId, orderId, models, nextCardNumber) {
     for (const [size, quantity] of Object.entries(model.sizes)) {
       insertSize.run(establishmentId, result.lastInsertRowid, Number(size), Number(quantity));
     }
+    inserted.push({ source_id: model.id || null, id: Number(result.lastInsertRowid) });
   }
+  return inserted;
 }
 
 function syncOrderStatus(db, orderId, establishmentId) {
