@@ -164,6 +164,7 @@ export function initProducalzaDb(db) {
       note_number INTEGER NOT NULL DEFAULT 1,
       note_type TEXT NOT NULL DEFAULT 'sent' CHECK (note_type IN ('sent', 'pending')),
       title TEXT,
+      destination TEXT,
       model_ids_json TEXT NOT NULL DEFAULT '[]',
       model_prices_json TEXT NOT NULL DEFAULT '{}',
       shipping_value REAL NOT NULL DEFAULT 0,
@@ -347,6 +348,7 @@ export function initProducalzaDb(db) {
   addColumnIfMissing(db, 'production_orders', 'parent_order_id', 'INTEGER');
   addColumnIfMissing(db, 'production_orders', 'guide_template_key', 'TEXT');
   addColumnIfMissing(db, 'production_orders', 'sample_destination', 'TEXT');
+  addColumnIfMissing(db, 'production_delivery_notes', 'destination', 'TEXT');
   addColumnIfMissing(db, 'production_orders', 'delivery_date', 'TEXT');
   addColumnIfMissing(db, 'production_orders', 'origin_label', 'TEXT');
   addColumnIfMissing(db, 'production_orders', 'card_alert', 'TEXT');

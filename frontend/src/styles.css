@@ -2850,6 +2850,13 @@ td {
   border-color: #f59e0b;
 }
 
+.prod-saved-note-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .prod-saved-delivery-notes article span {
   color: #64748b;
   display: block;
@@ -2895,8 +2902,36 @@ td {
 
 .prod-return-form-panel,
 .prod-return-detail-panel,
+.prod-guide-destination-panel,
 .prod-returns-report {
   border-color: #f3c06b;
+}
+
+.prod-guide-destination-list {
+  display: grid;
+  gap: 10px;
+}
+
+.prod-guide-destination-list article {
+  align-items: center;
+  background: #fffaf0;
+  border: 1px solid #fed7aa;
+  border-radius: 12px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 12px;
+}
+
+.prod-guide-destination-list strong,
+.prod-guide-destination-list span {
+  display: block;
+}
+
+.prod-guide-destination-list span {
+  color: #9a3412;
+  font-size: 0.82rem;
+  margin-top: 3px;
 }
 
 .prod-return-form-help {

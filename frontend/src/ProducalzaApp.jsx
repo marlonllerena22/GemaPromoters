@@ -144,6 +144,8 @@ const RETURN_DESTINATIONS = [
   'Local Marjorie Botas Valle',
   'Sebastians'
 ];
+const MARJORIE_GUIDE_TEMPLATE_KEY = 'standard-marjorie';
+const SEBASTIANS_GUIDE_TEMPLATE_KEY = 'standard-c-andrade';
 
 const emptyPayment = {
   payment_type: 'abono',
@@ -264,7 +266,67 @@ function deliveryTotal(form) {
   return Math.max(0, deliverySubtotal(form) + Number(form.shipping_value || 0) - deliveryDiscountAmount(form));
 }
 
+function guideTemplateKeyForDestination(destination) {
+  const text = normalizeText(destination);
+  if (text.includes('sebastian')) return SEBASTIANS_GUIDE_TEMPLATE_KEY;
+  if (text.includes('marjorie')) return MARJORIE_GUIDE_TEMPLATE_KEY;
+  return '';
+}
+
+function shortDestinationName(destination) {
+  return String(destination || '')
+    .replace(/^Local\s+/i, '')
+    .replace(/^Marjorie Botas\s+/i, 'Marjorie ')
+    .trim();
+}
+
+function returnDestinationsForOrder(order) {
+  return [...new Set((order.return_allocations || []).map((item) => item.destination).filter(Boolean))];
+}
+
+function orderForReturnDestination(order, destination, note = null) {
+  const allocations = (order.return_allocations || []).filter((item) => item.destination === destination);
+  if (!allocations.length) return order;
+  const prices = note?.model_prices || {};
+  const byModel = new Map();
+  for (const allocation of allocations) {
+    const modelId = Number(allocation.return_model_id);
+    const baseModel = (order.models || []).find((model) => Number(model.id) === modelId);
+    if (!baseModel) continue;
+    if (!byModel.has(modelId)) {
+      byModel.set(modelId, {
+        ...baseModel,
+        unit_price: prices[modelId] ?? baseModel.unit_price,
+        sizes: Object.fromEntries(SIZES.map((size) => [size, 0])),
+        total_pairs: 0
+      });
+    }
+    const model = byModel.get(modelId);
+    const size = Number(allocation.size);
+    const quantity = Number(allocation.quantity || 0);
+    model.sizes[size] = Number(model.sizes[size] || 0) + quantity;
+    model.total_pairs += quantity;
+  }
+  return {
+    ...order,
+    client_name: destination,
+    business_name: destination,
+    guide_template_key: guideTemplateKeyForDestination(destination) || order.guide_template_key,
+    client_guide_logo_url: '',
+    shipping_value: note?.shipping_value ?? order.shipping_value ?? 0,
+    discount_value: note?.discount_value ?? order.discount_value ?? 0,
+    delivery_note_title: note?.title || `Nota de devolucion - ${destination}`,
+    delivery_note_number: note?.note_number,
+    delivery_note_destination: destination,
+    general_notes: [order.general_notes, `Devolucion recibida desde ${order.client_name || 'cliente'}`].filter(Boolean).join(' / '),
+    models: [...byModel.values()]
+  };
+}
+
 function deliveryOrderFromNote(order, note) {
+  if (order.order_type === 'return' && note?.destination) {
+    return orderForReturnDestination(order, note.destination, note);
+  }
   const modelIds = new Set((note.model_ids || []).map((id) => Number(id)));
   const prices = note.model_prices || {};
   return {
@@ -704,11 +766,17 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
     }
   }
 
-  async function preparePrint(orderId, type, modelId = null, orderOverride = null) {
-    const order = orderOverride || (selectedOrder?.id === orderId
+  async function preparePrint(orderId, type, modelId = null, orderOverride = null, options = {}) {
+    const rawOrder = orderOverride || (selectedOrder?.id === orderId
       ? selectedOrder
       : await api(scope(`/producalza/orders/${orderId}`)));
-    const guideTemplateKey = resolveGuideTemplateKey(order, guideTemplates);
+    const localSampleGuideKey = rawOrder.is_sample ? guideTemplateKeyForDestination(rawOrder.sample_destination) : '';
+    const order = type === 'guides' && localSampleGuideKey
+      ? { ...rawOrder, guide_template_key: localSampleGuideKey, client_guide_logo_url: '' }
+      : rawOrder;
+    const guideTemplateKey = options.guideTemplateKey
+      || localSampleGuideKey
+      || resolveGuideTemplateKey(order, guideTemplates);
     if (type === 'guides' && !guideTemplateKey) {
       setError('Asigna un formato de guia al cliente o al pedido antes de imprimir.');
       return;
@@ -843,7 +911,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
           setError={setError}
           onBack={() => setView('orders')}
           onEdit={() => editOrder(selectedOrder.id)}
-          onPrint={(type, modelId, orderOverride) => preparePrint(selectedOrder.id, type, modelId, orderOverride)}
+          onPrint={(type, modelId, orderOverride, options) => preparePrint(selectedOrder.id, type, modelId, orderOverride, options)}
           onUpdated={async (message = 'Pedido actualizado') => {
             const updatedOrder = await api(scope(`/producalza/orders/${selectedOrder.id}`));
             setSelectedOrder(updatedOrder);
@@ -1493,6 +1561,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
   const [dirtyIds, setDirtyIds] = useState([]);
   const [saving, setSaving] = useState(false);
   const [showDeliveryEditor, setShowDeliveryEditor] = useState(false);
+  const [showGuidePicker, setShowGuidePicker] = useState(false);
   const [deliverySaving, setDeliverySaving] = useState(false);
   const [deliveryForm, setDeliveryForm] = useState(() => deliveryValuesFromOrder(order));
   const [pendingNoteEdits, setPendingNoteEdits] = useState({});
@@ -1520,6 +1589,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
     setDeliveryForm(deliveryValuesFromOrder(order));
     setPendingNoteEdits({});
     setShowDeliveryEditor(false);
+    setShowGuidePicker(false);
     setPaymentForm(emptyPayment);
     setUpcomingPaymentForm(emptyUpcomingPayment);
     setPaymentSummaryForm(paymentSummaryValues(order.payments || []));
@@ -1555,6 +1625,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
   const deliveryNotes = order.delivery_notes || [];
   const isReturnOrder = order.order_type === 'return';
   const isSampleOrder = Boolean(order.is_sample);
+  const returnDestinations = isReturnOrder ? returnDestinationsForOrder(order) : [];
 
   function deriveStatus(model) {
     if (model.process_finished) return 'finished';
@@ -1793,6 +1864,18 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
     }
   }
 
+  function printGuidesForNote(note) {
+    const noteOrder = deliveryOrderFromNote(order, note);
+    const guideTemplateKey = note.destination ? guideTemplateKeyForDestination(note.destination) : '';
+    onPrint('guides', null, noteOrder, guideTemplateKey ? { guideTemplateKey } : {});
+  }
+
+  function printGuidesForReturnDestination(destination) {
+    const destinationOrder = orderForReturnDestination(order, destination);
+    const guideTemplateKey = guideTemplateKeyForDestination(destination);
+    onPrint('guides', null, destinationOrder, guideTemplateKey ? { guideTemplateKey } : {});
+  }
+
   async function saveInvoice() {
     try {
       await api(scope(`/producalza/orders/${order.id}/invoice`), {
@@ -1925,7 +2008,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
           <button className="prod-secondary-button" onClick={() => setShowInvoiceForm((value) => !value)}><FilePlus2 size={17} />Registrar factura</button>
           <button className="prod-primary-button" onClick={() => onPrint('sheets')}><Printer size={17} />{isReturnOrder ? 'Hoja de devolucion' : isSampleOrder ? 'Hoja de muestra' : 'Hoja unica del pedido'}</button>
           <button className="prod-primary-button dark" onClick={() => onPrint('cards')}><Printer size={17} />Tarjetas</button>
-          <button className="prod-primary-button guide" onClick={() => onPrint('guides')}><Tags size={17} />Guias para cajas</button>
+          <button className="prod-primary-button guide" onClick={() => isReturnOrder ? setShowGuidePicker((value) => !value) : onPrint('guides')}><Tags size={17} />Guias para cajas</button>
           <button className="prod-primary-button whatsapp prod-desktop-whatsapp-action" disabled={sendingPdf} onClick={sendOrderToClient}>
             {sendingPdf ? <FileDown size={17} /> : <MessageCircle size={17} />}
             {sendingPdf ? 'Descargando PDF...' : 'Enviar pedido por WhatsApp'}
@@ -1957,6 +2040,27 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
           )}
         </div>
       </section>
+      {showGuidePicker && isReturnOrder && (
+        <section className="prod-panel prod-guide-destination-panel">
+          <div className="prod-panel-title">
+            <div><span>Guias por local</span><h2>Selecciona que local imprimir</h2></div>
+          </div>
+          <div className="prod-guide-destination-list">
+            {returnDestinations.map((destination) => (
+              <article key={destination}>
+                <div>
+                  <strong>{shortDestinationName(destination)}</strong>
+                  <span>{guideTemplateKeyForDestination(destination) === SEBASTIANS_GUIDE_TEMPLATE_KEY ? 'Formato Sebastians' : 'Formato Marjorie Botas'}</span>
+                </div>
+                <button className="prod-secondary-button compact" onClick={() => printGuidesForReturnDestination(destination)}>
+                  <Tags size={16} />Imprimir guias
+                </button>
+              </article>
+            ))}
+            {!returnDestinations.length && <div className="prod-empty">Esta devolucion aun no tiene locales asignados.</div>}
+          </div>
+        </section>
+      )}
       {isReturnOrder && (
         <section className="prod-panel prod-return-detail-panel">
           <div className="prod-panel-title">
@@ -2046,7 +2150,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
                 <article key={note.id} className={note.note_type === 'pending' ? 'pending' : ''}>
                   <div>
                     <strong>Nota #{note.note_number} · {note.title || 'Nota de entrega'}</strong>
-                    <span>{displayMoney(note.total_value)} · {displayDate(note.created_at?.slice(0, 10))}</span>
+                    <span>{displayMoney(note.total_value)} · {displayDate(note.created_at?.slice(0, 10))}{note.destination ? ` · ${shortDestinationName(note.destination)}` : ''}</span>
                   </div>
                   {note.note_type === 'pending' && (
                     <div className="prod-pending-note-edit">
@@ -2065,20 +2169,30 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
                     </div>
                   )}
                   {note.note_type === 'pending' ? (
-                    <button
-                      className="prod-secondary-button compact"
-                      disabled={deliverySaving}
-                      onClick={() => savePendingNoteAndPrint(note)}
-                    >
-                      <Printer size={16} />Guardar e imprimir
-                    </button>
+                    <div className="prod-saved-note-actions">
+                      <button
+                        className="prod-secondary-button compact"
+                        disabled={deliverySaving}
+                        onClick={() => savePendingNoteAndPrint(note)}
+                      >
+                        <Printer size={16} />Guardar e imprimir
+                      </button>
+                      <button className="prod-secondary-button compact" onClick={() => printGuidesForNote(note)}>
+                        <Tags size={16} />Guias
+                      </button>
+                    </div>
                   ) : (
-                    <button
-                      className="prod-secondary-button compact"
-                      onClick={() => onPrint('delivery-note', null, deliveryOrderFromNote(order, note))}
-                    >
-                      <Printer size={16} />Imprimir
-                    </button>
+                    <div className="prod-saved-note-actions">
+                      <button
+                        className="prod-secondary-button compact"
+                        onClick={() => onPrint('delivery-note', null, deliveryOrderFromNote(order, note))}
+                      >
+                        <Printer size={16} />Imprimir
+                      </button>
+                      <button className="prod-secondary-button compact" onClick={() => printGuidesForNote(note)}>
+                        <Tags size={16} />Guias
+                      </button>
+                    </div>
                   )}
                 </article>
               ))}

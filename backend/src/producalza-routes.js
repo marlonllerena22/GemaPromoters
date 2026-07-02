@@ -736,19 +736,20 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     return Number(row?.next_number || 1);
   }
 
-  function createDeliveryNoteRecord({ orderId, businessId, noteType, title, modelIds, prices, shippingValue, discountValue, totalValue, userLabel }) {
+  function createDeliveryNoteRecord({ orderId, businessId, noteType, title, destination = '', modelIds, prices, shippingValue, discountValue, totalValue, userLabel }) {
     const noteNumber = nextDeliveryNoteNumber(orderId, businessId);
     db.prepare(
       `INSERT INTO production_delivery_notes
-       (establishment_id, order_id, note_number, note_type, title, model_ids_json,
+       (establishment_id, order_id, note_number, note_type, title, destination, model_ids_json,
         model_prices_json, shipping_value, discount_value, total_value, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       businessId,
       orderId,
       noteNumber,
       noteType,
       title,
+      destination,
       JSON.stringify(modelIds),
       JSON.stringify(prices),
       shippingValue,
@@ -2615,6 +2616,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const orderNumber = nextReturnNumber(business.id);
     let returnOrderId;
     let insertedModels = [];
+    const userLabel = req.user.username || req.user.role;
 
     db.transaction(() => {
       const orderResult = db.prepare(
@@ -2639,7 +2641,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         sourceOrder.bank_reference || '',
         sourceOrder.guide_template_key || sourceOrder.client_guide_template_key || '',
         `Devolucion generada desde ${sourceOrder.order_number}`,
-        req.user.username || req.user.role
+        userLabel
       );
       returnOrderId = Number(orderResult.lastInsertRowid);
       insertedModels = insertModels(db, business.id, returnOrderId, models, nextCardNumber);
@@ -2661,6 +2663,38 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
           item.destination,
           item.quantity
         );
+      }
+
+      const destinations = [...new Set(allocations.map((item) => item.destination))];
+      for (const destination of destinations) {
+        const destinationAllocations = allocations.filter((item) => item.destination === destination);
+        const returnModelIds = [...new Set(destinationAllocations
+          .map((item) => insertedBySource.get(item.model_id))
+          .filter(Boolean))];
+        const pricesByReturnModel = {};
+        let totalValue = 0;
+        for (const item of destinationAllocations) {
+          const returnModelId = insertedBySource.get(item.model_id);
+          const sourceModel = sourceModels.get(item.model_id);
+          const unitPrice = moneyValue(sourceModel?.unit_price);
+          if (returnModelId) pricesByReturnModel[returnModelId] = unitPrice;
+          totalValue += Number(item.quantity || 0) * unitPrice;
+        }
+        const noteTotal = moneyValue(totalValue);
+        createDeliveryNoteRecord({
+          orderId: returnOrderId,
+          businessId: business.id,
+          noteType: 'pending',
+          title: `Nota de devolucion - ${destination}`,
+          destination,
+          modelIds: returnModelIds,
+          prices: pricesByReturnModel,
+          shippingValue: 0,
+          discountValue: 0,
+          totalValue: noteTotal,
+          userLabel
+        });
+        addPendingBalance(returnOrderId, business.id, noteTotal, userLabel);
       }
     })();
     audit(req, 'create', 'return_order', returnOrderId, `${orderNumber} desde ${sourceOrder.order_number}`);
