@@ -269,6 +269,20 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     return `${prefix}${String(lastNumber + 1).padStart(4, '0')}`;
   }
 
+  function nextSampleNumber(establishmentIdValue) {
+    const year = new Date().getFullYear();
+    const prefix = `MUE-${year}-`;
+    const latest = db
+      .prepare(
+        `SELECT order_number FROM production_orders
+         WHERE establishment_id = ? AND order_number LIKE ?
+         ORDER BY id DESC LIMIT 1`
+      )
+      .get(establishmentIdValue, `${prefix}%`);
+    const lastNumber = Number(String(latest?.order_number || '').split('-').pop()) || 0;
+    return `${prefix}${String(lastNumber + 1).padStart(4, '0')}`;
+  }
+
   function nextCardNumber(establishmentIdValue) {
     const row = db
       .prepare("SELECT value FROM production_settings WHERE establishment_id = ? AND key = 'next_card_number'")
@@ -1183,13 +1197,18 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
          SUM(CASE WHEN orders.status = 'in_production' THEN 1 ELSE 0 END) AS in_production,
          SUM(CASE WHEN orders.status IN ('finished', 'delivered') THEN 1 ELSE 0 END) AS finished
        FROM production_orders AS orders
-       WHERE orders.establishment_id = ? AND orders.deleted_at IS NULL ${visibility.sql}`
+       WHERE orders.establishment_id = ? AND orders.deleted_at IS NULL
+         AND orders.order_type = 'order'
+         AND COALESCE(orders.is_sample, 0) = 0
+         ${visibility.sql}`
     ).get(...params);
     const pendingPairs = db.prepare(
       `SELECT COALESCE(SUM(models.total_pairs), 0) AS total
        FROM production_order_models AS models
        JOIN production_orders AS orders ON orders.id = models.order_id
        WHERE orders.establishment_id = ? AND orders.deleted_at IS NULL
+         AND orders.order_type = 'order'
+         AND COALESCE(orders.is_sample, 0) = 0
          AND models.status NOT IN ('finished', 'delivered', 'cancelled') ${visibility.sql}`
     ).get(...params).total;
     const bySeller = db.prepare(
@@ -1198,7 +1217,10 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
        FROM production_orders AS orders
        LEFT JOIN production_users AS users ON users.id = orders.seller_user_id
        LEFT JOIN production_order_models AS models ON models.order_id = orders.id
-       WHERE orders.establishment_id = ? AND orders.deleted_at IS NULL ${visibility.sql}
+       WHERE orders.establishment_id = ? AND orders.deleted_at IS NULL
+         AND orders.order_type = 'order'
+         AND COALESCE(orders.is_sample, 0) = 0
+         ${visibility.sql}
        GROUP BY orders.seller_user_id
       ORDER BY total_pairs DESC`
     ).all(...params);
@@ -1780,8 +1802,35 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
        LEFT JOIN production_order_models AS models ON models.order_id = orders.id
        WHERE orders.establishment_id = ?
          AND orders.deleted_at IS NULL
+         AND orders.order_type = 'order'
+         AND COALESCE(orders.is_sample, 0) = 0
          AND orders.order_date BETWEEN ? AND ?
        GROUP BY orders.id`
+    ).all(business.id, dateFrom, dateTo);
+
+    const liveReturnObservations = db.prepare(
+      `SELECT 'live-return-' || returns.id AS source_key,
+              substr(returns.order_date, 1, 7) AS report_month,
+              returns.order_date AS entry_date,
+              clients.name AS client_name,
+              NULL AS entered_pairs,
+              'DEVOLUCION: ' || COALESCE(SUM(allocations.quantity), 0) || ' pares'
+                || CASE
+                     WHEN GROUP_CONCAT(DISTINCT allocations.destination) IS NULL THEN ''
+                     ELSE ' / ' || GROUP_CONCAT(DISTINCT allocations.destination)
+                   END AS observations,
+              NULL AS dispatched_pairs,
+              NULL AS dispatched_date,
+              'Sistema Producalza' AS source,
+              'devolucion' AS row_source
+       FROM production_orders AS returns
+       JOIN production_clients AS clients ON clients.id = returns.client_id
+       LEFT JOIN production_return_allocations AS allocations ON allocations.return_order_id = returns.id
+       WHERE returns.establishment_id = ?
+         AND returns.deleted_at IS NULL
+         AND returns.order_type = 'return'
+         AND returns.order_date BETWEEN ? AND ?
+       GROUP BY returns.id`
     ).all(business.id, dateFrom, dateTo);
 
     const liveDispatched = db.prepare(
@@ -1800,11 +1849,13 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
        JOIN production_clients AS clients ON clients.id = orders.client_id
        WHERE orders.establishment_id = ?
          AND orders.deleted_at IS NULL
+         AND orders.order_type = 'order'
+         AND COALESCE(orders.is_sample, 0) = 0
          AND models.status IN ('finished', 'delivered')
          AND date(COALESCE(orders.dispatched_date, models.updated_at)) BETWEEN ? AND ?`
     ).all(business.id, dateFrom, dateTo);
 
-    const rows = [...historicalRows, ...liveEntered, ...liveDispatched]
+    const rows = [...historicalRows, ...liveEntered, ...liveReturnObservations, ...liveDispatched]
       .filter((row) => row.client_name)
       .sort((left, right) => {
         const leftDate = left.entry_date || left.dispatched_date || '';
@@ -1940,22 +1991,29 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const dateTo = normalizeDateInput(req.query.date_to, today);
     const filters = ["returns.order_type = 'return'", 'returns.deleted_at IS NULL'];
     const params = [business.id];
+    const sampleFilters = ["samples.order_type = 'order'", 'COALESCE(samples.is_sample, 0) = 1', 'samples.deleted_at IS NULL'];
+    const sampleParams = [business.id];
     if (dateFrom) {
       filters.push('returns.order_date >= ?');
       params.push(dateFrom);
+      sampleFilters.push('samples.order_date >= ?');
+      sampleParams.push(dateFrom);
     }
     if (dateTo) {
       filters.push('returns.order_date <= ?');
       params.push(dateTo);
+      sampleFilters.push('samples.order_date <= ?');
+      sampleParams.push(dateTo);
     }
-    const rows = db.prepare(
+    const returnRows = db.prepare(
       `SELECT returns.id, returns.order_number, returns.order_date, returns.invoice_value,
               source.order_number AS source_order_number,
               clients.name AS client_name, clients.city,
               models.model_code, models.color, models.material, models.unit_price,
               allocations.size, allocations.destination, allocations.quantity,
               COALESCE(payments.paid_total, 0) AS paid_total,
-              COALESCE(payments.pending_total, 0) AS pending_total
+              COALESCE(payments.pending_total, 0) AS pending_total,
+              'return' AS row_kind
        FROM production_return_allocations AS allocations
        JOIN production_orders AS returns ON returns.id = allocations.return_order_id
        LEFT JOIN production_orders AS source ON source.id = returns.parent_order_id
@@ -1973,16 +2031,49 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
          AND ${filters.join(' AND ')}
        ORDER BY returns.order_date DESC, returns.id DESC, allocations.destination, models.id, allocations.size`
     ).all(business.id, ...params);
-    const normalized = rows.map((row) => ({
+    const sampleRows = db.prepare(
+      `SELECT samples.id, samples.order_number, samples.order_date, samples.invoice_value,
+              NULL AS source_order_number,
+              clients.name AS client_name, clients.city,
+              models.model_code, models.color, models.material, models.unit_price,
+              sizes.size, samples.sample_destination AS destination, sizes.quantity,
+              COALESCE(payments.paid_total, 0) AS paid_total,
+              COALESCE(payments.pending_total, 0) AS pending_total,
+              'sample' AS row_kind
+       FROM production_model_sizes AS sizes
+       JOIN production_order_models AS models ON models.id = sizes.model_id
+       JOIN production_orders AS samples ON samples.id = models.order_id
+       JOIN production_clients AS clients ON clients.id = samples.client_id
+       LEFT JOIN (
+         SELECT order_id,
+                SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END) AS paid_total,
+                SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END) AS pending_total
+         FROM production_order_payments
+         WHERE establishment_id = ?
+         GROUP BY order_id
+       ) AS payments ON payments.order_id = samples.id
+       WHERE samples.establishment_id = ?
+         AND sizes.quantity > 0
+         AND COALESCE(samples.sample_destination, '') <> ''
+         AND ${sampleFilters.join(' AND ')}
+       ORDER BY samples.order_date DESC, samples.id DESC, samples.sample_destination, models.id, sizes.size`
+    ).all(business.id, ...sampleParams);
+    const normalized = [...returnRows, ...sampleRows].map((row) => ({
       ...row,
+      row_label: row.row_kind === 'sample' ? 'Muestra' : 'Devolucion',
       line_total: moneyValue(Number(row.quantity || 0) * Number(row.unit_price || 0))
-    }));
+    })).sort((left, right) =>
+      String(right.order_date || '').localeCompare(String(left.order_date || '')) ||
+      Number(right.id || 0) - Number(left.id || 0)
+    );
     const byDestination = RETURN_DESTINATIONS.map((destination) => {
       const items = normalized.filter((row) => row.destination === destination);
       return {
         destination,
         pairs: items.reduce((sum, row) => sum + Number(row.quantity || 0), 0),
-        value: items.reduce((sum, row) => sum + Number(row.line_total || 0), 0)
+        value: items.reduce((sum, row) => sum + Number(row.line_total || 0), 0),
+        returns: items.filter((row) => row.row_kind === 'return').reduce((sum, row) => sum + Number(row.quantity || 0), 0),
+        samples: items.filter((row) => row.row_kind === 'sample').reduce((sum, row) => sum + Number(row.quantity || 0), 0)
       };
     });
     res.json({
@@ -1992,6 +2083,8 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       by_destination: byDestination,
       totals: {
         pairs: normalized.reduce((sum, row) => sum + Number(row.quantity || 0), 0),
+        returns: normalized.filter((row) => row.row_kind === 'return').reduce((sum, row) => sum + Number(row.quantity || 0), 0),
+        samples: normalized.filter((row) => row.row_kind === 'sample').reduce((sum, row) => sum + Number(row.quantity || 0), 0),
         value: normalized.reduce((sum, row) => sum + Number(row.line_total || 0), 0),
         pending_returns: [...new Map(normalized.map((row) => [row.id, row])).values()]
           .reduce((sum, row) => sum + Number(row.pending_total || 0), 0)
@@ -2314,6 +2407,45 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     res.json(getOrder(order.id, req));
   });
 
+  app.patch('/api/producalza/orders/:id/delivery-notes/:noteId', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const order = getOrder(req.params.id, req);
+    if (!order) return res.status(404).json({ message: 'Pedido no encontrado' });
+    const note = db.prepare(
+      `SELECT * FROM production_delivery_notes
+       WHERE id = ? AND order_id = ? AND establishment_id = ?`
+    ).get(req.params.noteId, order.id, business.id);
+    if (!note) return res.status(404).json({ message: 'Nota de entrega no encontrada' });
+
+    const shippingValue = moneyValue(req.body.shipping_value);
+    const discountValue = moneyValue(req.body.discount_value);
+    const modelIds = new Set(parseJsonValue(note.model_ids_json, []).map((id) => Number(id)));
+    const pricesById = parseJsonValue(note.model_prices_json, {});
+    const noteSubtotal = order.models
+      .filter((model) => modelIds.has(Number(model.id)))
+      .reduce((sum, model) => {
+        const unitPrice = moneyValue(pricesById[Number(model.id)] ?? model.unit_price);
+        return sum + Number(model.total_pairs || 0) * unitPrice;
+      }, 0);
+    const newTotal = moneyValue(Math.max(0, noteSubtotal + shippingValue - discountValue));
+    const oldTotal = moneyValue(note.total_value);
+    const delta = moneyValue(newTotal - oldTotal);
+    const userLabel = req.user?.username || req.user?.role || 'system';
+
+    db.transaction(() => {
+      db.prepare(
+        `UPDATE production_delivery_notes
+         SET shipping_value = ?, discount_value = ?, total_value = ?
+         WHERE id = ? AND order_id = ? AND establishment_id = ?`
+      ).run(shippingValue, discountValue, newTotal, note.id, order.id, business.id);
+      if (delta > 0) addPendingBalance(order.id, business.id, delta, userLabel);
+      if (delta < 0) reducePendingBalance(order.id, business.id, Math.abs(delta));
+    })();
+    audit(req, 'update', 'delivery_note', note.id, `Nota ${note.note_number}`);
+    res.json(getOrder(order.id, req));
+  });
+
   app.patch('/api/producalza/orders/:id/delivery-note-values', requireProductionUser, (req, res) => {
     const business = ensureProductionBusiness(req, res);
     if (!business) return;
@@ -2489,9 +2621,9 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         `INSERT INTO production_orders
          (establishment_id, order_type, parent_order_id, order_number, client_id, seller_user_id,
           order_date, brand, delivery_date, origin_label, card_alert, payment_method, bank_reference,
-          guide_template_key, general_notes, shipping_value, discount_value,
+          guide_template_key, sample_destination, general_notes, shipping_value, discount_value,
           invoice_number, invoice_date, invoice_value, status, created_by)
-         VALUES (?, 'return', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, '', NULL, 0, 'received', ?)`
+         VALUES (?, 'return', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, 0, 0, '', NULL, 0, 'received', ?)`
       ).run(
         business.id,
         sourceOrder.id,
@@ -2552,20 +2684,26 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const sellerId = isProductionAdmin(req)
       ? Number(req.body.seller_user_id || 0) || null
       : req.user.productionUserId;
-    const orderNumber = nextOrderNumber(business.id);
+    const isSample = Boolean(req.body.is_sample);
+    const sampleDestination = String(req.body.sample_destination || '').trim();
+    if (isSample && !RETURN_DESTINATIONS.includes(sampleDestination)) {
+      return res.status(400).json({ message: 'Selecciona el local destino para el pedido de muestras.' });
+    }
+    const orderNumber = isSample ? nextSampleNumber(business.id) : nextOrderNumber(business.id);
     let orderId;
 
     db.transaction(() => {
       const orderResult = db.prepare(
         `INSERT INTO production_orders
-         (establishment_id, order_number, client_id, seller_user_id, order_date, brand,
+         (establishment_id, order_number, is_sample, client_id, seller_user_id, order_date, brand,
           delivery_date, origin_label, card_alert, payment_method, bank_reference,
-          guide_template_key, general_notes, shipping_value, discount_value,
+          guide_template_key, sample_destination, general_notes, shipping_value, discount_value,
           invoice_number, invoice_date, invoice_value, status, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         business.id,
         orderNumber,
+        isSample ? 1 : 0,
         client.id,
         sellerId,
         req.body.order_date || new Date().toISOString().slice(0, 10),
@@ -2576,6 +2714,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         String(req.body.payment_method || '').trim(),
         String(req.body.bank_reference || '').trim(),
         String(req.body.guide_template_key || '').trim(),
+        isSample ? sampleDestination : '',
         String(req.body.general_notes || '').trim(),
         moneyValue(req.body.shipping_value),
         moneyValue(req.body.discount_value),
@@ -2614,12 +2753,17 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const sellerId = isProductionAdmin(req)
       ? Number(req.body.seller_user_id || 0) || null
       : current.seller_user_id;
+    const isSample = current.order_type === 'return' ? Boolean(current.is_sample) : Boolean(req.body.is_sample);
+    const sampleDestination = String(req.body.sample_destination || current.sample_destination || '').trim();
+    if (isSample && current.order_type !== 'return' && !RETURN_DESTINATIONS.includes(sampleDestination)) {
+      return res.status(400).json({ message: 'Selecciona el local destino para el pedido de muestras.' });
+    }
 
     db.transaction(() => {
       db.prepare(
         `UPDATE production_orders SET client_id = ?, seller_user_id = ?, order_date = ?, brand = ?,
          delivery_date = ?, origin_label = ?, card_alert = ?, payment_method = ?, bank_reference = ?,
-         guide_template_key = ?, general_notes = ?, shipping_value = ?, discount_value = ?,
+         guide_template_key = ?, is_sample = ?, sample_destination = ?, general_notes = ?, shipping_value = ?, discount_value = ?,
          invoice_number = ?, invoice_date = ?, invoice_value = ?, status = ?,
          updated_at = datetime('now', 'localtime')
          WHERE id = ? AND establishment_id = ?`
@@ -2634,6 +2778,8 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         String(req.body.payment_method || '').trim(),
         String(req.body.bank_reference || '').trim(),
         String(req.body.guide_template_key || '').trim(),
+        isSample ? 1 : 0,
+        isSample ? sampleDestination : '',
         String(req.body.general_notes || '').trim(),
         moneyValue(req.body.shipping_value),
         moneyValue(req.body.discount_value),
@@ -2688,6 +2834,8 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
        JOIN production_clients AS clients ON clients.id = orders.client_id
        LEFT JOIN production_users AS users ON users.id = orders.seller_user_id
        WHERE orders.establishment_id = ? AND orders.deleted_at IS NULL
+         AND orders.order_type = 'order'
+         AND COALESCE(orders.is_sample, 0) = 0
          ${statusFilter} ${visibility.sql}
        ORDER BY CASE models.status
          WHEN 'received' THEN 1 WHEN 'reviewed' THEN 2 WHEN 'in_production' THEN 3

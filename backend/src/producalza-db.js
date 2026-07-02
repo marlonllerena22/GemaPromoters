@@ -65,6 +65,7 @@ export function initProducalzaDb(db) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       establishment_id INTEGER NOT NULL,
       order_type TEXT NOT NULL DEFAULT 'order' CHECK (order_type IN ('order', 'return')),
+      is_sample INTEGER NOT NULL DEFAULT 0 CHECK (is_sample IN (0, 1)),
       parent_order_id INTEGER,
       order_number TEXT,
       client_id INTEGER NOT NULL,
@@ -77,6 +78,7 @@ export function initProducalzaDb(db) {
       payment_method TEXT,
       bank_reference TEXT,
       guide_template_key TEXT,
+      sample_destination TEXT,
       general_notes TEXT,
       dispatched_date TEXT,
       shipping_value REAL NOT NULL DEFAULT 0,
@@ -341,8 +343,10 @@ export function initProducalzaDb(db) {
   addColumnIfMissing(db, 'production_clients', 'guide_template_key', 'TEXT');
   addColumnIfMissing(db, 'production_clients', 'guide_logo_url', 'TEXT');
   addColumnIfMissing(db, 'production_orders', 'order_type', "TEXT NOT NULL DEFAULT 'order'");
+  addColumnIfMissing(db, 'production_orders', 'is_sample', 'INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'production_orders', 'parent_order_id', 'INTEGER');
   addColumnIfMissing(db, 'production_orders', 'guide_template_key', 'TEXT');
+  addColumnIfMissing(db, 'production_orders', 'sample_destination', 'TEXT');
   addColumnIfMissing(db, 'production_orders', 'delivery_date', 'TEXT');
   addColumnIfMissing(db, 'production_orders', 'origin_label', 'TEXT');
   addColumnIfMissing(db, 'production_orders', 'card_alert', 'TEXT');

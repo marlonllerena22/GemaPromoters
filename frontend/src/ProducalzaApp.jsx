@@ -182,6 +182,8 @@ function emptyModel() {
 
 function emptyOrder() {
   return {
+    is_sample: false,
+    sample_destination: '',
     client_id: '',
     seller_user_id: '',
     order_date: new Date().toISOString().slice(0, 10),
@@ -1173,6 +1175,7 @@ function OrdersList({ orders, users, isAdmin, scope, onOpen, onEdit, onRefresh, 
                   <td>
                     <button className="prod-link-button" onClick={() => onOpen(order.id)}>{order.order_number}</button>
                     {order.order_type === 'return' && <small className="prod-return-chip">Devolucion de {order.parent_order_number || 'pedido'}</small>}
+                    {Boolean(order.is_sample) && <small className="prod-sample-chip">Muestra · {order.sample_destination || 'Sin destino'}</small>}
                   </td>
                   <td><strong>{order.client_name}</strong><small>{order.city}</small></td>
                   <td>{order.seller_name || 'Sin asignar'}</td>
@@ -1358,6 +1361,27 @@ function OrderForm({ clients, users, isAdmin, scope, initialOrder, onCancel, onS
               <div><span>Correo</span><strong>{selectedClient.email || 'No registrado'}</strong></div>
             </div>
           )}
+          <label>Tipo de pedido
+            <select
+              value={form.is_sample ? 'sample' : 'normal'}
+              onChange={(event) => setForm({
+                ...form,
+                is_sample: event.target.value === 'sample',
+                sample_destination: event.target.value === 'sample' ? form.sample_destination : ''
+              })}
+            >
+              <option value="normal">Pedido normal</option>
+              <option value="sample">Pedido de muestras</option>
+            </select>
+          </label>
+          {form.is_sample && (
+            <label>Local destino
+              <select value={form.sample_destination} onChange={(event) => setForm({ ...form, sample_destination: event.target.value })}>
+                <option value="">Seleccionar local</option>
+                {RETURN_DESTINATIONS.map((destination) => <option value={destination} key={destination}>{destination}</option>)}
+              </select>
+            </label>
+          )}
           <label>Fecha<input type="date" value={form.order_date} onChange={(event) => setForm({ ...form, order_date: event.target.value })} /></label>
           <label>Fecha de entrega<input value={form.delivery_date} onChange={(event) => setForm({ ...form, delivery_date: event.target.value })} /></label>
           {isAdmin && (
@@ -1471,6 +1495,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
   const [showDeliveryEditor, setShowDeliveryEditor] = useState(false);
   const [deliverySaving, setDeliverySaving] = useState(false);
   const [deliveryForm, setDeliveryForm] = useState(() => deliveryValuesFromOrder(order));
+  const [pendingNoteEdits, setPendingNoteEdits] = useState({});
   const [paymentForm, setPaymentForm] = useState(emptyPayment);
   const [upcomingPaymentForm, setUpcomingPaymentForm] = useState(emptyUpcomingPayment);
   const [paymentSummaryForm, setPaymentSummaryForm] = useState(() => paymentSummaryValues(order.payments || []));
@@ -1493,6 +1518,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
     setModels(order.models);
     setDirtyIds([]);
     setDeliveryForm(deliveryValuesFromOrder(order));
+    setPendingNoteEdits({});
     setShowDeliveryEditor(false);
     setPaymentForm(emptyPayment);
     setUpcomingPaymentForm(emptyUpcomingPayment);
@@ -1528,6 +1554,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
   const deliveryFormTotal = deliveryTotal(deliveryForm);
   const deliveryNotes = order.delivery_notes || [];
   const isReturnOrder = order.order_type === 'return';
+  const isSampleOrder = Boolean(order.is_sample);
 
   function deriveStatus(model) {
     if (model.process_finished) return 'finished';
@@ -1745,6 +1772,27 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
     }
   }
 
+  async function savePendingNoteAndPrint(note) {
+    const edit = pendingNoteEdits[note.id] || {};
+    setDeliverySaving(true);
+    try {
+      const updatedOrder = await api(scope(`/producalza/orders/${order.id}/delivery-notes/${note.id}`), {
+        method: 'PATCH',
+        body: JSON.stringify({
+          shipping_value: edit.shipping_value ?? note.shipping_value ?? 0,
+          discount_value: edit.discount_value ?? note.discount_value ?? 0
+        })
+      });
+      const updatedNote = (updatedOrder.delivery_notes || []).find((item) => Number(item.id) === Number(note.id));
+      await onUpdated('Nota pendiente actualizada');
+      onPrint('delivery-note', null, deliveryOrderFromNote(updatedOrder, updatedNote || note));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDeliverySaving(false);
+    }
+  }
+
   async function saveInvoice() {
     try {
       await api(scope(`/producalza/orders/${order.id}/invoice`), {
@@ -1871,11 +1919,11 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
         <div>
           <button className="prod-secondary-button" onClick={onEdit}><Pencil size={17} />Editar</button>
           <button className="prod-primary-button delivery" onClick={() => setShowDeliveryEditor((value) => !value)}><Printer size={17} />Nota de entrega</button>
-          {isAdmin && !isReturnOrder && (
+          {isAdmin && !isReturnOrder && !isSampleOrder && (
             <button className="prod-secondary-button return" onClick={() => setShowReturnForm((value) => !value)}><PackageCheck size={17} />Registrar devolucion</button>
           )}
           <button className="prod-secondary-button" onClick={() => setShowInvoiceForm((value) => !value)}><FilePlus2 size={17} />Registrar factura</button>
-          <button className="prod-primary-button" onClick={() => onPrint('sheets')}><Printer size={17} />{isReturnOrder ? 'Hoja de devolucion' : 'Hoja unica del pedido'}</button>
+          <button className="prod-primary-button" onClick={() => onPrint('sheets')}><Printer size={17} />{isReturnOrder ? 'Hoja de devolucion' : isSampleOrder ? 'Hoja de muestra' : 'Hoja unica del pedido'}</button>
           <button className="prod-primary-button dark" onClick={() => onPrint('cards')}><Printer size={17} />Tarjetas</button>
           <button className="prod-primary-button guide" onClick={() => onPrint('guides')}><Tags size={17} />Guias para cajas</button>
           <button className="prod-primary-button whatsapp prod-desktop-whatsapp-action" disabled={sendingPdf} onClick={sendOrderToClient}>
@@ -1891,9 +1939,9 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
       </div>
       <section className="prod-order-hero">
         <div>
-          <span>{isReturnOrder ? 'Devolucion' : 'Pedido'}</span>
+          <span>{isReturnOrder ? 'Devolucion' : isSampleOrder ? 'Pedido de muestras' : 'Pedido'}</span>
           <h2>{order.order_number}</h2>
-          <p>{order.client_name} · {order.city || 'Sin ciudad'}{isReturnOrder && order.parent_order_number ? ` · Origen ${order.parent_order_number}` : ''}</p>
+          <p>{order.client_name} · {order.city || 'Sin ciudad'}{isReturnOrder && order.parent_order_number ? ` · Origen ${order.parent_order_number}` : ''}{isSampleOrder && order.sample_destination ? ` · Destino ${order.sample_destination}` : ''}</p>
         </div>
         <div>
           <StatusBadge status={order.status} />
@@ -2000,12 +2048,38 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
                     <strong>Nota #{note.note_number} · {note.title || 'Nota de entrega'}</strong>
                     <span>{displayMoney(note.total_value)} · {displayDate(note.created_at?.slice(0, 10))}</span>
                   </div>
-                  <button
-                    className="prod-secondary-button compact"
-                    onClick={() => onPrint('delivery-note', null, deliveryOrderFromNote(order, note))}
-                  >
-                    <Printer size={16} />Imprimir
-                  </button>
+                  {note.note_type === 'pending' && (
+                    <div className="prod-pending-note-edit">
+                      <label>Envio 2da nota
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={pendingNoteEdits[note.id]?.shipping_value ?? note.shipping_value ?? ''}
+                          onChange={(event) => setPendingNoteEdits((current) => ({
+                            ...current,
+                            [note.id]: { ...(current[note.id] || {}), shipping_value: event.target.value }
+                          }))}
+                        />
+                      </label>
+                    </div>
+                  )}
+                  {note.note_type === 'pending' ? (
+                    <button
+                      className="prod-secondary-button compact"
+                      disabled={deliverySaving}
+                      onClick={() => savePendingNoteAndPrint(note)}
+                    >
+                      <Printer size={16} />Guardar e imprimir
+                    </button>
+                  ) : (
+                    <button
+                      className="prod-secondary-button compact"
+                      onClick={() => onPrint('delivery-note', null, deliveryOrderFromNote(order, note))}
+                    >
+                      <Printer size={16} />Imprimir
+                    </button>
+                  )}
                 </article>
               ))}
             </div>
@@ -2084,6 +2158,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
           <Detail label="Fecha" value={displayDate(order.order_date)} />
           <Detail label="Fecha de entrega" value={order.delivery_date ? displayDate(order.delivery_date) : ''} />
           <Detail label="Marca" value={order.brand} />
+          {isSampleOrder && <Detail label="Local destino muestra" value={order.sample_destination} />}
           <Detail label="Etiqueta de origen" value={order.origin_label} />
           <Detail label="Texto rojo tarjeta" value={order.card_alert} />
           <Detail
@@ -3514,11 +3589,11 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
                 </thead>
                 <tbody>
                   {visibleMonthlyRows.map((row) => (
-                    <tr key={row.source_key}>
+                    <tr key={row.source_key} className={row.row_source === 'devolucion' ? 'prod-return-report-row' : ''}>
                       <td>{row.entry_date ? displayDate(row.entry_date) : ''}</td>
                       <td><strong>{row.client_name}</strong></td>
                       <td>{row.entered_pairs || ''}</td>
-                      <td>{row.observations || ''}</td>
+                      <td>{row.row_source === 'devolucion' ? <strong>{row.observations || 'DEVOLUCION'}</strong> : row.observations || ''}</td>
                       <td>{row.dispatched_pairs || ''}</td>
                       <td>{row.dispatched_date ? displayDate(row.dispatched_date) : ''}</td>
                       <td>{row.row_source === 'historico' ? 'Historico' : 'Sistema'}</td>
@@ -3613,7 +3688,7 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
       </section>
       <section className="prod-panel prod-returns-report">
         <div className="prod-panel-title">
-          <div><span>Devoluciones</span><h2>Reporte de pares devueltos</h2></div>
+          <div><span>Locales</span><h2>Reporte de devoluciones y muestras</h2></div>
           <button className="prod-primary-button" disabled={returnsLoading} onClick={loadReturnsReport}>
             <Filter size={17} />
             {returnsLoading ? 'Generando...' : 'Generar reporte'}
@@ -3626,27 +3701,30 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
         {returnsReport && (
           <>
             <div className="prod-monthly-summary">
-              <article><span>Pares devueltos</span><strong>{displayNumber(returnsReport.totals?.pairs || 0)}</strong><small>{displayDate(returnsReport.date_from)} - {displayDate(returnsReport.date_to)}</small></article>
-              <article><span>Valor devuelto</span><strong>{displayMoney(returnsReport.totals?.value || 0)}</strong><small>Segun valor unitario</small></article>
-              <article><span>Pendiente devoluciones</span><strong>{displayMoney(returnsReport.totals?.pending_returns || 0)}</strong><small>Notas de devolucion pendientes</small></article>
+              <article><span>Total locales</span><strong>{displayNumber(returnsReport.totals?.pairs || 0)}</strong><small>{displayDate(returnsReport.date_from)} - {displayDate(returnsReport.date_to)}</small></article>
+              <article><span>Devoluciones</span><strong>{displayNumber(returnsReport.totals?.returns || 0)}</strong><small>Pares devueltos</small></article>
+              <article><span>Muestras</span><strong>{displayNumber(returnsReport.totals?.samples || 0)}</strong><small>No entran a produccion</small></article>
+              <article><span>Valor referencial</span><strong>{displayMoney(returnsReport.totals?.value || 0)}</strong><small>Segun valor unitario</small></article>
+              <article><span>Pendiente devoluciones</span><strong>{displayMoney(returnsReport.totals?.pending_returns || 0)}</strong><small>Notas pendientes</small></article>
             </div>
             <div className="prod-return-destination-summary">
               {(returnsReport.by_destination || []).map((item) => (
                 <article key={item.destination}>
                   <span>{item.destination}</span>
                   <strong>{displayNumber(item.pairs)} pares</strong>
-                  <small>{displayMoney(item.value)}</small>
+                  <small>Dev. {displayNumber(item.returns || 0)} · Muestras {displayNumber(item.samples || 0)} · {displayMoney(item.value)}</small>
                 </article>
               ))}
             </div>
             <div className="prod-table-wrap">
               <table className="prod-table">
-                <thead><tr><th>Fecha</th><th>Devolucion</th><th>Cliente</th><th>Destino</th><th>Modelo</th><th>Talla</th><th>Pares</th><th>Valor</th></tr></thead>
+                <thead><tr><th>Fecha</th><th>Tipo</th><th>Documento</th><th>Cliente</th><th>Destino</th><th>Modelo</th><th>Talla</th><th>Pares</th><th>Valor</th></tr></thead>
                 <tbody>
                   {(returnsReport.rows || []).map((row, index) => (
-                    <tr key={`${row.id}-${row.destination}-${row.model_code}-${row.size}-${index}`}>
+                    <tr className={row.row_kind === 'sample' ? 'prod-sample-report-row' : 'prod-return-report-row'} key={`${row.id}-${row.destination}-${row.model_code}-${row.size}-${index}`}>
                       <td>{displayDate(row.order_date)}</td>
-                      <td><strong>{row.order_number}</strong><small>Origen {row.source_order_number || '-'}</small></td>
+                      <td><span className={row.row_kind === 'sample' ? 'prod-sample-chip' : 'prod-return-chip'}>{row.row_label}</span></td>
+                      <td><strong>{row.order_number}</strong><small>{row.source_order_number ? `Origen ${row.source_order_number}` : 'Pedido de muestras'}</small></td>
                       <td><strong>{row.client_name}</strong><small>{row.city || ''}</small></td>
                       <td>{row.destination}</td>
                       <td><strong>{row.model_code}</strong><small>{[row.color, row.material].filter(Boolean).join(' ')}</small></td>
@@ -3657,7 +3735,7 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
                   ))}
                 </tbody>
               </table>
-              {!(returnsReport.rows || []).length && <div className="prod-empty">No hay devoluciones en ese rango.</div>}
+              {!(returnsReport.rows || []).length && <div className="prod-empty">No hay devoluciones ni muestras en ese rango.</div>}
             </div>
           </>
         )}
@@ -4003,6 +4081,8 @@ function StatusBadge({ status, model = false }) {
 
 function orderToForm(order) {
   return {
+    is_sample: Boolean(order.is_sample),
+    sample_destination: order.sample_destination || '',
     client_id: String(order.client_id),
     seller_user_id: order.seller_user_id ? String(order.seller_user_id) : '',
     order_date: order.order_date,
@@ -4256,7 +4336,8 @@ function DeliveryNoteSheet({ order }) {
   const total = Math.max(0, subtotal - discount + shipping);
   const totalPairs = order.models.reduce((sum, model) => sum + Number(model.total_pairs || 0), 0);
   const isReturnOrder = order.order_type === 'return';
-  const orderDate = new Date(`${order.order_date || new Date().toISOString().slice(0, 10)}T12:00:00`);
+  const isSampleOrder = Boolean(order.is_sample);
+  const orderDate = new Date();
   const day = Number.isNaN(orderDate.getTime()) ? '' : String(orderDate.getDate()).padStart(2, '0');
   const month = Number.isNaN(orderDate.getTime()) ? '' : orderDate.toLocaleDateString('es-EC', { month: 'long' }).toUpperCase();
   const year = Number.isNaN(orderDate.getTime()) ? '' : orderDate.getFullYear();
@@ -4284,7 +4365,7 @@ function DeliveryNoteSheet({ order }) {
         <span>CLIENTE:</span><strong>{order.client_name}</strong><span>RUC:</span><strong>{order.tax_id || ''}</strong>
         <span>DIRECCION:</span><strong>{order.address || ''}</strong><span>VEND:</span><strong>{order.seller_name || 'FABRICA'}</strong>
         <span>CIUDAD:</span><strong>{order.city || ''}</strong><span>MARCA:</span><strong>{order.brand || ''}</strong>
-        <span>TELEFONO:</span><strong>{order.phone || ''}</strong><span>{isReturnOrder ? 'DEVOLUCION:' : 'PEDIDO:'}</span><strong>{order.delivery_note_number ? `${order.order_number} / Nota ${order.delivery_note_number}` : order.order_number}</strong>
+        <span>TELEFONO:</span><strong>{order.phone || ''}</strong><span>{isReturnOrder ? 'DEVOLUCION:' : isSampleOrder ? 'MUESTRA:' : 'PEDIDO:'}</span><strong>{order.delivery_note_number ? `${order.order_number} / Nota ${order.delivery_note_number}` : order.order_number}</strong>
       </section>
       <table className="prod-delivery-table">
         <thead><tr><th>CANT.</th><th>DESCRIPCION</th><th>VALOR UNITARIO</th><th>VALOR TOTAL</th></tr></thead>
@@ -4336,12 +4417,13 @@ function DeliveryNoteSheet({ order }) {
 function ProductionOrderSheet({ order }) {
   const totalPairs = order.models.reduce((sum, model) => sum + Number(model.total_pairs || 0), 0);
   const isReturnOrder = order.order_type === 'return';
+  const isSampleOrder = Boolean(order.is_sample);
   return (
     <article
       className={`prod-print-page ${order.models.length > 8 ? 'dense' : ''}`}
       style={{ '--order-model-count': Math.max(order.models.length, 1) }}
     >
-      <header><div><strong>PRODUCALZA</strong><span>{isReturnOrder ? 'HOJA UNICA DE DEVOLUCION' : 'HOJA UNICA DE PEDIDO Y PRODUCCION'}</span></div><b>{order.order_number}</b></header>
+      <header><div><strong>PRODUCALZA</strong><span>{isReturnOrder ? 'HOJA UNICA DE DEVOLUCION' : isSampleOrder ? 'HOJA UNICA DE MUESTRAS' : 'HOJA UNICA DE PEDIDO Y PRODUCCION'}</span></div><b>{order.order_number}</b></header>
       <section className="prod-print-info">
         <div><span>Cliente</span><strong>{order.client_name}</strong></div>
         <div><span>Ciudad</span><strong>{order.city || 'Sin ciudad'}</strong></div>
@@ -4349,6 +4431,7 @@ function ProductionOrderSheet({ order }) {
         <div><span>Marca</span><strong>{order.brand || '-'}</strong></div>
         <div><span>Etiqueta de origen</span><strong>{order.origin_label || '-'}</strong></div>
         <div className="print-red-field"><span>Entrega</span><strong>{order.delivery_date || ''}</strong></div>
+        {isSampleOrder && <div className="print-red-field"><span>Destino</span><strong>{order.sample_destination || ''}</strong></div>}
       </section>
       <div className="prod-print-process-legend">
         {PROCESS_FIELDS.map(([, letter, label]) => <span key={label}><strong>{letter}</strong> {label}</span>)}
@@ -4385,7 +4468,7 @@ function ProductionOrderSheet({ order }) {
             </tr>
           ))}
           <tr className="prod-print-total-row">
-            <td colSpan="13"><strong>{isReturnOrder ? 'TOTAL DE DEVOLUCION' : 'TOTAL DEL PEDIDO'}</strong></td>
+            <td colSpan="13"><strong>{isReturnOrder ? 'TOTAL DE DEVOLUCION' : isSampleOrder ? 'TOTAL DE MUESTRAS' : 'TOTAL DEL PEDIDO'}</strong></td>
             <td><strong>{totalPairs}</strong></td>
             <td colSpan="7" />
           </tr>
@@ -4399,9 +4482,10 @@ function ProductionOrderSheet({ order }) {
 
 function ProductionCard({ order, model }) {
   const isReturnOrder = order.order_type === 'return';
+  const isSampleOrder = Boolean(order.is_sample);
   return (
     <article className="prod-print-card">
-      <header><div><strong>PRODUCALZA</strong><span>{isReturnOrder ? 'TARJETA DE DEVOLUCION' : 'TARJETA DE PRODUCCION'}</span></div><b>Nro. {model.card_number}</b></header>
+      <header><div><strong>PRODUCALZA</strong><span>{isReturnOrder ? 'TARJETA DE DEVOLUCION' : isSampleOrder ? 'TARJETA DE MUESTRA' : 'TARJETA DE PRODUCCION'}</span></div><b>Nro. {model.card_number}</b></header>
       <div className="prod-card-client-row">
         <div className="prod-card-client"><span>Cliente</span><strong>{order.client_name}</strong></div>
         <div className="prod-card-red-alert">

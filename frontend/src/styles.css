@@ -2857,8 +2857,36 @@ td {
   margin-top: 2px;
 }
 
+.prod-pending-note-edit {
+  min-width: 130px;
+}
+
+.prod-pending-note-edit label {
+  color: #7c2d12;
+  display: grid;
+  font-size: 0.72rem;
+  font-weight: 800;
+  gap: 4px;
+  text-transform: uppercase;
+}
+
+.prod-pending-note-edit input {
+  border: 1px solid #fed7aa;
+  border-radius: 9px;
+  padding: 7px 8px;
+  width: 100%;
+}
+
 .prod-return-chip {
   color: #b45309;
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 800;
+  margin-top: 3px;
+}
+
+.prod-sample-chip {
+  color: #1d4ed8;
   display: block;
   font-size: 0.75rem;
   font-weight: 800;
@@ -4324,6 +4352,24 @@ td {
 .prod-monthly-table td:nth-child(5),
 .prod-monthly-table td:nth-child(6) {
   color: #d00000;
+}
+
+.prod-return-report-row td {
+  background: #fff7ed;
+  color: #7c2d12;
+}
+
+.prod-return-report-row td strong {
+  color: #b45309;
+}
+
+.prod-sample-report-row td {
+  background: #eff6ff;
+  color: #1e3a8a;
+}
+
+.prod-sample-report-row td strong {
+  color: #1d4ed8;
 }
 
 .prod-monthly-total-row td {
