@@ -152,6 +152,24 @@ export function initProducalzaDb(db) {
       FOREIGN KEY (order_id) REFERENCES production_orders(id)
     );
 
+    CREATE TABLE IF NOT EXISTS production_delivery_notes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      order_id INTEGER NOT NULL,
+      note_number INTEGER NOT NULL DEFAULT 1,
+      note_type TEXT NOT NULL DEFAULT 'sent' CHECK (note_type IN ('sent', 'pending')),
+      title TEXT,
+      model_ids_json TEXT NOT NULL DEFAULT '[]',
+      model_prices_json TEXT NOT NULL DEFAULT '{}',
+      shipping_value REAL NOT NULL DEFAULT 0,
+      discount_value REAL NOT NULL DEFAULT 0,
+      total_value REAL NOT NULL DEFAULT 0,
+      created_by TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (order_id) REFERENCES production_orders(id)
+    );
+
     CREATE TABLE IF NOT EXISTS production_settings (
       establishment_id INTEGER NOT NULL,
       key TEXT NOT NULL,
@@ -285,6 +303,8 @@ export function initProducalzaDb(db) {
       ON production_monthly_report_rows(establishment_id, report_month, entry_date, dispatched_date);
     CREATE INDEX IF NOT EXISTS idx_production_order_payments_business
       ON production_order_payments(establishment_id, due_date, status);
+    CREATE INDEX IF NOT EXISTS idx_production_delivery_notes_order
+      ON production_delivery_notes(establishment_id, order_id, note_number);
     CREATE INDEX IF NOT EXISTS idx_production_payroll_entries_period
       ON production_payroll_entries(establishment_id, period_id, employee_name);
   `);

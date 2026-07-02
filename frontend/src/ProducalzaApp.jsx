@@ -255,6 +255,24 @@ function deliveryTotal(form) {
   return Math.max(0, deliverySubtotal(form) + Number(form.shipping_value || 0) - deliveryDiscountAmount(form));
 }
 
+function deliveryOrderFromNote(order, note) {
+  const modelIds = new Set((note.model_ids || []).map((id) => Number(id)));
+  const prices = note.model_prices || {};
+  return {
+    ...order,
+    shipping_value: note.shipping_value || 0,
+    discount_value: note.discount_value || 0,
+    delivery_note_title: note.title,
+    delivery_note_number: note.note_number,
+    models: (order.models || [])
+      .filter((model) => modelIds.has(Number(model.id)))
+      .map((model) => ({
+        ...model,
+        unit_price: prices[Number(model.id)] ?? model.unit_price
+      }))
+  };
+}
+
 function paymentTotalsFromList(payments = []) {
   return payments.reduce((totals, payment) => {
     if (payment.status === 'paid') totals.paid += Number(payment.amount || 0);
@@ -1486,9 +1504,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
   const noteTotal = Math.max(0, subtotal + Number(order.shipping_value || 0) - Number(order.discount_value || 0));
   const deliveryDiscount = deliveryDiscountAmount(deliveryForm);
   const deliveryFormTotal = deliveryTotal(deliveryForm);
-  const paymentBalance = Number(totalPaid || 0) + Number(totalPending || 0);
-  const hasPaymentValues = paymentBalance > 0.009;
-  const deliveryPaymentMismatch = hasPaymentValues && Math.abs(deliveryFormTotal - paymentBalance) > 0.009;
+  const deliveryNotes = order.delivery_notes || [];
 
   function deriveStatus(model) {
     if (model.process_finished) return 'finished';
@@ -1813,6 +1829,28 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
           <div className="prod-panel-title">
             <div><span>Antes de imprimir</span><h2>Valores de nota de entrega</h2></div>
           </div>
+          {deliveryNotes.length > 0 && (
+            <div className="prod-saved-delivery-notes">
+              <div>
+                <span>Notas guardadas</span>
+                <strong>Imprime una nota anterior o pendiente</strong>
+              </div>
+              {deliveryNotes.map((note) => (
+                <article key={note.id} className={note.note_type === 'pending' ? 'pending' : ''}>
+                  <div>
+                    <strong>Nota #{note.note_number} · {note.title || 'Nota de entrega'}</strong>
+                    <span>{displayMoney(note.total_value)} · {displayDate(note.created_at?.slice(0, 10))}</span>
+                  </div>
+                  <button
+                    className="prod-secondary-button compact"
+                    onClick={() => onPrint('delivery-note', null, deliveryOrderFromNote(order, note))}
+                  >
+                    <Printer size={16} />Imprimir
+                  </button>
+                </article>
+              ))}
+            </div>
+          )}
           <div className="prod-delivery-editor-list">
             {deliveryForm.models.map((model) => {
               const quantity = Number(model.total_pairs || 0);
@@ -1869,11 +1907,6 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
             <div><span>Desc. aplicado</span><strong>{displayMoney(deliveryDiscount)}</strong></div>
             <div><span>Total</span><strong>{displayMoney(deliveryFormTotal)}</strong></div>
           </div>
-          {deliveryPaymentMismatch && (
-            <div className="prod-payment-warning">
-              El total de la nota debe coincidir con Pagado + Pendiente. Nota: {displayMoney(deliveryFormTotal)} / Cobros: {displayMoney(paymentBalance)}.
-            </div>
-          )}
           <div className="prod-form-actions">
             <button className="prod-secondary-button" onClick={() => setShowDeliveryEditor(false)}>Cancelar</button>
             <button className="prod-primary-button delivery" disabled={deliverySaving} onClick={saveDeliveryValuesAndPrint}>
@@ -3116,6 +3149,8 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
   });
   const [monthlyReport, setMonthlyReport] = useState(null);
   const [excludedClients, setExcludedClients] = useState([]);
+  const [excludedDispatchClients, setExcludedDispatchClients] = useState([]);
+  const [excludedActivityClients, setExcludedActivityClients] = useState([]);
   const [monthlyLoading, setMonthlyLoading] = useState(false);
   const [dispatchFilters, setDispatchFilters] = useState({
     date_from: `${today.slice(0, 8)}01`,
@@ -3132,7 +3167,7 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
   }));
   const totalPairs = orders.reduce((sum, order) => sum + Number(order.total_pairs || 0), 0);
   const cities = [...new Set((clientActivity || []).map((client) => client.city).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-  const filteredClients = (clientActivity || []).filter((client) => {
+  const baseFilteredClients = (clientActivity || []).filter((client) => {
     const matchesText = `${client.name || ''} ${client.business_name || ''} ${client.phone || ''}`
       .toLowerCase()
       .includes(reportFilters.client.toLowerCase());
@@ -3156,10 +3191,22 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
       inDateRange(client.next_visit, reportFilters.next_from, reportFilters.next_to) &&
       matchesNextStatus;
   });
+  const activityReportClients = [...new Set(baseFilteredClients.map((client) => client.name).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+  const filteredClients = baseFilteredClients.filter((client) => !excludedActivityClients.includes(client.name));
   const monthlyRows = monthlyReport?.rows || [];
   const monthlyClients = [...new Set(monthlyRows.map((row) => row.client_name).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b));
   const visibleMonthlyRows = monthlyRows.filter((row) => !excludedClients.includes(row.client_name));
+  const dispatchRows = dispatchReport?.rows || [];
+  const dispatchClients = [...new Set(dispatchRows.map((row) => row.client_name).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+  const visibleDispatchRows = dispatchRows.filter((row) => !excludedDispatchClients.includes(row.client_name));
+  const dispatchTotals = {
+    total: visibleDispatchRows.reduce((sum, row) => sum + Number(row.total || 0), 0),
+    paid: visibleDispatchRows.reduce((sum, row) => sum + Number(row.paid_total || 0), 0),
+    balance: visibleDispatchRows.reduce((sum, row) => sum + Number(row.balance || 0), 0)
+  };
   const monthlyDays = Math.max(1, Number(monthlyFilters.days || 1) || 1);
   const monthlyEntered = visibleMonthlyRows.reduce((sum, row) => sum + Number(row.entered_pairs || 0), 0);
   const monthlyDispatched = visibleMonthlyRows.reduce((sum, row) => sum + Number(row.dispatched_pairs || 0), 0);
@@ -3200,11 +3247,28 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
       if (dispatchFilters.date_to) query.set('date_to', dispatchFilters.date_to);
       query.set('status', dispatchFilters.status);
       setDispatchReport(await api(scope(`/producalza/dispatch-collections-report?${query.toString()}`)));
+      setExcludedDispatchClients([]);
     } catch (err) {
       setError(err.message);
     } finally {
       setDispatchLoading(false);
     }
+  }
+
+  function toggleDispatchClient(clientName) {
+    setExcludedDispatchClients((current) =>
+      current.includes(clientName)
+        ? current.filter((item) => item !== clientName)
+        : [...current, clientName]
+    );
+  }
+
+  function toggleActivityClient(clientName) {
+    setExcludedActivityClients((current) =>
+      current.includes(clientName)
+        ? current.filter((item) => item !== clientName)
+        : [...current, clientName]
+    );
   }
 
   return (
@@ -3316,10 +3380,25 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
         {dispatchReport && (
           <>
             <div className="prod-monthly-summary">
-              <article><span>Total despachado</span><strong>{displayMoney(dispatchReport.totals?.total)}</strong><small>{dispatchReport.rows.length} pedidos</small></article>
-              <article><span>Pagado</span><strong>{displayMoney(dispatchReport.totals?.paid)}</strong><small>Valores confirmados</small></article>
-              <article><span>Saldo</span><strong>{displayMoney(dispatchReport.totals?.balance)}</strong><small>Pendiente de cobro</small></article>
+              <article><span>Total despachado</span><strong>{displayMoney(dispatchTotals.total)}</strong><small>{visibleDispatchRows.length} pedidos</small></article>
+              <article><span>Pagado</span><strong>{displayMoney(dispatchTotals.paid)}</strong><small>Valores confirmados</small></article>
+              <article><span>Saldo</span><strong>{displayMoney(dispatchTotals.balance)}</strong><small>Pendiente de cobro</small></article>
               <article><span>Filtro</span><strong>{dispatchFilters.status === 'all' ? 'Todos' : dispatchFilters.status === 'paid' ? 'Pagados' : 'Pendientes'}</strong><small>{displayDate(dispatchReport.date_from)} - {displayDate(dispatchReport.date_to)}</small></article>
+            </div>
+            <div className="prod-monthly-client-picker">
+              <div><span>Clientes del reporte</span><strong>Desmarca los que no quieres incluir</strong></div>
+              <div>
+                {dispatchClients.map((client) => (
+                  <label key={client} className={excludedDispatchClients.includes(client) ? 'excluded' : ''}>
+                    <input
+                      type="checkbox"
+                      checked={!excludedDispatchClients.includes(client)}
+                      onChange={() => toggleDispatchClient(client)}
+                    />
+                    {client}
+                  </label>
+                ))}
+              </div>
             </div>
             <div className="prod-table-wrap">
               <table className="prod-table prod-dispatch-table">
@@ -3329,7 +3408,7 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
                   </tr>
                 </thead>
                 <tbody>
-                  {dispatchReport.rows.map((row) => (
+                  {visibleDispatchRows.map((row) => (
                     <tr key={row.id}>
                       <td>{displayDate(row.dispatched_date)}</td>
                       <td><strong>{row.client_name}</strong><small>{row.order_number} · {row.city || 'Sin ciudad'}</small></td>
@@ -3347,7 +3426,7 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
                   ))}
                 </tbody>
               </table>
-              {!dispatchReport.rows.length && <div className="prod-empty">No hay despachos con esos filtros.</div>}
+              {!visibleDispatchRows.length && <div className="prod-empty">No hay despachos con esos filtros o todos los clientes estan excluidos.</div>}
             </div>
           </>
         )}
@@ -3436,11 +3515,28 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
               <option value="unscheduled">Sin proxima visita</option>
             </select>
           </label>
-          <button className="prod-secondary-button prod-clear-report" onClick={() => setReportFilters(emptyReportFilters)}>
+          <button className="prod-secondary-button prod-clear-report" onClick={() => { setReportFilters(emptyReportFilters); setExcludedActivityClients([]); }}>
             <X size={16} />
             Limpiar filtros
           </button>
         </div>
+        {activityReportClients.length > 0 && (
+          <div className="prod-monthly-client-picker">
+            <div><span>Clientes del reporte</span><strong>Desmarca los que no quieres incluir</strong></div>
+            <div>
+              {activityReportClients.map((client) => (
+                <label key={client} className={excludedActivityClients.includes(client) ? 'excluded' : ''}>
+                  <input
+                    type="checkbox"
+                    checked={!excludedActivityClients.includes(client)}
+                    onChange={() => toggleActivityClient(client)}
+                  />
+                  {client}
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="prod-table-wrap">
           <table className="prod-table">
             <thead>
@@ -3956,7 +4052,7 @@ function DeliveryNoteSheet({ order }) {
         <span>CLIENTE:</span><strong>{order.client_name}</strong><span>RUC:</span><strong>{order.tax_id || ''}</strong>
         <span>DIRECCION:</span><strong>{order.address || ''}</strong><span>VEND:</span><strong>{order.seller_name || 'FABRICA'}</strong>
         <span>CIUDAD:</span><strong>{order.city || ''}</strong><span>MARCA:</span><strong>{order.brand || ''}</strong>
-        <span>TELEFONO:</span><strong>{order.phone || ''}</strong><span>PEDIDO:</span><strong>{order.order_number}</strong>
+        <span>TELEFONO:</span><strong>{order.phone || ''}</strong><span>PEDIDO:</span><strong>{order.delivery_note_number ? `${order.order_number} / Nota ${order.delivery_note_number}` : order.order_number}</strong>
       </section>
       <table className="prod-delivery-table">
         <thead><tr><th>CANT.</th><th>DESCRIPCION</th><th>VALOR UNITARIO</th><th>VALOR TOTAL</th></tr></thead>

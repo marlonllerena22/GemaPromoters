@@ -648,9 +648,22 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
          ORDER BY COALESCE(due_date, payment_date, created_at) DESC, id DESC`
       )
       .all(order.id, businessId, DELIVERY_NOTE_BALANCE_REF);
+    const deliveryNotes = db
+      .prepare(
+        `SELECT * FROM production_delivery_notes
+         WHERE order_id = ? AND establishment_id = ?
+         ORDER BY note_number ASC, id ASC`
+      )
+      .all(order.id, businessId)
+      .map((note) => ({
+        ...note,
+        model_ids: parseJsonValue(note.model_ids_json, []),
+        model_prices: parseJsonValue(note.model_prices_json, {})
+      }));
     return {
       ...order,
       payments,
+      delivery_notes: deliveryNotes,
       models: models.map((model) => ({
         ...model,
         sizes: Object.fromEntries(
@@ -658,6 +671,45 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         )
       }))
     };
+  }
+
+  function parseJsonValue(value, fallback) {
+    try {
+      return JSON.parse(value || '');
+    } catch {
+      return fallback;
+    }
+  }
+
+  function nextDeliveryNoteNumber(orderId, businessId) {
+    const row = db.prepare(
+      `SELECT COALESCE(MAX(note_number), 0) + 1 AS next_number
+       FROM production_delivery_notes
+       WHERE order_id = ? AND establishment_id = ?`
+    ).get(orderId, businessId);
+    return Number(row?.next_number || 1);
+  }
+
+  function createDeliveryNoteRecord({ orderId, businessId, noteType, title, modelIds, prices, shippingValue, discountValue, totalValue, userLabel }) {
+    const noteNumber = nextDeliveryNoteNumber(orderId, businessId);
+    db.prepare(
+      `INSERT INTO production_delivery_notes
+       (establishment_id, order_id, note_number, note_type, title, model_ids_json,
+        model_prices_json, shipping_value, discount_value, total_value, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      businessId,
+      orderId,
+      noteNumber,
+      noteType,
+      title,
+      JSON.stringify(modelIds),
+      JSON.stringify(prices),
+      shippingValue,
+      discountValue,
+      totalValue,
+      userLabel
+    );
   }
 
   app.get('/api/producalza/bootstrap', requireProductionUser, (req, res) => {
@@ -1774,7 +1826,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const rows = db.prepare(
       `SELECT orders.id, orders.order_number, orders.order_date,
               date(COALESCE(orders.dispatched_date, orders.updated_at)) AS dispatched_date,
-              orders.payment_method, orders.shipping_value, orders.discount_value,
+              orders.payment_method, orders.shipping_value, orders.discount_value, orders.invoice_value,
               clients.name AS client_name, clients.city,
               COALESCE(model_totals.subtotal, 0) AS subtotal,
               COALESCE(payments.paid_total, 0) AS paid_total,
@@ -1812,7 +1864,9 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
 
     const normalized = rows.map((row) => {
       const subtotal = moneyValue(row.subtotal);
-      const total = moneyValue(subtotal + Number(row.shipping_value || 0) - Number(row.discount_value || 0));
+      const total = moneyValue(Number(row.invoice_value || 0) > 0
+        ? Number(row.invoice_value || 0)
+        : subtotal + Number(row.shipping_value || 0) - Number(row.discount_value || 0));
       const paid = moneyValue(row.paid_total);
       const balance = moneyValue(Math.max(0, total - paid));
       const paymentStatus = balance <= 0 ? 'paid' : 'pending';
@@ -2188,11 +2242,11 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const noteTotal = moneyValue(Math.max(0, noteSubtotal + shippingValue - discountValue));
     const paymentTotals = paymentTotalsForOrder(order.id, business.id);
     const paymentBalance = moneyValue(Number(paymentTotals.paid_total || 0) + Number(paymentTotals.pending_total || 0));
-    if (!isPartialDelivery && paymentBalance > 0.009 && Math.abs(noteTotal - paymentBalance) > 0.009) {
-      return res.status(400).json({
-        message: `El total de la nota (${displayMoneyValue(noteTotal)}) no coincide con pagado + pendiente (${displayMoneyValue(paymentBalance)}). Corrige los cobros del pedido antes de imprimir.`
-      });
-    }
+    const pricesById = Object.fromEntries(prices.map((model) => [Number(model.id || 0), moneyValue(model.unit_price)]));
+    const notSentModelIds = order.models
+      .map((model) => Number(model.id))
+      .filter((id) => !sentModelIds.includes(id));
+    const userLabel = req.user?.username || req.user?.role || 'system';
 
     db.transaction(() => {
       if (!isPartialDelivery) {
@@ -2220,10 +2274,41 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         updateModel.run(moneyValue(model.unit_price), modelId, order.id, business.id);
       }
       deleteAutomaticDeliveryBalance(order.id, business.id);
+      createDeliveryNoteRecord({
+        orderId: order.id,
+        businessId: business.id,
+        noteType: 'sent',
+        title: isPartialDelivery ? 'Nota de entrega parcial' : 'Nota de entrega',
+        modelIds: modelsForNote.map((model) => Number(model.id)),
+        prices: pricesById,
+        shippingValue,
+        discountValue,
+        totalValue: noteTotal,
+        userLabel
+      });
       if (isPartialDelivery) {
-        addPendingBalance(order.id, business.id, noteTotal, req.user?.username || req.user?.role || 'system');
+        addPendingBalance(order.id, business.id, noteTotal, userLabel);
+        const pendingModels = order.models.filter((model) => notSentModelIds.includes(Number(model.id)));
+        if (pendingModels.length) {
+          const pendingSubtotal = pendingModels.reduce((sum, model) => {
+            const unitPrice = pricesById[Number(model.id)] ?? moneyValue(model.unit_price);
+            return sum + (Number(model.total_pairs || 0) * unitPrice);
+          }, 0);
+          createDeliveryNoteRecord({
+            orderId: order.id,
+            businessId: business.id,
+            noteType: 'pending',
+            title: 'Nota pendiente por no enviado',
+            modelIds: pendingModels.map((model) => Number(model.id)),
+            prices: pricesById,
+            shippingValue: 0,
+            discountValue: 0,
+            totalValue: moneyValue(pendingSubtotal),
+            userLabel
+          });
+        }
       } else if (paymentBalance <= 0.009) {
-        createInitialPendingBalance(order.id, business.id, noteTotal, req.user?.username || req.user?.role || 'system');
+        createInitialPendingBalance(order.id, business.id, noteTotal, userLabel);
       }
     })();
     audit(req, 'update', 'delivery_note_values', order.id, order.order_number);

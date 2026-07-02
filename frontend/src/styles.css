@@ -2813,6 +2813,50 @@ td {
   gap: 9px;
 }
 
+.prod-saved-delivery-notes {
+  background: #f8fafc;
+  border: 1px solid #dbe4f0;
+  border-radius: 14px;
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 12px;
+}
+
+.prod-saved-delivery-notes > div:first-child span,
+.prod-saved-delivery-notes > div:first-child strong {
+  display: block;
+}
+
+.prod-saved-delivery-notes > div:first-child span {
+  color: #64748b;
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.prod-saved-delivery-notes article {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 10px;
+}
+
+.prod-saved-delivery-notes article.pending {
+  border-color: #f59e0b;
+}
+
+.prod-saved-delivery-notes article span {
+  color: #64748b;
+  display: block;
+  font-size: 0.82rem;
+  margin-top: 2px;
+}
+
 .prod-delivery-editor-list article {
   align-items: center;
   background: #fffaf0;
