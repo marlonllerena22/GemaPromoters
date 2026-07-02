@@ -693,7 +693,14 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
     if (!printState) return undefined;
     let cancelled = false;
     let fallbackTimer;
-    const clearPrint = () => setPrintState(null);
+    const previousTitle = document.title;
+    if (printState.type === 'guides') {
+      document.title = ' ';
+    }
+    const clearPrint = () => {
+      document.title = previousTitle;
+      setPrintState(null);
+    };
 
     async function openPrintWhenReady() {
       await new Promise((resolve) => window.requestAnimationFrame(() =>
@@ -723,6 +730,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
     openPrintWhenReady();
     return () => {
       cancelled = true;
+      document.title = previousTitle;
       window.clearTimeout(fallbackTimer);
       window.removeEventListener('afterprint', clearPrint);
     };
