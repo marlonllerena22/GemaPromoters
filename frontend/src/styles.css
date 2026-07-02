@@ -5118,7 +5118,7 @@ td {
   .prod-guide-label.standard.template-j-enriquez {
     font-family: Calibri, Arial, sans-serif;
     grid-template-columns: 31.5% 40% 28.5%;
-    grid-template-rows: 48% 14% 30% 8%;
+    grid-template-rows: 46% 14% 28% 12%;
   }
 
   .template-j-enriquez .prod-guide-logo {
@@ -5230,9 +5230,9 @@ td {
     flex-direction: column;
     grid-column: 3;
     grid-row: 4;
-    justify-content: flex-start;
+    justify-content: center;
     line-height: 0.9;
-    padding-top: 0.4mm;
+    padding-top: 0.2mm;
   }
 
   .template-j-enriquez .prod-guide-origin span,

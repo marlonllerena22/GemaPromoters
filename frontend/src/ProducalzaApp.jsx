@@ -3832,7 +3832,7 @@ function GuidePrintPage({ guides, order, template }) {
           key={index}
           style={{
             left: `${slot.left + (template.family === 'standard' && index % 2 === 1 ? 12 : 0)}mm`,
-            top: `${slot.top - 3}mm`,
+            top: `${slot.top}mm`,
             width: `${slot.width}mm`,
             height: `${slot.height}mm`
           }}
