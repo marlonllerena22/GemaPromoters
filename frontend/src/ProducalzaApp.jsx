@@ -230,12 +230,13 @@ function orderTotalValue(order) {
 }
 
 function deliveryValuesFromOrder(order) {
+  const remainingModels = deliveryModelsAfterReturns(order);
   return {
     shipping_value: order.shipping_value || '',
     discount_mode: 'value',
     discount_value: order.discount_value || '',
     discount_percent: '',
-    models: (order.models || []).map((model) => ({
+    models: remainingModels.map((model) => ({
       id: model.id,
       model_code: model.model_code,
       material: model.material,
@@ -347,11 +348,35 @@ function returnedRowsForOrder(order) {
   return [...rowsByKey.values()];
 }
 
-function returnedPairsByModel(order) {
-  return returnedRowsForOrder(order).reduce((map, row) => {
-    map[row.source_model_id] = Number(map[row.source_model_id] || 0) + Number(row.total_pairs || 0);
+function returnedQuantitiesByModelSize(order) {
+  return (order.returned_allocations || []).reduce((map, item) => {
+    const modelId = Number(item.source_model_id || 0);
+    const size = Number(item.size || 0);
+    if (!modelId || !size) return map;
+    const modelSizes = map[modelId] || {};
+    modelSizes[size] = Number(modelSizes[size] || 0) + Number(item.quantity || 0);
+    map[modelId] = modelSizes;
     return map;
   }, {});
+}
+
+function deliveryModelsAfterReturns(order) {
+  const returned = returnedQuantitiesByModelSize(order);
+  return (order.models || [])
+    .map((model) => {
+      const sizes = Object.fromEntries(SIZES.map((size) => {
+        const ordered = Number(model.sizes?.[size] || 0);
+        const returnedQty = Number(returned[Number(model.id)]?.[size] || 0);
+        return [size, Math.max(0, ordered - returnedQty)];
+      }));
+      const totalPairs = SIZES.reduce((sum, size) => sum + Number(sizes[size] || 0), 0);
+      return {
+        ...model,
+        sizes,
+        total_pairs: totalPairs
+      };
+    })
+    .filter((model) => Number(model.total_pairs || 0) > 0);
 }
 
 function returnedCreditForOrder(order) {
@@ -1662,7 +1687,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
   const returnedCredit = returnedCreditForOrder(order);
   const noteTotal = Math.max(0, subtotal - returnedCredit + Number(order.shipping_value || 0) - Number(order.discount_value || 0));
   const deliveryDiscount = deliveryDiscountAmount(deliveryForm);
-  const deliveryFormTotal = Math.max(0, deliveryTotal(deliveryForm) - returnedCredit);
+  const deliveryFormTotal = deliveryTotal(deliveryForm);
   const deliveryNotes = order.delivery_notes || [];
   const isReturnOrder = order.order_type === 'return';
   const isSampleOrder = Boolean(order.is_sample);
@@ -2307,7 +2332,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
               </label>
             )}
             <div><span>Subtotal</span><strong>{displayMoney(deliverySubtotal(deliveryForm))}</strong></div>
-            {returnedCredit > 0 && <div className="prod-delivery-return-total"><span>Devoluciones</span><strong>-{displayMoney(returnedCredit)}</strong></div>}
+            {returnedCredit > 0 && <div className="prod-delivery-return-total"><span>Devoluciones</span><strong>Precio 0</strong></div>}
             <div><span>Desc. aplicado</span><strong>{displayMoney(deliveryDiscount)}</strong></div>
             <div><span>Total</span><strong>{displayMoney(deliveryFormTotal)}</strong></div>
           </div>
@@ -4503,19 +4528,15 @@ function GuideLabel({ guide, order, template }) {
 
 function DeliveryNoteSheet({ order }) {
   const returnedRows = returnedRowsForOrder(order);
-  const returnedPairs = returnedPairsByModel(order);
-  const printableModels = (order.models || []).map((model) => ({
-    ...model,
-    delivery_pairs: Math.max(0, Number(model.total_pairs || 0) - Number(returnedPairs[Number(model.id)] || 0))
-  })).filter((model) => Number(model.delivery_pairs || 0) > 0);
+  const printableModels = deliveryModelsAfterReturns(order);
   const subtotal = printableModels.reduce(
-    (sum, model) => sum + Number(model.delivery_pairs || 0) * Number(model.unit_price || 0),
+    (sum, model) => sum + Number(model.total_pairs || 0) * Number(model.unit_price || 0),
     0
   );
   const discount = Number(order.discount_value || 0);
   const shipping = Number(order.shipping_value || 0);
   const total = Math.max(0, subtotal - discount + shipping);
-  const totalPairs = printableModels.reduce((sum, model) => sum + Number(model.delivery_pairs || 0), 0);
+  const totalPairs = printableModels.reduce((sum, model) => sum + Number(model.total_pairs || 0), 0);
   const isReturnOrder = order.order_type === 'return';
   const isSampleOrder = Boolean(order.is_sample);
   const orderDate = new Date();
@@ -4553,10 +4574,10 @@ function DeliveryNoteSheet({ order }) {
         <tbody>
           {printableModels.map((model) => (
             <tr key={model.id}>
-              <td>{model.delivery_pairs}</td>
+              <td>{model.total_pairs}</td>
               <td>{[model.model_code, model.material, model.color].filter(Boolean).join(' ')}</td>
               <td>{model.unit_price ? displayMoney(model.unit_price) : ''}</td>
-              <td>{model.unit_price ? displayMoney(Number(model.unit_price) * Number(model.delivery_pairs || 0)) : ''}</td>
+              <td>{model.unit_price ? displayMoney(Number(model.unit_price) * Number(model.total_pairs || 0)) : ''}</td>
             </tr>
           ))}
           {returnedRows.map((row) => (
