@@ -2065,6 +2065,255 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     res.json({ ok: true });
   });
 
+  function normalizeReportMonth(value) {
+    const text = String(value || '').trim();
+    return /^\d{4}-\d{2}$/.test(text) ? text : new Date().toISOString().slice(0, 7);
+  }
+
+  function normalizeLocalItems(items, allowedSections) {
+    return (Array.isArray(items) ? items : [])
+      .map((item) => ({
+        section: String(item.section || '').trim(),
+        item_type: String(item.item_type || '').trim(),
+        label: String(item.label || '').trim(),
+        amount: moneyValue(item.amount),
+        notes: String(item.notes || '').trim()
+      }))
+      .filter((item) => item.label && item.amount >= 0 && allowedSections.includes(item.section || item.item_type));
+  }
+
+  function localMonthlyReportPayload(row, items = [], payroll = []) {
+    const sales = {
+      cash_pairs: Number(row.cash_pairs || 0),
+      cash_value: moneyValue(row.cash_value),
+      card_pairs: Number(row.card_pairs || 0),
+      card_value: moneyValue(row.card_value),
+      separated_pairs: Number(row.separated_pairs || 0),
+      separated_value: moneyValue(row.separated_value),
+      wholesale_pairs: Number(row.wholesale_pairs || 0),
+      wholesale_value: moneyValue(row.wholesale_value),
+      business_pairs: Number(row.business_pairs || 0),
+      business_value: moneyValue(row.business_value)
+    };
+    const totals = {
+      sales_pairs: sales.cash_pairs + sales.card_pairs + sales.separated_pairs + sales.wholesale_pairs + sales.business_pairs,
+      sales_value: moneyValue(sales.cash_value + sales.card_value + sales.separated_value + sales.wholesale_value + sales.business_value),
+      expenses: moneyValue(items.filter((item) => item.section === 'expense').reduce((sum, item) => sum + Number(item.amount || 0), 0)),
+      services: moneyValue(items.filter((item) => item.section === 'service').reduce((sum, item) => sum + Number(item.amount || 0), 0)),
+      deposits: moneyValue(items.filter((item) => item.section === 'deposit').reduce((sum, item) => sum + Number(item.amount || 0), 0)),
+      payroll: moneyValue(payroll.reduce((sum, card) => sum + Number(card.net_pay || 0), 0))
+    };
+    totals.balance = moneyValue(Number(row.previous_balance || 0) + totals.sales_value - totals.expenses - totals.services - totals.deposits - totals.payroll);
+    return { ...row, ...sales, items, payroll, totals };
+  }
+
+  function getLocalPayrollCards(businessId, reportMonth, localName = '') {
+    const filters = ['cards.establishment_id = ?', 'cards.report_month = ?'];
+    const params = [businessId, reportMonth];
+    if (localName) {
+      filters.push('cards.local_name = ?');
+      params.push(localName);
+    }
+    const cards = db.prepare(
+      `SELECT cards.*
+       FROM production_local_payroll_cards AS cards
+       WHERE ${filters.join(' AND ')}
+       ORDER BY cards.local_name, cards.staff_name`
+    ).all(...params);
+    const items = cards.length ? db.prepare(
+      `SELECT items.*
+       FROM production_local_payroll_items AS items
+       WHERE items.establishment_id = ?
+         AND items.payroll_id IN (${cards.map(() => '?').join(',')})
+       ORDER BY items.id`
+    ).all(businessId, ...cards.map((card) => card.id)) : [];
+    return cards.map((card) => {
+      const cardItems = items.filter((item) => item.payroll_id === card.id);
+      const incomes = cardItems.filter((item) => item.item_type === 'income');
+      const deductions = cardItems.filter((item) => item.item_type === 'deduction');
+      const totalIncome = moneyValue(incomes.reduce((sum, item) => sum + Number(item.amount || 0), 0));
+      const totalDeductions = moneyValue(deductions.reduce((sum, item) => sum + Number(item.amount || 0), 0));
+      return {
+        ...card,
+        incomes,
+        deductions,
+        total_income: totalIncome,
+        total_deductions: totalDeductions,
+        net_pay: moneyValue(totalIncome - totalDeductions)
+      };
+    });
+  }
+
+  app.get('/api/producalza/local-monthly-reports', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    if (!canAccessProductionReports(req)) {
+      return res.status(403).json({ message: 'No tienes acceso a este reporte' });
+    }
+    const reportMonth = normalizeReportMonth(req.query.month);
+    const localName = String(req.query.local_name || '').trim();
+    const filters = ['reports.establishment_id = ?', 'reports.report_month = ?'];
+    const params = [business.id, reportMonth];
+    if (localName) {
+      filters.push('reports.local_name = ?');
+      params.push(localName);
+    }
+    const reports = db.prepare(
+      `SELECT reports.*
+       FROM production_local_monthly_reports AS reports
+       WHERE ${filters.join(' AND ')}
+       ORDER BY reports.local_name`
+    ).all(...params);
+    const items = reports.length ? db.prepare(
+      `SELECT *
+       FROM production_local_monthly_items
+       WHERE establishment_id = ?
+         AND report_id IN (${reports.map(() => '?').join(',')})
+       ORDER BY section, id`
+    ).all(business.id, ...reports.map((report) => report.id)) : [];
+    const payrollCards = getLocalPayrollCards(business.id, reportMonth, localName);
+    const rows = reports.map((report) => localMonthlyReportPayload(
+      report,
+      items.filter((item) => item.report_id === report.id),
+      payrollCards.filter((card) => card.local_name === report.local_name)
+    ));
+    res.json({ month: reportMonth, rows, payroll: payrollCards });
+  });
+
+  app.post('/api/producalza/local-monthly-reports', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    if (!canAccessProductionReports(req)) {
+      return res.status(403).json({ message: 'No tienes acceso a este reporte' });
+    }
+    const localName = String(req.body.local_name || '').trim();
+    const reportMonth = normalizeReportMonth(req.body.report_month);
+    if (!RETURN_DESTINATIONS.includes(localName)) {
+      return res.status(400).json({ message: 'Selecciona un local valido' });
+    }
+    const items = normalizeLocalItems(req.body.items, ['expense', 'service', 'deposit']);
+    let reportId;
+    db.transaction(() => {
+      db.prepare(
+        `INSERT INTO production_local_monthly_reports
+         (establishment_id, local_name, report_month, cash_pairs, cash_value, card_pairs, card_value,
+          separated_pairs, separated_value, wholesale_pairs, wholesale_value, business_pairs, business_value,
+          previous_balance, card_note, notes, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(establishment_id, local_name, report_month) DO UPDATE SET
+           cash_pairs = excluded.cash_pairs,
+           cash_value = excluded.cash_value,
+           card_pairs = excluded.card_pairs,
+           card_value = excluded.card_value,
+           separated_pairs = excluded.separated_pairs,
+           separated_value = excluded.separated_value,
+           wholesale_pairs = excluded.wholesale_pairs,
+           wholesale_value = excluded.wholesale_value,
+           business_pairs = excluded.business_pairs,
+           business_value = excluded.business_value,
+           previous_balance = excluded.previous_balance,
+           card_note = excluded.card_note,
+           notes = excluded.notes,
+           updated_at = datetime('now', 'localtime')`
+      ).run(
+        business.id,
+        localName,
+        reportMonth,
+        Math.max(0, Number(req.body.cash_pairs || 0)),
+        moneyValue(req.body.cash_value),
+        Math.max(0, Number(req.body.card_pairs || 0)),
+        moneyValue(req.body.card_value),
+        Math.max(0, Number(req.body.separated_pairs || 0)),
+        moneyValue(req.body.separated_value),
+        Math.max(0, Number(req.body.wholesale_pairs || 0)),
+        moneyValue(req.body.wholesale_value),
+        Math.max(0, Number(req.body.business_pairs || 0)),
+        moneyValue(req.body.business_value),
+        moneyValue(req.body.previous_balance),
+        String(req.body.card_note || '').trim(),
+        String(req.body.notes || '').trim(),
+        req.user.productionUserId || null
+      );
+      const report = db.prepare(
+        'SELECT id FROM production_local_monthly_reports WHERE establishment_id = ? AND local_name = ? AND report_month = ?'
+      ).get(business.id, localName, reportMonth);
+      reportId = report.id;
+      db.prepare('DELETE FROM production_local_monthly_items WHERE establishment_id = ? AND report_id = ?').run(business.id, reportId);
+      const insertItem = db.prepare(
+        `INSERT INTO production_local_monthly_items
+         (establishment_id, report_id, section, label, amount, notes)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      );
+      for (const item of items) {
+        insertItem.run(business.id, reportId, item.section, item.label, item.amount, item.notes);
+      }
+    })();
+    audit(req, 'upsert', 'local_monthly_report', reportId, `${localName} ${reportMonth}`);
+    res.status(201).json({ id: reportId });
+  });
+
+  app.get('/api/producalza/local-payroll', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    if (!canAccessProductionReports(req)) {
+      return res.status(403).json({ message: 'No tienes acceso a roles de locales' });
+    }
+    const reportMonth = normalizeReportMonth(req.query.month);
+    const localName = String(req.query.local_name || '').trim();
+    res.json({ month: reportMonth, rows: getLocalPayrollCards(business.id, reportMonth, localName) });
+  });
+
+  app.post('/api/producalza/local-payroll', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    if (!canAccessProductionReports(req)) {
+      return res.status(403).json({ message: 'No tienes acceso a roles de locales' });
+    }
+    const localName = String(req.body.local_name || '').trim();
+    const reportMonth = normalizeReportMonth(req.body.report_month);
+    const staffName = String(req.body.staff_name || '').trim();
+    if (!RETURN_DESTINATIONS.includes(localName)) return res.status(400).json({ message: 'Selecciona un local valido' });
+    if (!staffName) return res.status(400).json({ message: 'Selecciona o escribe la empleada' });
+    const items = normalizeLocalItems(req.body.items, ['income', 'deduction']);
+    let payrollId;
+    db.transaction(() => {
+      db.prepare(
+        `INSERT INTO production_local_payroll_cards
+         (establishment_id, local_name, report_month, staff_id, staff_name, date_from, date_to, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(establishment_id, local_name, report_month, staff_name) DO UPDATE SET
+           staff_id = excluded.staff_id,
+           date_from = excluded.date_from,
+           date_to = excluded.date_to,
+           updated_at = datetime('now', 'localtime')`
+      ).run(
+        business.id,
+        localName,
+        reportMonth,
+        Number(req.body.staff_id || 0) || null,
+        staffName,
+        normalizeDateInput(req.body.date_from, ''),
+        normalizeDateInput(req.body.date_to, ''),
+        req.user.productionUserId || null
+      );
+      const card = db.prepare(
+        'SELECT id FROM production_local_payroll_cards WHERE establishment_id = ? AND local_name = ? AND report_month = ? AND staff_name = ?'
+      ).get(business.id, localName, reportMonth, staffName);
+      payrollId = card.id;
+      db.prepare('DELETE FROM production_local_payroll_items WHERE establishment_id = ? AND payroll_id = ?').run(business.id, payrollId);
+      const insertItem = db.prepare(
+        `INSERT INTO production_local_payroll_items
+         (establishment_id, payroll_id, item_type, label, amount, notes)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      );
+      for (const item of items) {
+        insertItem.run(business.id, payrollId, item.item_type, item.label, item.amount, item.notes);
+      }
+    })();
+    audit(req, 'upsert', 'local_payroll', payrollId, `${staffName} ${reportMonth}`);
+    res.status(201).json({ id: payrollId });
+  });
+
   app.get('/api/producalza/client-activity-report', requireProductionAdmin, (req, res) => {
     const business = ensureProductionBusiness(req, res);
     if (!business) return;

@@ -350,6 +350,75 @@ export function initProducalzaDb(db) {
       FOREIGN KEY (staff_id) REFERENCES production_local_staff(id)
     );
 
+    CREATE TABLE IF NOT EXISTS production_local_monthly_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      local_name TEXT NOT NULL,
+      report_month TEXT NOT NULL,
+      cash_pairs INTEGER NOT NULL DEFAULT 0,
+      cash_value REAL NOT NULL DEFAULT 0,
+      card_pairs INTEGER NOT NULL DEFAULT 0,
+      card_value REAL NOT NULL DEFAULT 0,
+      separated_pairs INTEGER NOT NULL DEFAULT 0,
+      separated_value REAL NOT NULL DEFAULT 0,
+      wholesale_pairs INTEGER NOT NULL DEFAULT 0,
+      wholesale_value REAL NOT NULL DEFAULT 0,
+      business_pairs INTEGER NOT NULL DEFAULT 0,
+      business_value REAL NOT NULL DEFAULT 0,
+      previous_balance REAL NOT NULL DEFAULT 0,
+      card_note TEXT,
+      notes TEXT,
+      created_by_user_id INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (created_by_user_id) REFERENCES production_users(id),
+      UNIQUE(establishment_id, local_name, report_month)
+    );
+
+    CREATE TABLE IF NOT EXISTS production_local_monthly_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      report_id INTEGER NOT NULL,
+      section TEXT NOT NULL CHECK (section IN ('expense', 'service', 'deposit')),
+      label TEXT NOT NULL,
+      amount REAL NOT NULL DEFAULT 0,
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (report_id) REFERENCES production_local_monthly_reports(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS production_local_payroll_cards (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      local_name TEXT NOT NULL,
+      report_month TEXT NOT NULL,
+      staff_id INTEGER,
+      staff_name TEXT NOT NULL,
+      date_from TEXT,
+      date_to TEXT,
+      created_by_user_id INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (staff_id) REFERENCES production_local_staff(id),
+      UNIQUE(establishment_id, local_name, report_month, staff_name)
+    );
+
+    CREATE TABLE IF NOT EXISTS production_local_payroll_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      payroll_id INTEGER NOT NULL,
+      item_type TEXT NOT NULL CHECK (item_type IN ('income', 'deduction')),
+      label TEXT NOT NULL,
+      amount REAL NOT NULL DEFAULT 0,
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (payroll_id) REFERENCES production_local_payroll_cards(id)
+    );
+
     CREATE TABLE IF NOT EXISTS production_audit_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       establishment_id INTEGER NOT NULL,
@@ -382,6 +451,10 @@ export function initProducalzaDb(db) {
       ON production_local_finances(establishment_id, entry_date, local_name);
     CREATE INDEX IF NOT EXISTS idx_production_local_attendance_business
       ON production_local_attendance(establishment_id, local_date, staff_id);
+    CREATE INDEX IF NOT EXISTS idx_production_local_monthly_reports_business
+      ON production_local_monthly_reports(establishment_id, report_month, local_name);
+    CREATE INDEX IF NOT EXISTS idx_production_local_payroll_business
+      ON production_local_payroll_cards(establishment_id, report_month, local_name);
   `);
 
   addColumnIfMissing(db, 'production_users', 'is_local_secretary', 'INTEGER NOT NULL DEFAULT 0');

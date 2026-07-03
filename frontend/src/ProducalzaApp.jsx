@@ -3654,6 +3654,8 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
         <article><DollarSign size={21} /><span>Saldo rapido</span><strong>{displayMoney(balance)}</strong></article>
       </section>
 
+      <LocalMonthlyManager scope={scope} setError={setError} />
+
       <section className="prod-panel">
         <div className="prod-panel-title">
           <div><span>Locales</span><h2>Ingresos y egresos</h2></div>
@@ -3746,6 +3748,281 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
         </div>
       </section>
     </div>
+  );
+}
+
+function emptyLocalMonthlyForm(month) {
+  return {
+    report_month: month,
+    local_name: RETURN_DESTINATIONS[0],
+    cash_pairs: '',
+    cash_value: '',
+    card_pairs: '',
+    card_value: '',
+    separated_pairs: '',
+    separated_value: '',
+    wholesale_pairs: '',
+    wholesale_value: '',
+    business_pairs: '',
+    business_value: '',
+    previous_balance: '',
+    card_note: '',
+    notes: '',
+    items: [
+      { section: 'expense', label: 'PRAS/CARGO', amount: '', notes: '' },
+      { section: 'service', label: 'ARRIENDO', amount: '', notes: '' },
+      { section: 'deposit', label: 'TRANSFER MARLON', amount: '', notes: '' }
+    ]
+  };
+}
+
+function emptyLocalPayrollForm(month) {
+  return {
+    report_month: month,
+    local_name: RETURN_DESTINATIONS[0],
+    staff_id: '',
+    staff_name: '',
+    date_from: `${month}-01`,
+    date_to: '',
+    items: [
+      { item_type: 'income', label: 'Sueldo mensual', amount: '', notes: '' },
+      { item_type: 'income', label: 'Comisiones', amount: '', notes: '' },
+      { item_type: 'deduction', label: 'IESS', amount: '', notes: '' },
+      { item_type: 'deduction', label: 'Atrasos', amount: '', notes: '' }
+    ]
+  };
+}
+
+function LocalMonthlyManager({ scope, setError }) {
+  const todayMonth = new Date().toISOString().slice(0, 7);
+  const [month, setMonth] = useState(todayMonth);
+  const [localName, setLocalName] = useState(RETURN_DESTINATIONS[0]);
+  const [reports, setReports] = useState(null);
+  const [staff, setStaff] = useState([]);
+  const [monthlyForm, setMonthlyForm] = useState(() => emptyLocalMonthlyForm(todayMonth));
+  const [payrollForm, setPayrollForm] = useState(() => emptyLocalPayrollForm(todayMonth));
+  const [loading, setLoading] = useState(false);
+
+  async function loadMonthly() {
+    setLoading(true);
+    try {
+      const query = new URLSearchParams();
+      query.set('month', month);
+      if (localName) query.set('local_name', localName);
+      const [reportResponse, staffResponse] = await Promise.all([
+        api(scope(`/producalza/local-monthly-reports?${query.toString()}`)),
+        api(scope('/producalza/local-attendance'))
+      ]);
+      setReports(reportResponse);
+      setStaff(staffResponse.staff || []);
+      const existing = (reportResponse.rows || [])[0];
+      if (existing) {
+        setMonthlyForm({
+          ...emptyLocalMonthlyForm(month),
+          ...existing,
+          items: existing.items?.length ? existing.items.map((item) => ({
+            section: item.section,
+            label: item.label,
+            amount: item.amount,
+            notes: item.notes || ''
+          })) : emptyLocalMonthlyForm(month).items
+        });
+      } else {
+        setMonthlyForm({ ...emptyLocalMonthlyForm(month), local_name: localName });
+      }
+      setPayrollForm((current) => ({ ...emptyLocalPayrollForm(month), local_name: localName, staff_id: current.staff_id, staff_name: current.staff_name }));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadMonthly();
+  }, []);
+
+  function updateMonthlyField(key, value) {
+    setMonthlyForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function updateMonthlyItem(index, patch) {
+    setMonthlyForm((current) => ({
+      ...current,
+      items: current.items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item)
+    }));
+  }
+
+  function updatePayrollItem(index, patch) {
+    setPayrollForm((current) => ({
+      ...current,
+      items: current.items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item)
+    }));
+  }
+
+  async function saveMonthlyReport() {
+    try {
+      await api(scope('/producalza/local-monthly-reports'), {
+        method: 'POST',
+        body: JSON.stringify({ ...monthlyForm, report_month: month, local_name: monthlyForm.local_name || localName })
+      });
+      await loadMonthly();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function savePayroll() {
+    try {
+      await api(scope('/producalza/local-payroll'), {
+        method: 'POST',
+        body: JSON.stringify({ ...payrollForm, report_month: month, local_name: payrollForm.local_name || localName })
+      });
+      setPayrollForm(emptyLocalPayrollForm(month));
+      await loadMonthly();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  const selectedReport = (reports?.rows || [])[0];
+  const payrollRows = reports?.payroll || [];
+  const itemTotals = (monthlyForm.items || []).reduce((acc, item) => {
+    acc[item.section] = (acc[item.section] || 0) + Number(item.amount || 0);
+    return acc;
+  }, {});
+  const salesValue = ['cash_value', 'card_value', 'separated_value', 'wholesale_value', 'business_value']
+    .reduce((sum, key) => sum + Number(monthlyForm[key] || 0), 0);
+  const salesPairs = ['cash_pairs', 'card_pairs', 'separated_pairs', 'wholesale_pairs', 'business_pairs']
+    .reduce((sum, key) => sum + Number(monthlyForm[key] || 0), 0);
+  const payrollTotal = payrollRows.reduce((sum, item) => sum + Number(item.net_pay || 0), 0);
+  const projectedBalance = Number(monthlyForm.previous_balance || 0) + salesValue - Number(itemTotals.expense || 0) - Number(itemTotals.service || 0) - Number(itemTotals.deposit || 0) - payrollTotal;
+
+  return (
+    <section className="prod-panel prod-local-monthly">
+      <div className="prod-panel-title">
+        <div><span>Formato mensual</span><h2>Reporte de local y roles</h2></div>
+        <button className="prod-primary-button" disabled={loading} onClick={loadMonthly}><Filter size={17} />Cargar</button>
+      </div>
+      <div className="prod-monthly-controls">
+        <label>Mes<input type="month" value={month} onChange={(event) => { setMonth(event.target.value); setMonthlyForm(emptyLocalMonthlyForm(event.target.value)); setPayrollForm(emptyLocalPayrollForm(event.target.value)); }} /></label>
+        <label>Local
+          <select value={localName} onChange={(event) => { setLocalName(event.target.value); updateMonthlyField('local_name', event.target.value); setPayrollForm((current) => ({ ...current, local_name: event.target.value })); }}>
+            {RETURN_DESTINATIONS.map((destination) => <option value={destination} key={destination}>{destination}</option>)}
+          </select>
+        </label>
+      </div>
+      <div className="prod-monthly-summary">
+        <article><span>Venta total</span><strong>{displayMoney(selectedReport?.totals?.sales_value ?? salesValue)}</strong><small>{displayNumber(selectedReport?.totals?.sales_pairs ?? salesPairs)} pares</small></article>
+        <article><span>Gastos + servicios</span><strong>{displayMoney((selectedReport?.totals?.expenses ?? itemTotals.expense ?? 0) + (selectedReport?.totals?.services ?? itemTotals.service ?? 0))}</strong><small>Sin sueldos</small></article>
+        <article><span>Roles</span><strong>{displayMoney(selectedReport?.totals?.payroll ?? payrollTotal)}</strong><small>{payrollRows.length} empleadas</small></article>
+        <article><span>Cuadre</span><strong>{displayMoney(selectedReport?.totals?.balance ?? projectedBalance)}</strong><small>Venta - salidas</small></article>
+      </div>
+
+      <div className="prod-local-monthly-grid">
+        <div>
+          <h3>Ventas del mes</h3>
+          <div className="prod-form-grid">
+            {[
+              ['cash', 'Pares efectivo'],
+              ['card', 'Pares tarjeta'],
+              ['separated', 'Pares separados'],
+              ['wholesale', 'Mayoristas'],
+              ['business', 'Empresarias']
+            ].map(([key, label]) => (
+              <React.Fragment key={key}>
+                <label>{label}<input type="number" min="0" value={monthlyForm[`${key}_pairs`] || ''} onChange={(event) => updateMonthlyField(`${key}_pairs`, event.target.value)} /></label>
+                <label>Valor<input type="number" min="0" step="0.01" value={monthlyForm[`${key}_value`] || ''} onChange={(event) => updateMonthlyField(`${key}_value`, event.target.value)} /></label>
+              </React.Fragment>
+            ))}
+            <label>Saldo anterior<input type="number" step="0.01" value={monthlyForm.previous_balance || ''} onChange={(event) => updateMonthlyField('previous_balance', event.target.value)} /></label>
+            <label>Nota tarjetas<input value={monthlyForm.card_note || ''} onChange={(event) => updateMonthlyField('card_note', event.target.value)} /></label>
+          </div>
+        </div>
+
+        <div>
+          <h3>Gastos, servicios y depositos</h3>
+          <div className="prod-local-items">
+            {(monthlyForm.items || []).map((item, index) => (
+              <div key={index} className="prod-local-item-row">
+                <select value={item.section} onChange={(event) => updateMonthlyItem(index, { section: event.target.value })}>
+                  <option value="expense">Gasto</option>
+                  <option value="service">Servicio</option>
+                  <option value="deposit">Deposito</option>
+                </select>
+                <input placeholder="Detalle" value={item.label} onChange={(event) => updateMonthlyItem(index, { label: event.target.value })} />
+                <input type="number" min="0" step="0.01" placeholder="Valor" value={item.amount} onChange={(event) => updateMonthlyItem(index, { amount: event.target.value })} />
+                <button className="prod-icon-button danger" onClick={() => setMonthlyForm((current) => ({ ...current, items: current.items.filter((_, itemIndex) => itemIndex !== index) }))}><Trash2 size={15} /></button>
+              </div>
+            ))}
+          </div>
+          <div className="prod-form-actions">
+            <button className="prod-secondary-button" onClick={() => setMonthlyForm((current) => ({ ...current, items: [...current.items, { section: 'expense', label: '', amount: '', notes: '' }] }))}><Plus size={16} />Agregar fila</button>
+            <button className="prod-primary-button" onClick={saveMonthlyReport}><Save size={17} />Guardar reporte mensual</button>
+          </div>
+        </div>
+      </div>
+
+      <div className="prod-local-monthly-grid">
+        <div>
+          <h3>Rol de pago</h3>
+          <div className="prod-form-grid">
+            <label>Empleada
+              <select
+                value={payrollForm.staff_id}
+                onChange={(event) => {
+                  const selected = staff.find((item) => String(item.id) === event.target.value);
+                  setPayrollForm({ ...payrollForm, staff_id: event.target.value, staff_name: selected?.name || '' });
+                }}
+              >
+                <option value="">Escribir manual</option>
+                {staff.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}
+              </select>
+            </label>
+            <label>Nombre<input value={payrollForm.staff_name} onChange={(event) => setPayrollForm({ ...payrollForm, staff_name: event.target.value })} /></label>
+            <label>Desde<input type="date" value={payrollForm.date_from || ''} onChange={(event) => setPayrollForm({ ...payrollForm, date_from: event.target.value })} /></label>
+            <label>Hasta<input type="date" value={payrollForm.date_to || ''} onChange={(event) => setPayrollForm({ ...payrollForm, date_to: event.target.value })} /></label>
+          </div>
+          <div className="prod-local-items">
+            {(payrollForm.items || []).map((item, index) => (
+              <div key={index} className="prod-local-item-row">
+                <select value={item.item_type} onChange={(event) => updatePayrollItem(index, { item_type: event.target.value })}>
+                  <option value="income">Ingreso</option>
+                  <option value="deduction">Egreso</option>
+                </select>
+                <input placeholder="Detalle" value={item.label} onChange={(event) => updatePayrollItem(index, { label: event.target.value })} />
+                <input type="number" min="0" step="0.01" placeholder="Valor" value={item.amount} onChange={(event) => updatePayrollItem(index, { amount: event.target.value })} />
+                <button className="prod-icon-button danger" onClick={() => setPayrollForm((current) => ({ ...current, items: current.items.filter((_, itemIndex) => itemIndex !== index) }))}><Trash2 size={15} /></button>
+              </div>
+            ))}
+          </div>
+          <div className="prod-form-actions">
+            <button className="prod-secondary-button" onClick={() => setPayrollForm((current) => ({ ...current, items: [...current.items, { item_type: 'income', label: '', amount: '', notes: '' }] }))}><Plus size={16} />Agregar fila</button>
+            <button className="prod-primary-button" onClick={savePayroll}><Save size={17} />Guardar rol</button>
+          </div>
+        </div>
+
+        <div>
+          <h3>Roles guardados</h3>
+          <div className="prod-table-wrap compact-table">
+            <table className="prod-table">
+              <thead><tr><th>Empleada</th><th>Ingresos</th><th>Egresos</th><th>A recibir</th></tr></thead>
+              <tbody>
+                {payrollRows.map((row) => (
+                  <tr key={row.id}>
+                    <td><strong>{row.staff_name}</strong><small>{displayDate(row.date_from)} - {displayDate(row.date_to)}</small></td>
+                    <td>{displayMoney(row.total_income)}</td>
+                    <td>{displayMoney(row.total_deductions)}</td>
+                    <td><strong>{displayMoney(row.net_pay)}</strong></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!payrollRows.length && <div className="prod-empty">Aun no hay roles guardados para este mes/local.</div>}
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
