@@ -111,6 +111,67 @@
   color: #bbf7d0;
 }
 
+.prod-attendance-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid rgba(79, 70, 229, 0.18);
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(79, 70, 229, 0.10), rgba(14, 165, 233, 0.08));
+}
+
+.prod-attendance-link div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.prod-attendance-link strong {
+  color: #172033;
+}
+
+.prod-attendance-link span {
+  overflow-wrap: anywhere;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.prod-staff-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+}
+
+.prod-staff-grid article {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.prod-staff-grid strong {
+  color: #172033;
+}
+
+.prod-staff-grid span,
+.prod-staff-grid small {
+  color: #64748b;
+}
+
+.prod-staff-grid b {
+  justify-self: start;
+  padding: 4px 9px;
+  border-radius: 999px;
+  color: #166534;
+  background: #dcfce7;
+  font-size: 0.76rem;
+}
+
 @media (max-width: 520px) {
   .attendance-page {
     padding: 16px;
@@ -125,6 +186,11 @@
 
   .attendance-card h1 {
     font-size: 1.65rem;
+  }
+
+  .prod-attendance-link {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 

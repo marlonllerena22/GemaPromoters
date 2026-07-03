@@ -266,7 +266,7 @@ function App() {
     return <RegisterPage />;
   }
 
-  if (window.location.pathname === '/asistencia-locales') {
+  if (window.location.pathname === '/asistencia-locales' || window.location.pathname === '/asistencia') {
     return <LocalAttendancePage />;
   }
 

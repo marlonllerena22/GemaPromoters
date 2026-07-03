@@ -4,6 +4,7 @@ import {
   Check,
   ChevronLeft,
   ClipboardList,
+  Clock,
   Copy,
   DollarSign,
   Factory,
@@ -904,6 +905,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
     ['clients', 'Clientes', UsersRound],
     ['production', 'Produccion', Factory],
     ...(isAdmin || isLocalSecretary ? [['reports', 'Reportes', BarChart3]] : []),
+    ...(isLocalSecretary ? [['local-attendance', 'Empleadas', Clock]] : []),
     ...(isAdmin ? [['payroll', 'Roles', DollarSign]] : []),
     ...(isAdmin ? [['guide-templates', 'Guias', Tags]] : []),
     ...(isAdmin ? [['users', 'Usuarios', UserPlus]] : [])
@@ -1036,6 +1038,9 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
             setError={setError}
           />
         )
+      )}
+      {view === 'local-attendance' && isLocalSecretary && (
+        <LocalAttendanceAdmin scope={scope} setError={setError} />
       )}
       {view === 'payroll' && isAdmin && (
         <PayrollView
@@ -3738,6 +3743,129 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
             </tbody>
           </table>
           {!visibleProduction.length && <div className="prod-empty">No hay produccion con esos filtros.</div>}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function LocalAttendanceAdmin({ scope, setError }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const attendanceUrl = `${window.location.origin}/asistencia-locales`;
+  const [filters, setFilters] = useState({
+    date_from: today,
+    date_to: today,
+    location: '',
+    staff_id: ''
+  });
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  async function loadAttendance() {
+    setLoading(true);
+    try {
+      const query = new URLSearchParams();
+      query.set('date_from', filters.date_from);
+      query.set('date_to', filters.date_to);
+      if (filters.location) query.set('location', filters.location);
+      if (filters.staff_id) query.set('staff_id', filters.staff_id);
+      setData(await api(scope(`/producalza/local-attendance?${query.toString()}`)));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadAttendance();
+  }, []);
+
+  async function copyLink() {
+    await navigator.clipboard?.writeText(attendanceUrl).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  }
+
+  return (
+    <div className="prod-stack">
+      <section className="prod-panel">
+        <div className="prod-panel-title">
+          <div><span>Asistencia</span><h2>Ingreso y salida de empleadas</h2></div>
+          <button className="prod-primary-button" disabled={loading} onClick={loadAttendance}><Filter size={17} />Filtrar</button>
+        </div>
+        <div className="prod-attendance-link">
+          <div>
+            <strong>Pagina para las empleadas</strong>
+            <span>{attendanceUrl}</span>
+          </div>
+          <div className="prod-row-actions">
+            <button className="prod-secondary-button" onClick={copyLink}><Copy size={16} />{copied ? 'Copiado' : 'Copiar link'}</button>
+            <button className="prod-primary-button" onClick={() => window.open(attendanceUrl, '_blank', 'noopener,noreferrer')}>Abrir</button>
+          </div>
+        </div>
+        <div className="prod-monthly-controls">
+          <label>Desde<input type="date" value={filters.date_from} onChange={(event) => setFilters({ ...filters, date_from: event.target.value })} /></label>
+          <label>Hasta<input type="date" value={filters.date_to} onChange={(event) => setFilters({ ...filters, date_to: event.target.value })} /></label>
+          <label>Local
+            <select value={filters.location} onChange={(event) => setFilters({ ...filters, location: event.target.value })}>
+              <option value="">Todos</option>
+              {(data?.locations || ['Norte', 'Sur', 'Valle', 'Bosque']).map((location) => <option value={location} key={location}>{location}</option>)}
+            </select>
+          </label>
+          <label>Empleada
+            <select value={filters.staff_id} onChange={(event) => setFilters({ ...filters, staff_id: event.target.value })}>
+              <option value="">Todas</option>
+              {(data?.staff || []).map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section className="prod-panel">
+        <div className="prod-panel-title"><div><span>Usuarios</span><h2>Empleadas registradas</h2></div></div>
+        <div className="prod-staff-grid">
+          {(data?.staff || []).map((item) => (
+            <article key={item.id}>
+              <strong>{item.name}</strong>
+              <span>Usuario: {item.username}</span>
+              <small>{(item.locations || []).join(', ')}</small>
+              <b>{item.status === 'active' ? 'Activa' : 'Inactiva'}</b>
+            </article>
+          ))}
+          {!data?.staff?.length && <div className="prod-empty">Cargando empleadas...</div>}
+        </div>
+      </section>
+
+      <section className="prod-panel">
+        <div className="prod-panel-title"><div><span>Registros</span><h2>Asistencia guardada</h2></div></div>
+        <div className="prod-return-destination-summary">
+          {(data?.by_staff || []).map((item) => (
+            <article key={item.staff_name}>
+              <span>{item.staff_name}</span>
+              <strong>{item.in_count} ingresos</strong>
+              <small>{item.out_count} salidas</small>
+            </article>
+          ))}
+        </div>
+        <div className="prod-table-wrap">
+          <table className="prod-table">
+            <thead><tr><th>Fecha</th><th>Hora</th><th>Empleada</th><th>Local</th><th>Accion</th><th>Mensaje</th></tr></thead>
+            <tbody>
+              {(data?.rows || []).map((item) => (
+                <tr key={item.id}>
+                  <td>{displayDate(item.local_date)}</td>
+                  <td>{item.local_time}</td>
+                  <td><strong>{item.staff_name}</strong><small>@{item.username || ''}</small></td>
+                  <td>{item.location}</td>
+                  <td>{item.action === 'in' ? 'Ingreso' : 'Salida'}</td>
+                  <td>{item.message}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!data?.rows?.length && <div className="prod-empty">No hay registros con esos filtros.</div>}
         </div>
       </section>
     </div>

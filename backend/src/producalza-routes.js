@@ -966,6 +966,60 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     });
   });
 
+  app.get('/api/producalza/local-attendance', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    if (!canAccessProductionReports(req)) {
+      return res.status(403).json({ message: 'No tienes acceso al control de asistencia' });
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    const dateFrom = normalizeDateInput(req.query.date_from, today);
+    const dateTo = normalizeDateInput(req.query.date_to, today);
+    const location = String(req.query.location || '').trim();
+    const staffId = Number(req.query.staff_id || 0);
+    const filters = ['attendance.establishment_id = ?', 'attendance.local_date BETWEEN ? AND ?'];
+    const params = [business.id, dateFrom, dateTo];
+    if (location) {
+      filters.push('attendance.location = ?');
+      params.push(location);
+    }
+    if (staffId) {
+      filters.push('attendance.staff_id = ?');
+      params.push(staffId);
+    }
+    const staff = db.prepare(
+      `SELECT id, name, username, allowed_locations_json, default_location, status
+       FROM production_local_staff
+       WHERE establishment_id = ?
+       ORDER BY status DESC, name`
+    ).all(business.id).map((item) => ({
+      ...item,
+      locations: parseJsonValue(item.allowed_locations_json, [])
+    }));
+    const rows = db.prepare(
+      `SELECT attendance.*, staff.username
+       FROM production_local_attendance AS attendance
+       LEFT JOIN production_local_staff AS staff ON staff.id = attendance.staff_id
+       WHERE ${filters.join(' AND ')}
+       ORDER BY attendance.local_date DESC, attendance.local_time DESC, attendance.id DESC`
+    ).all(...params);
+    const byStaff = new Map();
+    for (const row of rows) {
+      const current = byStaff.get(row.staff_name) || { staff_name: row.staff_name, in_count: 0, out_count: 0 };
+      if (row.action === 'in') current.in_count += 1;
+      if (row.action === 'out') current.out_count += 1;
+      byStaff.set(row.staff_name, current);
+    }
+    res.json({
+      date_from: dateFrom,
+      date_to: dateTo,
+      locations: Object.keys(LOCAL_ATTENDANCE_GROUPS),
+      staff,
+      rows,
+      by_staff: [...byStaff.values()]
+    });
+  });
+
   app.get('/api/producalza/employees', requireProductionAdmin, (req, res) => {
     const business = ensureProductionBusiness(req, res);
     if (!business) return;
