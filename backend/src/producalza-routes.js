@@ -649,6 +649,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       + Number(entry.advance_amount || 0)
       + Number(entry.savings_amount || 0)
       + Number(entry.footwear_amount || 0)
+      + Number(entry.loan_amount || 0)
       + Number(entry.other_deductions || 0)
       + unworkedDiscount
       + lateDiscount
@@ -1215,8 +1216,8 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
           work_days, attendance_days, absent_days,
           late_days, late_minutes, early_leave_days, overtime_hours, manual_unworked_hours,
           late_penalty, iess_amount, advance_amount, savings_amount, footwear_amount,
-          other_deductions, other_income, piece_income, total_income, total_deductions, net_pay, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          loan_amount, other_deductions, other_income, piece_income, total_income, total_deductions, net_pay, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(establishment_id, period_id, employee_name) DO UPDATE SET
            employee_id = excluded.employee_id,
            source_name = excluded.source_name,
@@ -1237,6 +1238,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
            manual_unworked_hours = excluded.manual_unworked_hours,
            late_penalty = excluded.late_penalty,
            iess_amount = CASE WHEN production_payroll_entries.iess_amount = 0 THEN excluded.iess_amount ELSE production_payroll_entries.iess_amount END,
+           loan_amount = CASE WHEN production_payroll_entries.loan_amount = 0 THEN excluded.loan_amount ELSE production_payroll_entries.loan_amount END,
            total_income = excluded.total_income,
            total_deductions = excluded.total_deductions,
            net_pay = excluded.net_pay,
@@ -1287,6 +1289,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
           advance_amount: 0,
           savings_amount: 0,
           footwear_amount: 0,
+          loan_amount: 0,
           other_deductions: 0,
           other_income: 0,
           piece_income: 0,
@@ -1318,6 +1321,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
           calculated.advance_amount,
           calculated.savings_amount,
           calculated.footwear_amount,
+          calculated.loan_amount,
           calculated.other_deductions,
           calculated.other_income,
           calculated.piece_income,
@@ -1354,6 +1358,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       advance_amount: req.body.advance_amount ?? current.advance_amount,
       savings_amount: req.body.savings_amount ?? current.savings_amount,
       footwear_amount: req.body.footwear_amount ?? current.footwear_amount,
+      loan_amount: req.body.loan_amount ?? current.loan_amount,
       other_deductions: req.body.other_deductions ?? current.other_deductions,
       other_income: req.body.other_income ?? current.other_income,
       piece_income: req.body.piece_income ?? current.piece_income,
@@ -1365,7 +1370,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
            overtime_100_hours = ?, overtime_100_rate = ?, overtime_hours = ?,
            manual_unworked_hours = ?, late_days = ?, late_minutes = ?, late_penalty = ?, iess_amount = ?,
            advance_amount = ?, savings_amount = ?, footwear_amount = ?,
-           other_deductions = ?, other_income = ?, piece_income = ?,
+           loan_amount = ?, other_deductions = ?, other_income = ?, piece_income = ?,
            total_income = ?, total_deductions = ?, net_pay = ?, notes = ?,
            updated_at = datetime('now', 'localtime')
        WHERE id = ? AND establishment_id = ?`
@@ -1385,6 +1390,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       moneyValue(updated.advance_amount),
       moneyValue(updated.savings_amount),
       moneyValue(updated.footwear_amount),
+      moneyValue(updated.loan_amount),
       moneyValue(updated.other_deductions),
       moneyValue(updated.other_income),
       moneyValue(updated.piece_income),

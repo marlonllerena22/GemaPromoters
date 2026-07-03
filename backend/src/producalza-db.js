@@ -293,6 +293,7 @@ export function initProducalzaDb(db) {
       advance_amount REAL NOT NULL DEFAULT 0,
       savings_amount REAL NOT NULL DEFAULT 0,
       footwear_amount REAL NOT NULL DEFAULT 0,
+      loan_amount REAL NOT NULL DEFAULT 0,
       other_deductions REAL NOT NULL DEFAULT 0,
       other_income REAL NOT NULL DEFAULT 0,
       piece_income REAL NOT NULL DEFAULT 0,
@@ -501,6 +502,7 @@ export function initProducalzaDb(db) {
   addColumnIfMissing(db, 'production_payroll_entries', 'overtime_50_hours', 'REAL NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'production_payroll_entries', 'overtime_100_hours', 'REAL NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'production_payroll_entries', 'overtime_100_rate', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'production_payroll_entries', 'loan_amount', 'REAL NOT NULL DEFAULT 0');
   db.prepare(
     `UPDATE production_payroll_entries
      SET overtime_50_hours = CASE WHEN overtime_50_hours = 0 THEN overtime_hours ELSE overtime_50_hours END,

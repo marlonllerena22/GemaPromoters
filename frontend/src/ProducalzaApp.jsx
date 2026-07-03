@@ -3151,6 +3151,7 @@ function PayrollView({ employees, periods, scope, onRefresh, setError }) {
         advance_amount: entry.advance_amount ?? 0,
         savings_amount: entry.savings_amount ?? 0,
         footwear_amount: entry.footwear_amount ?? 0,
+        loan_amount: entry.loan_amount ?? 0,
         other_deductions: entry.other_deductions ?? 0,
         other_income: entry.other_income ?? 0,
         piece_income: entry.piece_income ?? 0,
@@ -3252,6 +3253,7 @@ function PayrollView({ employees, periods, scope, onRefresh, setError }) {
       advance_amount: entry.advance_amount ?? 0,
       savings_amount: entry.savings_amount ?? 0,
       footwear_amount: entry.footwear_amount ?? 0,
+      loan_amount: entry.loan_amount ?? 0,
       other_deductions: entry.other_deductions ?? 0,
       other_income: entry.other_income ?? 0,
       piece_income: entry.piece_income ?? 0,
@@ -3343,7 +3345,7 @@ function PayrollView({ employees, periods, scope, onRefresh, setError }) {
           </div>
           <div className="prod-table-wrap prod-payroll-table">
             <table>
-              <thead><tr><th>Empleado</th><th>Atrasos</th><th>Extra 50%</th><th>Extra 100%</th><th>Horas no trabajadas</th><th>IESS</th><th>Adelanto</th><th>Ahorro/Rifa</th><th>Calzado</th><th>Otros desc.</th><th>Comisiones</th><th>A recibir</th></tr></thead>
+              <thead><tr><th>Empleado</th><th>Atrasos</th><th>Extra 50%</th><th>Extra 100%</th><th>Horas no trabajadas</th><th>IESS</th><th>Adelanto</th><th>Ahorro/Rifa</th><th>Calzado</th><th>Prestamos</th><th>Varios</th><th>Comisiones</th><th>A recibir</th></tr></thead>
               <tbody>
                 {selected.entries.map((entry) => {
                   const draft = entryDraft(entry);
@@ -3364,6 +3366,7 @@ function PayrollView({ employees, periods, scope, onRefresh, setError }) {
                       <td><input type="number" min="0" step="0.01" value={draft.advance_amount} onChange={(event) => updateEntryDraft(entry.id, { advance_amount: event.target.value })} /></td>
                       <td><input type="number" min="0" step="0.01" value={draft.savings_amount} onChange={(event) => updateEntryDraft(entry.id, { savings_amount: event.target.value })} /></td>
                       <td><input type="number" min="0" step="0.01" value={draft.footwear_amount} onChange={(event) => updateEntryDraft(entry.id, { footwear_amount: event.target.value })} /></td>
+                      <td><input type="number" min="0" step="0.01" value={draft.loan_amount} onChange={(event) => updateEntryDraft(entry.id, { loan_amount: event.target.value })} /></td>
                       <td><input type="number" min="0" step="0.01" value={draft.other_deductions} onChange={(event) => updateEntryDraft(entry.id, { other_deductions: event.target.value })} /></td>
                       <td><input type="number" min="0" step="0.01" value={draft.piece_income} onChange={(event) => updateEntryDraft(entry.id, { piece_income: event.target.value })} /></td>
                       <td><strong>{displayMoney(entry.net_pay)}</strong><small>Se recalcula al guardar</small></td>
@@ -3460,13 +3463,14 @@ function PayrollPrintRoot({ mode, period, totals }) {
                     <tr><td>COMISIONES VENTA / OBRA</td><td>{displayMoney(entry.piece_income)}</td></tr>
                     <tr className="payroll-total-row"><td>TOTAL INGRESOS</td><td>{displayMoney(entry.total_income)}</td></tr>
                     <tr><th colSpan="2">EGRESOS</th></tr>
-                    <tr><td>APORTE PERSONAL IESS (9,45%)</td><td>{displayMoney(entry.iess_amount)}</td></tr>
-                    <tr><td>DESC. HORAS NO TRABAJADAS</td><td>{displayMoney(unworkedDiscount)}</td></tr>
-                    <tr><td>DESC. ADELANTO</td><td>{displayMoney(entry.advance_amount)}</td></tr>
+                    <tr><td>APORTE IESS</td><td>{displayMoney(entry.iess_amount)}</td></tr>
+                    <tr><td>DESCUENTO ATRASOS</td><td>{displayMoney(lateDiscount)}</td></tr>
+                    <tr><td>DESC. HORAS NO TRABAJA</td><td>{displayMoney(unworkedDiscount)}</td></tr>
+                    <tr><td>DESCUE. ADELANTOS</td><td>{displayMoney(entry.advance_amount)}</td></tr>
                     <tr><td>DESC. AHORRO Y RIFA</td><td>{displayMoney(entry.savings_amount)}</td></tr>
-                    <tr><td>DESC. VARIAS DEVOL.</td><td>{displayMoney(entry.other_deductions)}</td></tr>
                     <tr><td>DES.CALZADO</td><td>{displayMoney(entry.footwear_amount)}</td></tr>
-                    <tr><td>DESC. ATRASOS</td><td>{displayMoney(lateDiscount)}</td></tr>
+                    <tr><td>DESC. PRESTAMOS</td><td>{displayMoney(entry.loan_amount)}</td></tr>
+                    <tr><td>DESC. VARIOS</td><td>{displayMoney(entry.other_deductions)}</td></tr>
                     <tr className="payroll-total-row"><td>TOTAL DE EGRESOS</td><td>{displayMoney(entry.total_deductions)}</td></tr>
                     <tr className="payroll-net-row"><td>TOTAL A RECIBIR (INGRESOS-EGRESOS)</td><td>{displayMoney(entry.net_pay)}</td></tr>
                   </tbody>
