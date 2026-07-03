@@ -8,6 +8,7 @@ export function initProducalzaDb(db) {
       password TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'vendor' CHECK (role IN ('admin', 'vendor')),
       can_view_all_orders INTEGER NOT NULL DEFAULT 0 CHECK (can_view_all_orders IN (0, 1)),
+      is_local_secretary INTEGER NOT NULL DEFAULT 0 CHECK (is_local_secretary IN (0, 1)),
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       FOREIGN KEY (establishment_id) REFERENCES establishments(id)
@@ -29,6 +30,7 @@ export function initProducalzaDb(db) {
       bank_reference TEXT,
       classification TEXT,
       imported_seller_code TEXT,
+      local_store_key TEXT,
       guide_template_key TEXT,
       guide_logo_url TEXT,
       general_notes TEXT,
@@ -303,6 +305,51 @@ export function initProducalzaDb(db) {
       UNIQUE(establishment_id, period_id, employee_name)
     );
 
+    CREATE TABLE IF NOT EXISTS production_local_finances (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      local_name TEXT NOT NULL,
+      entry_type TEXT NOT NULL DEFAULT 'income' CHECK (entry_type IN ('income', 'expense')),
+      category TEXT NOT NULL,
+      amount REAL NOT NULL DEFAULT 0,
+      entry_date TEXT NOT NULL DEFAULT (date('now', 'localtime')),
+      notes TEXT,
+      created_by_user_id INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (created_by_user_id) REFERENCES production_users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS production_local_staff (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      username TEXT NOT NULL UNIQUE,
+      password TEXT NOT NULL,
+      allowed_locations_json TEXT NOT NULL DEFAULT '[]',
+      default_location TEXT,
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS production_local_attendance (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      staff_id INTEGER NOT NULL,
+      staff_name TEXT NOT NULL,
+      location TEXT NOT NULL,
+      action TEXT NOT NULL CHECK (action IN ('in', 'out')),
+      local_date TEXT NOT NULL DEFAULT (date('now', 'localtime')),
+      local_time TEXT NOT NULL DEFAULT (time('now', 'localtime')),
+      message TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (staff_id) REFERENCES production_local_staff(id)
+    );
+
     CREATE TABLE IF NOT EXISTS production_audit_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       establishment_id INTEGER NOT NULL,
@@ -331,8 +378,14 @@ export function initProducalzaDb(db) {
       ON production_return_allocations(establishment_id, return_order_id, destination);
     CREATE INDEX IF NOT EXISTS idx_production_payroll_entries_period
       ON production_payroll_entries(establishment_id, period_id, employee_name);
+    CREATE INDEX IF NOT EXISTS idx_production_local_finances_business
+      ON production_local_finances(establishment_id, entry_date, local_name);
+    CREATE INDEX IF NOT EXISTS idx_production_local_attendance_business
+      ON production_local_attendance(establishment_id, local_date, staff_id);
   `);
 
+  addColumnIfMissing(db, 'production_users', 'is_local_secretary', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'production_clients', 'local_store_key', 'TEXT');
   addColumnIfMissing(db, 'production_client_visits', 'visited_by_user_id', 'INTEGER');
   addColumnIfMissing(db, 'production_client_visits', 'visitor_name', 'TEXT');
   addColumnIfMissing(db, 'production_client_visits', 'visit_type', "TEXT NOT NULL DEFAULT 'visit'");
@@ -406,6 +459,10 @@ export function initProducalzaDb(db) {
      VALUES (?, 'next_card_number', '62')`
   ).run(establishment.id);
 
+  seedLocalStores(db, establishment.id);
+  seedLocalSecretary(db, establishment.id);
+  seedLocalStaff(db, establishment.id);
+
   db.prepare('DELETE FROM production_monthly_report_rows WHERE establishment_id = ?').run(establishment.id);
 }
 
@@ -413,5 +470,76 @@ function addColumnIfMissing(db, table, column, definition) {
   const columns = db.prepare(`PRAGMA table_info(${table})`).all();
   if (!columns.some((item) => item.name === column)) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
+function seedLocalStores(db, establishmentId) {
+  const stores = [
+    ['marjorie-norte', 'Local Marjorie Botas Norte', 'Norte', 'Marjorie Botas'],
+    ['marjorie-sur', 'Local Marjorie Botas Sur', 'Sur', 'Marjorie Botas'],
+    ['marjorie-valle', 'Local Marjorie Botas Valle', 'Valle', 'Marjorie Botas'],
+    ['sebastians', 'Sebastians', 'El Bosque', 'Sebastians']
+  ];
+  const updateExisting = db.prepare(
+    `UPDATE production_clients
+     SET local_store_key = ?, brand = COALESCE(NULLIF(brand, ''), ?),
+         city = COALESCE(NULLIF(city, ''), ?),
+         classification = COALESCE(NULLIF(classification, ''), 'Local comercial')
+     WHERE establishment_id = ? AND name = ?`
+  );
+  const find = db.prepare('SELECT id FROM production_clients WHERE establishment_id = ? AND name = ?');
+  const insert = db.prepare(
+    `INSERT INTO production_clients
+     (establishment_id, name, city, brand, local_store_key, classification, general_notes)
+     VALUES (?, ?, ?, ?, ?, 'Local comercial', 'Cliente interno para pedidos de locales')`
+  );
+  for (const [key, name, city, brand] of stores) {
+    const current = find.get(establishmentId, name);
+    if (current) {
+      updateExisting.run(key, brand, city, establishmentId, name);
+    } else {
+      insert.run(establishmentId, name, city, brand, key);
+    }
+  }
+}
+
+function seedLocalSecretary(db, establishmentId) {
+  db.prepare(
+    `INSERT INTO production_users
+     (establishment_id, name, username, password, role, can_view_all_orders, is_local_secretary, status)
+     VALUES (?, 'Secretaria Locales', 'locales', 'locales123', 'vendor', 0, 1, 'active')
+     ON CONFLICT(username) DO UPDATE SET
+       establishment_id = excluded.establishment_id,
+       name = excluded.name,
+       role = 'vendor',
+       can_view_all_orders = 0,
+       is_local_secretary = 1,
+       status = 'active'`
+  ).run(establishmentId);
+}
+
+function seedLocalStaff(db, establishmentId) {
+  const staff = [
+    ['Liliana Jima', 'liliana', 'liliana123', ['Norte'], 'Norte'],
+    ['Selena Sarango', 'selena', 'selena123', ['Sur'], 'Sur'],
+    ['Nayely Vera', 'nayely', 'nayely123', ['Valle'], 'Valle'],
+    ['Belen', 'belen', 'belen123', ['Bosque'], 'Bosque'],
+    ['Yamileth', 'yamileth', 'yamileth123', ['Sur', 'Valle', 'Bosque'], 'Valle']
+  ];
+  const statement = db.prepare(
+    `INSERT INTO production_local_staff
+     (establishment_id, name, username, password, allowed_locations_json, default_location, status)
+     VALUES (?, ?, ?, ?, ?, ?, 'active')
+     ON CONFLICT(username) DO UPDATE SET
+       establishment_id = excluded.establishment_id,
+       name = excluded.name,
+       password = excluded.password,
+       allowed_locations_json = excluded.allowed_locations_json,
+       default_location = excluded.default_location,
+       status = 'active',
+       updated_at = datetime('now', 'localtime')`
+  );
+  for (const item of staff) {
+    statement.run(establishmentId, item[0], item[1], item[2], JSON.stringify(item[3]), item[4]);
   }
 }

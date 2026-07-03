@@ -1,4 +1,4 @@
-import { createToken, requireProductionAdmin, requireProductionUser } from './auth.js';
+import { createToken, requireAuth, requireProductionAdmin, requireProductionUser } from './auth.js';
 import { createProductionOrderPdf } from './production-pdf.js';
 
 const ORDER_STATUSES = ['draft', 'received', 'reviewed', 'in_production', 'finished', 'delivered', 'cancelled'];
@@ -12,6 +12,12 @@ const RETURN_DESTINATIONS = [
   'Local Marjorie Botas Valle',
   'Sebastians'
 ];
+const LOCAL_ATTENDANCE_GROUPS = {
+  Sur: 'https://chat.whatsapp.com/LSFur45K8mT7Jx23IdG8RE?s=sw&p=a&ilr=0&amv=1',
+  Valle: 'https://chat.whatsapp.com/HbogTXLn22mBqKwQWz6Ire?s=sw&p=a&ilr=0&amv=1',
+  Norte: 'https://chat.whatsapp.com/DXvYvOC2QzBLYbfZrAMvtw?s=sw&p=a&ilr=0&amv=1',
+  Bosque: 'https://chat.whatsapp.com/Hd8QLghDr8qLaCq5SRURhe?s=sw&p=a&ilr=0&amv=1'
+};
 const DELIVERY_NOTE_BALANCE_REF = 'AUTO-NOTA-ENTREGA';
 const MANUAL_PAID_TOTAL_REF = 'MANUAL-TOTAL-PAGADO';
 const MANUAL_PENDING_TOTAL_REF = 'MANUAL-TOTAL-PENDIENTE';
@@ -184,7 +190,8 @@ export function productionLoginResponse(user) {
       username: user.username,
       productionUserId: user.id,
       establishmentId: user.establishment_id,
-      canViewAllOrders: Boolean(user.can_view_all_orders)
+      canViewAllOrders: Boolean(user.can_view_all_orders),
+      isLocalSecretary: Boolean(user.is_local_secretary)
     }),
     user: {
       id: user.id,
@@ -193,7 +200,8 @@ export function productionLoginResponse(user) {
       role,
       establishment_id: user.establishment_id,
       establishment_display_name: user.establishment_name || 'PRODUCALZA',
-      can_view_all_orders: Boolean(user.can_view_all_orders)
+      can_view_all_orders: Boolean(user.can_view_all_orders),
+      is_local_secretary: Boolean(user.is_local_secretary)
     }
   };
 }
@@ -219,11 +227,28 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     return ['admin', 'supreme', 'production_admin'].includes(req.user?.role);
   }
 
+  function isLocalSecretary(req) {
+    return Boolean(req.user?.isLocalSecretary || req.user?.is_local_secretary);
+  }
+
+  function canAccessProductionReports(req) {
+    return isProductionAdmin(req) || isLocalSecretary(req);
+  }
+
   function orderVisibility(req) {
     if (isProductionAdmin(req) || req.user?.canViewAllOrders) {
       return { sql: '', params: [] };
     }
     return { sql: ' AND orders.seller_user_id = ?', params: [req.user?.productionUserId || 0] };
+  }
+
+  function requireLocalStaff(req, res, next) {
+    requireAuth(req, res, () => {
+      if (req.user?.role !== 'production_local_staff') {
+        return res.status(403).json({ message: 'Acceso exclusivo de asistencia' });
+      }
+      return next();
+    });
   }
 
   function audit(req, action, entityType, entityId, details = '') {
@@ -864,7 +889,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const id = business.id;
     const users = isProductionAdmin(req)
       ? db.prepare(
-        `SELECT id, name, username, role, can_view_all_orders, status, created_at
+        `SELECT id, name, username, role, can_view_all_orders, is_local_secretary, status, created_at
          FROM production_users WHERE establishment_id = ? ORDER BY name`
       ).all(id)
       : [];
@@ -875,6 +900,69 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       sizes: SIZES,
       order_statuses: ORDER_STATUSES,
       model_statuses: MODEL_STATUSES
+    });
+  });
+
+  app.post('/api/producalza/local-attendance/login', (req, res) => {
+    const username = String(req.body.username || '').trim();
+    const password = String(req.body.password || '').trim();
+    const staff = db.prepare(
+      `SELECT staff.*, establishments.display_name AS establishment_name
+       FROM production_local_staff AS staff
+       JOIN establishments ON establishments.id = staff.establishment_id
+       WHERE staff.username = ?
+         AND staff.password = ?
+         AND staff.status = 'active'
+         AND establishments.status = 'active'
+         AND establishments.module_type = 'production'`
+    ).get(username, password);
+    if (!staff) return res.status(401).json({ message: 'Usuario o contrasena incorrectos' });
+    const locations = parseJsonValue(staff.allowed_locations_json, []);
+    res.json({
+      token: createToken({
+        role: 'production_local_staff',
+        staffId: staff.id,
+        establishmentId: staff.establishment_id,
+        username: staff.username
+      }),
+      staff: {
+        id: staff.id,
+        name: staff.name,
+        username: staff.username,
+        establishment_id: staff.establishment_id,
+        establishment_display_name: staff.establishment_name || 'PRODUCALZA',
+        locations,
+        default_location: staff.default_location || locations[0] || ''
+      }
+    });
+  });
+
+  app.post('/api/producalza/local-attendance/mark', requireLocalStaff, (req, res) => {
+    const staff = db.prepare(
+      `SELECT * FROM production_local_staff
+       WHERE id = ? AND establishment_id = ? AND status = 'active'`
+    ).get(req.user.staffId, establishmentId(req));
+    if (!staff) return res.status(404).json({ message: 'Empleada no encontrada' });
+    const locations = parseJsonValue(staff.allowed_locations_json, []);
+    const location = String(req.body.location || staff.default_location || locations[0] || '').trim();
+    const action = req.body.action === 'out' ? 'out' : 'in';
+    if (!locations.includes(location)) {
+      return res.status(400).json({ message: 'No tienes permiso para registrar asistencia en ese local' });
+    }
+    const label = action === 'in' ? 'INGRESO' : 'SALIDA';
+    const now = new Date();
+    const dateLabel = now.toLocaleDateString('es-EC');
+    const timeLabel = now.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' });
+    const message = `Hola, soy ${staff.name}. Registro ${label} en ${location} el ${dateLabel} a las ${timeLabel}.`;
+    const result = db.prepare(
+      `INSERT INTO production_local_attendance
+       (establishment_id, staff_id, staff_name, location, action, message)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(staff.establishment_id, staff.id, staff.name, location, action, message);
+    res.status(201).json({
+      id: result.lastInsertRowid,
+      message,
+      whatsapp_url: LOCAL_ATTENDANCE_GROUPS[location] || ''
     });
   });
 
@@ -1394,7 +1482,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const business = ensureProductionBusiness(req, res);
     if (!business) return;
     res.json(db.prepare(
-      `SELECT id, name, username, role, can_view_all_orders, status, created_at
+      `SELECT id, name, username, role, can_view_all_orders, is_local_secretary, status, created_at
        FROM production_users WHERE establishment_id = ? ORDER BY name`
     ).all(business.id));
   });
@@ -1412,8 +1500,8 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     try {
       const result = db.prepare(
         `INSERT INTO production_users
-         (establishment_id, name, username, password, role, can_view_all_orders, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+         (establishment_id, name, username, password, role, can_view_all_orders, is_local_secretary, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         business.id,
         name,
@@ -1421,6 +1509,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         password,
         role,
         req.body.can_view_all_orders ? 1 : 0,
+        req.body.is_local_secretary ? 1 : 0,
         req.body.status === 'inactive' ? 'inactive' : 'active'
       );
       audit(req, 'create', 'production_user', result.lastInsertRowid, name);
@@ -1439,7 +1528,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     if (!current) return res.status(404).json({ message: 'Usuario no encontrado' });
     const result = db.prepare(
       `UPDATE production_users
-       SET name = ?, username = ?, password = ?, role = ?, can_view_all_orders = ?, status = ?
+       SET name = ?, username = ?, password = ?, role = ?, can_view_all_orders = ?, is_local_secretary = ?, status = ?
        WHERE id = ? AND establishment_id = ?`
     ).run(
       String(req.body.name || current.name).trim(),
@@ -1447,6 +1536,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       String(req.body.password || current.password).trim(),
       req.body.role === 'admin' ? 'admin' : 'vendor',
       req.body.can_view_all_orders ? 1 : 0,
+      req.body.is_local_secretary ? 1 : 0,
       req.body.status === 'inactive' ? 'inactive' : 'active',
       current.id,
       business.id
@@ -1459,11 +1549,12 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const business = ensureProductionBusiness(req, res);
     if (!business) return;
     const search = `%${String(req.query.search || '').trim()}%`;
+    const localFilter = isLocalSecretary(req) ? 'AND clients.local_store_key IS NOT NULL' : '';
     const clients = db.prepare(
       `SELECT clients.id, clients.establishment_id, clients.external_number, clients.name,
               clients.business_name, clients.tax_id, clients.city, clients.address, clients.phone,
               clients.email, clients.brand, clients.payment_method, clients.bank_reference,
-              clients.classification, clients.imported_seller_code, clients.guide_template_key,
+              clients.classification, clients.imported_seller_code, clients.local_store_key, clients.guide_template_key,
               clients.general_notes, clients.created_at, clients.updated_at,
               CASE WHEN COALESCE(clients.guide_logo_url, '') <> '' THEN 1 ELSE 0 END AS has_guide_logo,
               (SELECT COUNT(*) FROM production_orders AS orders
@@ -1474,6 +1565,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
        WHERE clients.establishment_id = ?
          AND (clients.name LIKE ? OR clients.business_name LIKE ? OR clients.city LIKE ?
               OR clients.phone LIKE ? OR clients.tax_id LIKE ?)
+         ${localFilter}
        ORDER BY clients.name`
     ).all(business.id, search, search, search, search, search);
     res.json(clients);
@@ -1637,6 +1729,9 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
   app.post('/api/producalza/clients', requireProductionUser, (req, res) => {
     const business = ensureProductionBusiness(req, res);
     if (!business) return;
+    if (isLocalSecretary(req)) {
+      return res.status(403).json({ message: 'Esta cuenta solo puede usar los locales internos ya registrados' });
+    }
     const name = String(req.body.name || '').trim();
     if (!name) return res.status(400).json({ message: 'El nombre del cliente es obligatorio' });
     let guideLogoUrl = '';
@@ -1814,6 +1909,105 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     ).run(req.params.visitId, req.params.clientId, business.id);
     if (!result.changes) return res.status(404).json({ message: 'Visita no encontrada' });
     audit(req, 'delete', 'client_visit', req.params.visitId, `Cliente ${req.params.clientId}`);
+    res.json({ ok: true });
+  });
+
+  app.get('/api/producalza/local-finances', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    if (!canAccessProductionReports(req)) {
+      return res.status(403).json({ message: 'No tienes acceso a este reporte' });
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    const dateFrom = normalizeDateInput(req.query.date_from, today.slice(0, 8) + '01');
+    const dateTo = normalizeDateInput(req.query.date_to, today);
+    const localName = String(req.query.local_name || '').trim();
+    const filters = ['establishment_id = ?', 'entry_date BETWEEN ? AND ?'];
+    const params = [business.id, dateFrom, dateTo];
+    if (localName) {
+      filters.push('local_name = ?');
+      params.push(localName);
+    }
+    if (!isProductionAdmin(req)) {
+      filters.push('created_by_user_id = ?');
+      params.push(req.user.productionUserId || 0);
+    }
+    const rows = db.prepare(
+      `SELECT * FROM production_local_finances
+       WHERE ${filters.join(' AND ')}
+       ORDER BY entry_date DESC, id DESC`
+    ).all(...params);
+    const byLocalMap = new Map();
+    for (const row of rows) {
+      const current = byLocalMap.get(row.local_name) || { local_name: row.local_name, income: 0, expense: 0, balance: 0 };
+      if (row.entry_type === 'income') current.income += Number(row.amount || 0);
+      else current.expense += Number(row.amount || 0);
+      current.balance = current.income - current.expense;
+      byLocalMap.set(row.local_name, current);
+    }
+    res.json({
+      date_from: dateFrom,
+      date_to: dateTo,
+      rows,
+      by_local: [...byLocalMap.values()],
+      totals: {
+        income: rows.filter((row) => row.entry_type === 'income').reduce((sum, row) => sum + Number(row.amount || 0), 0),
+        expense: rows.filter((row) => row.entry_type === 'expense').reduce((sum, row) => sum + Number(row.amount || 0), 0)
+      }
+    });
+  });
+
+  app.post('/api/producalza/local-finances', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    if (!canAccessProductionReports(req)) {
+      return res.status(403).json({ message: 'No tienes acceso a este reporte' });
+    }
+    const localName = String(req.body.local_name || '').trim();
+    const entryType = req.body.entry_type === 'expense' ? 'expense' : 'income';
+    const category = String(req.body.category || (entryType === 'expense' ? 'Gasto' : 'Venta rapida')).trim();
+    const amount = moneyValue(req.body.amount);
+    if (!RETURN_DESTINATIONS.includes(localName)) {
+      return res.status(400).json({ message: 'Selecciona un local valido' });
+    }
+    if (amount <= 0) {
+      return res.status(400).json({ message: 'Ingresa un valor mayor a cero' });
+    }
+    const result = db.prepare(
+      `INSERT INTO production_local_finances
+       (establishment_id, local_name, entry_type, category, amount, entry_date, notes, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      business.id,
+      localName,
+      entryType,
+      category,
+      amount,
+      normalizeDateInput(req.body.entry_date, new Date().toISOString().slice(0, 10)),
+      String(req.body.notes || '').trim(),
+      req.user.productionUserId || null
+    );
+    audit(req, 'create', 'local_finance', result.lastInsertRowid, `${localName} ${category}`);
+    res.status(201).json({ id: result.lastInsertRowid });
+  });
+
+  app.delete('/api/producalza/local-finances/:id', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    if (!canAccessProductionReports(req)) {
+      return res.status(403).json({ message: 'No tienes acceso a este reporte' });
+    }
+    const filters = ['id = ?', 'establishment_id = ?'];
+    const params = [req.params.id, business.id];
+    if (!isProductionAdmin(req)) {
+      filters.push('created_by_user_id = ?');
+      params.push(req.user.productionUserId || 0);
+    }
+    const result = db.prepare(
+      `DELETE FROM production_local_finances WHERE ${filters.join(' AND ')}`
+    ).run(...params);
+    if (!result.changes) return res.status(404).json({ message: 'Movimiento no encontrado' });
+    audit(req, 'delete', 'local_finance', req.params.id, 'Movimiento local');
     res.json({ ok: true });
   });
 
@@ -2816,9 +3010,12 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const business = ensureProductionBusiness(req, res);
     if (!business) return;
     const client = db.prepare(
-      'SELECT id FROM production_clients WHERE id = ? AND establishment_id = ?'
+      'SELECT id, name, local_store_key FROM production_clients WHERE id = ? AND establishment_id = ?'
     ).get(req.body.client_id, business.id);
     if (!client) return res.status(400).json({ message: 'Selecciona un cliente valido' });
+    if (isLocalSecretary(req) && !client.local_store_key) {
+      return res.status(403).json({ message: 'Esta cuenta solo puede crear pedidos para los locales internos' });
+    }
     let models;
     try {
       models = normalizeModels(req.body.models);
@@ -2900,9 +3097,12 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       return res.status(400).json({ message: error.message });
     }
     const client = db.prepare(
-      'SELECT id FROM production_clients WHERE id = ? AND establishment_id = ?'
+      'SELECT id, local_store_key FROM production_clients WHERE id = ? AND establishment_id = ?'
     ).get(req.body.client_id, business.id);
     if (!client) return res.status(400).json({ message: 'Selecciona un cliente valido' });
+    if (isLocalSecretary(req) && !client.local_store_key) {
+      return res.status(403).json({ message: 'Esta cuenta solo puede editar pedidos de locales internos' });
+    }
     const status = ORDER_STATUSES.includes(req.body.status) ? req.body.status : current.status;
     const sellerId = isProductionAdmin(req)
       ? Number(req.body.seller_user_id || 0) || null

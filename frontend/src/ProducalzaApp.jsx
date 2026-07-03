@@ -82,6 +82,7 @@ const emptyUser = {
   password: '',
   role: 'vendor',
   can_view_all_orders: false,
+  is_local_secretary: false,
   status: 'active'
 };
 
@@ -752,6 +753,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
   const [loading, setLoading] = useState(true);
   const [printState, setPrintState] = useState(null);
   const isAdmin = ['admin', 'supreme', 'production_admin'].includes(user?.role);
+  const isLocalSecretary = Boolean(user?.is_local_secretary);
   const scope = (path) => withBusiness(path, establishmentId || user?.establishment_id);
 
   async function loadBase() {
@@ -901,7 +903,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
     ['new-order', 'Crear pedido', FilePlus2],
     ['clients', 'Clientes', UsersRound],
     ['production', 'Produccion', Factory],
-    ...(isAdmin ? [['reports', 'Reportes', BarChart3]] : []),
+    ...(isAdmin || isLocalSecretary ? [['reports', 'Reportes', BarChart3]] : []),
     ...(isAdmin ? [['payroll', 'Roles', DollarSign]] : []),
     ...(isAdmin ? [['guide-templates', 'Guias', Tags]] : []),
     ...(isAdmin ? [['users', 'Usuarios', UserPlus]] : [])
@@ -951,6 +953,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
           clients={clients}
           users={users}
           isAdmin={isAdmin}
+          isLocalSecretary={isLocalSecretary}
           scope={scope}
           initialOrder={editingOrder}
           onCancel={() => {
@@ -1014,14 +1017,25 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
           onPrint={preparePrint}
         />
       )}
-      {view === 'reports' && isAdmin && (
-        <ProductionReports
-          dashboard={dashboard}
-          orders={orders}
-          clientActivity={clientActivity}
-          scope={scope}
-          setError={setError}
-        />
+      {view === 'reports' && (isAdmin || isLocalSecretary) && (
+        isLocalSecretary ? (
+          <LocalSecretaryReports
+            dashboard={dashboard}
+            orders={orders}
+            production={production}
+            scope={scope}
+            onRefresh={refresh}
+            setError={setError}
+          />
+        ) : (
+          <ProductionReports
+            dashboard={dashboard}
+            orders={orders}
+            clientActivity={clientActivity}
+            scope={scope}
+            setError={setError}
+          />
+        )
       )}
       {view === 'payroll' && isAdmin && (
         <PayrollView
@@ -1074,7 +1088,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
               <div className="prod-brand-mark">P</div>
               <div>
                 <strong>PRODUCALZA</strong>
-                <span>Pedidos y produccion</span>
+                <span>{isLocalSecretary ? 'Locales y produccion' : 'Pedidos y produccion'}</span>
               </div>
             </div>
             <nav>
@@ -1107,7 +1121,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
               </div>
               <div className="prod-user-chip">
                 <strong>{user?.name || user?.username}</strong>
-                <span>{isAdmin ? 'Administrador' : 'Vendedor'}</span>
+                <span>{isAdmin ? 'Administrador' : isLocalSecretary ? 'Secretaria locales' : 'Vendedor'}</span>
               </div>
             </header>
             {content}
@@ -1336,7 +1350,7 @@ function OrdersList({ orders, users, isAdmin, scope, onOpen, onEdit, onRefresh, 
   );
 }
 
-function OrderForm({ clients, users, isAdmin, scope, initialOrder, onCancel, onSaved, setError, guideTemplates }) {
+function OrderForm({ clients, users, isAdmin, isLocalSecretary, scope, initialOrder, onCancel, onSaved, setError, guideTemplates }) {
   const [form, setForm] = useState(() => initialOrder ? orderToForm(initialOrder) : emptyOrder());
   const [showNewClient, setShowNewClient] = useState(false);
   const [newClient, setNewClient] = useState(emptyClient);
@@ -1480,9 +1494,11 @@ function OrderForm({ clients, users, isAdmin, scope, initialOrder, onCancel, onS
               </div>
             )}
           </div>
-          <button className="prod-secondary-button align-end" type="button" onClick={() => setShowNewClient((value) => !value)}>
-            <UserPlus size={17} />Nuevo cliente
-          </button>
+          {!isLocalSecretary && (
+            <button className="prod-secondary-button align-end" type="button" onClick={() => setShowNewClient((value) => !value)}>
+              <UserPlus size={17} />Nuevo cliente
+            </button>
+          )}
           {selectedClient && (
             <div className="span-full prod-selected-client">
               <div><span>Razon social</span><strong>{selectedClient.business_name || 'No registrada'}</strong></div>
@@ -1546,7 +1562,7 @@ function OrderForm({ clients, users, isAdmin, scope, initialOrder, onCancel, onS
         </div>
       </section>
 
-      {showNewClient && (
+      {showNewClient && !isLocalSecretary && (
         <section className="prod-panel prod-inline-client">
           <div className="prod-panel-title"><div><span>Registro rapido</span><h2>Nuevo cliente</h2></div></div>
           <ClientFields
@@ -3533,6 +3549,7 @@ function UsersView({ users, scope, onRefresh, setError }) {
           <label>Rol<select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}><option value="vendor">Vendedor</option><option value="admin">Administrador</option></select></label>
           <label>Estado<select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}><option value="active">Activo</option><option value="inactive">Inactivo</option></select></label>
           <label className="prod-check-line"><input type="checkbox" checked={Boolean(form.can_view_all_orders)} onChange={(event) => setForm({ ...form, can_view_all_orders: event.target.checked })} />Puede ver pedidos de otros vendedores</label>
+          <label className="prod-check-line"><input type="checkbox" checked={Boolean(form.is_local_secretary)} onChange={(event) => setForm({ ...form, is_local_secretary: event.target.checked, role: 'vendor', can_view_all_orders: false })} />Secretaria de locales Marjorie/Sebastians</label>
         </div>
         <div className="prod-form-actions">
           {editingId && <button className="prod-secondary-button" onClick={() => { setEditingId(null); setForm(emptyUser); }}>Cancelar</button>}
@@ -3544,11 +3561,183 @@ function UsersView({ users, scope, onRefresh, setError }) {
         <div className="prod-user-list">
           {users.map((item) => (
             <article key={item.id}>
-              <div><strong>{item.name}</strong><span>@{item.username} · {item.role === 'admin' ? 'Administrador' : 'Vendedor'}</span><small>{item.status === 'active' ? 'Activo' : 'Inactivo'}{item.can_view_all_orders ? ' · Ve todos los pedidos' : ''}</small></div>
+              <div><strong>{item.name}</strong><span>@{item.username} · {item.role === 'admin' ? 'Administrador' : item.is_local_secretary ? 'Secretaria locales' : 'Vendedor'}</span><small>{item.status === 'active' ? 'Activo' : 'Inactivo'}{item.can_view_all_orders ? ' · Ve todos los pedidos' : ''}{item.is_local_secretary ? ' · Solo locales' : ''}</small></div>
               <button className="prod-icon-button" onClick={() => edit(item)}><Pencil size={16} /></button>
             </article>
           ))}
           {!users.length && <div className="prod-empty">Crea el primer vendedor para comenzar.</div>}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh, setError }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [filters, setFilters] = useState({
+    date_from: `${today.slice(0, 8)}01`,
+    date_to: today,
+    local_name: ''
+  });
+  const [finance, setFinance] = useState(null);
+  const [form, setForm] = useState({
+    local_name: RETURN_DESTINATIONS[0],
+    entry_type: 'income',
+    category: 'Venta rapida',
+    amount: '',
+    entry_date: today,
+    notes: ''
+  });
+  const [loading, setLoading] = useState(false);
+  const sentOrders = (orders || []).filter((order) => order.order_type !== 'return');
+  const visibleProduction = (production || []).filter((item) =>
+    !filters.local_name || item.client_name === filters.local_name || item.sample_destination === filters.local_name
+  );
+
+  async function loadFinance() {
+    setLoading(true);
+    try {
+      const query = new URLSearchParams();
+      query.set('date_from', filters.date_from);
+      query.set('date_to', filters.date_to);
+      if (filters.local_name) query.set('local_name', filters.local_name);
+      setFinance(await api(scope(`/producalza/local-finances?${query.toString()}`)));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadFinance();
+  }, []);
+
+  async function saveFinance() {
+    try {
+      await api(scope('/producalza/local-finances'), {
+        method: 'POST',
+        body: JSON.stringify(form)
+      });
+      setForm({ ...form, amount: '', notes: '', category: form.entry_type === 'expense' ? 'Arriendo' : 'Venta rapida' });
+      await loadFinance();
+      onRefresh('Movimiento registrado');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function removeFinance(item) {
+    if (!window.confirm('Eliminar este movimiento de ingresos/egresos?')) return;
+    try {
+      await api(scope(`/producalza/local-finances/${item.id}`), { method: 'DELETE' });
+      await loadFinance();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  const totals = finance?.totals || { income: 0, expense: 0 };
+  const balance = Number(totals.income || 0) - Number(totals.expense || 0);
+
+  return (
+    <div className="prod-stack">
+      <section className="prod-metrics">
+        <article><Factory size={21} /><span>Mandado a fabricar</span><strong>{sentOrders.length}</strong></article>
+        <article><Boxes size={21} /><span>Pares en proceso</span><strong>{dashboard?.pending_pairs || 0}</strong></article>
+        <article><DollarSign size={21} /><span>Ingresos locales</span><strong>{displayMoney(totals.income || 0)}</strong></article>
+        <article><DollarSign size={21} /><span>Saldo rapido</span><strong>{displayMoney(balance)}</strong></article>
+      </section>
+
+      <section className="prod-panel">
+        <div className="prod-panel-title">
+          <div><span>Locales</span><h2>Ingresos y egresos</h2></div>
+          <button className="prod-primary-button" disabled={loading} onClick={loadFinance}><Filter size={17} />Filtrar</button>
+        </div>
+        <div className="prod-monthly-controls">
+          <label>Desde<input type="date" value={filters.date_from} onChange={(event) => setFilters({ ...filters, date_from: event.target.value })} /></label>
+          <label>Hasta<input type="date" value={filters.date_to} onChange={(event) => setFilters({ ...filters, date_to: event.target.value })} /></label>
+          <label>Local
+            <select value={filters.local_name} onChange={(event) => setFilters({ ...filters, local_name: event.target.value })}>
+              <option value="">Todos los locales</option>
+              {RETURN_DESTINATIONS.map((destination) => <option value={destination} key={destination}>{destination}</option>)}
+            </select>
+          </label>
+        </div>
+        <div className="prod-return-destination-summary">
+          {(finance?.by_local || []).map((item) => (
+            <article key={item.local_name}>
+              <span>{item.local_name}</span>
+              <strong>{displayMoney(item.balance)}</strong>
+              <small>Ventas {displayMoney(item.income)} · Egresos {displayMoney(item.expense)}</small>
+            </article>
+          ))}
+        </div>
+        <div className="prod-form-grid">
+          <label>Local
+            <select value={form.local_name} onChange={(event) => setForm({ ...form, local_name: event.target.value })}>
+              {RETURN_DESTINATIONS.map((destination) => <option value={destination} key={destination}>{destination}</option>)}
+            </select>
+          </label>
+          <label>Tipo
+            <select
+              value={form.entry_type}
+              onChange={(event) => setForm({
+                ...form,
+                entry_type: event.target.value,
+                category: event.target.value === 'expense' ? 'Arriendo' : 'Venta rapida'
+              })}
+            >
+              <option value="income">Ingreso</option>
+              <option value="expense">Egreso</option>
+            </select>
+          </label>
+          <label>Detalle<input value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} /></label>
+          <label>Valor<input type="number" min="0" step="0.01" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} /></label>
+          <label>Fecha<input type="date" value={form.entry_date} onChange={(event) => setForm({ ...form, entry_date: event.target.value })} /></label>
+          <label className="span-full">Notas<textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label>
+        </div>
+        <div className="prod-form-actions">
+          <button className="prod-primary-button" onClick={saveFinance}><Save size={17} />Guardar movimiento</button>
+        </div>
+        <div className="prod-table-wrap">
+          <table className="prod-table">
+            <thead><tr><th>Fecha</th><th>Local</th><th>Tipo</th><th>Detalle</th><th>Valor</th><th /></tr></thead>
+            <tbody>
+              {(finance?.rows || []).map((item) => (
+                <tr key={item.id}>
+                  <td>{displayDate(item.entry_date)}</td>
+                  <td><strong>{item.local_name}</strong></td>
+                  <td>{item.entry_type === 'expense' ? 'Egreso' : 'Ingreso'}</td>
+                  <td>{item.category}<small>{item.notes || ''}</small></td>
+                  <td>{displayMoney(item.amount)}</td>
+                  <td><button className="prod-icon-button danger" onClick={() => removeFinance(item)}><Trash2 size={16} /></button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!finance?.rows?.length && <div className="prod-empty">No hay movimientos con esos filtros.</div>}
+        </div>
+      </section>
+
+      <section className="prod-panel">
+        <div className="prod-panel-title"><div><span>Produccion</span><h2>Lo que mandaste a fabricar</h2></div></div>
+        <div className="prod-table-wrap">
+          <table className="prod-table">
+            <thead><tr><th>Pedido</th><th>Cliente/local</th><th>Modelo</th><th>Pares</th><th>Estado</th></tr></thead>
+            <tbody>
+              {visibleProduction.map((item) => (
+                <tr key={item.id}>
+                  <td>{item.order_number}<small>{displayDate(item.order_date)}</small></td>
+                  <td><strong>{item.client_name}</strong><small>{item.seller_name || ''}</small></td>
+                  <td>{item.model_code}<small>{[item.color, item.material].filter(Boolean).join(' ')}</small></td>
+                  <td>{item.total_pairs}</td>
+                  <td><StatusBadge status={item.status} model /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!visibleProduction.length && <div className="prod-empty">No hay produccion con esos filtros.</div>}
         </div>
       </section>
     </div>
