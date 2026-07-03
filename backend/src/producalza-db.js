@@ -277,6 +277,9 @@ export function initProducalzaDb(db) {
       monthly_salary REAL NOT NULL DEFAULT 0,
       hourly_rate REAL NOT NULL DEFAULT 0,
       overtime_rate REAL NOT NULL DEFAULT 0,
+      overtime_50_hours REAL NOT NULL DEFAULT 0,
+      overtime_100_hours REAL NOT NULL DEFAULT 0,
+      overtime_100_rate REAL NOT NULL DEFAULT 0,
       work_days INTEGER NOT NULL DEFAULT 0,
       attendance_days INTEGER NOT NULL DEFAULT 0,
       absent_days INTEGER NOT NULL DEFAULT 0,
@@ -495,6 +498,14 @@ export function initProducalzaDb(db) {
   addColumnIfMissing(db, 'production_employees', 'grace_minutes', 'INTEGER NOT NULL DEFAULT 5');
   addColumnIfMissing(db, 'production_employees', 'status', "TEXT NOT NULL DEFAULT 'active'");
   addColumnIfMissing(db, 'production_employees', 'notes', 'TEXT');
+  addColumnIfMissing(db, 'production_payroll_entries', 'overtime_50_hours', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'production_payroll_entries', 'overtime_100_hours', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'production_payroll_entries', 'overtime_100_rate', 'REAL NOT NULL DEFAULT 0');
+  db.prepare(
+    `UPDATE production_payroll_entries
+     SET overtime_50_hours = CASE WHEN overtime_50_hours = 0 THEN overtime_hours ELSE overtime_50_hours END,
+         overtime_100_rate = CASE WHEN overtime_100_rate = 0 AND hourly_rate > 0 THEN hourly_rate * 2 ELSE overtime_100_rate END`
+  ).run();
   db.prepare(
     `UPDATE production_client_visits
      SET updated_at = COALESCE(NULLIF(updated_at, ''), created_at),

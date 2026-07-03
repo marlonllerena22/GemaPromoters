@@ -3130,8 +3130,35 @@ function PayrollView({ employees, periods, scope, onRefresh, setError }) {
   const [editingEmployeeId, setEditingEmployeeId] = useState(null);
   const [periodForm, setPeriodForm] = useState(initialPeriod);
   const [payrollFile, setPayrollFile] = useState(null);
+  const [payrollDrafts, setPayrollDrafts] = useState({});
   const [saving, setSaving] = useState(false);
   const [printMode, setPrintMode] = useState('');
+
+  useEffect(() => {
+    if (!selected?.entries?.length) {
+      setPayrollDrafts({});
+      return;
+    }
+    const nextDrafts = {};
+    selected.entries.forEach((entry) => {
+      nextDrafts[entry.id] = {
+        late_days: entry.late_days ?? 0,
+        late_minutes: entry.late_minutes ?? 0,
+        overtime_50_hours: entry.overtime_50_hours ?? entry.overtime_hours ?? 0,
+        overtime_100_hours: entry.overtime_100_hours ?? 0,
+        manual_unworked_hours: entry.manual_unworked_hours ?? 0,
+        iess_amount: entry.iess_amount ?? 0,
+        advance_amount: entry.advance_amount ?? 0,
+        savings_amount: entry.savings_amount ?? 0,
+        footwear_amount: entry.footwear_amount ?? 0,
+        other_deductions: entry.other_deductions ?? 0,
+        other_income: entry.other_income ?? 0,
+        piece_income: entry.piece_income ?? 0,
+        notes: entry.notes || ''
+      };
+    });
+    setPayrollDrafts(nextDrafts);
+  }, [selected]);
 
   useEffect(() => {
     if (!printMode) return undefined;
@@ -3214,16 +3241,51 @@ function PayrollView({ employees, periods, scope, onRefresh, setError }) {
     }
   }
 
-  async function updateEntry(entry, patch) {
+  function entryDraft(entry) {
+    return payrollDrafts[entry.id] || {
+      late_days: entry.late_days ?? 0,
+      late_minutes: entry.late_minutes ?? 0,
+      overtime_50_hours: entry.overtime_50_hours ?? entry.overtime_hours ?? 0,
+      overtime_100_hours: entry.overtime_100_hours ?? 0,
+      manual_unworked_hours: entry.manual_unworked_hours ?? 0,
+      iess_amount: entry.iess_amount ?? 0,
+      advance_amount: entry.advance_amount ?? 0,
+      savings_amount: entry.savings_amount ?? 0,
+      footwear_amount: entry.footwear_amount ?? 0,
+      other_deductions: entry.other_deductions ?? 0,
+      other_income: entry.other_income ?? 0,
+      piece_income: entry.piece_income ?? 0,
+      notes: entry.notes || ''
+    };
+  }
+
+  function updateEntryDraft(entryId, patch) {
+    setPayrollDrafts((current) => ({
+      ...current,
+      [entryId]: {
+        ...(current[entryId] || {}),
+        ...patch
+      }
+    }));
+  }
+
+  async function savePayrollDrafts() {
+    if (!selected?.entries?.length) return;
+    setSaving(true);
     try {
-      const period = await api(scope(`/producalza/payroll-entries/${entry.id}`), {
-        method: 'PATCH',
-        body: JSON.stringify(patch)
-      });
-      setSelected(period);
-      await onRefresh('Rol actualizado');
+      let updatedPeriod = selected;
+      for (const entry of selected.entries) {
+        updatedPeriod = await api(scope(`/producalza/payroll-entries/${entry.id}`), {
+          method: 'PATCH',
+          body: JSON.stringify(entryDraft(entry))
+        });
+      }
+      setSelected(updatedPeriod);
+      await onRefresh('Roles actualizados');
     } catch (err) {
       setError(err.message);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -3269,6 +3331,7 @@ function PayrollView({ employees, periods, scope, onRefresh, setError }) {
           <div className="prod-panel-title">
             <div><span>{loadingPeriod ? 'Cargando...' : 'Rol mensual'}</span><h2>{selected.label}</h2></div>
             <div className="prod-payroll-actions">
+              <button className="prod-secondary-button" disabled={saving} onClick={savePayrollDrafts}><Save size={17} />{saving ? 'Guardando...' : 'Guardar cambios'}</button>
               <button className="prod-secondary-button" onClick={() => setPrintMode('cards')}><Printer size={17} />Imprimir tarjetas</button>
               <button className="prod-primary-button" onClick={() => setPrintMode('report')}><Printer size={17} />Reporte mensual</button>
             </div>
@@ -3280,20 +3343,33 @@ function PayrollView({ employees, periods, scope, onRefresh, setError }) {
           </div>
           <div className="prod-table-wrap prod-payroll-table">
             <table>
-              <thead><tr><th>Empleado</th><th>Atrasos</th><th>Horas extra</th><th>Horas no trabajadas</th><th>IESS</th><th>Adelanto</th><th>Otros desc.</th><th>A recibir</th></tr></thead>
+              <thead><tr><th>Empleado</th><th>Atrasos</th><th>Extra 50%</th><th>Extra 100%</th><th>Horas no trabajadas</th><th>IESS</th><th>Adelanto</th><th>Ahorro/Rifa</th><th>Calzado</th><th>Otros desc.</th><th>Comisiones</th><th>A recibir</th></tr></thead>
               <tbody>
-                {selected.entries.map((entry) => (
-                  <tr key={entry.id}>
-                    <td><strong>{entry.employee_name}</strong><small>{entry.attendance_days} asistencias · {entry.absent_days} ausencias</small></td>
-                    <td>{entry.late_days}<small>{entry.late_minutes} min</small></td>
-                    <td><input type="number" step="0.01" defaultValue={entry.overtime_hours} onBlur={(event) => updateEntry(entry, { overtime_hours: event.target.value })} /></td>
-                    <td><input type="number" step="0.01" defaultValue={entry.manual_unworked_hours} onBlur={(event) => updateEntry(entry, { manual_unworked_hours: event.target.value })} /></td>
-                    <td><input type="number" step="0.01" defaultValue={entry.iess_amount} onBlur={(event) => updateEntry(entry, { iess_amount: event.target.value })} /></td>
-                    <td><input type="number" step="0.01" defaultValue={entry.advance_amount} onBlur={(event) => updateEntry(entry, { advance_amount: event.target.value })} /></td>
-                    <td><input type="number" step="0.01" defaultValue={entry.other_deductions} onBlur={(event) => updateEntry(entry, { other_deductions: event.target.value })} /></td>
-                    <td><strong>{displayMoney(entry.net_pay)}</strong></td>
-                  </tr>
-                ))}
+                {selected.entries.map((entry) => {
+                  const draft = entryDraft(entry);
+                  return (
+                    <tr key={entry.id}>
+                      <td><strong>{entry.employee_name}</strong><small>{entry.attendance_days} asistencias · {entry.absent_days} ausencias</small></td>
+                      <td>
+                        <div className="prod-payroll-mini-inputs">
+                          <input type="number" min="0" step="1" value={draft.late_days} onChange={(event) => updateEntryDraft(entry.id, { late_days: event.target.value })} />
+                          <input type="number" min="0" step="1" value={draft.late_minutes} onChange={(event) => updateEntryDraft(entry.id, { late_minutes: event.target.value })} />
+                        </div>
+                        <small>dias / min</small>
+                      </td>
+                      <td><input type="number" min="0" step="0.01" value={draft.overtime_50_hours} onChange={(event) => updateEntryDraft(entry.id, { overtime_50_hours: event.target.value })} /></td>
+                      <td><input type="number" min="0" step="0.01" value={draft.overtime_100_hours} onChange={(event) => updateEntryDraft(entry.id, { overtime_100_hours: event.target.value })} /></td>
+                      <td><input type="number" min="0" step="0.01" value={draft.manual_unworked_hours} onChange={(event) => updateEntryDraft(entry.id, { manual_unworked_hours: event.target.value })} /></td>
+                      <td><input type="number" min="0" step="0.01" value={draft.iess_amount} onChange={(event) => updateEntryDraft(entry.id, { iess_amount: event.target.value })} /></td>
+                      <td><input type="number" min="0" step="0.01" value={draft.advance_amount} onChange={(event) => updateEntryDraft(entry.id, { advance_amount: event.target.value })} /></td>
+                      <td><input type="number" min="0" step="0.01" value={draft.savings_amount} onChange={(event) => updateEntryDraft(entry.id, { savings_amount: event.target.value })} /></td>
+                      <td><input type="number" min="0" step="0.01" value={draft.footwear_amount} onChange={(event) => updateEntryDraft(entry.id, { footwear_amount: event.target.value })} /></td>
+                      <td><input type="number" min="0" step="0.01" value={draft.other_deductions} onChange={(event) => updateEntryDraft(entry.id, { other_deductions: event.target.value })} /></td>
+                      <td><input type="number" min="0" step="0.01" value={draft.piece_income} onChange={(event) => updateEntryDraft(entry.id, { piece_income: event.target.value })} /></td>
+                      <td><strong>{displayMoney(entry.net_pay)}</strong><small>Se recalcula al guardar</small></td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -3339,6 +3415,10 @@ function PayrollView({ employees, periods, scope, onRefresh, setError }) {
 }
 
 function PayrollPrintRoot({ mode, period, totals }) {
+  const cardPages = [];
+  for (let index = 0; index < period.entries.length; index += 4) {
+    cardPages.push(period.entries.slice(index, index + 4));
+  }
   return (
     <div className={`prod-print-root prod-payroll-print-root print-payroll-${mode}`}>
       {mode === 'report' ? (
@@ -3355,30 +3435,48 @@ function PayrollPrintRoot({ mode, period, totals }) {
             </tbody>
           </table>
         </article>
-      ) : (
-        <div className="prod-payroll-cards-page">
-          {period.entries.map((entry) => (
-            <article className="prod-payroll-card" key={entry.id}>
-              <h2>ROL DE PAGOS</h2>
-              <p>Fecha: {displayDate(period.date_from)} - {displayDate(period.date_to)}</p>
-              <h3>Nombre: {entry.employee_name}</h3>
-              <div className="prod-payroll-card-grid">
-                <span>Dia de llegar tarde</span><strong>{entry.late_days}</strong>
-                <span>Trabajo hora extra</span><strong>{entry.overtime_hours}</strong>
-                <span>Sueldo</span><strong>{displayMoney(entry.monthly_salary)}</strong>
-                <span>Horas extras 50%</span><strong>{displayMoney(Number(entry.overtime_hours || 0) * Number(entry.overtime_rate || 0))}</strong>
-                <span>Total ingresos</span><strong>{displayMoney(entry.total_income)}</strong>
-                <span>Aporte IESS</span><strong>{displayMoney(entry.iess_amount)}</strong>
-                <span>Desc. atrasos</span><strong>{displayMoney(Number(entry.late_days || 0) * Number(entry.late_penalty || 0))}</strong>
-                <span>Desc. horas no trabajadas</span><strong>{displayMoney(Number(entry.manual_unworked_hours || 0) * Number(entry.hourly_rate || 0))}</strong>
-                <span>Total egresos</span><strong>{displayMoney(entry.total_deductions)}</strong>
-                <span>Total a recibir</span><strong>{displayMoney(entry.net_pay)}</strong>
-              </div>
-              <footer>FIRMA</footer>
-            </article>
-          ))}
+      ) : cardPages.map((pageEntries, pageIndex) => (
+        <div className="prod-payroll-cards-page" key={pageIndex}>
+          {pageEntries.map((entry) => {
+            const overtime50Hours = Number(entry.overtime_50_hours ?? entry.overtime_hours ?? 0);
+            const overtime100Hours = Number(entry.overtime_100_hours || 0);
+            const overtime50Value = overtime50Hours * Number(entry.overtime_rate || 0);
+            const overtime100Value = overtime100Hours * Number(entry.overtime_100_rate || 0);
+            const unworkedDiscount = Number(entry.manual_unworked_hours || 0) * Number(entry.hourly_rate || 0);
+            const lateDiscount = Number(entry.late_days || 0) * Number(entry.late_penalty || 0);
+            return (
+              <article className="prod-payroll-card" key={entry.id}>
+                <table className="prod-payroll-card-table">
+                  <tbody>
+                    <tr><th colSpan="2" className="payroll-card-title">ROL DE PAGOS</th></tr>
+                    <tr><td colSpan="2" className="payroll-card-center">Fecha: {displayDate(period.date_from)} - {displayDate(period.date_to)}</td></tr>
+                    <tr><td colSpan="2"><strong>Nombre :</strong> {entry.employee_name}</td></tr>
+                    <tr><td>Dia de llegar tarde: <strong>{entry.late_days || 0}</strong></td><td>Trabajo hora extra: <strong>{displayNumber(overtime50Hours + overtime100Hours, 2)}</strong></td></tr>
+                    <tr><th colSpan="2">INGRESOS:</th></tr>
+                    <tr><td>SUELDO</td><td>{displayMoney(entry.pay_type === 'piecework' ? 0 : entry.monthly_salary)}</td></tr>
+                    <tr><td>DECIMO III ,IV</td><td>{displayMoney(entry.other_income)}</td></tr>
+                    <tr><td>HORAS EXTRAS 50% ({displayNumber(overtime50Hours, 2)} horas)</td><td>{displayMoney(overtime50Value)}</td></tr>
+                    <tr><td>HORAS EXTRAS 100% ({displayNumber(overtime100Hours, 2)} horas)</td><td>{displayMoney(overtime100Value)}</td></tr>
+                    <tr><td>COMISIONES VENTA / OBRA</td><td>{displayMoney(entry.piece_income)}</td></tr>
+                    <tr className="payroll-total-row"><td>TOTAL INGRESOS</td><td>{displayMoney(entry.total_income)}</td></tr>
+                    <tr><th colSpan="2">EGRESOS</th></tr>
+                    <tr><td>APORTE PERSONAL IESS (9,45%)</td><td>{displayMoney(entry.iess_amount)}</td></tr>
+                    <tr><td>DESC. HORAS NO TRABAJADAS</td><td>{displayMoney(unworkedDiscount)}</td></tr>
+                    <tr><td>DESC. ADELANTO</td><td>{displayMoney(entry.advance_amount)}</td></tr>
+                    <tr><td>DESC. AHORRO Y RIFA</td><td>{displayMoney(entry.savings_amount)}</td></tr>
+                    <tr><td>DESC. VARIAS DEVOL.</td><td>{displayMoney(entry.other_deductions)}</td></tr>
+                    <tr><td>DES.CALZADO</td><td>{displayMoney(entry.footwear_amount)}</td></tr>
+                    <tr><td>DESC. ATRASOS</td><td>{displayMoney(lateDiscount)}</td></tr>
+                    <tr className="payroll-total-row"><td>TOTAL DE EGRESOS</td><td>{displayMoney(entry.total_deductions)}</td></tr>
+                    <tr className="payroll-net-row"><td>TOTAL A RECIBIR (INGRESOS-EGRESOS)</td><td>{displayMoney(entry.net_pay)}</td></tr>
+                  </tbody>
+                </table>
+                <footer>FIRMA</footer>
+              </article>
+            );
+          })}
         </div>
-      )}
+      ))}
     </div>
   );
 }

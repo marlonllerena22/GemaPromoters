@@ -3495,6 +3495,15 @@ td {
   padding: 7px 8px;
 }
 
+.prod-payroll-mini-inputs {
+  display: flex;
+  gap: 5px;
+}
+
+.prod-payroll-mini-inputs input {
+  max-width: 58px;
+}
+
 .prod-employee-list {
   display: grid;
   gap: 10px;
@@ -5148,57 +5157,76 @@ td {
   }
 
   .prod-payroll-cards-page {
+    break-after: page;
     display: grid;
-    gap: 5mm;
+    gap: 3mm;
     grid-template-columns: 1fr 1fr;
-    padding: 2mm;
+    grid-template-rows: 1fr 1fr;
+    min-height: 277mm;
+    padding: 0;
+  }
+
+  .prod-payroll-cards-page:last-child {
+    break-after: auto;
   }
 
   .prod-payroll-card {
     border: 1px solid #000000;
     break-inside: avoid;
     color: #000000;
-    min-height: 86mm;
-    padding: 4mm;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-height: 0;
+    padding: 1.6mm;
   }
 
-  .prod-payroll-card h2,
-  .prod-payroll-card h3,
-  .prod-payroll-card p {
-    margin: 0 0 2mm;
+  .prod-payroll-card-table {
+    border-collapse: collapse;
+    font-size: 6.9pt;
+    line-height: 1.08;
+    width: 100%;
+  }
+
+  .prod-payroll-card-table th,
+  .prod-payroll-card-table td {
+    border: 1px solid #000000;
+    padding: 0.55mm 0.9mm;
+    vertical-align: middle;
+  }
+
+  .prod-payroll-card-table th {
+    background: #d9ead3;
+    font-weight: 800;
+    text-align: left;
+  }
+
+  .prod-payroll-card-table td:last-child {
+    text-align: right;
+    width: 30mm;
+  }
+
+  .prod-payroll-card-table .payroll-card-title {
+    font-size: 10.5pt;
     text-align: center;
   }
 
-  .prod-payroll-card h2 {
-    font-size: 12pt;
+  .prod-payroll-card-table .payroll-card-center {
+    text-align: center;
   }
 
-  .prod-payroll-card h3 {
-    font-size: 10pt;
-  }
-
-  .prod-payroll-card-grid {
-    display: grid;
-    font-size: 8.5pt;
-    grid-template-columns: 1fr 28mm;
-  }
-
-  .prod-payroll-card-grid span,
-  .prod-payroll-card-grid strong {
-    border: 1px solid #000000;
-    padding: 1.4mm;
-  }
-
-  .prod-payroll-card-grid span {
+  .prod-payroll-card-table .payroll-total-row td,
+  .prod-payroll-card-table .payroll-net-row td {
+    background: #fce5cd;
     font-weight: 800;
   }
 
   .prod-payroll-card footer {
     border-top: 1px solid #000000;
-    font-size: 9pt;
+    font-size: 8.5pt;
     font-weight: 800;
-    margin-top: 9mm;
-    padding-top: 2mm;
+    margin-top: 1.5mm;
+    padding-top: 1.2mm;
     text-align: center;
   }
 

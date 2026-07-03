@@ -126,7 +126,8 @@ function parseAttendanceDetail(xlsx, workbook) {
       attendance_days: 0,
       late_days: 0,
       late_minutes: 0,
-      overtime_hours: 0
+      overtime_hours: 0,
+      unworked_hours: 0
     };
     const isNorma = employeeKey(sourceName).includes('norma') && employeeKey(sourceName).includes('llamuca');
     const startMinutes = parseClockMinutes(DEFAULT_PAYROLL_START) + 5;
@@ -152,8 +153,11 @@ function parseAttendanceDetail(xlsx, workbook) {
       }
       if (outTimes.length && endMinutes && Math.max(...outTimes) < endMinutes) {
         block.early_leave_days += 1;
+        block.unworked_hours += (endMinutes - Math.max(...outTimes)) / 60;
       }
-      block.overtime_hours += parseHoursValue(dataRow[offset + 6]);
+      if (outTimes.length && endMinutes && Math.max(...outTimes) > endMinutes) {
+        block.overtime_hours += (Math.max(...outTimes) - endMinutes) / 60;
+      }
     };
     for (let dataRowIndex = rowIndex + 5; dataRowIndex < endIndex; dataRowIndex += 1) {
       processDay(rows[dataRowIndex], 0);
@@ -161,7 +165,8 @@ function parseAttendanceDetail(xlsx, workbook) {
     }
     blocks.push({
       ...block,
-      overtime_hours: money2(block.overtime_hours)
+      overtime_hours: money2(block.overtime_hours),
+      unworked_hours: money2(block.unworked_hours)
     });
   }
   return blocks;
@@ -631,7 +636,10 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const monthlySalary = moneyValue(entry.monthly_salary);
     const hourlyRate = moneyValue(entry.hourly_rate || (monthlySalary ? monthlySalary / 240 : 0));
     const overtimeRate = moneyValue(entry.overtime_rate || (hourlyRate * 1.5));
-    const overtimePay = moneyValue(Number(entry.overtime_hours || 0) * overtimeRate);
+    const overtime100Rate = moneyValue(entry.overtime_100_rate || (hourlyRate * 2));
+    const overtime50Hours = moneyValue(entry.overtime_50_hours ?? entry.overtime_hours ?? 0);
+    const overtime100Hours = moneyValue(entry.overtime_100_hours || 0);
+    const overtimePay = moneyValue((overtime50Hours * overtimeRate) + (overtime100Hours * overtime100Rate));
     const unworkedDiscount = moneyValue(Number(entry.manual_unworked_hours || 0) * hourlyRate);
     const lateDiscount = moneyValue(Number(entry.late_days || 0) * Number(entry.late_penalty || 0));
     const salaryIncome = entry.pay_type === 'piecework' ? 0 : monthlySalary;
@@ -650,6 +658,10 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       monthly_salary: monthlySalary,
       hourly_rate: hourlyRate,
       overtime_rate: overtimeRate,
+      overtime_50_hours: overtime50Hours,
+      overtime_100_hours: overtime100Hours,
+      overtime_100_rate: overtime100Rate,
+      overtime_hours: overtime50Hours,
       total_income: totalIncome,
       total_deductions: totalDeductions,
       net_pay: moneyValue(totalIncome - totalDeductions)
@@ -1199,11 +1211,12 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       const upsertEntry = db.prepare(
         `INSERT INTO production_payroll_entries
          (establishment_id, period_id, employee_id, employee_name, source_name, pay_type,
-          monthly_salary, hourly_rate, overtime_rate, work_days, attendance_days, absent_days,
+          monthly_salary, hourly_rate, overtime_rate, overtime_50_hours, overtime_100_hours, overtime_100_rate,
+          work_days, attendance_days, absent_days,
           late_days, late_minutes, early_leave_days, overtime_hours, manual_unworked_hours,
           late_penalty, iess_amount, advance_amount, savings_amount, footwear_amount,
           other_deductions, other_income, piece_income, total_income, total_deductions, net_pay, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(establishment_id, period_id, employee_name) DO UPDATE SET
            employee_id = excluded.employee_id,
            source_name = excluded.source_name,
@@ -1211,6 +1224,9 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
            monthly_salary = excluded.monthly_salary,
            hourly_rate = excluded.hourly_rate,
            overtime_rate = excluded.overtime_rate,
+           overtime_50_hours = excluded.overtime_50_hours,
+           overtime_100_hours = excluded.overtime_100_hours,
+           overtime_100_rate = excluded.overtime_100_rate,
            work_days = excluded.work_days,
            attendance_days = excluded.attendance_days,
            absent_days = excluded.absent_days,
@@ -1218,6 +1234,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
            late_minutes = excluded.late_minutes,
            early_leave_days = excluded.early_leave_days,
            overtime_hours = excluded.overtime_hours,
+           manual_unworked_hours = excluded.manual_unworked_hours,
            late_penalty = excluded.late_penalty,
            iess_amount = CASE WHEN production_payroll_entries.iess_amount = 0 THEN excluded.iess_amount ELSE production_payroll_entries.iess_amount END,
            total_income = excluded.total_income,
@@ -1261,7 +1278,10 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
           monthly_salary: employee.monthly_salary || defaults.salary || 0,
           hourly_rate: (employee.monthly_salary || defaults.salary || 0) / 240,
           overtime_rate: ((employee.monthly_salary || defaults.salary || 0) / 240) * 1.5,
-          manual_unworked_hours: 0,
+          overtime_50_hours: attendance.overtime_hours || 0,
+          overtime_100_hours: 0,
+          overtime_100_rate: ((employee.monthly_salary || defaults.salary || 0) / 240) * 2,
+          manual_unworked_hours: attendance.unworked_hours || 0,
           late_penalty: employee.late_penalty,
           iess_amount: employee.default_iess || defaults.defaultIess || 0,
           advance_amount: 0,
@@ -1282,6 +1302,9 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
           calculated.monthly_salary,
           calculated.hourly_rate,
           calculated.overtime_rate,
+          calculated.overtime_50_hours,
+          calculated.overtime_100_hours,
+          calculated.overtime_100_rate,
           calculated.work_days,
           calculated.attendance_days,
           calculated.absent_days,
@@ -1320,8 +1343,12 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const updated = payrollMath({
       ...current,
       monthly_salary: req.body.monthly_salary ?? current.monthly_salary,
-      overtime_hours: req.body.overtime_hours ?? current.overtime_hours,
+      overtime_50_hours: req.body.overtime_50_hours ?? req.body.overtime_hours ?? current.overtime_50_hours ?? current.overtime_hours,
+      overtime_hours: req.body.overtime_50_hours ?? req.body.overtime_hours ?? current.overtime_50_hours ?? current.overtime_hours,
+      overtime_100_hours: req.body.overtime_100_hours ?? current.overtime_100_hours,
       manual_unworked_hours: req.body.manual_unworked_hours ?? current.manual_unworked_hours,
+      late_days: req.body.late_days ?? current.late_days,
+      late_minutes: req.body.late_minutes ?? current.late_minutes,
       late_penalty: req.body.late_penalty ?? current.late_penalty,
       iess_amount: req.body.iess_amount ?? current.iess_amount,
       advance_amount: req.body.advance_amount ?? current.advance_amount,
@@ -1334,8 +1361,9 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     });
     db.prepare(
       `UPDATE production_payroll_entries
-       SET monthly_salary = ?, hourly_rate = ?, overtime_rate = ?, overtime_hours = ?,
-           manual_unworked_hours = ?, late_penalty = ?, iess_amount = ?,
+       SET monthly_salary = ?, hourly_rate = ?, overtime_rate = ?, overtime_50_hours = ?,
+           overtime_100_hours = ?, overtime_100_rate = ?, overtime_hours = ?,
+           manual_unworked_hours = ?, late_days = ?, late_minutes = ?, late_penalty = ?, iess_amount = ?,
            advance_amount = ?, savings_amount = ?, footwear_amount = ?,
            other_deductions = ?, other_income = ?, piece_income = ?,
            total_income = ?, total_deductions = ?, net_pay = ?, notes = ?,
@@ -1345,8 +1373,13 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       updated.monthly_salary,
       updated.hourly_rate,
       updated.overtime_rate,
+      moneyValue(updated.overtime_50_hours),
+      moneyValue(updated.overtime_100_hours),
+      updated.overtime_100_rate,
       moneyValue(updated.overtime_hours),
       moneyValue(updated.manual_unworked_hours),
+      Math.max(0, Number(updated.late_days || 0)),
+      Math.max(0, Number(updated.late_minutes || 0)),
       moneyValue(updated.late_penalty),
       moneyValue(updated.iess_amount),
       moneyValue(updated.advance_amount),
