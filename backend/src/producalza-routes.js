@@ -43,6 +43,30 @@ function employeeKey(value = '') {
     .trim();
 }
 
+function compactEmployeeKey(value = '') {
+  return employeeKey(value).replace(/\s+/g, '');
+}
+
+function employeeNameScore(left = '', right = '') {
+  const leftKey = employeeKey(left);
+  const rightKey = employeeKey(right);
+  if (!leftKey || !rightKey) return 0;
+  if (leftKey === rightKey) return 1;
+  const leftCompact = compactEmployeeKey(leftKey);
+  const rightCompact = compactEmployeeKey(rightKey);
+  if (leftCompact === rightCompact) return 1;
+  if (leftCompact.includes(rightCompact) || rightCompact.includes(leftCompact)) return 0.94;
+  const leftTokens = new Set(leftKey.split(' ').filter(Boolean));
+  const rightTokens = new Set(rightKey.split(' ').filter(Boolean));
+  const sharedTokens = [...leftTokens].filter((token) =>
+    rightTokens.has(token) || [...rightTokens].some((other) => other.includes(token) || token.includes(other))
+  ).length;
+  const tokenScore = sharedTokens / Math.max(leftTokens.size, rightTokens.size, 1);
+  const maxLength = Math.max(leftCompact.length, rightCompact.length, 1);
+  const samePosition = [...leftCompact].filter((letter, index) => letter === rightCompact[index]).length / maxLength;
+  return Math.max(tokenScore, samePosition);
+}
+
 function money2(value) {
   return Math.round((Number(value || 0) || 0) * 100) / 100;
 }
@@ -130,9 +154,10 @@ function parseAttendanceDetail(xlsx, workbook) {
       unworked_hours: 0
     };
     const isNorma = employeeKey(sourceName).includes('norma') && employeeKey(sourceName).includes('llamuca');
-    const startMinutes = parseClockMinutes(DEFAULT_PAYROLL_START) + 5;
+    const startMinutes = parseClockMinutes(DEFAULT_PAYROLL_START) + 4;
     const normalEnd = isNorma ? '17:00' : DEFAULT_PAYROLL_END;
     const endMinutes = parseClockMinutes(normalEnd);
+    const overtimeStartMinutes = endMinutes + 30;
     const processDay = (dataRow, offset) => {
       if (!dataRow?.[offset]) return;
       const candidateTimes = [dataRow[offset + 2], dataRow[offset + 4], dataRow[offset + 6]]
@@ -155,8 +180,9 @@ function parseAttendanceDetail(xlsx, workbook) {
         block.early_leave_days += 1;
         block.unworked_hours += (endMinutes - Math.max(...outTimes)) / 60;
       }
-      if (outTimes.length && endMinutes && Math.max(...outTimes) > endMinutes) {
-        block.overtime_hours += (Math.max(...outTimes) - endMinutes) / 60;
+      if (outTimes.length && overtimeStartMinutes && Math.max(...outTimes) > overtimeStartMinutes) {
+        const overtimeBlocks = Math.floor((Math.max(...outTimes) - overtimeStartMinutes) / 30);
+        block.overtime_hours += Math.max(0, overtimeBlocks) * 0.5;
       }
     };
     for (let dataRowIndex = rowIndex + 5; dataRowIndex < endIndex; dataRowIndex += 1) {
@@ -626,7 +652,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       normal_end: /^\d{2}:\d{2}$/.test(String(body.normal_end || ''))
         ? body.normal_end
         : key.includes('norma') && key.includes('llamuca') ? '17:00' : DEFAULT_PAYROLL_END,
-      grace_minutes: Math.max(0, Number(body.grace_minutes ?? 5) || 0),
+      grace_minutes: Math.max(0, Number(body.grace_minutes ?? 4) || 0),
       status: body.status === 'inactive' ? 'inactive' : 'active',
       notes: String(body.notes || '').trim()
     };
@@ -641,7 +667,8 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const overtime100Hours = moneyValue(entry.overtime_100_hours || 0);
     const overtimePay = moneyValue((overtime50Hours * overtimeRate) + (overtime100Hours * overtime100Rate));
     const unworkedDiscount = moneyValue(Number(entry.manual_unworked_hours || 0) * hourlyRate);
-    const lateDiscount = moneyValue(Number(entry.late_days || 0) * Number(entry.late_penalty || 0));
+    const lateDiscount = Number(entry.justify_late || 0) ? 0 : moneyValue(Number(entry.late_days || 0) * monthlySalary * 0.01);
+    const absenceDiscount = Number(entry.justify_absence || 0) ? 0 : moneyValue(Number(entry.absent_days || 0) * monthlySalary * 0.05);
     const salaryIncome = entry.pay_type === 'piecework' ? 0 : monthlySalary;
     const totalIncome = moneyValue(salaryIncome + overtimePay + Number(entry.other_income || 0) + Number(entry.piece_income || 0));
     const totalDeductions = moneyValue(
@@ -653,6 +680,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       + Number(entry.other_deductions || 0)
       + unworkedDiscount
       + lateDiscount
+      + absenceDiscount
     );
     return {
       ...entry,
@@ -1141,6 +1169,21 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     res.json(period);
   });
 
+  app.delete('/api/producalza/payroll-periods/:id', requireProductionAdmin, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const period = db.prepare(
+      'SELECT * FROM production_payroll_periods WHERE id = ? AND establishment_id = ?'
+    ).get(req.params.id, business.id);
+    if (!period) return res.status(404).json({ message: 'Rol no encontrado' });
+    db.transaction(() => {
+      db.prepare('DELETE FROM production_payroll_entries WHERE period_id = ? AND establishment_id = ?').run(period.id, business.id);
+      db.prepare('DELETE FROM production_payroll_periods WHERE id = ? AND establishment_id = ?').run(period.id, business.id);
+    })();
+    audit(req, 'delete', 'production_payroll_period', period.id, period.label);
+    res.json({ ok: true });
+  });
+
   app.post('/api/producalza/payroll-periods/import-detail', requireProductionAdmin, async (req, res) => {
     const business = ensureProductionBusiness(req, res);
     if (!business) return;
@@ -1192,9 +1235,15 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       periodId = period.id;
 
       const employees = db.prepare('SELECT * FROM production_employees WHERE establishment_id = ?').all(business.id);
-      const findEmployee = (name) => employees.find((employee) =>
-        employeeKey(employee.name) === employeeKey(name) || employeeKey(employee.source_name) === employeeKey(name)
-      );
+      const findEmployee = (name) => {
+        const candidates = employees
+          .map((employee) => ({
+            employee,
+            score: Math.max(employeeNameScore(employee.name, name), employeeNameScore(employee.source_name, name))
+          }))
+          .sort((left, right) => right.score - left.score);
+        return candidates[0]?.score >= 0.72 ? candidates[0].employee : null;
+      };
       const insertEmployee = db.prepare(
         `INSERT INTO production_employees
          (establishment_id, name, source_name, monthly_salary, default_iess, normal_end)
@@ -1214,10 +1263,10 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
          (establishment_id, period_id, employee_id, employee_name, source_name, pay_type,
           monthly_salary, hourly_rate, overtime_rate, overtime_50_hours, overtime_100_hours, overtime_100_rate,
           work_days, attendance_days, absent_days,
-          late_days, late_minutes, early_leave_days, overtime_hours, manual_unworked_hours,
+          late_days, late_minutes, justify_late, justify_absence, early_leave_days, overtime_hours, manual_unworked_hours,
           late_penalty, iess_amount, advance_amount, savings_amount, footwear_amount,
           loan_amount, other_deductions, other_income, piece_income, total_income, total_deductions, net_pay, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(establishment_id, period_id, employee_name) DO UPDATE SET
            employee_id = excluded.employee_id,
            source_name = excluded.source_name,
@@ -1233,6 +1282,8 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
            absent_days = excluded.absent_days,
            late_days = excluded.late_days,
            late_minutes = excluded.late_minutes,
+           justify_late = production_payroll_entries.justify_late,
+           justify_absence = production_payroll_entries.justify_absence,
            early_leave_days = excluded.early_leave_days,
            overtime_hours = excluded.overtime_hours,
            manual_unworked_hours = excluded.manual_unworked_hours,
@@ -1313,6 +1364,8 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
           calculated.absent_days,
           calculated.late_days,
           calculated.late_minutes,
+          0,
+          0,
           calculated.early_leave_days,
           calculated.overtime_hours,
           calculated.manual_unworked_hours,
@@ -1351,8 +1404,11 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       overtime_hours: req.body.overtime_50_hours ?? req.body.overtime_hours ?? current.overtime_50_hours ?? current.overtime_hours,
       overtime_100_hours: req.body.overtime_100_hours ?? current.overtime_100_hours,
       manual_unworked_hours: req.body.manual_unworked_hours ?? current.manual_unworked_hours,
+      absent_days: req.body.absent_days ?? current.absent_days,
       late_days: req.body.late_days ?? current.late_days,
       late_minutes: req.body.late_minutes ?? current.late_minutes,
+      justify_late: req.body.justify_late ?? current.justify_late,
+      justify_absence: req.body.justify_absence ?? current.justify_absence,
       late_penalty: req.body.late_penalty ?? current.late_penalty,
       iess_amount: req.body.iess_amount ?? current.iess_amount,
       advance_amount: req.body.advance_amount ?? current.advance_amount,
@@ -1368,7 +1424,8 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       `UPDATE production_payroll_entries
        SET monthly_salary = ?, hourly_rate = ?, overtime_rate = ?, overtime_50_hours = ?,
            overtime_100_hours = ?, overtime_100_rate = ?, overtime_hours = ?,
-           manual_unworked_hours = ?, late_days = ?, late_minutes = ?, late_penalty = ?, iess_amount = ?,
+           manual_unworked_hours = ?, absent_days = ?, late_days = ?, late_minutes = ?,
+           justify_late = ?, justify_absence = ?, late_penalty = ?, iess_amount = ?,
            advance_amount = ?, savings_amount = ?, footwear_amount = ?,
            loan_amount = ?, other_deductions = ?, other_income = ?, piece_income = ?,
            total_income = ?, total_deductions = ?, net_pay = ?, notes = ?,
@@ -1383,8 +1440,11 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       updated.overtime_100_rate,
       moneyValue(updated.overtime_hours),
       moneyValue(updated.manual_unworked_hours),
+      Math.max(0, Number(updated.absent_days || 0)),
       Math.max(0, Number(updated.late_days || 0)),
       Math.max(0, Number(updated.late_minutes || 0)),
+      Number(updated.justify_late || 0) ? 1 : 0,
+      Number(updated.justify_absence || 0) ? 1 : 0,
       moneyValue(updated.late_penalty),
       moneyValue(updated.iess_amount),
       moneyValue(updated.advance_amount),

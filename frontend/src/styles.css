@@ -3452,18 +3452,28 @@ td {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
-.prod-payroll-periods button {
+.prod-payroll-periods article {
+  align-items: stretch;
   background: #fffdf8;
   border: 1px solid #ecd8ad;
   border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr auto;
+  padding: 8px;
+}
+
+.prod-payroll-periods button:not(.prod-icon-button) {
+  background: transparent;
+  border: 0;
   color: #342613;
   display: grid;
   gap: 4px;
-  padding: 12px;
+  padding: 4px;
   text-align: left;
 }
 
-.prod-payroll-periods button.active {
+.prod-payroll-periods article.active {
   border-color: #a77a24;
   box-shadow: 0 0 0 3px rgba(167, 122, 36, 0.15);
 }
@@ -3502,6 +3512,71 @@ td {
 
 .prod-payroll-mini-inputs input {
   max-width: 58px;
+}
+
+.prod-payroll-field-picker {
+  background: #fffdf8;
+  border: 1px solid #ecd8ad;
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+}
+
+.prod-payroll-field-picker label,
+.prod-payroll-incidents label {
+  align-items: center;
+  color: #342613;
+  display: inline-flex;
+  font-size: 13px;
+  gap: 6px;
+}
+
+.prod-payroll-incidents-row td {
+  background: #fff8ea;
+  border-top: 0;
+}
+
+.prod-payroll-incidents {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+
+.prod-payroll-incidents input[type="number"] {
+  max-width: 70px;
+}
+
+.prod-payroll-incidents small {
+  color: #765d35;
+}
+
+.prod-payroll-table table.hide-payroll-late th:nth-child(2),
+.prod-payroll-table table.hide-payroll-late tbody tr:not(.prod-payroll-incidents-row) td:nth-child(2),
+.prod-payroll-table table.hide-payroll-overtime50 th:nth-child(3),
+.prod-payroll-table table.hide-payroll-overtime50 tbody tr:not(.prod-payroll-incidents-row) td:nth-child(3),
+.prod-payroll-table table.hide-payroll-overtime100 th:nth-child(4),
+.prod-payroll-table table.hide-payroll-overtime100 tbody tr:not(.prod-payroll-incidents-row) td:nth-child(4),
+.prod-payroll-table table.hide-payroll-unworked th:nth-child(5),
+.prod-payroll-table table.hide-payroll-unworked tbody tr:not(.prod-payroll-incidents-row) td:nth-child(5),
+.prod-payroll-table table.hide-payroll-iess th:nth-child(6),
+.prod-payroll-table table.hide-payroll-iess tbody tr:not(.prod-payroll-incidents-row) td:nth-child(6),
+.prod-payroll-table table.hide-payroll-advance th:nth-child(7),
+.prod-payroll-table table.hide-payroll-advance tbody tr:not(.prod-payroll-incidents-row) td:nth-child(7),
+.prod-payroll-table table.hide-payroll-savings th:nth-child(8),
+.prod-payroll-table table.hide-payroll-savings tbody tr:not(.prod-payroll-incidents-row) td:nth-child(8),
+.prod-payroll-table table.hide-payroll-footwear th:nth-child(9),
+.prod-payroll-table table.hide-payroll-footwear tbody tr:not(.prod-payroll-incidents-row) td:nth-child(9),
+.prod-payroll-table table.hide-payroll-loan th:nth-child(10),
+.prod-payroll-table table.hide-payroll-loan tbody tr:not(.prod-payroll-incidents-row) td:nth-child(10),
+.prod-payroll-table table.hide-payroll-other th:nth-child(11),
+.prod-payroll-table table.hide-payroll-other tbody tr:not(.prod-payroll-incidents-row) td:nth-child(11),
+.prod-payroll-table table.hide-payroll-piece th:nth-child(12),
+.prod-payroll-table table.hide-payroll-piece tbody tr:not(.prod-payroll-incidents-row) td:nth-child(12) {
+  display: none;
 }
 
 .prod-employee-list {

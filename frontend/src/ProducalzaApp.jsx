@@ -3106,7 +3106,7 @@ const emptyEmployeeForm = {
   late_penalty: 5,
   normal_start: '08:00',
   normal_end: '16:30',
-  grace_minutes: 5,
+  grace_minutes: 4,
   status: 'active',
   notes: ''
 };
@@ -3124,6 +3124,32 @@ function payrollPeriodLabel() {
 
 function PayrollView({ employees, periods, scope, onRefresh, setError }) {
   const initialPeriod = payrollPeriodLabel();
+  const defaultVisiblePayrollFields = {
+    late: true,
+    overtime50: true,
+    overtime100: false,
+    unworked: true,
+    iess: true,
+    advance: true,
+    savings: false,
+    footwear: false,
+    loan: false,
+    other: false,
+    piece: false
+  };
+  const payrollFieldOptions = [
+    ['late', 'Atrasos'],
+    ['overtime50', 'Extra 50%'],
+    ['overtime100', 'Extra 100%'],
+    ['unworked', 'Horas no trabajadas'],
+    ['iess', 'IESS'],
+    ['advance', 'Adelantos'],
+    ['savings', 'Ahorro/Rifa'],
+    ['footwear', 'Calzado'],
+    ['loan', 'Prestamos'],
+    ['other', 'Varios'],
+    ['piece', 'Comisiones']
+  ];
   const [selected, setSelected] = useState(null);
   const [loadingPeriod, setLoadingPeriod] = useState(false);
   const [employeeForm, setEmployeeForm] = useState(emptyEmployeeForm);
@@ -3131,6 +3157,8 @@ function PayrollView({ employees, periods, scope, onRefresh, setError }) {
   const [periodForm, setPeriodForm] = useState(initialPeriod);
   const [payrollFile, setPayrollFile] = useState(null);
   const [payrollDrafts, setPayrollDrafts] = useState({});
+  const [visiblePayrollFields, setVisiblePayrollFields] = useState(defaultVisiblePayrollFields);
+  const [showPayrollFields, setShowPayrollFields] = useState(false);
   const [saving, setSaving] = useState(false);
   const [printMode, setPrintMode] = useState('');
 
@@ -3144,6 +3172,9 @@ function PayrollView({ employees, periods, scope, onRefresh, setError }) {
       nextDrafts[entry.id] = {
         late_days: entry.late_days ?? 0,
         late_minutes: entry.late_minutes ?? 0,
+        absent_days: entry.absent_days ?? 0,
+        justify_late: Number(entry.justify_late || 0) ? 1 : 0,
+        justify_absence: Number(entry.justify_absence || 0) ? 1 : 0,
         overtime_50_hours: entry.overtime_50_hours ?? entry.overtime_hours ?? 0,
         overtime_100_hours: entry.overtime_100_hours ?? 0,
         manual_unworked_hours: entry.manual_unworked_hours ?? 0,
@@ -3183,6 +3214,20 @@ function PayrollView({ employees, periods, scope, onRefresh, setError }) {
     }
   }
 
+  async function deletePeriod(period) {
+    if (!window.confirm(`Eliminar el rol "${period.label}"? Esta accion no se puede deshacer.`)) return;
+    setSaving(true);
+    try {
+      await api(scope(`/producalza/payroll-periods/${period.id}`), { method: 'DELETE' });
+      if (selected?.id === period.id) setSelected(null);
+      await onRefresh('Rol eliminado');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function importPayroll() {
     if (!payrollFile) {
       setError('Selecciona el Excel descargado del reloj antes de importar.');
@@ -3219,7 +3264,7 @@ function PayrollView({ employees, periods, scope, onRefresh, setError }) {
       late_penalty: employee.late_penalty ?? 5,
       normal_start: employee.normal_start || '08:00',
       normal_end: employee.normal_end || '16:30',
-      grace_minutes: employee.grace_minutes ?? 5,
+      grace_minutes: employee.grace_minutes ?? 4,
       status: employee.status || 'active',
       notes: employee.notes || ''
     });
@@ -3246,6 +3291,9 @@ function PayrollView({ employees, periods, scope, onRefresh, setError }) {
     return payrollDrafts[entry.id] || {
       late_days: entry.late_days ?? 0,
       late_minutes: entry.late_minutes ?? 0,
+      absent_days: entry.absent_days ?? 0,
+      justify_late: Number(entry.justify_late || 0) ? 1 : 0,
+      justify_absence: Number(entry.justify_absence || 0) ? 1 : 0,
       overtime_50_hours: entry.overtime_50_hours ?? entry.overtime_hours ?? 0,
       overtime_100_hours: entry.overtime_100_hours ?? 0,
       manual_unworked_hours: entry.manual_unworked_hours ?? 0,
@@ -3318,11 +3366,14 @@ function PayrollView({ employees, periods, scope, onRefresh, setError }) {
         <div className="prod-panel-title"><div><span>Historial</span><h2>Roles generados</h2></div></div>
         <div className="prod-payroll-periods">
           {periods.map((period) => (
-            <button key={period.id} className={selected?.id === period.id ? 'active' : ''} onClick={() => openPeriod(period.id)}>
+            <article key={period.id} className={selected?.id === period.id ? 'active' : ''}>
+              <button onClick={() => openPeriod(period.id)}>
               <strong>{period.label}</strong>
               <span>{displayDate(period.date_from)} - {displayDate(period.date_to)}</span>
               <small>{period.employees_count || 0} empleados · {displayMoney(period.net_pay)}</small>
-            </button>
+              </button>
+              <button className="prod-icon-button danger" disabled={saving} onClick={() => deletePeriod(period)}><Trash2 size={16} /></button>
+            </article>
           ))}
           {!periods.length && <div className="prod-empty">Aun no hay roles importados.</div>}
         </div>
@@ -3334,6 +3385,7 @@ function PayrollView({ employees, periods, scope, onRefresh, setError }) {
             <div><span>{loadingPeriod ? 'Cargando...' : 'Rol mensual'}</span><h2>{selected.label}</h2></div>
             <div className="prod-payroll-actions">
               <button className="prod-secondary-button" disabled={saving} onClick={savePayrollDrafts}><Save size={17} />{saving ? 'Guardando...' : 'Guardar cambios'}</button>
+              <button className="prod-secondary-button" onClick={() => setShowPayrollFields((value) => !value)}><Filter size={17} />Campos</button>
               <button className="prod-secondary-button" onClick={() => setPrintMode('cards')}><Printer size={17} />Imprimir tarjetas</button>
               <button className="prod-primary-button" onClick={() => setPrintMode('report')}><Printer size={17} />Reporte mensual</button>
             </div>
@@ -3343,14 +3395,29 @@ function PayrollView({ employees, periods, scope, onRefresh, setError }) {
             <article><span>Egresos</span><strong>{displayMoney(totals.deductions)}</strong><small>IESS + descuentos</small></article>
             <article><span>A pagar</span><strong>{displayMoney(totals.net)}</strong><small>Reporte mensual</small></article>
           </div>
+          {showPayrollFields && (
+            <div className="prod-payroll-field-picker">
+              {payrollFieldOptions.map(([key, label]) => (
+                <label key={key}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(visiblePayrollFields[key])}
+                    onChange={(event) => setVisiblePayrollFields((current) => ({ ...current, [key]: event.target.checked }))}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+          )}
           <div className="prod-table-wrap prod-payroll-table">
-            <table>
+            <table className={Object.entries(visiblePayrollFields).filter(([, visible]) => !visible).map(([key]) => `hide-payroll-${key}`).join(' ')}>
               <thead><tr><th>Empleado</th><th>Atrasos</th><th>Extra 50%</th><th>Extra 100%</th><th>Horas no trabajadas</th><th>IESS</th><th>Adelanto</th><th>Ahorro/Rifa</th><th>Calzado</th><th>Prestamos</th><th>Varios</th><th>Comisiones</th><th>A recibir</th></tr></thead>
               <tbody>
                 {selected.entries.map((entry) => {
                   const draft = entryDraft(entry);
                   return (
-                    <tr key={entry.id}>
+                    <React.Fragment key={entry.id}>
+                    <tr>
                       <td><strong>{entry.employee_name}</strong><small>{entry.attendance_days} asistencias · {entry.absent_days} ausencias</small></td>
                       <td>
                         <div className="prod-payroll-mini-inputs">
@@ -3371,6 +3438,17 @@ function PayrollView({ employees, periods, scope, onRefresh, setError }) {
                       <td><input type="number" min="0" step="0.01" value={draft.piece_income} onChange={(event) => updateEntryDraft(entry.id, { piece_income: event.target.value })} /></td>
                       <td><strong>{displayMoney(entry.net_pay)}</strong><small>Se recalcula al guardar</small></td>
                     </tr>
+                    <tr className="prod-payroll-incidents-row">
+                      <td colSpan="13">
+                        <div className="prod-payroll-incidents">
+                          <label>Faltas<input type="number" min="0" step="1" value={draft.absent_days} onChange={(event) => updateEntryDraft(entry.id, { absent_days: event.target.value })} /></label>
+                          <label><input type="checkbox" checked={Boolean(Number(draft.justify_late || 0))} onChange={(event) => updateEntryDraft(entry.id, { justify_late: event.target.checked ? 1 : 0 })} /> Justificar atrasos</label>
+                          <label><input type="checkbox" checked={Boolean(Number(draft.justify_absence || 0))} onChange={(event) => updateEntryDraft(entry.id, { justify_absence: event.target.checked ? 1 : 0 })} /> Justificar faltas</label>
+                          <small>Atrasos descuentan 1% del sueldo por dia. Faltas injustificadas descuentan 5% por falta.</small>
+                        </div>
+                      </td>
+                    </tr>
+                    </React.Fragment>
                   );
                 })}
               </tbody>
@@ -3446,7 +3524,8 @@ function PayrollPrintRoot({ mode, period, totals }) {
             const overtime50Value = overtime50Hours * Number(entry.overtime_rate || 0);
             const overtime100Value = overtime100Hours * Number(entry.overtime_100_rate || 0);
             const unworkedDiscount = Number(entry.manual_unworked_hours || 0) * Number(entry.hourly_rate || 0);
-            const lateDiscount = Number(entry.late_days || 0) * Number(entry.late_penalty || 0);
+            const lateDiscount = Number(entry.justify_late || 0) ? 0 : Number(entry.late_days || 0) * Number(entry.monthly_salary || 0) * 0.01;
+            const absenceDiscount = Number(entry.justify_absence || 0) ? 0 : Number(entry.absent_days || 0) * Number(entry.monthly_salary || 0) * 0.05;
             return (
               <article className="prod-payroll-card" key={entry.id}>
                 <table className="prod-payroll-card-table">
@@ -3465,7 +3544,8 @@ function PayrollPrintRoot({ mode, period, totals }) {
                     <tr><th colSpan="2">EGRESOS</th></tr>
                     <tr><td>APORTE IESS</td><td>{displayMoney(entry.iess_amount)}</td></tr>
                     <tr><td>DESCUENTO ATRASOS</td><td>{displayMoney(lateDiscount)}</td></tr>
-                    <tr><td>DESC. HORAS NO TRABAJA</td><td>{displayMoney(unworkedDiscount)}</td></tr>
+                    <tr><td>DESC. HORAS NO TRABAJA ({displayNumber(entry.manual_unworked_hours || 0, 2)} h)</td><td>{displayMoney(unworkedDiscount)}</td></tr>
+                    <tr><td>DESC. FALTAS INJUST. ({entry.absent_days || 0})</td><td>{displayMoney(absenceDiscount)}</td></tr>
                     <tr><td>DESCUE. ADELANTOS</td><td>{displayMoney(entry.advance_amount)}</td></tr>
                     <tr><td>DESC. AHORRO Y RIFA</td><td>{displayMoney(entry.savings_amount)}</td></tr>
                     <tr><td>DES.CALZADO</td><td>{displayMoney(entry.footwear_amount)}</td></tr>

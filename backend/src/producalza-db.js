@@ -285,6 +285,8 @@ export function initProducalzaDb(db) {
       absent_days INTEGER NOT NULL DEFAULT 0,
       late_days INTEGER NOT NULL DEFAULT 0,
       late_minutes INTEGER NOT NULL DEFAULT 0,
+      justify_late INTEGER NOT NULL DEFAULT 0,
+      justify_absence INTEGER NOT NULL DEFAULT 0,
       early_leave_days INTEGER NOT NULL DEFAULT 0,
       overtime_hours REAL NOT NULL DEFAULT 0,
       manual_unworked_hours REAL NOT NULL DEFAULT 0,
@@ -496,13 +498,15 @@ export function initProducalzaDb(db) {
   addColumnIfMissing(db, 'production_employees', 'late_penalty', 'REAL NOT NULL DEFAULT 5');
   addColumnIfMissing(db, 'production_employees', 'normal_start', "TEXT NOT NULL DEFAULT '08:00'");
   addColumnIfMissing(db, 'production_employees', 'normal_end', "TEXT NOT NULL DEFAULT '16:30'");
-  addColumnIfMissing(db, 'production_employees', 'grace_minutes', 'INTEGER NOT NULL DEFAULT 5');
+  addColumnIfMissing(db, 'production_employees', 'grace_minutes', 'INTEGER NOT NULL DEFAULT 4');
   addColumnIfMissing(db, 'production_employees', 'status', "TEXT NOT NULL DEFAULT 'active'");
   addColumnIfMissing(db, 'production_employees', 'notes', 'TEXT');
   addColumnIfMissing(db, 'production_payroll_entries', 'overtime_50_hours', 'REAL NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'production_payroll_entries', 'overtime_100_hours', 'REAL NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'production_payroll_entries', 'overtime_100_rate', 'REAL NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'production_payroll_entries', 'loan_amount', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'production_payroll_entries', 'justify_late', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'production_payroll_entries', 'justify_absence', 'INTEGER NOT NULL DEFAULT 0');
   db.prepare(
     `UPDATE production_payroll_entries
      SET overtime_50_hours = CASE WHEN overtime_50_hours = 0 THEN overtime_hours ELSE overtime_50_hours END,
