@@ -295,6 +295,7 @@ export function initDb() {
   seedDefaultEventSettings(defaultEvent.id);
   ensureMarjorieEstablishment();
   ensureDigitalesClubEstablishment();
+  ensureSacuGroupEstablishment();
   initProducalzaDb(db);
 }
 
@@ -559,6 +560,87 @@ function ensureDigitalesClubEstablishment() {
       saveSetting.run(event.id, setting.key, String(setting.value).replaceAll('GEMASHOW', 'DigitalesClub'));
     }
     saveSetting.run(event.id, 'digitalesclub_seed_complete', '1');
+  }
+
+  return establishment;
+}
+
+function ensureSacuGroupEstablishment() {
+  let establishment = db.prepare('SELECT * FROM establishments WHERE name = ?').get('SACU Group');
+  if (!establishment) {
+    const result = db
+      .prepare('INSERT INTO establishments (name, display_name, business_type, code_prefix, theme, logo_url, admin_username, admin_password, status, promoter_sales_enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run('SACU Group', 'SACU Group', 'event', 'SACU', 'sacugroup', '/sacu-group-logo.png', 'sacu', 'sacu123', 'active', 1);
+    establishment = db.prepare('SELECT * FROM establishments WHERE id = ?').get(result.lastInsertRowid);
+  } else {
+    db.prepare(
+      `UPDATE establishments
+       SET business_type = 'event',
+           promoter_sales_enabled = 1,
+           code_prefix = 'SACU',
+           theme = 'sacugroup',
+           logo_url = COALESCE(NULLIF(logo_url, ''), '/sacu-group-logo.png'),
+           admin_username = COALESCE(NULLIF(admin_username, ''), 'sacu'),
+           admin_password = COALESCE(NULLIF(admin_password, ''), 'sacu123')
+       WHERE id = ?`
+    ).run(establishment.id);
+    establishment = db.prepare('SELECT * FROM establishments WHERE id = ?').get(establishment.id);
+  }
+
+  const eventName = 'KRIS R EL TRAP DE KOLOMBIA';
+  let event = db.prepare('SELECT * FROM events WHERE establishment_id = ? AND name = ?').get(establishment.id, eventName);
+  if (!event) {
+    const result = db
+      .prepare('INSERT INTO events (establishment_id, name, description, status, is_active) VALUES (?, ?, ?, ?, 1)')
+      .run(establishment.id, eventName, 'Evento principal SACU Group', 'active');
+    event = db.prepare('SELECT * FROM events WHERE id = ?').get(result.lastInsertRowid);
+  } else {
+    db.prepare("UPDATE events SET status = 'active', is_active = 1 WHERE id = ?").run(event.id);
+  }
+
+  seedDefaultEventSettings(event.id);
+
+  const gemashow = db.prepare("SELECT id FROM establishments WHERE name = 'GEMASHOW'").get();
+  const sourceEvent = gemashow
+    ? db.prepare('SELECT id FROM events WHERE establishment_id = ? AND is_active = 1 ORDER BY id DESC').get(gemashow.id)
+    : null;
+  const alreadySeeded = db
+    .prepare("SELECT value FROM event_settings WHERE event_id = ? AND key = 'sacugroup_seed_complete'")
+    .get(event.id);
+
+  if (sourceEvent && !alreadySeeded) {
+    const locationCount = db.prepare('SELECT COUNT(*) AS total FROM event_locations WHERE event_id = ?').get(event.id).total;
+    if (!locationCount) {
+      const locations = db.prepare('SELECT name, price, commission_type, commission_value, commission_min_quantity, level_points, status FROM event_locations WHERE event_id = ?').all(sourceEvent.id);
+      const insertLocation = db.prepare(
+        `INSERT OR IGNORE INTO event_locations
+         (event_id, name, price, commission_type, commission_value, commission_min_quantity, level_points, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      for (const location of locations) {
+        insertLocation.run(
+          event.id,
+          location.name,
+          location.price,
+          location.commission_type,
+          location.commission_value,
+          location.commission_min_quantity,
+          location.level_points,
+          location.status
+        );
+      }
+    }
+
+    const sourceSettings = db.prepare('SELECT key, value FROM event_settings WHERE event_id = ?').all(sourceEvent.id);
+    const saveSetting = db.prepare(
+      `INSERT INTO event_settings (event_id, key, value)
+       VALUES (?, ?, ?)
+       ON CONFLICT(event_id, key) DO UPDATE SET value = excluded.value`
+    );
+    for (const setting of sourceSettings) {
+      saveSetting.run(event.id, setting.key, String(setting.value).replaceAll('GEMASHOW', 'SACU Group'));
+    }
+    saveSetting.run(event.id, 'sacugroup_seed_complete', '1');
   }
 
   return establishment;

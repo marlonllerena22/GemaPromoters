@@ -1860,6 +1860,67 @@ td {
   background: linear-gradient(135deg, #160408, #64000f);
 }
 
+.promoter-premium.theme-sacugroup {
+  background: #030303;
+  color: #ffffff;
+}
+
+.theme-sacugroup .premium-profile-card,
+.theme-sacugroup .premium-ad-card,
+.theme-sacugroup .premium-commission-card,
+.theme-sacugroup .premium-payment-card,
+.theme-sacugroup .premium-main-actions,
+.theme-sacugroup .premium-card,
+.theme-sacugroup .premium-rank-card,
+.theme-sacugroup .premium-progress-card,
+.theme-sacugroup .premium-code-card {
+  background: #0b0b0d;
+  border-color: rgba(255, 255, 255, 0.24);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.42);
+}
+
+.theme-sacugroup .premium-primary-button {
+  background: #ffffff;
+  border-color: #ffffff;
+  color: #050505;
+}
+
+.theme-sacugroup .premium-primary-button:hover {
+  background: #d8d8d8;
+}
+
+.theme-sacugroup .premium-secondary-button,
+.theme-sacugroup .premium-ghost-button {
+  background: #151518;
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+}
+
+.theme-sacugroup .premium-kicker,
+.theme-sacugroup .promoter-premium-topbar span,
+.theme-sacugroup .premium-code-card span,
+.theme-sacugroup .premium-progress-top span,
+.theme-sacugroup .premium-rank-header span {
+  color: #d9d9d9;
+}
+
+.theme-sacugroup .premium-progress-bar span {
+  background: #ffffff;
+}
+
+.verify-member-card.theme-sacugroup.starter,
+.verify-member-card.theme-sacugroup.bronze,
+.verify-member-card.theme-sacugroup.silver,
+.verify-member-card.theme-sacugroup.gold,
+.verify-member-card.theme-sacugroup.diamond {
+  background: linear-gradient(135deg, #020202, #151515 58%, #f6f6f6);
+  border-color: rgba(255, 255, 255, 0.68);
+}
+
+.verify-member-card.theme-sacugroup.inactive {
+  background: linear-gradient(135deg, #14080a, #4f1117);
+}
+
 .verify-card-top,
 .verify-card-main,
 .verify-card-details {

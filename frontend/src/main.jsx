@@ -419,6 +419,11 @@ function RegisterPage() {
         if (rows.length) {
           const defaultEstablishment =
             rows.find((item) =>
+              item.theme === 'sacugroup' ||
+              item.code_prefix === 'SACU' ||
+              /sacu/i.test(`${item.display_name || ''} ${item.name || ''}`)
+            ) ||
+            rows.find((item) =>
               item.theme === 'digitalesclub' ||
               item.code_prefix === 'DGCLUB' ||
               /digitales/i.test(`${item.display_name || ''} ${item.name || ''}`)
@@ -1806,7 +1811,7 @@ function Banners({ banners, eventId, establishmentId, onRefresh }) {
   );
 }
 
-function PromoterBenefits({ level }) {
+function PromoterBenefits({ level, brandName = 'PROMOTERS' }) {
   const catalog = levelCatalogFromProfile(level);
   const currentRank = levelOrder[level?.key || 'starter'] || 0;
 
@@ -1815,7 +1820,7 @@ function PromoterBenefits({ level }) {
       <div className="benefits-heading">
         <div>
           <span>Club de beneficios</span>
-          <h3>Tu progreso GEMASHOW</h3>
+          <h3>Tu progreso {brandName}</h3>
         </div>
         <div className={`benefits-rank ${level?.key || 'starter'}`}>
           <Sparkles size={18} />
@@ -1880,6 +1885,7 @@ function PromoterApp({ user, onLogout }) {
       .reduce((sum, sale) => sum + Number(sale.commission || 0), 0),
     [sales]
   );
+  const brandName = profile?.establishment?.display_name || profile?.establishment?.name || 'PROMOTERS';
 
   async function loadData() {
     const [nextSales, nextLocations, nextProfile, nextBanners, nextWithdrawals] = await Promise.all([
@@ -1993,7 +1999,7 @@ function PromoterApp({ user, onLogout }) {
 
   async function shareReferral() {
     const shareData = {
-      title: 'Promotor oficial GEMASHOW',
+      title: `Promotor oficial ${brandName}`,
       text: `Codigo de promotor: ${profile?.code || user.code}`,
       url: referralLink
     };
@@ -2012,7 +2018,7 @@ function PromoterApp({ user, onLogout }) {
   const silverMin = Number(settings.silver || 10);
   const goldMin = Number(settings.gold || settings.diamond || 25);
   const premiumRanks = [
-    { key: 'bronze', name: 'Bronze', min: bronzeMin, benefits: profile?.level?.settings?.benefits?.bronze || ['Acceso a beneficios iniciales', 'Material oficial GEMASHOW'] },
+    { key: 'bronze', name: 'Bronze', min: bronzeMin, benefits: profile?.level?.settings?.benefits?.bronze || ['Acceso a beneficios iniciales', `Material oficial ${brandName}`] },
     { key: 'silver', name: 'Silver', min: silverMin, benefits: profile?.level?.settings?.benefits?.silver || ['Prioridad en campanas', 'Bonos especiales por metas'] },
     { key: 'gold', name: 'Gold', min: goldMin, benefits: profile?.level?.settings?.benefits?.gold || profile?.level?.settings?.benefits?.diamond || ['Beneficios VIP', 'Prioridad maxima en cupos'] }
   ];
@@ -2133,7 +2139,7 @@ function PromoterApp({ user, onLogout }) {
           </div>
         </section>
       )}
-      <PromoterBenefits level={profile?.level} />
+      <PromoterBenefits level={profile?.level} brandName={brandName} />
       {canRegisterSales && (
       <div className="two-column">
         <section className="panel">
