@@ -5169,21 +5169,17 @@ function PrintLayouts({ state, guideTemplates }) {
       guidePages.push(guides.slice(index, index + guideTemplate.capacity));
     }
   }
-  const cardPages = [];
-  for (let index = 0; index < models.length; index += 3) {
-    cardPages.push(models.slice(index, index + 3));
-  }
   return (
     <div className={`prod-print-root ${
       type === 'sheets' ? 'print-order' : type === 'delivery-note' ? 'print-delivery-note' : type === 'guides' ? 'print-guides' : 'print-cards'
     }`}>
       {type === 'sheets' && <ProductionOrderSheet order={order} />}
       {type === 'delivery-note' && <DeliveryNoteSheet order={order} />}
-      {(type === 'cards' || type === 'card') && cardPages.map((pageModels, pageIndex) => (
-        <article className="prod-print-card-page" key={`card-page-${pageIndex}`}>
-          {pageModels.map((model) => <ProductionCard order={order} model={model} key={`card-${model.id}`} />)}
+      {(type === 'cards' || type === 'card') && (
+        <article className="prod-print-card-page">
+          {models.map((model) => <ProductionCard order={order} model={model} key={`card-${model.id}`} />)}
         </article>
-      ))}
+      )}
       {type === 'guides' && guideTemplate && guidePages.map((pageGuides, pageIndex) => (
         <GuidePrintPage
           guides={pageGuides}

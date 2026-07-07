@@ -5680,14 +5680,16 @@ td {
   }
 
   .prod-print-card-page {
-    break-after: page;
-    break-inside: avoid;
-    height: 270mm;
+    break-after: auto;
+    break-inside: auto;
+    display: block;
+    height: auto;
+    min-height: 0;
     overflow: visible;
     page: production-cards;
-    page-break-after: always;
-    page-break-inside: avoid;
-    position: relative;
+    page-break-after: auto;
+    page-break-inside: auto;
+    position: static;
     width: 190mm;
   }
 
@@ -6068,21 +6070,6 @@ td {
     font-size: 52pt;
   }
 
-  .prod-print-card-page > .prod-print-card:nth-child(1) {
-    left: 0;
-    top: 0;
-  }
-
-  .prod-print-card-page > .prod-print-card:nth-child(2) {
-    left: 0;
-    top: 90mm;
-  }
-
-  .prod-print-card-page > .prod-print-card:nth-child(3) {
-    left: 0;
-    top: 180mm;
-  }
-
   .prod-print-page header,
   .prod-print-card header {
     align-items: center;
@@ -6292,15 +6279,20 @@ td {
     border: 2px solid #000000;
     box-sizing: border-box;
     break-inside: avoid;
-    left: 0;
     margin: 0;
+    page-break-inside: avoid;
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
-    height: 84mm;
-    overflow: hidden;
+    height: auto;
+    min-height: 84mm;
+    overflow: visible;
     padding: 2.2mm;
-    position: absolute;
+    position: relative;
     width: 190mm;
+  }
+
+  .prod-print-card:not(:last-child) {
+    margin-bottom: 3mm;
   }
 
   .prod-print-card header {
@@ -6409,8 +6401,8 @@ td {
 
   .prod-card-observation {
     border: 1px solid #000000;
-    height: 9.5mm;
-    overflow: hidden;
+    min-height: 9.5mm;
+    overflow: visible;
     padding: 1mm;
   }
 
@@ -6419,6 +6411,8 @@ td {
     font-size: 8pt;
     font-weight: 800;
     margin: 1mm 0 0;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
   }
 
   .prod-card-observation span {
