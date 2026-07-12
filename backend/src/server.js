@@ -172,6 +172,17 @@ function buildPromoterCode(name, establishmentId = null) {
   return candidate;
 }
 
+function formatEditablePromoterCode(code) {
+  return String(code || '')
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-{2,}/g, '-');
+}
+
 function generatePromoterPassword() {
   const random = Math.random().toString(36).slice(2, 8).toUpperCase();
   return `PROMO${random}`;
@@ -1421,7 +1432,36 @@ app.patch('/api/promoter/profile', requirePromoter, (req, res) => {
   const establishment = db.prepare('SELECT * FROM establishments WHERE id = ?').get(req.user.establishmentId);
   const activeEvent = getActiveEvent(req.user.establishmentId);
   const photoUrl = String(req.body.photo_url || '').trim();
-  db.prepare('UPDATE promoters SET photo_url = ? WHERE id = ?').run(photoUrl, req.user.promoterId);
+  const current = db.prepare('SELECT id, code FROM promoters WHERE id = ? AND deleted_at IS NULL').get(req.user.promoterId);
+
+  if (!current) {
+    return res.status(404).json({ message: 'Promotor no encontrado' });
+  }
+
+  const nextCode = req.body.code === undefined ? current.code : formatEditablePromoterCode(req.body.code);
+
+  if (!nextCode || nextCode.length < 3) {
+    return res.status(400).json({ message: 'El codigo debe tener al menos 3 caracteres' });
+  }
+
+  if (nextCode.length > 40) {
+    return res.status(400).json({ message: 'El codigo no puede tener mas de 40 caracteres' });
+  }
+
+  if (containsBlockedWords(nextCode)) {
+    return res.status(400).json({ message: 'El codigo contiene palabras no permitidas' });
+  }
+
+  const repeatedCode = db
+    .prepare('SELECT id, code FROM promoters WHERE id <> ? AND deleted_at IS NULL')
+    .all(req.user.promoterId)
+    .find((promoter) => normalizeLookup(promoter.code) === normalizeLookup(nextCode));
+
+  if (repeatedCode) {
+    return res.status(409).json({ message: 'Ese codigo ya esta registrado por otro promotor' });
+  }
+
+  db.prepare('UPDATE promoters SET photo_url = ?, code = ? WHERE id = ?').run(photoUrl, nextCode, req.user.promoterId);
   const promoter = db.prepare('SELECT id, name, code, whatsapp, instagram, photo_url, status, can_sell FROM promoters WHERE id = ?').get(req.user.promoterId);
   res.json({ ...promoter, establishment, activeEvent, level: getPromoterLevel(req.user.promoterId, activeEvent?.id || 1) });
 });

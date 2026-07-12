@@ -1865,7 +1865,7 @@ function PromoterApp({ user, onLogout }) {
   const [withdrawals, setWithdrawals] = useState([]);
   const [profile, setProfile] = useState(user);
   const [form, setForm] = useState(emptySale);
-  const [profileForm, setProfileForm] = useState({ photo_url: '' });
+  const [profileForm, setProfileForm] = useState({ photo_url: '', code: user.code || '' });
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '' });
   const [withdrawalForm, setWithdrawalForm] = useState(emptyWithdrawal);
   const [notice, setNotice] = useState('');
@@ -1900,7 +1900,7 @@ function PromoterApp({ user, onLogout }) {
     setProfile(nextProfile);
     setBanners(nextBanners);
     setWithdrawals(nextWithdrawals);
-    setProfileForm({ photo_url: nextProfile.photo_url || '' });
+    setProfileForm({ photo_url: nextProfile.photo_url || '', code: nextProfile.code || '' });
   }
 
   useEffect(() => {
@@ -1951,7 +1951,7 @@ function PromoterApp({ user, onLogout }) {
       });
       setProfile(nextProfile);
       setProfileEditorOpen(false);
-      setNotice('Foto actualizada');
+      setNotice('Perfil actualizado');
       setTimeout(() => setNotice(''), 2400);
     } catch (err) {
       setProfileError(err.message);
@@ -2099,6 +2099,11 @@ function PromoterApp({ user, onLogout }) {
           </div>
           <div className="profile-editor-grid">
             <form className="form-grid" onSubmit={updateProfile}>
+              <Input
+                label="Codigo de promotor"
+                value={profileForm.code}
+                onChange={(code) => setProfileForm({ ...profileForm, code })}
+              />
               <label>
                 Elegir foto desde el dispositivo
                 <input type="file" accept="image/*" onChange={(event) => pickProfilePhoto(event.target.files?.[0])} />
@@ -2106,7 +2111,7 @@ function PromoterApp({ user, onLogout }) {
               {profileForm.photo_url && (
                 <div className="photo-preview">
                   <img src={profileForm.photo_url} alt="Vista previa" />
-                  <button type="button" className="ghost-button" onClick={() => setProfileForm({ photo_url: '' })}>
+                  <button type="button" className="ghost-button" onClick={() => setProfileForm({ ...profileForm, photo_url: '' })}>
                     Quitar foto
                   </button>
                 </div>
@@ -2114,7 +2119,7 @@ function PromoterApp({ user, onLogout }) {
               {profileError && <div className="alert error">{profileError}</div>}
               <button className="primary-button" type="submit">
                 <UserRound size={18} />
-                Guardar foto
+                Guardar perfil
               </button>
             </form>
             <form className="form-grid" onSubmit={changePassword}>
@@ -2216,7 +2221,7 @@ function PromoterAppPremium({ user, onLogout }) {
   const [withdrawals, setWithdrawals] = useState([]);
   const [profile, setProfile] = useState(user);
   const [form, setForm] = useState(emptySale);
-  const [profileForm, setProfileForm] = useState({ photo_url: '' });
+  const [profileForm, setProfileForm] = useState({ photo_url: '', code: user.code || '' });
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '' });
   const [withdrawalForm, setWithdrawalForm] = useState(emptyWithdrawal);
   const [notice, setNotice] = useState('');
@@ -2250,7 +2255,7 @@ function PromoterAppPremium({ user, onLogout }) {
     setProfile(nextProfile);
     setBanners(nextBanners);
     setWithdrawals(nextWithdrawals);
-    setProfileForm({ photo_url: nextProfile.photo_url || '' });
+    setProfileForm({ photo_url: nextProfile.photo_url || '', code: nextProfile.code || '' });
   }
 
   useEffect(() => {
@@ -2301,7 +2306,7 @@ function PromoterAppPremium({ user, onLogout }) {
       });
       setProfile(nextProfile);
       setProfileEditorOpen(false);
-      setNotice('Foto actualizada');
+      setNotice('Perfil actualizado');
       setTimeout(() => setNotice(''), 2400);
     } catch (err) {
       setProfileError(err.message);
@@ -2549,6 +2554,11 @@ function PromoterAppPremium({ user, onLogout }) {
           </div>
           <div className="profile-editor-grid">
             <form className="form-grid" onSubmit={updateProfile}>
+              <Input
+                label="Codigo de promotor"
+                value={profileForm.code}
+                onChange={(code) => setProfileForm({ ...profileForm, code })}
+              />
               <label>
                 Elegir foto desde el dispositivo
                 <input type="file" accept="image/*" onChange={(event) => pickProfilePhoto(event.target.files?.[0])} />
@@ -2556,7 +2566,7 @@ function PromoterAppPremium({ user, onLogout }) {
               {profileForm.photo_url && (
                 <div className="photo-preview">
                   <img src={profileForm.photo_url} alt="Vista previa" />
-                  <button type="button" className="ghost-button" onClick={() => setProfileForm({ photo_url: '' })}>
+                  <button type="button" className="ghost-button" onClick={() => setProfileForm({ ...profileForm, photo_url: '' })}>
                     Quitar foto
                   </button>
                 </div>
@@ -2564,7 +2574,7 @@ function PromoterAppPremium({ user, onLogout }) {
               {profileError && <div className="alert error">{profileError}</div>}
               <button className="primary-button" type="submit">
                 <UserRound size={18} />
-                Guardar foto
+                Guardar perfil
               </button>
             </form>
             <form className="form-grid" onSubmit={changePassword}>
