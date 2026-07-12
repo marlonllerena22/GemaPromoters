@@ -1865,7 +1865,7 @@ function PromoterApp({ user, onLogout }) {
   const [withdrawals, setWithdrawals] = useState([]);
   const [profile, setProfile] = useState(user);
   const [form, setForm] = useState(emptySale);
-  const [profileForm, setProfileForm] = useState({ photo_url: '', code: user.code || '' });
+  const [profileForm, setProfileForm] = useState({ photo_url: '', code: user.code || '', whatsapp: user.whatsapp || '' });
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '' });
   const [withdrawalForm, setWithdrawalForm] = useState(emptyWithdrawal);
   const [notice, setNotice] = useState('');
@@ -1900,7 +1900,7 @@ function PromoterApp({ user, onLogout }) {
     setProfile(nextProfile);
     setBanners(nextBanners);
     setWithdrawals(nextWithdrawals);
-    setProfileForm({ photo_url: nextProfile.photo_url || '', code: nextProfile.code || '' });
+    setProfileForm({ photo_url: nextProfile.photo_url || '', code: nextProfile.code || '', whatsapp: nextProfile.whatsapp || '' });
   }
 
   useEffect(() => {
@@ -2104,6 +2104,11 @@ function PromoterApp({ user, onLogout }) {
                 value={profileForm.code}
                 onChange={(code) => setProfileForm({ ...profileForm, code })}
               />
+              <Input
+                label="WhatsApp de contacto"
+                value={profileForm.whatsapp}
+                onChange={(whatsapp) => setProfileForm({ ...profileForm, whatsapp })}
+              />
               <label>
                 Elegir foto desde el dispositivo
                 <input type="file" accept="image/*" onChange={(event) => pickProfilePhoto(event.target.files?.[0])} />
@@ -2221,7 +2226,7 @@ function PromoterAppPremium({ user, onLogout }) {
   const [withdrawals, setWithdrawals] = useState([]);
   const [profile, setProfile] = useState(user);
   const [form, setForm] = useState(emptySale);
-  const [profileForm, setProfileForm] = useState({ photo_url: '', code: user.code || '' });
+  const [profileForm, setProfileForm] = useState({ photo_url: '', code: user.code || '', whatsapp: user.whatsapp || '' });
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '' });
   const [withdrawalForm, setWithdrawalForm] = useState(emptyWithdrawal);
   const [notice, setNotice] = useState('');
@@ -2255,7 +2260,7 @@ function PromoterAppPremium({ user, onLogout }) {
     setProfile(nextProfile);
     setBanners(nextBanners);
     setWithdrawals(nextWithdrawals);
-    setProfileForm({ photo_url: nextProfile.photo_url || '', code: nextProfile.code || '' });
+    setProfileForm({ photo_url: nextProfile.photo_url || '', code: nextProfile.code || '', whatsapp: nextProfile.whatsapp || '' });
   }
 
   useEffect(() => {
@@ -2559,6 +2564,11 @@ function PromoterAppPremium({ user, onLogout }) {
                 value={profileForm.code}
                 onChange={(code) => setProfileForm({ ...profileForm, code })}
               />
+              <Input
+                label="WhatsApp de contacto"
+                value={profileForm.whatsapp}
+                onChange={(whatsapp) => setProfileForm({ ...profileForm, whatsapp })}
+              />
               <label>
                 Elegir foto desde el dispositivo
                 <input type="file" accept="image/*" onChange={(event) => pickProfilePhoto(event.target.files?.[0])} />
@@ -2763,18 +2773,17 @@ function VerifyPage() {
               </div>
               <div className="verify-card-main">
                 <div className="verify-photo">
-                  {result.promoter.photo_url ? <img src={result.promoter.photo_url} alt={result.promoter.name} /> : <UserRound size={48} />}
+                  {result.promoter.photo_url ? <img src={result.promoter.photo_url} alt="Foto de promotor" /> : <UserRound size={48} />}
                 </div>
                 <div>
                   <small>{result.active === false ? 'Afiliado pendiente de activacion' : 'Afiliado verificado'}</small>
-                  <strong>{result.promoter.name}</strong>
+                  <strong>{result.promoter.code}</strong>
                   <span>{result.active === false ? 'Promotor inactivo' : result.promoter.level?.name || 'Starter'}</span>
                 </div>
               </div>
               <div className="verify-card-details">
                 <p>{result.promoter.instagram || 'Sin Instagram'}</p>
                 <p>WhatsApp: {result.promoter.whatsapp}</p>
-                <p>Codigo: {result.promoter.code}</p>
                 {result.active === false && <p>Este codigo existe, pero aun no esta autorizado para vender.</p>}
               </div>
             </div>

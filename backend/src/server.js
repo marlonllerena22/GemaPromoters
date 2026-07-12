@@ -91,7 +91,7 @@ function findPromoterForVerification(code) {
   const lookup = normalizeLookup(code);
   return db
     .prepare(
-      `SELECT promoters.id, promoters.establishment_id, promoters.name, promoters.instagram, promoters.whatsapp, promoters.photo_url, promoters.code, promoters.status,
+      `SELECT promoters.id, promoters.establishment_id, promoters.instagram, promoters.whatsapp, promoters.photo_url, promoters.code, promoters.status,
               establishments.name AS establishment_name,
               establishments.display_name AS establishment_display_name,
               establishments.theme AS establishment_theme,
@@ -1432,13 +1432,14 @@ app.patch('/api/promoter/profile', requirePromoter, (req, res) => {
   const establishment = db.prepare('SELECT * FROM establishments WHERE id = ?').get(req.user.establishmentId);
   const activeEvent = getActiveEvent(req.user.establishmentId);
   const photoUrl = String(req.body.photo_url || '').trim();
-  const current = db.prepare('SELECT id, code FROM promoters WHERE id = ? AND deleted_at IS NULL').get(req.user.promoterId);
+  const current = db.prepare('SELECT id, code, whatsapp FROM promoters WHERE id = ? AND deleted_at IS NULL').get(req.user.promoterId);
 
   if (!current) {
     return res.status(404).json({ message: 'Promotor no encontrado' });
   }
 
   const nextCode = req.body.code === undefined ? current.code : formatEditablePromoterCode(req.body.code);
+  const nextWhatsapp = req.body.whatsapp === undefined ? current.whatsapp : String(req.body.whatsapp || '').trim();
 
   if (!nextCode || nextCode.length < 3) {
     return res.status(400).json({ message: 'El codigo debe tener al menos 3 caracteres' });
@@ -1452,6 +1453,10 @@ app.patch('/api/promoter/profile', requirePromoter, (req, res) => {
     return res.status(400).json({ message: 'El codigo contiene palabras no permitidas' });
   }
 
+  if (!nextWhatsapp || nextWhatsapp.length < 7) {
+    return res.status(400).json({ message: 'Ingresa un WhatsApp valido' });
+  }
+
   const repeatedCode = db
     .prepare('SELECT id, code FROM promoters WHERE id <> ? AND deleted_at IS NULL')
     .all(req.user.promoterId)
@@ -1461,7 +1466,7 @@ app.patch('/api/promoter/profile', requirePromoter, (req, res) => {
     return res.status(409).json({ message: 'Ese codigo ya esta registrado por otro promotor' });
   }
 
-  db.prepare('UPDATE promoters SET photo_url = ?, code = ? WHERE id = ?').run(photoUrl, nextCode, req.user.promoterId);
+  db.prepare('UPDATE promoters SET photo_url = ?, code = ?, whatsapp = ? WHERE id = ?').run(photoUrl, nextCode, nextWhatsapp, req.user.promoterId);
   const promoter = db.prepare('SELECT id, name, code, whatsapp, instagram, photo_url, status, can_sell FROM promoters WHERE id = ?').get(req.user.promoterId);
   res.json({ ...promoter, establishment, activeEvent, level: getPromoterLevel(req.user.promoterId, activeEvent?.id || 1) });
 });
