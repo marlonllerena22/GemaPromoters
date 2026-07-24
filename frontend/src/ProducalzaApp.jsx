@@ -4074,6 +4074,8 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
         <article><DollarSign size={21} /><span>Saldo rapido</span><strong>{displayMoney(balance)}</strong></article>
       </section>
 
+      <LocalMonthlyManager scope={scope} setError={setError} />
+
       <section className="prod-panel">
         <div className="prod-panel-title">
           <div><span>Datos historicos</span><h2>Importar Excel de locales</h2></div>
@@ -4180,8 +4182,6 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
           {!sales?.rows?.length && <div className="prod-empty">No hay ventas diarias con esos filtros.</div>}
         </div>
       </section>
-
-      <LocalMonthlyManager scope={scope} setError={setError} />
 
       <section className="prod-panel">
         <div className="prod-panel-title">
@@ -4449,6 +4449,16 @@ function localReportConceptLabel(row, group = '') {
   if (normalized.includes('motorizado')) return 'Motorizado';
   if (normalized.includes('suministro')) return 'Suministro';
   if (normalized.includes('aseo')) return 'Aseo';
+  const mainConcept = normalized
+    .replace(/\b(envio|envios|pago|pagos|abono|abonos|deposito|depositos|transferencia|transferencias|efectivo|tarjeta|factura|facturas)\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (mainConcept && mainConcept !== normalized) {
+    return mainConcept
+      .split(' ')
+      .map((word) => word ? `${word[0].toUpperCase()}${word.slice(1)}` : '')
+      .join(' ');
+  }
   return rawLabel;
 }
 
@@ -4810,6 +4820,155 @@ function LocalMonthlyManager({ scope, setError }) {
     printWindow.document.close();
   }
 
+  async function printWeeklyAllLocalsReport() {
+    setLoading(true);
+    let salesRows = [];
+    try {
+      const salesQuery = new URLSearchParams();
+      salesQuery.set('date_from', `${month}-01`);
+      salesQuery.set('date_to', monthEndDate(month));
+      const freshSales = await api(scope(`/producalza/local-sales?${salesQuery.toString()}`));
+      salesRows = freshSales.rows || [];
+    } catch (err) {
+      setError(err.message);
+      setLoading(false);
+      return;
+    } finally {
+      setLoading(false);
+    }
+    const monthStart = new Date(`${month}-01T12:00:00`);
+    const monthEnd = new Date(`${monthEndDate(month)}T12:00:00`);
+    const weeks = [];
+    let currentStart = new Date(monthStart);
+    while (currentStart <= monthEnd) {
+      const currentEnd = new Date(currentStart);
+      const day = currentEnd.getDay() || 7;
+      currentEnd.setDate(currentEnd.getDate() + (7 - day));
+      if (currentEnd > monthEnd) currentEnd.setTime(monthEnd.getTime());
+      weeks.push({
+        label: `${displayDate(currentStart.toISOString().slice(0, 10))} - ${displayDate(currentEnd.toISOString().slice(0, 10))}`,
+        start: currentStart.toISOString().slice(0, 10),
+        end: currentEnd.toISOString().slice(0, 10)
+      });
+      currentStart = new Date(currentEnd);
+      currentStart.setDate(currentStart.getDate() + 1);
+    }
+    const rows = weeks.map((week, index) => {
+      const byLocal = {};
+      let totalPairs = 0;
+      let totalAmount = 0;
+      for (const local of RETURN_DESTINATIONS) {
+        const localRows = salesRows.filter((row) =>
+          row.local_name === local &&
+          row.sale_date >= week.start &&
+          row.sale_date <= week.end
+        );
+        const pairs = localRows.reduce((sum, row) => sum + Number(row.quantity || 1), 0);
+        const amount = localRows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+        byLocal[local] = { pairs, amount };
+        totalPairs += pairs;
+        totalAmount += amount;
+      }
+      return { ...week, index: index + 1, byLocal, totalPairs, totalAmount };
+    });
+    const money = (value) => escapeReportHtml(displayNumber(value, 2));
+    const localShortName = (local) => local
+      .replace('Local Marjorie Botas ', '')
+      .replace('Sebastians', 'Sebastians');
+    const headerHtml = RETURN_DESTINATIONS
+      .map((local) => `<th colspan="2">${escapeReportHtml(localShortName(local))}</th>`)
+      .join('');
+    const subHeaderHtml = RETURN_DESTINATIONS.map(() => '<th>Pares</th><th>$</th>').join('');
+    const rowsHtml = rows.map((row) => `
+      <tr>
+        <td>${row.index}</td>
+        <td>${escapeReportHtml(row.label)}</td>
+        ${RETURN_DESTINATIONS.map((local) => `
+          <td class="center">${row.byLocal[local].pairs || ''}</td>
+          <td class="money">${row.byLocal[local].amount ? money(row.byLocal[local].amount) : ''}</td>
+        `).join('')}
+        <td class="center strong">${row.totalPairs}</td>
+        <td class="money strong">${money(row.totalAmount)}</td>
+      </tr>
+    `).join('');
+    const totalsByLocal = RETURN_DESTINATIONS.reduce((acc, local) => {
+      acc[local] = {
+        pairs: rows.reduce((sum, row) => sum + Number(row.byLocal[local].pairs || 0), 0),
+        amount: rows.reduce((sum, row) => sum + Number(row.byLocal[local].amount || 0), 0)
+      };
+      return acc;
+    }, {});
+    const grandPairs = rows.reduce((sum, row) => sum + row.totalPairs, 0);
+    const grandAmount = rows.reduce((sum, row) => sum + row.totalAmount, 0);
+    const totalRowHtml = `
+      <tr class="total">
+        <td colspan="2">Total mes</td>
+        ${RETURN_DESTINATIONS.map((local) => `
+          <td class="center">${totalsByLocal[local].pairs}</td>
+          <td class="money">${money(totalsByLocal[local].amount)}</td>
+        `).join('')}
+        <td class="center">${grandPairs}</td>
+        <td class="money">${money(grandAmount)}</td>
+      </tr>
+    `;
+    const html = `<!doctype html>
+      <html>
+        <head>
+          <title>Reporte semanal todos los locales</title>
+          <style>
+            @page { size: A4 landscape; margin: 7mm; }
+            * { box-sizing: border-box; }
+            body { font-family: Arial, Helvetica, sans-serif; color: #222; margin: 0; }
+            .sheet { width: 283mm; margin: 0 auto; }
+            h1 { margin: 0 0 3mm; text-align: center; font-size: 17px; text-transform: uppercase; }
+            .subtitle { margin-bottom: 4mm; text-align: center; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+            table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 8.5px; }
+            th, td { border: 1px solid #444; padding: 2px 3px; height: 15px; }
+            th { background: #f1f1f1; text-transform: uppercase; }
+            .center { text-align: center; }
+            .money { text-align: right; }
+            .strong, .total td { font-weight: 800; }
+            .week { width: 40mm; }
+            .num { width: 8mm; }
+            @media print { .sheet { margin: 0; } }
+          </style>
+        </head>
+        <body>
+          <div class="sheet">
+            <h1>Reporte de todos los locales por semanas</h1>
+            <div class="subtitle">Mes: ${escapeReportHtml(reportMonthName(month))} ${escapeReportHtml(month.slice(0, 4))}</div>
+            <table>
+              <thead>
+                <tr>
+                  <th class="num" rowspan="2">#</th>
+                  <th class="week" rowspan="2">Semana</th>
+                  ${headerHtml}
+                  <th colspan="2">Total semana</th>
+                </tr>
+                <tr>
+                  ${subHeaderHtml}
+                  <th>Pares</th><th>$</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rowsHtml}
+                ${totalRowHtml}
+              </tbody>
+            </table>
+          </div>
+          <script>window.onload = () => { window.focus(); window.print(); };</script>
+        </body>
+      </html>`;
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      setError('El navegador bloqueo la ventana de impresion. Permite ventanas emergentes para imprimir el reporte.');
+      return;
+    }
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+  }
+
   const selectedReport = (reports?.rows || [])[0];
   const payrollRows = reports?.payroll || [];
   const itemTotals = (monthlyForm.items || []).reduce((acc, item) => {
@@ -4829,6 +4988,7 @@ function LocalMonthlyManager({ scope, setError }) {
         <div><span>Formato mensual</span><h2>Reporte general por local</h2></div>
         <div className="prod-row-actions">
           <button className="prod-primary-button" onClick={printMonthlyLocalReport}><Printer size={17} />Generar reporte</button>
+          <button className="prod-secondary-button" onClick={printWeeklyAllLocalsReport}><Printer size={17} />Reportes de todos los locales por semanas</button>
           <button className="prod-primary-button" disabled={loading} onClick={loadMonthly}><Filter size={17} />Cargar</button>
         </div>
       </div>
