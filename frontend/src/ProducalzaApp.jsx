@@ -3861,6 +3861,8 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
     notes: ''
   });
   const [loading, setLoading] = useState(false);
+  const [importingExcel, setImportingExcel] = useState(false);
+  const [importSummary, setImportSummary] = useState(null);
   const sentOrders = (orders || []).filter((order) => order.order_type !== 'return');
   const visibleProduction = (production || []).filter((item) =>
     !filters.local_name || item.client_name === filters.local_name || item.sample_destination === filters.local_name
@@ -3889,6 +3891,39 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
   useEffect(() => {
     loadFinance();
   }, []);
+
+  function readFileAsBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || '').split(',').pop());
+      reader.onerror = () => reject(new Error('No se pudo leer el archivo'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function importLocalReportsExcel(event) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!window.confirm('Esto reemplazara la importacion historica anterior de REPORTES LOCALES 2026. Las ventas y gastos manuales no se eliminan. Continuar?')) {
+      return;
+    }
+    setImportingExcel(true);
+    try {
+      const fileBase64 = await readFileAsBase64(file);
+      const response = await api(scope('/producalza/local-reports/import-excel'), {
+        method: 'POST',
+        body: JSON.stringify({ file_name: file.name, file_base64: fileBase64 })
+      });
+      setImportSummary(response.summary || null);
+      await loadFinance();
+      onRefresh('Excel de locales importado');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setImportingExcel(false);
+    }
+  }
 
   async function saveFinance() {
     try {
@@ -4029,6 +4064,26 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
         <article><DollarSign size={21} /><span>Ventas locales</span><strong>{displayMoney(salesTotals.amount || 0)}</strong></article>
         <article><DollarSign size={21} /><span>Comisiones</span><strong>{displayMoney(salesTotals.commission || 0)}</strong></article>
         <article><DollarSign size={21} /><span>Saldo rapido</span><strong>{displayMoney(balance)}</strong></article>
+      </section>
+
+      <section className="prod-panel">
+        <div className="prod-panel-title">
+          <div><span>Datos historicos</span><h2>Importar Excel de locales</h2></div>
+          <label className={`prod-primary-button ${importingExcel ? 'disabled' : ''}`}>
+            <Upload size={17} />{importingExcel ? 'Importando...' : 'Seleccionar Excel'}
+            <input type="file" accept=".xlsx,.xls" disabled={importingExcel} onChange={importLocalReportsExcel} hidden />
+          </label>
+        </div>
+        <div className="prod-empty">
+          Sube el archivo REPORTES LOCALES 2026 para cargar ventas, gastos y asistencias historicas. Si lo subes otra vez, se reemplaza solo esa importacion.
+        </div>
+        {importSummary && (
+          <div className="prod-return-destination-summary">
+            <article><span>Ventas importadas</span><strong>{displayNumber(importSummary.ventas || 0)}</strong><small>Desde el Excel historico</small></article>
+            <article><span>Gastos/ingresos</span><strong>{displayNumber(importSummary.gastos_movimientos || 0)}</strong><small>Movimientos diarios</small></article>
+            <article><span>Asistencias</span><strong>{displayNumber(importSummary.asistencias_dias || 0)}</strong><small>{displayNumber(importSummary.asistencias_registros_entrada_salida || 0)} entradas/salidas</small></article>
+          </div>
+        )}
       </section>
 
       <section className="prod-panel">

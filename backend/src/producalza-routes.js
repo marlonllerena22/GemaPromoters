@@ -1,5 +1,6 @@
 import { createToken, requireAuth, requireProductionAdmin, requireProductionUser } from './auth.js';
 import { createProductionOrderPdf } from './production-pdf.js';
+import { LOCAL_REPORTS_IMPORT_TAG, localReportsSummary, parseLocalReportsWorkbook } from './local-reports-import.js';
 
 const ORDER_STATUSES = ['draft', 'received', 'reviewed', 'in_production', 'finished', 'delivered', 'cancelled'];
 const MODEL_STATUSES = ['received', 'reviewed', 'in_production', 'cut', 'stitched', 'assembled', 'finished', 'delivered', 'cancelled'];
@@ -2401,6 +2402,125 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     if (!result.changes) return res.status(404).json({ message: 'Movimiento no encontrado' });
     audit(req, 'delete', 'local_finance', req.params.id, 'Movimiento local');
     res.json({ ok: true });
+  });
+
+  function ensureImportedLocalStaff(establishmentId, staff) {
+    const existing = db.prepare(
+      `SELECT * FROM production_local_staff
+       WHERE establishment_id = ? AND (lower(username) = lower(?) OR lower(name) = lower(?))
+       ORDER BY id LIMIT 1`
+    ).get(establishmentId, staff.username, staff.name);
+    if (existing) return existing.id;
+    const result = db.prepare(
+      `INSERT INTO production_local_staff
+       (establishment_id, name, username, password, allowed_locations_json, default_location, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      establishmentId,
+      staff.name,
+      staff.username,
+      `${staff.username}123`,
+      JSON.stringify([staff.location]),
+      staff.location,
+      staff.active ? 'active' : 'inactive'
+    );
+    return result.lastInsertRowid;
+  }
+
+  app.post('/api/producalza/local-reports/import-excel', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    if (!canAccessProductionReports(req)) {
+      return res.status(403).json({ message: 'No tienes acceso para importar reportes de locales' });
+    }
+    const base64 = String(req.body.file_base64 || '').trim();
+    if (!base64) {
+      return res.status(400).json({ message: 'Selecciona el archivo Excel de reportes locales' });
+    }
+    let parsed;
+    try {
+      const cleanBase64 = base64.includes(',') ? base64.split(',').pop() : base64;
+      const buffer = Buffer.from(cleanBase64, 'base64');
+      parsed = parseLocalReportsWorkbook(buffer);
+    } catch (error) {
+      return res.status(400).json({ message: 'No se pudo leer el Excel. Verifica que sea el archivo REPORTES LOCALES 2026.' });
+    }
+    const summary = localReportsSummary(parsed);
+    if (!summary.ventas && !summary.gastos_movimientos && !summary.asistencias_dias) {
+      return res.status(400).json({ message: 'No encontre ventas, gastos ni asistencias para importar en este archivo' });
+    }
+    const userId = req.user.productionUserId || null;
+    try {
+      db.transaction(() => {
+        db.prepare("DELETE FROM production_local_daily_sales WHERE establishment_id = ? AND notes LIKE ?")
+          .run(business.id, `%${LOCAL_REPORTS_IMPORT_TAG}%`);
+        db.prepare("DELETE FROM production_local_finances WHERE establishment_id = ? AND notes LIKE ?")
+          .run(business.id, `%${LOCAL_REPORTS_IMPORT_TAG}%`);
+        db.prepare("DELETE FROM production_local_attendance WHERE establishment_id = ? AND message LIKE ?")
+          .run(business.id, `%${LOCAL_REPORTS_IMPORT_TAG}%`);
+
+        const insertSale = db.prepare(
+          `INSERT INTO production_local_daily_sales
+           (establishment_id, sale_number, local_name, model_code, color, size, quantity, sale_kind, seller_name, payment_method, amount, commission, sale_date, notes, created_by_user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        );
+        for (const sale of parsed.sales) {
+          insertSale.run(
+            business.id,
+            sale.sale_number,
+            sale.local_name,
+            sale.model_code,
+            sale.color,
+            sale.size,
+            sale.quantity,
+            sale.sale_kind,
+            sale.seller_name,
+            sale.payment_method,
+            sale.amount,
+            sale.commission,
+            sale.sale_date,
+            sale.notes,
+            userId
+          );
+        }
+
+        const insertFinance = db.prepare(
+          `INSERT INTO production_local_finances
+           (establishment_id, local_name, entry_type, finance_group, category, amount, entry_date, payee, pairs, notes, created_by_user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        );
+        for (const item of parsed.expenses) {
+          insertFinance.run(
+            business.id,
+            item.local_name,
+            item.entry_type,
+            item.finance_group,
+            item.category,
+            item.amount,
+            item.entry_date,
+            item.payee,
+            item.pairs,
+            item.notes,
+            userId
+          );
+        }
+
+        const insertAttendance = db.prepare(
+          `INSERT INTO production_local_attendance
+           (establishment_id, staff_id, staff_name, location, action, local_date, local_time, message)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        );
+        for (const item of parsed.attendance) {
+          const staffId = ensureImportedLocalStaff(business.id, item.staff);
+          insertAttendance.run(business.id, staffId, item.staff.name, item.staff.location, 'in', item.local_date, item.in_time, item.message);
+          insertAttendance.run(business.id, staffId, item.staff.name, item.staff.location, 'out', item.local_date, item.out_time, item.message);
+        }
+      })();
+    } catch (error) {
+      return res.status(500).json({ message: `No se pudo importar el Excel: ${error.message}` });
+    }
+    audit(req, 'import', 'local_reports_excel', business.id, `${req.body.file_name || 'Excel'} ${JSON.stringify(summary.counts || summary)}`);
+    res.json({ ok: true, summary });
   });
 
   function normalizeReportMonth(value) {
