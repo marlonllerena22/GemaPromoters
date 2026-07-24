@@ -4434,12 +4434,36 @@ function localReportFinanceGroups(rows) {
   return byGroup;
 }
 
-function localReportTableRows(rows, fallbackRows = []) {
+function localReportConceptLabel(row, group = '') {
+  const rawLabel = String(row.label || row.category || '').trim();
+  const normalized = normalizeText(rawLabel);
+  if (!rawLabel) return '';
+  if (group === 'various' && /(sueldo|emplead|rol|comision)/.test(normalized)) return '';
+  if (group === 'service') {
+    if (normalized.includes('arriendo')) return 'Arriendo';
+    if (normalized.includes('luz')) return 'Luz';
+    if (normalized.includes('agua')) return 'Agua';
+    if (normalized.includes('internet')) return 'Internet';
+  }
+  if (normalized.includes('servientrega')) return 'Servientrega';
+  if (normalized.includes('motorizado')) return 'Motorizado';
+  if (normalized.includes('suministro')) return 'Suministro';
+  if (normalized.includes('aseo')) return 'Aseo';
+  return rawLabel;
+}
+
+function localReportTableRows(rows, fallbackRows = [], group = '') {
   const source = rows?.length ? rows : fallbackRows;
-  return source.map((row) => ({
-    label: row.label || row.category || '',
-    amount: Number(row.amount || 0)
-  }));
+  const grouped = new Map();
+  for (const row of source) {
+    const label = localReportConceptLabel(row, group);
+    if (!label) continue;
+    const key = normalizeText(label);
+    const current = grouped.get(key) || { label, amount: 0 };
+    current.amount += Number(row.amount || 0);
+    grouped.set(key, current);
+  }
+  return [...grouped.values()];
 }
 
 function localReportPayrollRows(payrollRows, localName, salesRows) {
@@ -4579,25 +4603,56 @@ function LocalMonthlyManager({ scope, setError }) {
     }
   }
 
-  function printMonthlyLocalReport() {
+  async function printMonthlyLocalReport() {
     if (!localName) {
       setError('Selecciona un local para generar el reporte general por local.');
       return;
     }
-    const salesLines = localReportLineTotals(localSales);
-    const financeGroups = localReportFinanceGroups(localFinances);
-    const payrollLines = localReportPayrollRows(payrollRows, localName, localSales);
+    let reportResponse = reports || { payroll: [] };
+    let salesRows = localSales;
+    let financeRows = localFinances;
+    setLoading(true);
+    try {
+      const query = new URLSearchParams();
+      query.set('month', month);
+      query.set('local_name', localName);
+      const salesQuery = new URLSearchParams();
+      salesQuery.set('date_from', `${month}-01`);
+      salesQuery.set('date_to', monthEndDate(month));
+      salesQuery.set('local_name', localName);
+      const [freshReports, freshSales, freshFinances] = await Promise.all([
+        api(scope(`/producalza/local-monthly-reports?${query.toString()}`)),
+        api(scope(`/producalza/local-sales?${salesQuery.toString()}`)),
+        api(scope(`/producalza/local-finances?${salesQuery.toString()}`))
+      ]);
+      reportResponse = freshReports;
+      salesRows = freshSales.rows || [];
+      financeRows = freshFinances.rows || [];
+      setReports(freshReports);
+      setLocalSales(salesRows);
+      setLocalFinances(financeRows);
+    } catch (err) {
+      setError(err.message);
+      setLoading(false);
+      return;
+    } finally {
+      setLoading(false);
+    }
+    const salesLines = localReportLineTotals(salesRows.filter((row) => row.local_name === localName));
+    const financeGroups = localReportFinanceGroups(financeRows.filter((row) => row.local_name === localName));
+    const freshPayrollRows = reportResponse?.payroll || [];
+    const payrollLines = localReportPayrollRows(freshPayrollRows, localName, salesRows);
     const payrollTotal = payrollLines.reduce((sum, row) => sum + Number(row.net || 0), 0);
-    const variousRows = localReportTableRows(financeGroups.various);
+    const variousRows = localReportTableRows(financeGroups.various, [], 'various');
     const serviceFallback = [
       { label: `Arriendo ${reportMonthName(month)}`, amount: LOCAL_RENT_DEFAULTS[localName] || 0 },
       { label: 'Luz', amount: 0 },
       { label: 'Agua', amount: 0 },
       { label: 'Internet', amount: LOCAL_INTERNET_DEFAULTS[localName] || 0 }
     ];
-    const serviceRows = localReportTableRows(financeGroups.service, serviceFallback);
-    const depositRows = localReportTableRows(financeGroups.deposit);
-    const adminRows = localReportTableRows(financeGroups.admin);
+    const serviceRows = localReportTableRows(financeGroups.service, serviceFallback, 'service');
+    const depositRows = localReportTableRows(financeGroups.deposit, [], 'deposit');
+    const adminRows = localReportTableRows(financeGroups.admin, [], 'admin');
     const sumAmount = (rows) => rows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
     const variousTotal = sumAmount(variousRows);
     const servicesTotal = sumAmount(serviceRows);
@@ -4607,10 +4662,10 @@ function LocalMonthlyManager({ scope, setError }) {
     const localBalance = Number(salesLines.total.amount || 0) - variousTotal - payrollTotal - servicesTotal - depositsTotal;
     const utility = Number(salesLines.total.amount || 0) - producalzaCost - variousTotal - payrollTotal - servicesTotal - adminTotal;
     const missingData = [
-      !localSales.length && 'ventas diarias',
+      !salesRows.length && 'ventas diarias',
       !financeGroups.various.length && 'gastos varios',
       !financeGroups.deposit.length && 'depositos',
-      !payrollRows.length && 'rol de pago guardado'
+      !freshPayrollRows.length && 'rol de pago guardado'
     ].filter(Boolean);
     const moneyCell = (value) => `<td class="currency">$</td><td class="value">${escapeReportHtml(displayNumber(value, 2))}</td>`;
     const rowsHtml = (rows, emptyCount = 5) => {
@@ -4645,6 +4700,7 @@ function LocalMonthlyManager({ scope, setError }) {
             body { font-family: Arial, Helvetica, sans-serif; color: #333; margin: 0; }
             .sheet { width: 190mm; margin: 0 auto; padding: 2mm; }
             h1 { margin: 0 0 10px; text-align: center; font-size: 22px; letter-spacing: .02em; }
+            .subtitle { margin: -6px 0 8px; text-align: center; font-size: 12px; font-weight: 700; text-transform: uppercase; }
             .top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
             .month { margin-top: 18px; font-size: 13px; text-transform: uppercase; }
             .month strong { color: #b54d5b; margin-left: 10px; }
@@ -4673,6 +4729,7 @@ function LocalMonthlyManager({ scope, setError }) {
         <body>
           <div class="sheet">
             <h1>${escapeReportHtml(localName.replace(/^Local\s+/, '').toUpperCase())} 2026</h1>
+            <div class="subtitle">Reporte general por local: ${escapeReportHtml(localName)}</div>
             ${missingData.length ? `<div class="missing">Datos pendientes por llenar: ${escapeReportHtml(missingData.join(', '))}. El reporte se genera igual con los datos disponibles.</div>` : ''}
             <div class="top">
               <table style="width:108mm">
