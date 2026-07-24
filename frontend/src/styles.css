@@ -208,6 +208,10 @@
   align-items: center;
 }
 
+.prod-local-item-row.local-sale-item-row {
+  grid-template-columns: minmax(110px, 1.2fr) minmax(90px, 1fr) 72px 72px 110px 130px 100px minmax(100px, 1fr) 38px;
+}
+
 .prod-local-item-row input,
 .prod-local-item-row select {
   width: 100%;
@@ -255,6 +259,10 @@
     border: 1px solid #e2e8f0;
     border-radius: 14px;
     background: #f8fafc;
+  }
+
+  .prod-local-item-row.local-sale-item-row {
+    grid-template-columns: 1fr;
   }
 
   .prod-local-item-row .prod-icon-button {

@@ -316,9 +316,12 @@ export function initProducalzaDb(db) {
       establishment_id INTEGER NOT NULL,
       local_name TEXT NOT NULL,
       entry_type TEXT NOT NULL DEFAULT 'income' CHECK (entry_type IN ('income', 'expense')),
+      finance_group TEXT NOT NULL DEFAULT 'various',
       category TEXT NOT NULL,
       amount REAL NOT NULL DEFAULT 0,
       entry_date TEXT NOT NULL DEFAULT (date('now', 'localtime')),
+      payee TEXT,
+      pairs INTEGER NOT NULL DEFAULT 0,
       notes TEXT,
       created_by_user_id INTEGER,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
@@ -335,6 +338,8 @@ export function initProducalzaDb(db) {
       model_code TEXT NOT NULL,
       color TEXT,
       size TEXT,
+      quantity INTEGER NOT NULL DEFAULT 1,
+      sale_kind TEXT NOT NULL DEFAULT 'normal' CHECK (sale_kind IN ('normal', 'separated', 'wholesale')),
       payment_method TEXT NOT NULL DEFAULT 'efectivo' CHECK (payment_method IN ('efectivo', 'transferencia', 'tarjeta')),
       amount REAL NOT NULL DEFAULT 0,
       commission REAL NOT NULL DEFAULT 0,
@@ -487,6 +492,11 @@ export function initProducalzaDb(db) {
   `);
 
   addColumnIfMissing(db, 'production_users', 'is_local_secretary', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'production_local_finances', 'finance_group', "TEXT NOT NULL DEFAULT 'various'");
+  addColumnIfMissing(db, 'production_local_finances', 'payee', 'TEXT');
+  addColumnIfMissing(db, 'production_local_finances', 'pairs', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'production_local_daily_sales', 'quantity', 'INTEGER NOT NULL DEFAULT 1');
+  addColumnIfMissing(db, 'production_local_daily_sales', 'sale_kind', "TEXT NOT NULL DEFAULT 'normal'");
   addColumnIfMissing(db, 'production_clients', 'local_store_key', 'TEXT');
   addColumnIfMissing(db, 'production_client_visits', 'visited_by_user_id', 'INTEGER');
   addColumnIfMissing(db, 'production_client_visits', 'visitor_name', 'TEXT');

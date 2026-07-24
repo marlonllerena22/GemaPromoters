@@ -12,6 +12,8 @@ const RETURN_DESTINATIONS = [
   'Local Marjorie Botas Valle',
   'Sebastians'
 ];
+const LOCAL_SALE_KINDS = ['normal', 'separated', 'wholesale'];
+const LOCAL_FINANCE_GROUPS = ['various', 'service', 'deposit', 'admin', 'income'];
 const LOCAL_ATTENDANCE_GROUPS = {
   Sur: 'https://chat.whatsapp.com/LSFur45K8mT7Jx23IdG8RE?s=sw&p=a&ilr=0&amv=1',
   Valle: 'https://chat.whatsapp.com/HbogTXLn22mBqKwQWz6Ire?s=sw&p=a&ilr=0&amv=1',
@@ -2136,17 +2138,28 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       .all(...params);
     const byLocalMap = new Map();
     const byPaymentMap = new Map();
+    const byKindMap = new Map();
     for (const row of rows) {
-      const currentLocal = byLocalMap.get(row.local_name) || { local_name: row.local_name, sales_count: 0, amount: 0, commission: 0 };
+      const quantity = Number(row.quantity || 1);
+      const currentLocal = byLocalMap.get(row.local_name) || { local_name: row.local_name, sales_count: 0, pairs: 0, amount: 0, commission: 0 };
       currentLocal.sales_count += 1;
+      currentLocal.pairs += quantity;
       currentLocal.amount += Number(row.amount || 0);
       currentLocal.commission += Number(row.commission || 0);
       byLocalMap.set(row.local_name, currentLocal);
 
-      const currentPayment = byPaymentMap.get(row.payment_method) || { payment_method: row.payment_method, sales_count: 0, amount: 0 };
+      const currentPayment = byPaymentMap.get(row.payment_method) || { payment_method: row.payment_method, sales_count: 0, pairs: 0, amount: 0 };
       currentPayment.sales_count += 1;
+      currentPayment.pairs += quantity;
       currentPayment.amount += Number(row.amount || 0);
       byPaymentMap.set(row.payment_method, currentPayment);
+
+      const kindKey = row.sale_kind || 'normal';
+      const currentKind = byKindMap.get(kindKey) || { sale_kind: kindKey, sales_count: 0, pairs: 0, amount: 0 };
+      currentKind.sales_count += 1;
+      currentKind.pairs += quantity;
+      currentKind.amount += Number(row.amount || 0);
+      byKindMap.set(kindKey, currentKind);
     }
     res.json({
       date_from: dateFrom,
@@ -2154,8 +2167,10 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       rows,
       by_local: [...byLocalMap.values()].map((item) => ({ ...item, amount: money2(item.amount), commission: money2(item.commission) })),
       by_payment: [...byPaymentMap.values()].map((item) => ({ ...item, amount: money2(item.amount) })),
+      by_kind: [...byKindMap.values()].map((item) => ({ ...item, amount: money2(item.amount) })),
       totals: {
         sales_count: rows.length,
+        pairs: rows.reduce((sum, row) => sum + Number(row.quantity || 1), 0),
         amount: money2(rows.reduce((sum, row) => sum + Number(row.amount || 0), 0)),
         commission: money2(rows.reduce((sum, row) => sum + Number(row.commission || 0), 0))
       }
@@ -2169,48 +2184,85 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       return res.status(403).json({ message: 'No tienes acceso a este reporte' });
     }
     const localName = String(req.body.local_name || '').trim();
-    const modelCode = String(req.body.model_code || '').trim();
-    const color = String(req.body.color || '').trim();
-    const size = String(req.body.size || '').trim();
-    const paymentMethod = String(req.body.payment_method || 'efectivo').trim();
-    const amount = moneyValue(req.body.amount);
     const saleDate = normalizeDateInput(req.body.sale_date, new Date().toISOString().slice(0, 10));
     if (!RETURN_DESTINATIONS.includes(localName)) {
       return res.status(400).json({ message: 'Selecciona un local valido' });
     }
-    if (!modelCode || !color || !size) {
-      return res.status(400).json({ message: 'Modelo, color y talla son obligatorios' });
+    const sourceItems = Array.isArray(req.body.items) && req.body.items.length
+      ? req.body.items
+      : [req.body];
+    let items = [];
+    try {
+      items = sourceItems.map((item) => {
+        const modelCode = String(item.model_code || '').trim();
+        const color = String(item.color || '').trim();
+        const size = String(item.size || '').trim();
+        const paymentMethod = String(item.payment_method || req.body.payment_method || 'efectivo').trim();
+        const saleKind = String(item.sale_kind || req.body.sale_kind || 'normal').trim();
+        const quantity = Math.max(1, Math.round(Number(item.quantity || 1)));
+        const amount = moneyValue(item.amount);
+        if (!modelCode || !color || !size) {
+          throw new Error('Modelo, color y talla son obligatorios');
+        }
+        if (!['efectivo', 'transferencia', 'tarjeta'].includes(paymentMethod)) {
+          throw new Error('Selecciona una forma de pago valida');
+        }
+        if (!LOCAL_SALE_KINDS.includes(saleKind)) {
+          throw new Error('Selecciona un tipo de venta valido');
+        }
+        if (amount <= 0) {
+          throw new Error('Ingresa el valor de la venta');
+        }
+        return {
+          modelCode,
+          color,
+          size,
+          paymentMethod,
+          saleKind,
+          quantity,
+          amount,
+          commission: money2(localDailySaleCommission(localName, amount)),
+          notes: String(item.notes || req.body.notes || '').trim()
+        };
+      });
+    } catch (error) {
+      return res.status(400).json({ message: error.message });
     }
-    if (!['efectivo', 'transferencia', 'tarjeta'].includes(paymentMethod)) {
-      return res.status(400).json({ message: 'Selecciona una forma de pago valida' });
+    const insert = db.prepare(
+      `INSERT INTO production_local_daily_sales
+       (establishment_id, sale_number, local_name, model_code, color, size, quantity, sale_kind, payment_method, amount, commission, sale_date, notes, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    try {
+      const created = db.transaction(() => {
+        const rows = [];
+        for (const item of items) {
+          const saleNumber = nextLocalSaleNumber(business.id, saleDate);
+          const result = insert.run(
+            business.id,
+            saleNumber,
+            localName,
+            item.modelCode,
+            item.color,
+            item.size,
+            item.quantity,
+            item.saleKind,
+            item.paymentMethod,
+            item.amount,
+            item.commission,
+            saleDate,
+            item.notes,
+            req.user.productionUserId || null
+          );
+          rows.push(db.prepare('SELECT * FROM production_local_daily_sales WHERE id = ?').get(result.lastInsertRowid));
+        }
+        return rows;
+      })();
+      audit(req, 'create', 'local_daily_sale', created[0]?.id || null, `${created.length} ventas ${localName}`);
+      res.status(201).json({ rows: created });
+    } catch (error) {
+      res.status(400).json({ message: error.message });
     }
-    if (amount <= 0) {
-      return res.status(400).json({ message: 'Ingresa el valor de la venta' });
-    }
-    const commission = money2(localDailySaleCommission(localName, amount));
-    const saleNumber = nextLocalSaleNumber(business.id, saleDate);
-    const result = db
-      .prepare(
-        `INSERT INTO production_local_daily_sales
-         (establishment_id, sale_number, local_name, model_code, color, size, payment_method, amount, commission, sale_date, notes, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        business.id,
-        saleNumber,
-        localName,
-        modelCode,
-        color,
-        size,
-        paymentMethod,
-        amount,
-        commission,
-        saleDate,
-        String(req.body.notes || '').trim(),
-        req.user.productionUserId || null
-      );
-    audit(req, 'create', 'local_daily_sale', result.lastInsertRowid, `${saleNumber} ${localName}`);
-    res.status(201).json(db.prepare('SELECT * FROM production_local_daily_sales WHERE id = ?').get(result.lastInsertRowid));
   });
 
   app.delete('/api/producalza/local-sales/:id', requireProductionUser, (req, res) => {
@@ -2257,18 +2309,27 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
        ORDER BY entry_date DESC, id DESC`
     ).all(...params);
     const byLocalMap = new Map();
+    const byGroupMap = new Map();
     for (const row of rows) {
       const current = byLocalMap.get(row.local_name) || { local_name: row.local_name, income: 0, expense: 0, balance: 0 };
       if (row.entry_type === 'income') current.income += Number(row.amount || 0);
       else current.expense += Number(row.amount || 0);
       current.balance = current.income - current.expense;
       byLocalMap.set(row.local_name, current);
+
+      const groupKey = row.finance_group || 'various';
+      const currentGroup = byGroupMap.get(groupKey) || { finance_group: groupKey, income: 0, expense: 0, pairs: 0 };
+      if (row.entry_type === 'income') currentGroup.income += Number(row.amount || 0);
+      else currentGroup.expense += Number(row.amount || 0);
+      currentGroup.pairs += Number(row.pairs || 0);
+      byGroupMap.set(groupKey, currentGroup);
     }
     res.json({
       date_from: dateFrom,
       date_to: dateTo,
       rows,
       by_local: [...byLocalMap.values()],
+      by_group: [...byGroupMap.values()].map((item) => ({ ...item, income: money2(item.income), expense: money2(item.expense) })),
       totals: {
         income: rows.filter((row) => row.entry_type === 'income').reduce((sum, row) => sum + Number(row.amount || 0), 0),
         expense: rows.filter((row) => row.entry_type === 'expense').reduce((sum, row) => sum + Number(row.amount || 0), 0)
@@ -2283,7 +2344,10 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       return res.status(403).json({ message: 'No tienes acceso a este reporte' });
     }
     const localName = String(req.body.local_name || '').trim();
-    const entryType = req.body.entry_type === 'expense' ? 'expense' : 'income';
+    const financeGroup = LOCAL_FINANCE_GROUPS.includes(String(req.body.finance_group || '').trim())
+      ? String(req.body.finance_group || '').trim()
+      : req.body.entry_type === 'income' ? 'income' : 'various';
+    const entryType = financeGroup === 'income' || req.body.entry_type === 'income' ? 'income' : 'expense';
     const category = String(req.body.category || (entryType === 'expense' ? 'Gasto' : 'Venta rapida')).trim();
     const amount = moneyValue(req.body.amount);
     if (!RETURN_DESTINATIONS.includes(localName)) {
@@ -2294,15 +2358,18 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     }
     const result = db.prepare(
       `INSERT INTO production_local_finances
-       (establishment_id, local_name, entry_type, category, amount, entry_date, notes, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+       (establishment_id, local_name, entry_type, finance_group, category, amount, entry_date, payee, pairs, notes, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       business.id,
       localName,
       entryType,
+      financeGroup,
       category,
       amount,
       normalizeDateInput(req.body.entry_date, new Date().toISOString().slice(0, 10)),
+      String(req.body.payee || '').trim(),
+      Math.max(0, Math.round(Number(req.body.pairs || 0))),
       String(req.body.notes || '').trim(),
       req.user.productionUserId || null
     );

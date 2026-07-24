@@ -151,6 +151,37 @@ const LOCAL_PAYMENT_METHODS = [
   ['transferencia', 'Transferencia'],
   ['tarjeta', 'Tarjeta']
 ];
+const LOCAL_SALE_KIND_OPTIONS = [
+  ['normal', 'Normal'],
+  ['separated', 'Separado'],
+  ['wholesale', 'Mayorista']
+];
+const LOCAL_FINANCE_GROUP_OPTIONS = [
+  ['various', 'Gastos varios'],
+  ['service', 'Servicios basicos'],
+  ['deposit', 'Depositos'],
+  ['admin', 'Gastos administrativos'],
+  ['income', 'Otro ingreso']
+];
+const LOCAL_RENT_DEFAULTS = {
+  'Local Marjorie Botas Norte': 760,
+  'Local Marjorie Botas Sur': 287.5,
+  'Local Marjorie Botas Valle': 550,
+  Sebastians: 1042.5
+};
+const LOCAL_INTERNET_DEFAULTS = {
+  'Local Marjorie Botas Norte': 29.21,
+  'Local Marjorie Botas Valle': 29.21,
+  Sebastians: 29.21
+};
+const LOCAL_STAFF_DEFAULTS = [
+  { name: 'Liliana', local_name: 'Local Marjorie Botas Norte', monthly_salary: 550 },
+  { name: 'Selena', local_name: 'Local Marjorie Botas Sur', monthly_salary: 500 },
+  { name: 'Nayeli', local_name: 'Local Marjorie Botas Valle', monthly_salary: 482 },
+  { name: 'Belen', local_name: 'Sebastians', monthly_salary: 600 },
+  { name: 'Yamileth sabado', local_name: '', monthly_salary: 20 },
+  { name: 'Yamileth domingo', local_name: '', monthly_salary: 15 }
+];
 const MARJORIE_GUIDE_TEMPLATE_KEY = 'standard-marjorie';
 const SEBASTIANS_GUIDE_TEMPLATE_KEY = 'standard-c-andrade';
 
@@ -3789,6 +3820,16 @@ function UsersView({ users, scope, onRefresh, setError }) {
 
 function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh, setError }) {
   const today = new Date().toISOString().slice(0, 10);
+  const emptySaleItem = () => ({
+    model_code: '',
+    color: '',
+    size: '',
+    quantity: 1,
+    sale_kind: 'normal',
+    payment_method: 'efectivo',
+    amount: '',
+    notes: ''
+  });
   const [filters, setFilters] = useState({
     date_from: `${today.slice(0, 8)}01`,
     date_to: today,
@@ -3798,20 +3839,18 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
   const [sales, setSales] = useState(null);
   const [saleForm, setSaleForm] = useState({
     local_name: RETURN_DESTINATIONS[0],
-    model_code: '',
-    color: '',
-    size: '',
-    payment_method: 'efectivo',
-    amount: '',
     sale_date: today,
-    notes: ''
+    items: [emptySaleItem()]
   });
   const [form, setForm] = useState({
     local_name: RETURN_DESTINATIONS[0],
     entry_type: 'income',
-    category: 'Venta rapida',
+    finance_group: 'various',
+    category: 'Gasto varios',
     amount: '',
     entry_date: today,
+    payee: '',
+    pairs: '',
     notes: ''
   });
   const [loading, setLoading] = useState(false);
@@ -3850,7 +3889,7 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
         method: 'POST',
         body: JSON.stringify(form)
       });
-      setForm({ ...form, amount: '', notes: '', category: form.entry_type === 'expense' ? 'Arriendo' : 'Venta rapida' });
+      setForm({ ...form, amount: '', notes: '', payee: '', pairs: '' });
       await loadFinance();
       onRefresh('Movimiento registrado');
     } catch (err) {
@@ -3866,18 +3905,28 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
       });
       setSaleForm({
         ...saleForm,
-        model_code: '',
-        color: '',
-        size: '',
-        amount: '',
-        notes: '',
-        sale_date: saleForm.sale_date || today
+        sale_date: saleForm.sale_date || today,
+        items: [emptySaleItem()]
       });
       await loadFinance();
       onRefresh('Venta diaria registrada');
     } catch (err) {
       setError(err.message);
     }
+  }
+
+  function updateSaleItem(index, patch) {
+    setSaleForm((current) => ({
+      ...current,
+      items: current.items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item)
+    }));
+  }
+
+  function removeSaleItem(index) {
+    setSaleForm((current) => ({
+      ...current,
+      items: current.items.length > 1 ? current.items.filter((_, itemIndex) => itemIndex !== index) : current.items
+    }));
   }
 
   async function removeSale(item) {
@@ -3902,9 +3951,49 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
 
   const totals = finance?.totals || { income: 0, expense: 0 };
   const salesTotals = sales?.totals || { amount: 0, commission: 0, sales_count: 0 };
+  const saleRows = sales?.rows || [];
+  const financeRows = finance?.rows || [];
   const totalIncome = Number(totals.income || 0) + Number(salesTotals.amount || 0);
   const balance = totalIncome - Number(totals.expense || 0);
-  const commissionPreview = localSaleCommission(saleForm.local_name, saleForm.amount);
+  const saleFormTotals = saleForm.items.reduce((acc, item) => {
+    acc.pairs += Number(item.quantity || 0);
+    acc.amount += Number(item.amount || 0);
+    acc.commission += localSaleCommission(saleForm.local_name, item.amount);
+    return acc;
+  }, { pairs: 0, amount: 0, commission: 0 });
+  const totalByPayment = (method) => saleRows
+    .filter((item) => item.payment_method === method)
+    .reduce((acc, item) => ({
+      pairs: acc.pairs + Number(item.quantity || 1),
+      amount: acc.amount + Number(item.amount || 0)
+    }), { pairs: 0, amount: 0 });
+  const totalByKind = (kind) => saleRows
+    .filter((item) => (item.sale_kind || 'normal') === kind)
+    .reduce((acc, item) => ({
+      pairs: acc.pairs + Number(item.quantity || 1),
+      amount: acc.amount + Number(item.amount || 0)
+    }), { pairs: 0, amount: 0 });
+  const cashTotals = totalByPayment('efectivo');
+  const cardTotals = totalByPayment('tarjeta');
+  const separatedTotals = totalByKind('separated');
+  const wholesaleTotals = totalByKind('wholesale');
+  const financeSum = (group, categoryIncludes = '') => financeRows
+    .filter((item) =>
+      (item.finance_group || 'various') === group &&
+      (!categoryIncludes || String(item.category || '').toLowerCase().includes(categoryIncludes))
+    )
+    .reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const variousExpenses = financeSum('various');
+  const adminExpenses = financeSum('admin');
+  const deposits = financeSum('deposit');
+  const serviceExpenses = financeSum('service');
+  const rentDefault = filters.local_name ? Number(LOCAL_RENT_DEFAULTS[filters.local_name] || 0) : 0;
+  const internetDefault = filters.local_name ? Number(LOCAL_INTERNET_DEFAULTS[filters.local_name] || 0) : 0;
+  const payrollBase = LOCAL_STAFF_DEFAULTS
+    .filter((staff) => !filters.local_name || !staff.local_name || staff.local_name === filters.local_name)
+    .reduce((sum, staff) => sum + Number(staff.monthly_salary || 0), 0);
+  const payrollTotalEstimate = payrollBase + Number(salesTotals.commission || 0);
+  const finalLocalTotal = Number(salesTotals.amount || 0) - payrollTotalEstimate - serviceExpenses - deposits;
 
   return (
     <div className="prod-stack">
@@ -3931,6 +4020,16 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
             </select>
           </label>
         </div>
+        <div className="prod-monthly-summary">
+          <article><span>Pares efectivo</span><strong>{displayNumber(cashTotals.pairs)}</strong><small>{displayMoney(cashTotals.amount)}</small></article>
+          <article><span>Pares tarjeta</span><strong>{displayNumber(cardTotals.pairs)}</strong><small>{displayMoney(cardTotals.amount)}</small></article>
+          <article><span>Pares separados</span><strong>{displayNumber(separatedTotals.pairs)}</strong><small>{displayMoney(separatedTotals.amount)}</small></article>
+          <article><span>Mayoristas</span><strong>{displayNumber(wholesaleTotals.pairs)}</strong><small>{displayMoney(wholesaleTotals.amount)}</small></article>
+          <article><span>Venta total</span><strong>{displayMoney(salesTotals.amount || 0)}</strong><small>{displayNumber(salesTotals.pairs || 0)} pares</small></article>
+          <article><span>Gastos varios</span><strong>{displayMoney(variousExpenses)}</strong><small>Diarios</small></article>
+          <article><span>Servicios</span><strong>{displayMoney(serviceExpenses)}</strong><small>Arriendo ref. {displayMoney(rentDefault)} · Internet ref. {displayMoney(internetDefault)}</small></article>
+          <article><span>Venta total neta</span><strong>{displayMoney(finalLocalTotal)}</strong><small>Venta - sueldos - servicios - depositos</small></article>
+        </div>
         <div className="prod-return-destination-summary">
           {(sales?.by_local || []).map((item) => (
             <article key={item.local_name}>
@@ -3947,33 +4046,46 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
               {RETURN_DESTINATIONS.map((destination) => <option value={destination} key={destination}>{destination}</option>)}
             </select>
           </label>
-          <label>Modelo<input value={saleForm.model_code} onChange={(event) => setSaleForm({ ...saleForm, model_code: event.target.value })} /></label>
-          <label>Color<input value={saleForm.color} onChange={(event) => setSaleForm({ ...saleForm, color: event.target.value })} /></label>
-          <label>Talla<input value={saleForm.size} onChange={(event) => setSaleForm({ ...saleForm, size: event.target.value })} /></label>
-          <label>Forma de pago
-            <select value={saleForm.payment_method} onChange={(event) => setSaleForm({ ...saleForm, payment_method: event.target.value })}>
-              {LOCAL_PAYMENT_METHODS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}
-            </select>
-          </label>
-          <label>Valor de venta<input type="number" min="0" step="0.01" value={saleForm.amount} onChange={(event) => setSaleForm({ ...saleForm, amount: event.target.value })} /></label>
           <label>Fecha<input type="date" value={saleForm.sale_date} onChange={(event) => setSaleForm({ ...saleForm, sale_date: event.target.value })} /></label>
-          <label>Comision calculada<input value={displayMoney(commissionPreview)} readOnly /></label>
-          <label className="span-full">Notas<textarea value={saleForm.notes} onChange={(event) => setSaleForm({ ...saleForm, notes: event.target.value })} /></label>
+          <label>Total venta<input value={displayMoney(saleFormTotals.amount)} readOnly /></label>
+          <label>Comision calculada<input value={displayMoney(saleFormTotals.commission)} readOnly /></label>
+        </div>
+        <div className="prod-local-items">
+          {saleForm.items.map((item, index) => (
+            <div key={index} className="prod-local-item-row local-sale-item-row">
+              <input placeholder="Modelo" value={item.model_code} onChange={(event) => updateSaleItem(index, { model_code: event.target.value })} />
+              <input placeholder="Color" value={item.color} onChange={(event) => updateSaleItem(index, { color: event.target.value })} />
+              <input placeholder="Talla" value={item.size} onChange={(event) => updateSaleItem(index, { size: event.target.value })} />
+              <input type="number" min="1" placeholder="Pares" value={item.quantity} onChange={(event) => updateSaleItem(index, { quantity: event.target.value })} />
+              <select value={item.sale_kind} onChange={(event) => updateSaleItem(index, { sale_kind: event.target.value })}>
+                {LOCAL_SALE_KIND_OPTIONS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+              </select>
+              <select value={item.payment_method} onChange={(event) => updateSaleItem(index, { payment_method: event.target.value })}>
+                {LOCAL_PAYMENT_METHODS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+              </select>
+              <input type="number" min="0" step="0.01" placeholder="Valor" value={item.amount} onChange={(event) => updateSaleItem(index, { amount: event.target.value })} />
+              <input placeholder="Notas" value={item.notes} onChange={(event) => updateSaleItem(index, { notes: event.target.value })} />
+              <button className="prod-icon-button danger" onClick={() => removeSaleItem(index)}><Trash2 size={15} /></button>
+            </div>
+          ))}
         </div>
         <div className="prod-form-actions">
+          <button className="prod-secondary-button" onClick={() => setSaleForm((current) => ({ ...current, items: [...current.items, emptySaleItem()] }))}><Plus size={16} />Agregar modelo</button>
           <button className="prod-primary-button" onClick={saveSale}><Save size={17} />Guardar venta</button>
         </div>
         <div className="prod-table-wrap">
           <table className="prod-table">
-            <thead><tr><th>Secuencia</th><th>Fecha</th><th>Local</th><th>Modelo</th><th>Pago</th><th>Valor</th><th>Comision</th><th /></tr></thead>
+            <thead><tr><th>Secuencia</th><th>Fecha</th><th>Local</th><th>Modelo</th><th>Tipo</th><th>Pago</th><th>Pares</th><th>Valor</th><th>Comision</th><th /></tr></thead>
             <tbody>
               {(sales?.rows || []).map((item) => (
                 <tr key={item.id}>
                   <td><strong>{item.sale_number}</strong></td>
                   <td>{displayDate(item.sale_date)}</td>
                   <td>{item.local_name}</td>
-                  <td><strong>{item.model_code}</strong><small>{[item.color, item.size && `Talla ${item.size}`].filter(Boolean).join(' · ')}</small></td>
+                  <td><strong>{item.model_code}</strong><small>{[item.color, item.size && `Talla ${item.size}`].filter(Boolean).join(' / ')}</small></td>
+                  <td>{LOCAL_SALE_KIND_OPTIONS.find(([value]) => value === (item.sale_kind || 'normal'))?.[1] || 'Normal'}</td>
                   <td>{LOCAL_PAYMENT_METHODS.find(([value]) => value === item.payment_method)?.[1] || item.payment_method}</td>
+                  <td>{item.quantity || 1}</td>
                   <td>{displayMoney(item.amount)}</td>
                   <td><strong>{displayMoney(item.commission)}</strong></td>
                   <td><button className="prod-icon-button danger" onClick={() => removeSale(item)}><Trash2 size={16} /></button></td>
@@ -3982,6 +4094,38 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
             </tbody>
           </table>
           {!sales?.rows?.length && <div className="prod-empty">No hay ventas diarias con esos filtros.</div>}
+        </div>
+      </section>
+
+      <section className="prod-panel">
+        <div className="prod-panel-title">
+          <div><span>Locales</span><h2>Sueldos y depositos del reporte</h2></div>
+        </div>
+        <div className="prod-return-destination-summary">
+          {LOCAL_STAFF_DEFAULTS
+            .filter((staff) => !filters.local_name || !staff.local_name || staff.local_name === filters.local_name)
+            .map((staff) => (
+              <article key={staff.name}>
+                <span>{staff.name}</span>
+                <strong>{displayMoney(staff.monthly_salary)}</strong>
+                <small>Sueldo base. Adelantos/descuentos se agregan en roles.</small>
+              </article>
+            ))}
+          <article>
+            <span>Comisiones calculadas</span>
+            <strong>{displayMoney(salesTotals.commission || 0)}</strong>
+            <small>Segun las ventas registradas en el rango.</small>
+          </article>
+          <article>
+            <span>Depositos</span>
+            <strong>{displayMoney(deposits)}</strong>
+            <small>{financeRows.filter((item) => (item.finance_group || '') === 'deposit').map((item) => item.payee || item.category).filter(Boolean).join(' / ') || 'Sin depositos'}</small>
+          </article>
+          <article>
+            <span>Gastos administrativos</span>
+            <strong>{displayMoney(adminExpenses)}</strong>
+            <small>Publicidad, Producalza y varios.</small>
+          </article>
         </div>
       </section>
 
@@ -4017,22 +4161,48 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
               {RETURN_DESTINATIONS.map((destination) => <option value={destination} key={destination}>{destination}</option>)}
             </select>
           </label>
-          <label>Tipo
+          <label>Grupo
             <select
-              value={form.entry_type}
+              value={form.finance_group}
               onChange={(event) => setForm({
                 ...form,
-                entry_type: event.target.value,
-                category: event.target.value === 'expense' ? 'Arriendo' : 'Venta rapida'
+                finance_group: event.target.value,
+                entry_type: event.target.value === 'income' ? 'income' : 'expense',
+                category: event.target.value === 'service' ? 'Arriendo'
+                  : event.target.value === 'deposit' ? 'Deposito'
+                    : event.target.value === 'admin' ? 'Publicidad'
+                      : event.target.value === 'income' ? 'Otro ingreso'
+                        : 'Gasto varios',
+                amount: event.target.value === 'service' ? String(LOCAL_RENT_DEFAULTS[form.local_name] || '') : form.amount
               })}
             >
-              <option value="income">Ingreso</option>
-              <option value="expense">Egreso</option>
+              {LOCAL_FINANCE_GROUP_OPTIONS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}
             </select>
           </label>
+          {form.finance_group === 'service' && (
+            <label>Servicio
+              <select
+                value={form.category}
+                onChange={(event) => setForm({
+                  ...form,
+                  category: event.target.value,
+                  amount: event.target.value === 'Arriendo' ? String(LOCAL_RENT_DEFAULTS[form.local_name] || '')
+                    : event.target.value === 'Internet' ? String(LOCAL_INTERNET_DEFAULTS[form.local_name] || '')
+                      : form.amount
+                })}
+              >
+                <option>Arriendo</option>
+                <option>Luz</option>
+                <option>Agua</option>
+                <option>Internet</option>
+              </select>
+            </label>
+          )}
           <label>Detalle<input value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} /></label>
           <label>Valor<input type="number" min="0" step="0.01" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} /></label>
           <label>Fecha<input type="date" value={form.entry_date} onChange={(event) => setForm({ ...form, entry_date: event.target.value })} /></label>
+          <label>Persona / destino<input value={form.payee} onChange={(event) => setForm({ ...form, payee: event.target.value })} /></label>
+          <label>Pares Producalza<input type="number" min="0" value={form.pairs} onChange={(event) => setForm({ ...form, pairs: event.target.value, amount: form.finance_group === 'admin' && form.category.toLowerCase().includes('producalza') ? String(Number(event.target.value || 0) * 35) : form.amount })} /></label>
           <label className="span-full">Notas<textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label>
         </div>
         <div className="prod-form-actions">
@@ -4040,14 +4210,15 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
         </div>
         <div className="prod-table-wrap">
           <table className="prod-table">
-            <thead><tr><th>Fecha</th><th>Local</th><th>Tipo</th><th>Detalle</th><th>Valor</th><th /></tr></thead>
+            <thead><tr><th>Fecha</th><th>Local</th><th>Grupo</th><th>Detalle</th><th>Persona</th><th>Valor</th><th /></tr></thead>
             <tbody>
               {(finance?.rows || []).map((item) => (
                 <tr key={item.id}>
                   <td>{displayDate(item.entry_date)}</td>
                   <td><strong>{item.local_name}</strong></td>
-                  <td>{item.entry_type === 'expense' ? 'Egreso' : 'Ingreso'}</td>
-                  <td>{item.category}<small>{item.notes || ''}</small></td>
+                  <td>{LOCAL_FINANCE_GROUP_OPTIONS.find(([value]) => value === (item.finance_group || 'various'))?.[1] || item.finance_group}</td>
+                  <td>{item.category}<small>{[item.pairs ? `${item.pairs} pares` : '', item.notes || ''].filter(Boolean).join(' / ')}</small></td>
+                  <td>{item.payee || '-'}</td>
                   <td>{displayMoney(item.amount)}</td>
                   <td><button className="prod-icon-button danger" onClick={() => removeFinance(item)}><Trash2 size={16} /></button></td>
                 </tr>
@@ -4232,7 +4403,7 @@ function LocalMonthlyManager({ scope, setError }) {
   return (
     <section className="prod-panel prod-local-monthly">
       <div className="prod-panel-title">
-        <div><span>Formato mensual</span><h2>Reporte de local y roles</h2></div>
+        <div><span>Formato mensual</span><h2>Roles y ajustes del local</h2></div>
         <button className="prod-primary-button" disabled={loading} onClick={loadMonthly}><Filter size={17} />Cargar</button>
       </div>
       <div className="prod-monthly-controls">
@@ -4244,31 +4415,16 @@ function LocalMonthlyManager({ scope, setError }) {
         </label>
       </div>
       <div className="prod-monthly-summary">
-        <article><span>Venta total</span><strong>{displayMoney(selectedReport?.totals?.sales_value ?? salesValue)}</strong><small>{displayNumber(selectedReport?.totals?.sales_pairs ?? salesPairs)} pares</small></article>
-        <article><span>Gastos + servicios</span><strong>{displayMoney((selectedReport?.totals?.expenses ?? itemTotals.expense ?? 0) + (selectedReport?.totals?.services ?? itemTotals.service ?? 0))}</strong><small>Sin sueldos</small></article>
+        <article><span>Ajustes guardados</span><strong>{displayMoney((selectedReport?.totals?.expenses ?? itemTotals.expense ?? 0) + (selectedReport?.totals?.services ?? itemTotals.service ?? 0))}</strong><small>Gastos/servicios manuales</small></article>
         <article><span>Roles</span><strong>{displayMoney(selectedReport?.totals?.payroll ?? payrollTotal)}</strong><small>{payrollRows.length} empleadas</small></article>
-        <article><span>Cuadre</span><strong>{displayMoney(selectedReport?.totals?.balance ?? projectedBalance)}</strong><small>Venta - salidas</small></article>
+        <article><span>Depositos</span><strong>{displayMoney(selectedReport?.totals?.deposits ?? itemTotals.deposit ?? 0)}</strong><small>Registro mensual opcional</small></article>
+        <article><span>Cuadre manual</span><strong>{displayMoney(selectedReport?.totals?.balance ?? projectedBalance)}</strong><small>Solo referencia</small></article>
       </div>
 
       <div className="prod-local-monthly-grid">
         <div>
-          <h3>Ventas del mes</h3>
-          <div className="prod-form-grid">
-            {[
-              ['cash', 'Pares efectivo'],
-              ['card', 'Pares tarjeta'],
-              ['separated', 'Pares separados'],
-              ['wholesale', 'Mayoristas'],
-              ['business', 'Empresarias']
-            ].map(([key, label]) => (
-              <React.Fragment key={key}>
-                <label>{label}<input type="number" min="0" value={monthlyForm[`${key}_pairs`] || ''} onChange={(event) => updateMonthlyField(`${key}_pairs`, event.target.value)} /></label>
-                <label>Valor<input type="number" min="0" step="0.01" value={monthlyForm[`${key}_value`] || ''} onChange={(event) => updateMonthlyField(`${key}_value`, event.target.value)} /></label>
-              </React.Fragment>
-            ))}
-            <label>Saldo anterior<input type="number" step="0.01" value={monthlyForm.previous_balance || ''} onChange={(event) => updateMonthlyField('previous_balance', event.target.value)} /></label>
-            <label>Nota tarjetas<input value={monthlyForm.card_note || ''} onChange={(event) => updateMonthlyField('card_note', event.target.value)} /></label>
-          </div>
+          <h3>Ventas</h3>
+          <div className="prod-empty">Las ventas ya se calculan desde el registro diario por local. Usa este bloque solo para gastos, servicios, depositos y roles.</div>
         </div>
 
         <div>
