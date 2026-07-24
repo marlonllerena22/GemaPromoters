@@ -340,6 +340,7 @@ export function initProducalzaDb(db) {
       size TEXT,
       quantity INTEGER NOT NULL DEFAULT 1,
       sale_kind TEXT NOT NULL DEFAULT 'normal' CHECK (sale_kind IN ('normal', 'separated', 'wholesale')),
+      seller_name TEXT,
       payment_method TEXT NOT NULL DEFAULT 'efectivo' CHECK (payment_method IN ('efectivo', 'transferencia', 'tarjeta')),
       amount REAL NOT NULL DEFAULT 0,
       commission REAL NOT NULL DEFAULT 0,
@@ -497,6 +498,7 @@ export function initProducalzaDb(db) {
   addColumnIfMissing(db, 'production_local_finances', 'pairs', 'INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'production_local_daily_sales', 'quantity', 'INTEGER NOT NULL DEFAULT 1');
   addColumnIfMissing(db, 'production_local_daily_sales', 'sale_kind', "TEXT NOT NULL DEFAULT 'normal'");
+  addColumnIfMissing(db, 'production_local_daily_sales', 'seller_name', 'TEXT');
   addColumnIfMissing(db, 'production_clients', 'local_store_key', 'TEXT');
   addColumnIfMissing(db, 'production_client_visits', 'visited_by_user_id', 'INTEGER');
   addColumnIfMissing(db, 'production_client_visits', 'visitor_name', 'TEXT');

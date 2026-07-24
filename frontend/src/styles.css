@@ -209,7 +209,7 @@
 }
 
 .prod-local-item-row.local-sale-item-row {
-  grid-template-columns: minmax(110px, 1.2fr) minmax(90px, 1fr) 72px 72px 110px 130px 100px minmax(100px, 1fr) 38px;
+  grid-template-columns: minmax(100px, 1.1fr) minmax(84px, 1fr) 66px 66px 102px 110px 120px 92px minmax(90px, 1fr) 38px;
 }
 
 .prod-local-item-row input,

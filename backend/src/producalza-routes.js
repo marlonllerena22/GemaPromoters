@@ -2199,10 +2199,14 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         const size = String(item.size || '').trim();
         const paymentMethod = String(item.payment_method || req.body.payment_method || 'efectivo').trim();
         const saleKind = String(item.sale_kind || req.body.sale_kind || 'normal').trim();
+        const sellerName = String(item.seller_name || '').trim();
         const quantity = Math.max(1, Math.round(Number(item.quantity || 1)));
         const amount = moneyValue(item.amount);
         if (!modelCode || !color || !size) {
           throw new Error('Modelo, color y talla son obligatorios');
+        }
+        if (!sellerName) {
+          throw new Error('Selecciona la vendedora de la venta');
         }
         if (!['efectivo', 'transferencia', 'tarjeta'].includes(paymentMethod)) {
           throw new Error('Selecciona una forma de pago valida');
@@ -2219,6 +2223,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
           size,
           paymentMethod,
           saleKind,
+          sellerName,
           quantity,
           amount,
           commission: money2(localDailySaleCommission(localName, amount)),
@@ -2230,8 +2235,8 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     }
     const insert = db.prepare(
       `INSERT INTO production_local_daily_sales
-       (establishment_id, sale_number, local_name, model_code, color, size, quantity, sale_kind, payment_method, amount, commission, sale_date, notes, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       (establishment_id, sale_number, local_name, model_code, color, size, quantity, sale_kind, seller_name, payment_method, amount, commission, sale_date, notes, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     try {
       const created = db.transaction(() => {
@@ -2247,6 +2252,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
             item.size,
             item.quantity,
             item.saleKind,
+            item.sellerName,
             item.paymentMethod,
             item.amount,
             item.commission,
