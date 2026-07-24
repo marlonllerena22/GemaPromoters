@@ -2509,6 +2509,8 @@ td {
 .prod-panel-title {
   align-items: flex-start;
   display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
   justify-content: space-between;
   margin-bottom: 18px;
 }
@@ -2808,7 +2810,19 @@ td {
 
 .prod-row-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 5px;
+  justify-content: flex-end;
+  max-width: 100%;
+}
+
+.prod-row-actions > .prod-primary-button,
+.prod-row-actions > .prod-secondary-button {
+  height: auto;
+  min-height: 38px;
+  padding: 8px 12px;
+  white-space: normal;
+  width: auto;
 }
 
 .prod-status {

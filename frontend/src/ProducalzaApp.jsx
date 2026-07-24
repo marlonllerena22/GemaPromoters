@@ -4445,21 +4445,33 @@ function localReportConceptLabel(row, group = '') {
     if (normalized.includes('agua')) return 'Agua';
     if (normalized.includes('internet')) return 'Internet';
   }
-  if (normalized.includes('servientrega')) return 'Servientrega';
-  if (normalized.includes('motorizado')) return 'Motorizado';
-  if (normalized.includes('suministro')) return 'Suministro';
-  if (normalized.includes('aseo')) return 'Aseo';
-  const mainConcept = normalized
-    .replace(/\b(envio|envios|pago|pagos|abono|abonos|deposito|depositos|transferencia|transferencias|efectivo|tarjeta|factura|facturas)\b/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (mainConcept && mainConcept !== normalized) {
-    return mainConcept
-      .split(' ')
-      .map((word) => word ? `${word[0].toUpperCase()}${word.slice(1)}` : '')
-      .join(' ');
+  const knownConcepts = [
+    [/servi\w*entrega|servierntrega|servientrega/, 'Servientrega'],
+    [/motorizado|moto\b|motorizada/, 'Motorizado'],
+    [/suministro/, 'Suministro'],
+    [/\baseo\b/, 'Aseo'],
+    [/\bprass?\b/, 'Prass'],
+    [/\bpublicidad\b/, 'Publicidad'],
+    [/\bproducalza\b/, 'Producalza']
+  ];
+  for (const [pattern, label] of knownConcepts) {
+    if (pattern.test(normalized)) return label;
   }
-  return rawLabel;
+  const stopWords = new Set([
+    'ayer', 'hoy', 'manana', 'envio', 'envios', 'pago', 'pagos', 'abono', 'abonos',
+    'deposito', 'depositos', 'transferencia', 'transferencias', 'efectivo', 'tarjeta',
+    'factura', 'facturas', 'gasto', 'gastos', 'varios', 'varias', 'local', 'del', 'de',
+    'la', 'el', 'los', 'las', 'para', 'por', 'con', 'en', 'al', 'a'
+  ]);
+  const tokens = normalized
+    .split(/\s+/)
+    .map((word) => word.replace(/[^a-z0-9]/g, ''))
+    .filter((word) => word.length >= 3 && !stopWords.has(word) && !/^\d+$/.test(word));
+  const simpleName = tokens[0] || normalized.split(/\s+/).find((word) => word.length >= 3) || rawLabel;
+  return simpleName
+    .split(' ')
+    .map((word) => word ? `${word[0].toUpperCase()}${word.slice(1)}` : '')
+    .join(' ');
 }
 
 function localReportTableRows(rows, fallbackRows = [], group = '') {
@@ -4853,15 +4865,24 @@ function LocalMonthlyManager({ scope, setError }) {
       currentStart = new Date(currentEnd);
       currentStart.setDate(currentStart.getDate() + 1);
     }
-    const rows = weeks.map((week, index) => {
+    const datesBetween = (start, end) => {
+      const dates = [];
+      const current = new Date(`${start}T12:00:00`);
+      const finalDate = new Date(`${end}T12:00:00`);
+      while (current <= finalDate) {
+        dates.push(current.toISOString().slice(0, 10));
+        current.setDate(current.getDate() + 1);
+      }
+      return dates;
+    };
+    const dayTotals = (date) => {
       const byLocal = {};
       let totalPairs = 0;
       let totalAmount = 0;
       for (const local of RETURN_DESTINATIONS) {
         const localRows = salesRows.filter((row) =>
           row.local_name === local &&
-          row.sale_date >= week.start &&
-          row.sale_date <= week.end
+          row.sale_date === date
         );
         const pairs = localRows.reduce((sum, row) => sum + Number(row.quantity || 1), 0);
         const amount = localRows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
@@ -4869,7 +4890,28 @@ function LocalMonthlyManager({ scope, setError }) {
         totalPairs += pairs;
         totalAmount += amount;
       }
-      return { ...week, index: index + 1, byLocal, totalPairs, totalAmount };
+      return { byLocal, totalPairs, totalAmount };
+    };
+    const weekTotals = (dailyRows) => {
+      const byLocal = {};
+      let totalPairs = 0;
+      let totalAmount = 0;
+      for (const local of RETURN_DESTINATIONS) {
+        const pairs = dailyRows.reduce((sum, row) => sum + Number(row.byLocal[local].pairs || 0), 0);
+        const amount = dailyRows.reduce((sum, row) => sum + Number(row.byLocal[local].amount || 0), 0);
+        byLocal[local] = { pairs, amount };
+        totalPairs += pairs;
+        totalAmount += amount;
+      }
+      return { byLocal, totalPairs, totalAmount };
+    };
+    const weekBlocks = weeks.map((week, index) => {
+      const days = datesBetween(week.start, week.end).map((date) => ({
+        date,
+        label: displayDate(date),
+        ...dayTotals(date)
+      }));
+      return { ...week, index: index + 1, days, totals: weekTotals(days) };
     });
     const money = (value) => escapeReportHtml(displayNumber(value, 2));
     const localShortName = (local) => local
@@ -4879,30 +4921,41 @@ function LocalMonthlyManager({ scope, setError }) {
       .map((local) => `<th colspan="2">${escapeReportHtml(localShortName(local))}</th>`)
       .join('');
     const subHeaderHtml = RETURN_DESTINATIONS.map(() => '<th>Pares</th><th>$</th>').join('');
-    const rowsHtml = rows.map((row) => `
-      <tr>
-        <td>${row.index}</td>
-        <td>${escapeReportHtml(row.label)}</td>
+    const rowsHtml = weekBlocks.map((week) => `
+      <tr class="week-row"><td colspan="11">Semana ${week.index}: ${escapeReportHtml(week.label)}</td></tr>
+      ${week.days.map((day) => `
+        <tr>
+          <td>${escapeReportHtml(day.label)}</td>
+          ${RETURN_DESTINATIONS.map((local) => `
+            <td class="center">${day.byLocal[local].pairs || ''}</td>
+            <td class="money">${day.byLocal[local].amount ? money(day.byLocal[local].amount) : ''}</td>
+          `).join('')}
+          <td class="center strong">${day.totalPairs || ''}</td>
+          <td class="money strong">${day.totalAmount ? money(day.totalAmount) : ''}</td>
+        </tr>
+      `).join('')}
+      <tr class="week-total">
+        <td>Total semana ${week.index}</td>
         ${RETURN_DESTINATIONS.map((local) => `
-          <td class="center">${row.byLocal[local].pairs || ''}</td>
-          <td class="money">${row.byLocal[local].amount ? money(row.byLocal[local].amount) : ''}</td>
+          <td class="center">${week.totals.byLocal[local].pairs || ''}</td>
+          <td class="money">${week.totals.byLocal[local].amount ? money(week.totals.byLocal[local].amount) : ''}</td>
         `).join('')}
-        <td class="center strong">${row.totalPairs}</td>
-        <td class="money strong">${money(row.totalAmount)}</td>
+        <td class="center strong">${week.totals.totalPairs}</td>
+        <td class="money strong">${money(week.totals.totalAmount)}</td>
       </tr>
     `).join('');
     const totalsByLocal = RETURN_DESTINATIONS.reduce((acc, local) => {
       acc[local] = {
-        pairs: rows.reduce((sum, row) => sum + Number(row.byLocal[local].pairs || 0), 0),
-        amount: rows.reduce((sum, row) => sum + Number(row.byLocal[local].amount || 0), 0)
+        pairs: weekBlocks.reduce((sum, week) => sum + Number(week.totals.byLocal[local].pairs || 0), 0),
+        amount: weekBlocks.reduce((sum, week) => sum + Number(week.totals.byLocal[local].amount || 0), 0)
       };
       return acc;
     }, {});
-    const grandPairs = rows.reduce((sum, row) => sum + row.totalPairs, 0);
-    const grandAmount = rows.reduce((sum, row) => sum + row.totalAmount, 0);
+    const grandPairs = weekBlocks.reduce((sum, week) => sum + week.totals.totalPairs, 0);
+    const grandAmount = weekBlocks.reduce((sum, week) => sum + week.totals.totalAmount, 0);
     const totalRowHtml = `
       <tr class="total">
-        <td colspan="2">Total mes</td>
+        <td>Total mes</td>
         ${RETURN_DESTINATIONS.map((local) => `
           <td class="center">${totalsByLocal[local].pairs}</td>
           <td class="money">${money(totalsByLocal[local].amount)}</td>
@@ -4920,16 +4973,17 @@ function LocalMonthlyManager({ scope, setError }) {
             * { box-sizing: border-box; }
             body { font-family: Arial, Helvetica, sans-serif; color: #222; margin: 0; }
             .sheet { width: 283mm; margin: 0 auto; }
-            h1 { margin: 0 0 3mm; text-align: center; font-size: 17px; text-transform: uppercase; }
-            .subtitle { margin-bottom: 4mm; text-align: center; font-size: 10px; font-weight: 700; text-transform: uppercase; }
-            table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 8.5px; }
-            th, td { border: 1px solid #444; padding: 2px 3px; height: 15px; }
+            h1 { margin: 0 0 2mm; text-align: center; font-size: 15px; text-transform: uppercase; }
+            .subtitle { margin-bottom: 3mm; text-align: center; font-size: 9px; font-weight: 700; text-transform: uppercase; }
+            table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 6.5px; }
+            th, td { border: 1px solid #444; padding: 1px 2px; height: 10px; line-height: 1.05; }
             th { background: #f1f1f1; text-transform: uppercase; }
             .center { text-align: center; }
             .money { text-align: right; }
-            .strong, .total td { font-weight: 800; }
-            .week { width: 40mm; }
-            .num { width: 8mm; }
+            .strong, .total td, .week-total td { font-weight: 800; }
+            .week { width: 24mm; }
+            .week-row td { background: #e9edf5; color: #1f2937; font-weight: 800; text-transform: uppercase; }
+            .week-total td { background: #f7f0df; }
             @media print { .sheet { margin: 0; } }
           </style>
         </head>
@@ -4940,8 +4994,7 @@ function LocalMonthlyManager({ scope, setError }) {
             <table>
               <thead>
                 <tr>
-                  <th class="num" rowspan="2">#</th>
-                  <th class="week" rowspan="2">Semana</th>
+                  <th class="week" rowspan="2">Dia</th>
                   ${headerHtml}
                   <th colspan="2">Total semana</th>
                 </tr>
