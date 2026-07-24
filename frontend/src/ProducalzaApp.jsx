@@ -3826,13 +3826,14 @@ function UsersView({ users, scope, onRefresh, setError }) {
 
 function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh, setError }) {
   const today = new Date().toISOString().slice(0, 10);
-  const emptySaleItem = () => ({
+  const defaultSellerForLocal = (localName) => (LOCAL_SELLERS[localName] || [])[0] || '';
+  const emptySaleItem = (localName = RETURN_DESTINATIONS[0]) => ({
     model_code: '',
     color: '',
     size: '',
     quantity: 1,
     sale_kind: 'normal',
-    seller_name: '',
+    seller_name: defaultSellerForLocal(localName),
     payment_method: 'efectivo',
     amount: '',
     notes: ''
@@ -3847,7 +3848,7 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
   const [saleForm, setSaleForm] = useState({
     local_name: RETURN_DESTINATIONS[0],
     sale_date: today,
-    items: [emptySaleItem()]
+    items: [emptySaleItem(RETURN_DESTINATIONS[0])]
   });
   const [form, setForm] = useState({
     local_name: RETURN_DESTINATIONS[0],
@@ -3941,6 +3942,11 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
 
   async function saveSale() {
     try {
+      const hasMissingSeller = saleForm.items.some((item) => !String(item.seller_name || '').trim());
+      if (hasMissingSeller) {
+        setError('Selecciona la vendedora en cada modelo antes de guardar.');
+        return;
+      }
       await api(scope('/producalza/local-sales'), {
         method: 'POST',
         body: JSON.stringify(saleForm)
@@ -3948,7 +3954,7 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
       setSaleForm({
         ...saleForm,
         sale_date: saleForm.sale_date || today,
-        items: [emptySaleItem()]
+        items: [emptySaleItem(saleForm.local_name)]
       });
       await loadFinance();
       onRefresh('Venta diaria registrada');
@@ -3998,9 +4004,10 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
   const totalIncome = Number(totals.income || 0) + Number(salesTotals.amount || 0);
   const balance = totalIncome - Number(totals.expense || 0);
   const saleFormTotals = saleForm.items.reduce((acc, item) => {
-    acc.pairs += Number(item.quantity || 0);
-    acc.amount += Number(item.amount || 0);
-    acc.commission += localSaleCommission(saleForm.local_name, item.amount);
+    const quantity = Math.max(1, Number(item.quantity || 1));
+    acc.pairs += quantity;
+    acc.amount += Number(item.amount || 0) * quantity;
+    acc.commission += localSaleCommission(saleForm.local_name, item.amount) * quantity;
     return acc;
   }, { pairs: 0, amount: 0, commission: 0 });
   const totalByPayment = (method) => saleRows
@@ -4039,12 +4046,13 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
   const sellerOptions = LOCAL_SELLERS[saleForm.local_name] || [];
 
   function syncLocal(localName) {
+    const fallbackSeller = defaultSellerForLocal(localName);
     setSaleForm((current) => ({
       ...current,
       local_name: localName,
       items: current.items.map((item) => ({
         ...item,
-        seller_name: (LOCAL_SELLERS[localName] || []).includes(item.seller_name) ? item.seller_name : ''
+        seller_name: (LOCAL_SELLERS[localName] || []).includes(item.seller_name) ? item.seller_name : fallbackSeller
       }))
     }));
     setForm((current) => ({
@@ -4138,14 +4146,14 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
               <select value={item.payment_method} onChange={(event) => updateSaleItem(index, { payment_method: event.target.value })}>
                 {LOCAL_PAYMENT_METHODS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}
               </select>
-              <input type="number" min="0" step="0.01" placeholder="Valor" value={item.amount} onChange={(event) => updateSaleItem(index, { amount: event.target.value })} />
+              <input type="number" min="0" step="0.01" placeholder="Valor unitario" value={item.amount} onChange={(event) => updateSaleItem(index, { amount: event.target.value })} />
               <input placeholder="Notas" value={item.notes} onChange={(event) => updateSaleItem(index, { notes: event.target.value })} />
               <button className="prod-icon-button danger" onClick={() => removeSaleItem(index)}><Trash2 size={15} /></button>
             </div>
           ))}
         </div>
         <div className="prod-form-actions">
-          <button className="prod-secondary-button" onClick={() => setSaleForm((current) => ({ ...current, items: [...current.items, emptySaleItem()] }))}><Plus size={16} />Agregar modelo</button>
+          <button className="prod-secondary-button" onClick={() => setSaleForm((current) => ({ ...current, items: [...current.items, emptySaleItem(current.local_name)] }))}><Plus size={16} />Agregar modelo</button>
           <button className="prod-primary-button" onClick={saveSale}><Save size={17} />Guardar venta</button>
         </div>
         <div className="prod-table-wrap">
@@ -4372,6 +4380,97 @@ function monthEndDate(month) {
   return new Date(year, monthNumber, 0).toISOString().slice(0, 10);
 }
 
+function reportMonthName(month) {
+  const [year, monthNumber] = String(month || '').split('-').map(Number);
+  if (!year || !monthNumber) return '';
+  return new Date(year, monthNumber - 1, 1)
+    .toLocaleDateString('es-EC', { month: 'long' })
+    .toUpperCase();
+}
+
+function escapeReportHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function localReportLineTotals(rows) {
+  const empty = () => ({ pairs: 0, amount: 0 });
+  const lines = {
+    cash: empty(),
+    card: empty(),
+    separated: empty(),
+    wholesale: empty(),
+    business: empty()
+  };
+  for (const row of rows || []) {
+    const quantity = Number(row.quantity || 1);
+    const amount = Number(row.amount || 0);
+    const kind = row.sale_kind || 'normal';
+    let target = 'cash';
+    if (kind === 'separated') target = 'separated';
+    else if (kind === 'wholesale') target = 'wholesale';
+    else if (kind === 'business') target = 'business';
+    else if (row.payment_method === 'tarjeta') target = 'card';
+    lines[target].pairs += quantity;
+    lines[target].amount += amount;
+  }
+  lines.total = Object.values(lines).reduce((acc, line) => ({
+    pairs: acc.pairs + line.pairs,
+    amount: acc.amount + line.amount
+  }), empty());
+  return lines;
+}
+
+function localReportFinanceGroups(rows) {
+  const byGroup = { various: [], service: [], deposit: [], admin: [] };
+  for (const row of rows || []) {
+    const group = row.finance_group || 'various';
+    if (byGroup[group]) byGroup[group].push(row);
+  }
+  return byGroup;
+}
+
+function localReportTableRows(rows, fallbackRows = []) {
+  const source = rows?.length ? rows : fallbackRows;
+  return source.map((row) => ({
+    label: row.label || row.category || '',
+    amount: Number(row.amount || 0)
+  }));
+}
+
+function localReportPayrollRows(payrollRows, localName, salesRows) {
+  if (payrollRows?.length) {
+    return payrollRows.map((row) => ({
+      name: row.staff_name || 'Empleada',
+      salary: Number(row.total_income || 0) - Number(row.total_deductions || 0),
+      commission: 0,
+      additions: 0,
+      advance: 0,
+      deductions: Number(row.total_deductions || 0),
+      net: Number(row.net_pay || 0)
+    }));
+  }
+  return LOCAL_STAFF_DEFAULTS
+    .filter((staff) => staff.local_name === localName)
+    .map((staff) => {
+      const commission = localStaffCommission(staff.name, salesRows);
+      const salary = Number(staff.monthly_salary || 0);
+      return {
+        name: staff.name,
+        salary,
+        commission,
+        additions: 0,
+        advance: 0,
+        deductions: 0,
+        net: salary + commission
+      };
+    });
+}
+
 function LocalMonthlyManager({ scope, setError }) {
   const todayMonth = new Date().toISOString().slice(0, 7);
   const [month, setMonth] = useState(todayMonth);
@@ -4379,6 +4478,7 @@ function LocalMonthlyManager({ scope, setError }) {
   const [reports, setReports] = useState(null);
   const [staff, setStaff] = useState([]);
   const [localSales, setLocalSales] = useState([]);
+  const [localFinances, setLocalFinances] = useState([]);
   const [monthlyForm, setMonthlyForm] = useState(() => emptyLocalMonthlyForm(todayMonth));
   const [payrollForm, setPayrollForm] = useState(() => emptyLocalPayrollForm(todayMonth));
   const [loading, setLoading] = useState(false);
@@ -4393,14 +4493,16 @@ function LocalMonthlyManager({ scope, setError }) {
       salesQuery.set('date_from', `${month}-01`);
       salesQuery.set('date_to', monthEndDate(month));
       if (localName) salesQuery.set('local_name', localName);
-      const [reportResponse, staffResponse, salesResponse] = await Promise.all([
+      const [reportResponse, staffResponse, salesResponse, financesResponse] = await Promise.all([
         api(scope(`/producalza/local-monthly-reports?${query.toString()}`)),
         api(scope('/producalza/local-attendance')),
-        api(scope(`/producalza/local-sales?${salesQuery.toString()}`))
+        api(scope(`/producalza/local-sales?${salesQuery.toString()}`)),
+        api(scope(`/producalza/local-finances?${salesQuery.toString()}`))
       ]);
       setReports(reportResponse);
       setStaff(staffResponse.staff || []);
       setLocalSales(salesResponse.rows || []);
+      setLocalFinances(financesResponse.rows || []);
       const existing = (reportResponse.rows || [])[0];
       if (existing) {
         setMonthlyForm({
@@ -4477,6 +4579,168 @@ function LocalMonthlyManager({ scope, setError }) {
     }
   }
 
+  function printMonthlyLocalReport() {
+    const salesLines = localReportLineTotals(localSales);
+    const financeGroups = localReportFinanceGroups(localFinances);
+    const payrollLines = localReportPayrollRows(payrollRows, localName, localSales);
+    const payrollTotal = payrollLines.reduce((sum, row) => sum + Number(row.net || 0), 0);
+    const variousRows = localReportTableRows(financeGroups.various);
+    const serviceFallback = [
+      { label: `Arriendo ${reportMonthName(month)}`, amount: LOCAL_RENT_DEFAULTS[localName] || 0 },
+      { label: 'Luz', amount: 0 },
+      { label: 'Agua', amount: 0 },
+      { label: 'Internet', amount: LOCAL_INTERNET_DEFAULTS[localName] || 0 }
+    ];
+    const serviceRows = localReportTableRows(financeGroups.service, serviceFallback);
+    const depositRows = localReportTableRows(financeGroups.deposit);
+    const adminRows = localReportTableRows(financeGroups.admin);
+    const sumAmount = (rows) => rows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+    const variousTotal = sumAmount(variousRows);
+    const servicesTotal = sumAmount(serviceRows);
+    const depositsTotal = sumAmount(depositRows);
+    const adminTotal = sumAmount(adminRows);
+    const producalzaCost = Number(salesLines.total.pairs || 0) * 35;
+    const localBalance = Number(salesLines.total.amount || 0) - variousTotal - payrollTotal - servicesTotal - depositsTotal;
+    const utility = Number(salesLines.total.amount || 0) - producalzaCost - variousTotal - payrollTotal - servicesTotal - adminTotal;
+    const moneyCell = (value) => `<td class="currency">$</td><td class="value">${escapeReportHtml(displayNumber(value, 2))}</td>`;
+    const rowsHtml = (rows, emptyCount = 5) => {
+      const source = rows.length ? rows : Array.from({ length: emptyCount }, () => ({ label: '', amount: '' }));
+      return source.map((row) => `<tr><td>${escapeReportHtml(row.label)}</td>${moneyCell(row.amount || 0)}</tr>`).join('');
+    };
+    const salesRowsHtml = [
+      ['PARES EFECTIVO', salesLines.cash],
+      ['PARES TARJETA', salesLines.card],
+      ['PARES SEPARADOS', salesLines.separated],
+      ['VENTA MAYORISTAS', salesLines.wholesale],
+      ['VENTA EMPRESARIA', salesLines.business]
+    ].map(([label, line]) => `<tr><td>${label}</td><td class="center">${line.pairs || ''}</td>${moneyCell(line.amount)}</tr>`).join('');
+    const payrollHtml = payrollLines.length
+      ? payrollLines.map((row) => `
+          <tr><td>Mensual ${escapeReportHtml(row.name)}</td>${moneyCell(row.salary)}</tr>
+          <tr><td>Comision</td>${moneyCell(row.commission)}</tr>
+          <tr><td>Adicionales</td>${moneyCell(row.additions)}</tr>
+          <tr class="accent-red"><td>Total ganado</td>${moneyCell(row.salary + row.commission + row.additions)}</tr>
+          <tr><td>Adelanto</td>${moneyCell(row.advance)}</tr>
+          <tr><td>Descuen varios</td>${moneyCell(row.deductions)}</tr>
+          <tr class="accent-blue"><td>Total a recibir</td>${moneyCell(row.net)}</tr>
+        `).join('')
+      : rowsHtml([], 7);
+    const html = `<!doctype html>
+      <html>
+        <head>
+          <title>Reporte mensual ${escapeReportHtml(localName)}</title>
+          <style>
+            @page { size: A4 portrait; margin: 10mm; }
+            * { box-sizing: border-box; }
+            body { font-family: Arial, Helvetica, sans-serif; color: #333; margin: 0; }
+            .sheet { width: 190mm; margin: 0 auto; padding: 2mm; }
+            h1 { margin: 0 0 10px; text-align: center; font-size: 22px; letter-spacing: .02em; }
+            .top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+            .month { margin-top: 18px; font-size: 13px; text-transform: uppercase; }
+            .month strong { color: #b54d5b; margin-left: 10px; }
+            .grid { display: grid; grid-template-columns: 1.15fr .85fr; gap: 8mm; }
+            .left-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8mm; }
+            table { width: 100%; border-collapse: collapse; font-size: 12px; }
+            th, td { border: 1px solid #555; padding: 3px 5px; height: 20px; }
+            th { text-align: left; font-weight: 800; text-transform: uppercase; }
+            .title-row td, .title-row th { font-weight: 800; background: #f6f6f6; }
+            .currency { width: 18px; text-align: center; }
+            .value { width: 70px; text-align: right; }
+            .center { text-align: center; }
+            .total-row td { font-weight: 800; }
+            .accent-red td, .accent-red .value { color: #b54d5b; font-weight: 800; }
+            .accent-blue td, .accent-blue .value { color: #4e78b7; font-weight: 800; }
+            .section { margin-bottom: 8mm; break-inside: avoid; }
+            .summary { width: 78mm; margin-top: 7mm; }
+            .utility { width: 82mm; margin-top: 10mm; }
+            .signature { margin-top: 17mm; padding-top: 4mm; border-top: 1px solid #555; text-align: center; font-size: 12px; }
+            .signatures { display: grid; grid-template-columns: 1fr; gap: 15mm; margin-top: 52mm; }
+            .note { font-size: 11px; color: #b54d5b; margin-top: 3px; }
+            @media print { button { display: none; } .sheet { margin: 0; } }
+          </style>
+        </head>
+        <body>
+          <div class="sheet">
+            <h1>${escapeReportHtml(localName.replace(/^Local\s+/, '').toUpperCase())} 2026</h1>
+            <div class="top">
+              <table style="width:108mm">
+                <tr class="title-row"><th>* Venta total</th><th class="center">Cantidad</th><th colspan="2">Valor</th></tr>
+                ${salesRowsHtml}
+                <tr class="total-row"><td>Total:</td><td class="center">${salesLines.total.pairs}</td>${moneyCell(salesLines.total.amount)}</tr>
+              </table>
+              <div class="month">Mes: <strong>${escapeReportHtml(reportMonthName(month))}</strong></div>
+            </div>
+            <div class="grid">
+              <div>
+                <div class="left-grid">
+                  <div class="section">
+                    <table>
+                      <tr class="title-row"><th colspan="3">1.- Gastos varios</th></tr>
+                      ${rowsHtml(variousRows)}
+                      <tr class="total-row"><td>Total:</td>${moneyCell(variousTotal)}</tr>
+                    </table>
+                  </div>
+                  <div class="section">
+                    <table>
+                      <tr class="title-row"><th colspan="3">3.- Servicios basicos</th></tr>
+                      ${rowsHtml(serviceRows, 4)}
+                      <tr class="total-row"><td>Total:</td>${moneyCell(servicesTotal)}</tr>
+                    </table>
+                  </div>
+                </div>
+                <table class="summary">
+                  <tr><td>*Venta total</td>${moneyCell(salesLines.total.amount)}</tr>
+                  <tr><td>1.- Gastos varios</td>${moneyCell(variousTotal)}</tr>
+                  <tr><td>2.- Sueldo empleadas</td>${moneyCell(payrollTotal)}</tr>
+                  <tr><td>3.- Servicios basicos</td>${moneyCell(servicesTotal)}</tr>
+                  <tr><td>4.- Depositos</td>${moneyCell(depositsTotal)}</tr>
+                  <tr class="total-row"><td>Total</td>${moneyCell(localBalance)}</tr>
+                </table>
+                <table class="utility">
+                  <tr><td>Venta total</td>${moneyCell(salesLines.total.amount)}</tr>
+                  <tr><td>Producalza ${salesLines.total.pairs} x 35</td>${moneyCell(producalzaCost)}</tr>
+                  <tr><td>Gastos varios</td>${moneyCell(variousTotal)}</tr>
+                  <tr><td>Sueldos empleadas</td>${moneyCell(payrollTotal)}</tr>
+                  <tr><td>Servicios basicos</td>${moneyCell(servicesTotal)}</tr>
+                  <tr><td>Publicidad</td>${moneyCell(adminTotal)}</tr>
+                  <tr class="total-row"><td>Utilidad</td>${moneyCell(utility)}</tr>
+                </table>
+              </div>
+              <div>
+                <div class="section">
+                  <table>
+                    <tr class="title-row"><th colspan="3">2.- Sueldo empleada</th></tr>
+                    ${payrollHtml}
+                  </table>
+                </div>
+                <div class="section">
+                  <table>
+                    <tr class="title-row"><th colspan="3">4.- Depositos</th></tr>
+                    ${rowsHtml(depositRows)}
+                    <tr class="total-row"><td>Total</td>${moneyCell(depositsTotal)}</tr>
+                  </table>
+                </div>
+                <div class="signatures">
+                  <div class="signature">GERMAN LLERENA</div>
+                  <div class="signature">MARLON LLERENA</div>
+                  <div class="signature">MORELIA SILVA</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <script>window.onload = () => { window.focus(); window.print(); };</script>
+        </body>
+      </html>`;
+    const printWindow = window.open('', '_blank', 'noopener,noreferrer');
+    if (!printWindow) {
+      setError('El navegador bloqueo la ventana de impresion. Permite ventanas emergentes para imprimir el reporte.');
+      return;
+    }
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+  }
+
   const selectedReport = (reports?.rows || [])[0];
   const payrollRows = reports?.payroll || [];
   const itemTotals = (monthlyForm.items || []).reduce((acc, item) => {
@@ -4494,7 +4758,10 @@ function LocalMonthlyManager({ scope, setError }) {
     <section className="prod-panel prod-local-monthly">
       <div className="prod-panel-title">
         <div><span>Formato mensual</span><h2>Roles de pago</h2></div>
-        <button className="prod-primary-button" disabled={loading} onClick={loadMonthly}><Filter size={17} />Cargar</button>
+        <div className="prod-row-actions">
+          <button className="prod-secondary-button" onClick={printMonthlyLocalReport}><Printer size={17} />Reporte mensual</button>
+          <button className="prod-primary-button" disabled={loading} onClick={loadMonthly}><Filter size={17} />Cargar</button>
+        </div>
       </div>
       <div className="prod-monthly-controls">
         <label>Mes<input type="month" value={month} onChange={(event) => { setMonth(event.target.value); setMonthlyForm(emptyLocalMonthlyForm(event.target.value)); setPayrollForm(emptyLocalPayrollForm(event.target.value)); }} /></label>

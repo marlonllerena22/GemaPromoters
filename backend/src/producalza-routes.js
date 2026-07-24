@@ -2243,25 +2243,30 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       const created = db.transaction(() => {
         const rows = [];
         for (const item of items) {
-          const saleNumber = nextLocalSaleNumber(business.id, saleDate);
-          const result = insert.run(
-            business.id,
-            saleNumber,
-            localName,
-            item.modelCode,
-            item.color,
-            item.size,
-            item.quantity,
-            item.saleKind,
-            item.sellerName,
-            item.paymentMethod,
-            item.amount,
-            item.commission,
-            saleDate,
-            item.notes,
-            req.user.productionUserId || null
-          );
-          rows.push(db.prepare('SELECT * FROM production_local_daily_sales WHERE id = ?').get(result.lastInsertRowid));
+          for (let unitIndex = 0; unitIndex < item.quantity; unitIndex += 1) {
+            const saleNumber = nextLocalSaleNumber(business.id, saleDate);
+            const unitNotes = item.quantity > 1
+              ? [item.notes, `Par ${unitIndex + 1}/${item.quantity}`].filter(Boolean).join(' - ')
+              : item.notes;
+            const result = insert.run(
+              business.id,
+              saleNumber,
+              localName,
+              item.modelCode,
+              item.color,
+              item.size,
+              1,
+              item.saleKind,
+              item.sellerName,
+              item.paymentMethod,
+              item.amount,
+              item.commission,
+              saleDate,
+              unitNotes,
+              req.user.productionUserId || null
+            );
+            rows.push(db.prepare('SELECT * FROM production_local_daily_sales WHERE id = ?').get(result.lastInsertRowid));
+          }
         }
         return rows;
       })();
