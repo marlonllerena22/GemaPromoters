@@ -4580,6 +4580,10 @@ function LocalMonthlyManager({ scope, setError }) {
   }
 
   function printMonthlyLocalReport() {
+    if (!localName) {
+      setError('Selecciona un local para generar el reporte general por local.');
+      return;
+    }
     const salesLines = localReportLineTotals(localSales);
     const financeGroups = localReportFinanceGroups(localFinances);
     const payrollLines = localReportPayrollRows(payrollRows, localName, localSales);
@@ -4602,6 +4606,12 @@ function LocalMonthlyManager({ scope, setError }) {
     const producalzaCost = Number(salesLines.total.pairs || 0) * 35;
     const localBalance = Number(salesLines.total.amount || 0) - variousTotal - payrollTotal - servicesTotal - depositsTotal;
     const utility = Number(salesLines.total.amount || 0) - producalzaCost - variousTotal - payrollTotal - servicesTotal - adminTotal;
+    const missingData = [
+      !localSales.length && 'ventas diarias',
+      !financeGroups.various.length && 'gastos varios',
+      !financeGroups.deposit.length && 'depositos',
+      !payrollRows.length && 'rol de pago guardado'
+    ].filter(Boolean);
     const moneyCell = (value) => `<td class="currency">$</td><td class="value">${escapeReportHtml(displayNumber(value, 2))}</td>`;
     const rowsHtml = (rows, emptyCount = 5) => {
       const source = rows.length ? rows : Array.from({ length: emptyCount }, () => ({ label: '', amount: '' }));
@@ -4628,7 +4638,7 @@ function LocalMonthlyManager({ scope, setError }) {
     const html = `<!doctype html>
       <html>
         <head>
-          <title>Reporte mensual ${escapeReportHtml(localName)}</title>
+          <title>Reporte general por local ${escapeReportHtml(localName)}</title>
           <style>
             @page { size: A4 portrait; margin: 10mm; }
             * { box-sizing: border-box; }
@@ -4656,12 +4666,14 @@ function LocalMonthlyManager({ scope, setError }) {
             .signature { margin-top: 17mm; padding-top: 4mm; border-top: 1px solid #555; text-align: center; font-size: 12px; }
             .signatures { display: grid; grid-template-columns: 1fr; gap: 15mm; margin-top: 52mm; }
             .note { font-size: 11px; color: #b54d5b; margin-top: 3px; }
+            .missing { margin: -4px 0 8px; padding: 5px 8px; border: 1px solid #b54d5b; color: #8b1f2f; font-size: 11px; }
             @media print { button { display: none; } .sheet { margin: 0; } }
           </style>
         </head>
         <body>
           <div class="sheet">
             <h1>${escapeReportHtml(localName.replace(/^Local\s+/, '').toUpperCase())} 2026</h1>
+            ${missingData.length ? `<div class="missing">Datos pendientes por llenar: ${escapeReportHtml(missingData.join(', '))}. El reporte se genera igual con los datos disponibles.</div>` : ''}
             <div class="top">
               <table style="width:108mm">
                 <tr class="title-row"><th>* Venta total</th><th class="center">Cantidad</th><th colspan="2">Valor</th></tr>
@@ -4731,7 +4743,7 @@ function LocalMonthlyManager({ scope, setError }) {
           <script>window.onload = () => { window.focus(); window.print(); };</script>
         </body>
       </html>`;
-    const printWindow = window.open('', '_blank', 'noopener,noreferrer');
+    const printWindow = window.open('', '_blank');
     if (!printWindow) {
       setError('El navegador bloqueo la ventana de impresion. Permite ventanas emergentes para imprimir el reporte.');
       return;
@@ -4757,9 +4769,9 @@ function LocalMonthlyManager({ scope, setError }) {
   return (
     <section className="prod-panel prod-local-monthly">
       <div className="prod-panel-title">
-        <div><span>Formato mensual</span><h2>Roles de pago</h2></div>
+        <div><span>Formato mensual</span><h2>Reporte general por local</h2></div>
         <div className="prod-row-actions">
-          <button className="prod-secondary-button" onClick={printMonthlyLocalReport}><Printer size={17} />Reporte mensual</button>
+          <button className="prod-primary-button" onClick={printMonthlyLocalReport}><Printer size={17} />Generar reporte</button>
           <button className="prod-primary-button" disabled={loading} onClick={loadMonthly}><Filter size={17} />Cargar</button>
         </div>
       </div>
@@ -4767,6 +4779,7 @@ function LocalMonthlyManager({ scope, setError }) {
         <label>Mes<input type="month" value={month} onChange={(event) => { setMonth(event.target.value); setMonthlyForm(emptyLocalMonthlyForm(event.target.value)); setPayrollForm(emptyLocalPayrollForm(event.target.value)); }} /></label>
         <label>Local
           <select value={localName} onChange={(event) => { setLocalName(event.target.value); updateMonthlyField('local_name', event.target.value); setPayrollForm((current) => ({ ...current, local_name: event.target.value })); }}>
+            <option value="">Todos los locales</option>
             {RETURN_DESTINATIONS.map((destination) => <option value={destination} key={destination}>{destination}</option>)}
           </select>
         </label>
