@@ -146,8 +146,36 @@ const RETURN_DESTINATIONS = [
   'Local Marjorie Botas Valle',
   'Sebastians'
 ];
+const LOCAL_PAYMENT_METHODS = [
+  ['efectivo', 'Efectivo'],
+  ['transferencia', 'Transferencia'],
+  ['tarjeta', 'Tarjeta']
+];
 const MARJORIE_GUIDE_TEMPLATE_KEY = 'standard-marjorie';
 const SEBASTIANS_GUIDE_TEMPLATE_KEY = 'standard-c-andrade';
+
+function localSaleCommission(localName, amountValue) {
+  const amount = Number(amountValue || 0);
+  const isSebastians = String(localName || '').toLowerCase().includes('sebastian');
+  if (isSebastians) {
+    if (amount >= 185) return 3;
+    if (amount >= 160) return 2.5;
+    if (amount >= 135) return 2;
+    if (amount >= 110) return 1.5;
+    if (amount >= 85) return 1;
+    if (amount >= 60) return 0.75;
+    if (amount >= 35) return 0.5;
+    return 0;
+  }
+  if (amount >= 150) return 3;
+  if (amount >= 120) return 2.5;
+  if (amount >= 100) return 2;
+  if (amount >= 80) return 1.5;
+  if (amount >= 60) return 1;
+  if (amount >= 40) return 0.75;
+  if (amount >= 20) return 0.5;
+  return 0;
+}
 
 const emptyPayment = {
   payment_type: 'abono',
@@ -3767,6 +3795,17 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
     local_name: ''
   });
   const [finance, setFinance] = useState(null);
+  const [sales, setSales] = useState(null);
+  const [saleForm, setSaleForm] = useState({
+    local_name: RETURN_DESTINATIONS[0],
+    model_code: '',
+    color: '',
+    size: '',
+    payment_method: 'efectivo',
+    amount: '',
+    sale_date: today,
+    notes: ''
+  });
   const [form, setForm] = useState({
     local_name: RETURN_DESTINATIONS[0],
     entry_type: 'income',
@@ -3788,7 +3827,12 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
       query.set('date_from', filters.date_from);
       query.set('date_to', filters.date_to);
       if (filters.local_name) query.set('local_name', filters.local_name);
-      setFinance(await api(scope(`/producalza/local-finances?${query.toString()}`)));
+      const [financeResponse, salesResponse] = await Promise.all([
+        api(scope(`/producalza/local-finances?${query.toString()}`)),
+        api(scope(`/producalza/local-sales?${query.toString()}`))
+      ]);
+      setFinance(financeResponse);
+      setSales(salesResponse);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -3814,6 +3858,38 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
     }
   }
 
+  async function saveSale() {
+    try {
+      await api(scope('/producalza/local-sales'), {
+        method: 'POST',
+        body: JSON.stringify(saleForm)
+      });
+      setSaleForm({
+        ...saleForm,
+        model_code: '',
+        color: '',
+        size: '',
+        amount: '',
+        notes: '',
+        sale_date: saleForm.sale_date || today
+      });
+      await loadFinance();
+      onRefresh('Venta diaria registrada');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function removeSale(item) {
+    if (!window.confirm(`Eliminar la venta ${item.sale_number}?`)) return;
+    try {
+      await api(scope(`/producalza/local-sales/${item.id}`), { method: 'DELETE' });
+      await loadFinance();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   async function removeFinance(item) {
     if (!window.confirm('Eliminar este movimiento de ingresos/egresos?')) return;
     try {
@@ -3825,22 +3901,95 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
   }
 
   const totals = finance?.totals || { income: 0, expense: 0 };
-  const balance = Number(totals.income || 0) - Number(totals.expense || 0);
+  const salesTotals = sales?.totals || { amount: 0, commission: 0, sales_count: 0 };
+  const totalIncome = Number(totals.income || 0) + Number(salesTotals.amount || 0);
+  const balance = totalIncome - Number(totals.expense || 0);
+  const commissionPreview = localSaleCommission(saleForm.local_name, saleForm.amount);
 
   return (
     <div className="prod-stack">
       <section className="prod-metrics">
         <article><Factory size={21} /><span>Mandado a fabricar</span><strong>{sentOrders.length}</strong></article>
         <article><Boxes size={21} /><span>Pares en proceso</span><strong>{dashboard?.pending_pairs || 0}</strong></article>
-        <article><DollarSign size={21} /><span>Ingresos locales</span><strong>{displayMoney(totals.income || 0)}</strong></article>
+        <article><DollarSign size={21} /><span>Ventas locales</span><strong>{displayMoney(salesTotals.amount || 0)}</strong></article>
+        <article><DollarSign size={21} /><span>Comisiones</span><strong>{displayMoney(salesTotals.commission || 0)}</strong></article>
         <article><DollarSign size={21} /><span>Saldo rapido</span><strong>{displayMoney(balance)}</strong></article>
+      </section>
+
+      <section className="prod-panel">
+        <div className="prod-panel-title">
+          <div><span>Locales</span><h2>Ventas diarias</h2></div>
+          <button className="prod-primary-button" disabled={loading} onClick={loadFinance}><Filter size={17} />Filtrar</button>
+        </div>
+        <div className="prod-monthly-controls">
+          <label>Desde<input type="date" value={filters.date_from} onChange={(event) => setFilters({ ...filters, date_from: event.target.value })} /></label>
+          <label>Hasta<input type="date" value={filters.date_to} onChange={(event) => setFilters({ ...filters, date_to: event.target.value })} /></label>
+          <label>Local
+            <select value={filters.local_name} onChange={(event) => setFilters({ ...filters, local_name: event.target.value })}>
+              <option value="">Todos los locales</option>
+              {RETURN_DESTINATIONS.map((destination) => <option value={destination} key={destination}>{destination}</option>)}
+            </select>
+          </label>
+        </div>
+        <div className="prod-return-destination-summary">
+          {(sales?.by_local || []).map((item) => (
+            <article key={item.local_name}>
+              <span>{item.local_name}</span>
+              <strong>{displayMoney(item.amount)}</strong>
+              <small>{item.sales_count} ventas · Comisión {displayMoney(item.commission)}</small>
+            </article>
+          ))}
+          {!(sales?.by_local || []).length && <article><span>Sin ventas</span><strong>{displayMoney(0)}</strong><small>Con los filtros actuales</small></article>}
+        </div>
+        <div className="prod-form-grid">
+          <label>Local
+            <select value={saleForm.local_name} onChange={(event) => setSaleForm({ ...saleForm, local_name: event.target.value })}>
+              {RETURN_DESTINATIONS.map((destination) => <option value={destination} key={destination}>{destination}</option>)}
+            </select>
+          </label>
+          <label>Modelo<input value={saleForm.model_code} onChange={(event) => setSaleForm({ ...saleForm, model_code: event.target.value })} /></label>
+          <label>Color<input value={saleForm.color} onChange={(event) => setSaleForm({ ...saleForm, color: event.target.value })} /></label>
+          <label>Talla<input value={saleForm.size} onChange={(event) => setSaleForm({ ...saleForm, size: event.target.value })} /></label>
+          <label>Forma de pago
+            <select value={saleForm.payment_method} onChange={(event) => setSaleForm({ ...saleForm, payment_method: event.target.value })}>
+              {LOCAL_PAYMENT_METHODS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+            </select>
+          </label>
+          <label>Valor de venta<input type="number" min="0" step="0.01" value={saleForm.amount} onChange={(event) => setSaleForm({ ...saleForm, amount: event.target.value })} /></label>
+          <label>Fecha<input type="date" value={saleForm.sale_date} onChange={(event) => setSaleForm({ ...saleForm, sale_date: event.target.value })} /></label>
+          <label>Comision calculada<input value={displayMoney(commissionPreview)} readOnly /></label>
+          <label className="span-full">Notas<textarea value={saleForm.notes} onChange={(event) => setSaleForm({ ...saleForm, notes: event.target.value })} /></label>
+        </div>
+        <div className="prod-form-actions">
+          <button className="prod-primary-button" onClick={saveSale}><Save size={17} />Guardar venta</button>
+        </div>
+        <div className="prod-table-wrap">
+          <table className="prod-table">
+            <thead><tr><th>Secuencia</th><th>Fecha</th><th>Local</th><th>Modelo</th><th>Pago</th><th>Valor</th><th>Comision</th><th /></tr></thead>
+            <tbody>
+              {(sales?.rows || []).map((item) => (
+                <tr key={item.id}>
+                  <td><strong>{item.sale_number}</strong></td>
+                  <td>{displayDate(item.sale_date)}</td>
+                  <td>{item.local_name}</td>
+                  <td><strong>{item.model_code}</strong><small>{[item.color, item.size && `Talla ${item.size}`].filter(Boolean).join(' · ')}</small></td>
+                  <td>{LOCAL_PAYMENT_METHODS.find(([value]) => value === item.payment_method)?.[1] || item.payment_method}</td>
+                  <td>{displayMoney(item.amount)}</td>
+                  <td><strong>{displayMoney(item.commission)}</strong></td>
+                  <td><button className="prod-icon-button danger" onClick={() => removeSale(item)}><Trash2 size={16} /></button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!sales?.rows?.length && <div className="prod-empty">No hay ventas diarias con esos filtros.</div>}
+        </div>
       </section>
 
       <LocalMonthlyManager scope={scope} setError={setError} />
 
       <section className="prod-panel">
         <div className="prod-panel-title">
-          <div><span>Locales</span><h2>Ingresos y egresos</h2></div>
+          <div><span>Locales</span><h2>Otros ingresos y egresos</h2></div>
           <button className="prod-primary-button" disabled={loading} onClick={loadFinance}><Filter size={17} />Filtrar</button>
         </div>
         <div className="prod-monthly-controls">
@@ -3858,7 +4007,7 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
             <article key={item.local_name}>
               <span>{item.local_name}</span>
               <strong>{displayMoney(item.balance)}</strong>
-              <small>Ventas {displayMoney(item.income)} · Egresos {displayMoney(item.expense)}</small>
+              <small>Otros ingresos {displayMoney(item.income)} · Egresos {displayMoney(item.expense)}</small>
             </article>
           ))}
         </div>

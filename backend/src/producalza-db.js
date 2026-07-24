@@ -327,6 +327,27 @@ export function initProducalzaDb(db) {
       FOREIGN KEY (created_by_user_id) REFERENCES production_users(id)
     );
 
+    CREATE TABLE IF NOT EXISTS production_local_daily_sales (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      sale_number TEXT,
+      local_name TEXT NOT NULL,
+      model_code TEXT NOT NULL,
+      color TEXT,
+      size TEXT,
+      payment_method TEXT NOT NULL DEFAULT 'efectivo' CHECK (payment_method IN ('efectivo', 'transferencia', 'tarjeta')),
+      amount REAL NOT NULL DEFAULT 0,
+      commission REAL NOT NULL DEFAULT 0,
+      sale_date TEXT NOT NULL DEFAULT (date('now', 'localtime')),
+      notes TEXT,
+      created_by_user_id INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (created_by_user_id) REFERENCES production_users(id),
+      UNIQUE(establishment_id, sale_number)
+    );
+
     CREATE TABLE IF NOT EXISTS production_local_staff (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       establishment_id INTEGER NOT NULL,
@@ -455,6 +476,8 @@ export function initProducalzaDb(db) {
       ON production_payroll_entries(establishment_id, period_id, employee_name);
     CREATE INDEX IF NOT EXISTS idx_production_local_finances_business
       ON production_local_finances(establishment_id, entry_date, local_name);
+    CREATE INDEX IF NOT EXISTS idx_production_local_daily_sales_business
+      ON production_local_daily_sales(establishment_id, sale_date, local_name);
     CREATE INDEX IF NOT EXISTS idx_production_local_attendance_business
       ON production_local_attendance(establishment_id, local_date, staff_id);
     CREATE INDEX IF NOT EXISTS idx_production_local_monthly_reports_business

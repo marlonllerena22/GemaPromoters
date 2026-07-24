@@ -71,6 +71,29 @@ function money2(value) {
   return Math.round((Number(value || 0) || 0) * 100) / 100;
 }
 
+function localDailySaleCommission(localName, amountValue) {
+  const amount = money2(amountValue);
+  const isSebastians = String(localName || '').toLowerCase().includes('sebastian');
+  if (isSebastians) {
+    if (amount >= 185) return 3;
+    if (amount >= 160) return 2.5;
+    if (amount >= 135) return 2;
+    if (amount >= 110) return 1.5;
+    if (amount >= 85) return 1;
+    if (amount >= 60) return 0.75;
+    if (amount >= 35) return 0.5;
+    return 0;
+  }
+  if (amount >= 150) return 3;
+  if (amount >= 120) return 2.5;
+  if (amount >= 100) return 2;
+  if (amount >= 80) return 1.5;
+  if (amount >= 60) return 1;
+  if (amount >= 40) return 0.75;
+  if (amount >= 20) return 0.5;
+  return 0;
+}
+
 function parseNumberFromText(value) {
   const match = String(value || '').replace(',', '.').match(/-?\d+(\.\d+)?/);
   return match ? Number(match[0]) : 0;
@@ -2062,6 +2085,149 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     ).run(req.params.visitId, req.params.clientId, business.id);
     if (!result.changes) return res.status(404).json({ message: 'Visita no encontrada' });
     audit(req, 'delete', 'client_visit', req.params.visitId, `Cliente ${req.params.clientId}`);
+    res.json({ ok: true });
+  });
+
+  function nextLocalSaleNumber(businessId, saleDate) {
+    const compactDate = String(saleDate || '').replace(/[^0-9]/g, '') || new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const prefix = `LOC-${compactDate}-`;
+    const rows = db
+      .prepare(
+        `SELECT sale_number
+         FROM production_local_daily_sales
+         WHERE establishment_id = ? AND sale_number LIKE ?
+         ORDER BY sale_number DESC`
+      )
+      .all(businessId, `${prefix}%`);
+    const lastNumber = rows
+      .map((row) => Number(String(row.sale_number || '').slice(prefix.length)))
+      .filter((value) => Number.isFinite(value))
+      .sort((a, b) => b - a)[0] || 0;
+    return `${prefix}${String(lastNumber + 1).padStart(4, '0')}`;
+  }
+
+  app.get('/api/producalza/local-sales', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    if (!canAccessProductionReports(req)) {
+      return res.status(403).json({ message: 'No tienes acceso a este reporte' });
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    const dateFrom = normalizeDateInput(req.query.date_from, today);
+    const dateTo = normalizeDateInput(req.query.date_to, today);
+    const localName = String(req.query.local_name || '').trim();
+    const filters = ['establishment_id = ?', 'sale_date BETWEEN ? AND ?'];
+    const params = [business.id, dateFrom, dateTo];
+    if (localName) {
+      filters.push('local_name = ?');
+      params.push(localName);
+    }
+    if (!isProductionAdmin(req)) {
+      filters.push('created_by_user_id = ?');
+      params.push(req.user.productionUserId || 0);
+    }
+    const rows = db
+      .prepare(
+        `SELECT *
+         FROM production_local_daily_sales
+         WHERE ${filters.join(' AND ')}
+         ORDER BY sale_date DESC, id DESC`
+      )
+      .all(...params);
+    const byLocalMap = new Map();
+    const byPaymentMap = new Map();
+    for (const row of rows) {
+      const currentLocal = byLocalMap.get(row.local_name) || { local_name: row.local_name, sales_count: 0, amount: 0, commission: 0 };
+      currentLocal.sales_count += 1;
+      currentLocal.amount += Number(row.amount || 0);
+      currentLocal.commission += Number(row.commission || 0);
+      byLocalMap.set(row.local_name, currentLocal);
+
+      const currentPayment = byPaymentMap.get(row.payment_method) || { payment_method: row.payment_method, sales_count: 0, amount: 0 };
+      currentPayment.sales_count += 1;
+      currentPayment.amount += Number(row.amount || 0);
+      byPaymentMap.set(row.payment_method, currentPayment);
+    }
+    res.json({
+      date_from: dateFrom,
+      date_to: dateTo,
+      rows,
+      by_local: [...byLocalMap.values()].map((item) => ({ ...item, amount: money2(item.amount), commission: money2(item.commission) })),
+      by_payment: [...byPaymentMap.values()].map((item) => ({ ...item, amount: money2(item.amount) })),
+      totals: {
+        sales_count: rows.length,
+        amount: money2(rows.reduce((sum, row) => sum + Number(row.amount || 0), 0)),
+        commission: money2(rows.reduce((sum, row) => sum + Number(row.commission || 0), 0))
+      }
+    });
+  });
+
+  app.post('/api/producalza/local-sales', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    if (!canAccessProductionReports(req)) {
+      return res.status(403).json({ message: 'No tienes acceso a este reporte' });
+    }
+    const localName = String(req.body.local_name || '').trim();
+    const modelCode = String(req.body.model_code || '').trim();
+    const color = String(req.body.color || '').trim();
+    const size = String(req.body.size || '').trim();
+    const paymentMethod = String(req.body.payment_method || 'efectivo').trim();
+    const amount = moneyValue(req.body.amount);
+    const saleDate = normalizeDateInput(req.body.sale_date, new Date().toISOString().slice(0, 10));
+    if (!RETURN_DESTINATIONS.includes(localName)) {
+      return res.status(400).json({ message: 'Selecciona un local valido' });
+    }
+    if (!modelCode || !color || !size) {
+      return res.status(400).json({ message: 'Modelo, color y talla son obligatorios' });
+    }
+    if (!['efectivo', 'transferencia', 'tarjeta'].includes(paymentMethod)) {
+      return res.status(400).json({ message: 'Selecciona una forma de pago valida' });
+    }
+    if (amount <= 0) {
+      return res.status(400).json({ message: 'Ingresa el valor de la venta' });
+    }
+    const commission = money2(localDailySaleCommission(localName, amount));
+    const saleNumber = nextLocalSaleNumber(business.id, saleDate);
+    const result = db
+      .prepare(
+        `INSERT INTO production_local_daily_sales
+         (establishment_id, sale_number, local_name, model_code, color, size, payment_method, amount, commission, sale_date, notes, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        business.id,
+        saleNumber,
+        localName,
+        modelCode,
+        color,
+        size,
+        paymentMethod,
+        amount,
+        commission,
+        saleDate,
+        String(req.body.notes || '').trim(),
+        req.user.productionUserId || null
+      );
+    audit(req, 'create', 'local_daily_sale', result.lastInsertRowid, `${saleNumber} ${localName}`);
+    res.status(201).json(db.prepare('SELECT * FROM production_local_daily_sales WHERE id = ?').get(result.lastInsertRowid));
+  });
+
+  app.delete('/api/producalza/local-sales/:id', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    if (!canAccessProductionReports(req)) {
+      return res.status(403).json({ message: 'No tienes acceso a este reporte' });
+    }
+    const filters = ['id = ?', 'establishment_id = ?'];
+    const params = [req.params.id, business.id];
+    if (!isProductionAdmin(req)) {
+      filters.push('created_by_user_id = ?');
+      params.push(req.user.productionUserId || 0);
+    }
+    const result = db.prepare(`DELETE FROM production_local_daily_sales WHERE ${filters.join(' AND ')}`).run(...params);
+    if (!result.changes) return res.status(404).json({ message: 'Venta no encontrada' });
+    audit(req, 'delete', 'local_daily_sale', req.params.id, 'Venta diaria local');
     res.json({ ok: true });
   });
 
