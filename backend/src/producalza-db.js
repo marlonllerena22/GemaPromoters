@@ -174,6 +174,7 @@ export function initProducalzaDb(db) {
       total_value REAL NOT NULL DEFAULT 0,
       created_by TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       FOREIGN KEY (establishment_id) REFERENCES establishments(id),
       FOREIGN KEY (order_id) REFERENCES production_orders(id)
     );
@@ -544,6 +545,7 @@ export function initProducalzaDb(db) {
   addColumnIfMissing(db, 'production_orders', 'guide_template_key', 'TEXT');
   addColumnIfMissing(db, 'production_orders', 'sample_destination', 'TEXT');
   addColumnIfMissing(db, 'production_delivery_notes', 'destination', 'TEXT');
+  addColumnIfMissing(db, 'production_delivery_notes', 'updated_at', "TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, 'production_orders', 'delivery_date', 'TEXT');
   addColumnIfMissing(db, 'production_orders', 'origin_label', 'TEXT');
   addColumnIfMissing(db, 'production_orders', 'card_alert', 'TEXT');
