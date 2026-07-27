@@ -6332,23 +6332,21 @@ function RemissionGuideSheet({ order }) {
               <em>R.U.C. 1802727196001</em>
             </div>
           </header>
-          <section className="remission-info-grid">
-            {line('FECHA DE EMISION:', displayDate(issueDate))}
-            {line('LUGAR Y FECHA:', [order.city, displayDate(issueDate)].filter(Boolean).join(' - '))}
-            {line('MOTIVO DEL TRASLADO:', `[X] ${guide.transfer_reason || 'VENTA'}`, 'reason')}
-            {line('COMPROBANTE DE VENTA:', guide.sale_receipt || order.invoice_number || order.order_number)}
-            {line('DESTINATARIO:', order.client_name || '')}
-            {line('NOMBRE O RAZON SOCIAL:', clientName)}
-            {line('PUNTO DE LLEGADA:', pointArrival)}
-            {line('IDENTIFICACION DE LA PERSONA ENCARGADA DEL TRANSPORTE:', guide.carrier_identification || '', 'wide')}
-            {line('NOMBRE O RAZON SOCIAL:', clientName, 'wide-name')}
-            {line('RUC/C.I.:', clientId, 'short-id')}
+          <section className="remission-info-grid compact">
+            {line('FECHA DE EMISION:', displayDate(issueDate), 'full date')}
+            <h3>DATOS DEL DESTINATARIO</h3>
+            {line('DESTINATARIO:', order.client_name || '', 'recipient-main')}
+            {line('NOMBRE O RAZON SOCIAL:', clientName, 'recipient-main')}
+            {line('PUNTO DE LLEGADA:', pointArrival, 'recipient-main')}
+            {line('RUC/C.I.:', clientId, 'recipient-main')}
+            <h3>ENVIO</h3>
+            {line('IDENTIFICACION DE LA PERSONA ENCARGADA DEL TRANSPORTE:', guide.carrier_identification || '', 'full transport')}
           </section>
           <table className="remission-table">
-            <thead><tr><th>CANTIDAD</th><th>UNIDAD</th><th>DESCRIPCION</th></tr></thead>
+            <thead><tr><th>DESCRIPCION</th></tr></thead>
             <tbody>
-              <tr><td></td><td></td><td>{description}</td></tr>
-              {Array.from({ length: 5 }).map((_, index) => <tr key={index}><td></td><td></td><td></td></tr>)}
+              <tr><td>{description}</td></tr>
+              <tr><td></td></tr>
             </tbody>
           </table>
           <footer>{copy.label}</footer>

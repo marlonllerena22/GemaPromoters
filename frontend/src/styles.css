@@ -5597,12 +5597,44 @@ td {
     margin-top: 3.6mm;
   }
 
+  .remission-info-grid.compact {
+    font-size: 8pt;
+    gap: 1.4mm;
+    grid-template-columns: 1fr;
+    margin-top: 2.8mm;
+  }
+
+  .remission-info-grid h3 {
+    background: #0e4aa7 !important;
+    color: #ffffff !important;
+    font-size: 8pt;
+    font-weight: 900;
+    letter-spacing: 0.8px;
+    margin: 1mm 0 0;
+    padding: 1mm 1.6mm;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
   .remission-line {
     align-items: end;
     display: grid;
     gap: 1.6mm;
     grid-template-columns: auto 1fr;
     min-height: 4.8mm;
+  }
+
+  .remission-line.full,
+  .remission-line.recipient-main {
+    grid-template-columns: 35mm 1fr;
+  }
+
+  .remission-line.transport {
+    grid-template-columns: 82mm 1fr;
+  }
+
+  .remission-line.date {
+    max-width: 96mm;
   }
 
   .remission-line span {
@@ -5616,6 +5648,12 @@ td {
     font-weight: 600;
     min-height: 3.7mm;
     padding-left: 1mm;
+  }
+
+  .remission-line.recipient-main strong {
+    font-size: 9.7pt;
+    font-weight: 800;
+    min-height: 4.4mm;
   }
 
   .remission-line.reason strong {
@@ -5637,8 +5675,8 @@ td {
 
   .remission-table {
     border-collapse: collapse;
-    font-size: 7.2pt;
-    margin-top: 2.3mm;
+    font-size: 10pt;
+    margin-top: 2.6mm;
     width: 100%;
   }
 
@@ -5646,34 +5684,27 @@ td {
     background: #0e4aa7 !important;
     border: 1px solid #0e4aa7;
     color: #ffffff !important;
-    font-size: 7.8pt;
-    height: 5.4mm;
+    font-size: 9.2pt;
+    height: 5.8mm;
     letter-spacing: 2px;
     text-align: center;
   }
 
   .remission-table th:first-child {
-    letter-spacing: 0;
-    width: 28mm;
-  }
-
-  .remission-table th:nth-child(2) {
-    letter-spacing: 0;
-    width: 28mm;
+    width: auto;
   }
 
   .remission-table td {
     border-left: 1px solid #0e4aa7;
     border-right: 1px solid #0e4aa7;
     border-bottom: 1px dotted #000000;
-    height: 6.8mm;
+    height: 9.5mm;
     padding: 1mm 2mm;
     vertical-align: top;
   }
 
-  .remission-table td:first-child,
-  .remission-table td:nth-child(2) {
-    text-align: center;
+  .remission-table tbody tr:first-child td {
+    font-weight: 700;
   }
 
   .prod-remission-copy footer {
