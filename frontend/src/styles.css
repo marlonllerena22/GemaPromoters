@@ -5518,7 +5518,7 @@ td {
   }
 
   .prod-remission-copy.green {
-    background: #eef8ef !important;
+    background: #e2f4e5 !important;
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
   }
@@ -5626,11 +5626,11 @@ td {
 
   .remission-line.full,
   .remission-line.recipient-main {
-    grid-template-columns: 35mm 1fr;
+    grid-template-columns: 48mm minmax(0, 1fr);
   }
 
   .remission-line.transport {
-    grid-template-columns: 82mm 1fr;
+    grid-template-columns: 58mm minmax(0, 1fr);
   }
 
   .remission-line.date {
@@ -5639,6 +5639,7 @@ td {
 
   .remission-line span {
     font-weight: 800;
+    line-height: 1.05;
     white-space: nowrap;
   }
 
@@ -5647,7 +5648,10 @@ td {
     display: block;
     font-weight: 600;
     min-height: 3.7mm;
+    overflow: hidden;
     padding-left: 1mm;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .remission-line.recipient-main strong {

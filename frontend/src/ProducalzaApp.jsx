@@ -6340,7 +6340,7 @@ function RemissionGuideSheet({ order }) {
             {line('PUNTO DE LLEGADA:', pointArrival, 'recipient-main')}
             {line('RUC/C.I.:', clientId, 'recipient-main')}
             <h3>ENVIO</h3>
-            {line('IDENTIFICACION DE LA PERSONA ENCARGADA DEL TRANSPORTE:', guide.carrier_identification || '', 'full transport')}
+            {line('EMPRESA ENCARGADA DE TRANSPORTE:', guide.carrier_identification || '', 'full transport')}
           </section>
           <table className="remission-table">
             <thead><tr><th>DESCRIPCION</th></tr></thead>
