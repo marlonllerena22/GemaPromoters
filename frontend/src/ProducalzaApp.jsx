@@ -2482,7 +2482,6 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
           <div className="prod-detail-grid">
             <Detail label="Fecha de emision" value={displayDate(remissionForm.issue_date)} />
             <Detail label="Comprobante de venta" value={remissionForm.sale_receipt} />
-            <Detail label="Punto de partida" value={remissionForm.departure_place} />
             <Detail label="Punto de llegada" value={remissionForm.arrival_place} />
             <Detail label="Cliente" value={order.client_name} />
             <Detail label="RUC o cedula" value={order.tax_id} />
@@ -6339,14 +6338,11 @@ function RemissionGuideSheet({ order }) {
             {line('MOTIVO DEL TRASLADO:', `[X] ${guide.transfer_reason || 'VENTA'}`, 'reason')}
             {line('COMPROBANTE DE VENTA:', guide.sale_receipt || order.invoice_number || order.order_number)}
             {line('DESTINATARIO:', order.client_name || '')}
-            {line('PUNTO DE PARTIDA:', guide.departure_place || 'PRODUCALZA RIEKER - Imbabura s/n y 9 de Octubre')}
             {line('NOMBRE O RAZON SOCIAL:', clientName)}
             {line('PUNTO DE LLEGADA:', pointArrival)}
             {line('IDENTIFICACION DE LA PERSONA ENCARGADA DEL TRANSPORTE:', guide.carrier_identification || '', 'wide')}
             {line('NOMBRE O RAZON SOCIAL:', clientName, 'wide-name')}
             {line('RUC/C.I.:', clientId, 'short-id')}
-            {line('HORA DE SALIDA:', guide.departure_time || '')}
-            {line('HORA DE LLEGADA:', guide.arrival_time || '')}
           </section>
           <table className="remission-table">
             <thead><tr><th>CANTIDAD</th><th>UNIDAD</th><th>DESCRIPCION</th></tr></thead>

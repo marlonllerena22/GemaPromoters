@@ -5251,7 +5251,7 @@ td {
 
   @page remission-guide {
     size: A4 portrait;
-    margin: 5mm;
+    margin: 4mm;
   }
 
   @page box-guides {
@@ -5501,19 +5501,19 @@ td {
     color: #000000;
     display: grid;
     font-family: Arial, sans-serif;
-    gap: 3mm;
-    min-height: 287mm;
+    gap: 2mm;
+    height: 289mm;
     page: remission-guide;
-    width: 200mm;
+    width: 202mm;
   }
 
   .prod-remission-copy {
-    border: 1.2mm solid #0e4aa7;
+    border: 0.9mm solid #0e4aa7;
     border-radius: 2mm;
     box-sizing: border-box;
-    min-height: 141mm;
+    height: 143.5mm;
     overflow: hidden;
-    padding: 2.5mm 2.5mm 2mm 5mm;
+    padding: 2mm 2.5mm 1.6mm 5mm;
     position: relative;
   }
 
@@ -5524,11 +5524,11 @@ td {
   }
 
   .remission-side-text {
-    bottom: 4mm;
-    font-size: 6.2pt;
+    bottom: 3mm;
+    font-size: 5.8pt;
     left: 1mm;
     position: absolute;
-    top: 4mm;
+    top: 3mm;
     transform: rotate(180deg);
     writing-mode: vertical-rl;
   }
@@ -5536,26 +5536,26 @@ td {
   .prod-remission-copy header {
     align-items: start;
     display: grid;
-    gap: 3mm;
-    grid-template-columns: 43mm 1fr 47mm;
+    gap: 2.4mm;
+    grid-template-columns: 39mm 1fr 45mm;
   }
 
   .remission-logo img {
-    height: 23mm;
+    height: 21mm;
     object-fit: contain;
-    width: 42mm;
+    width: 38mm;
   }
 
   .remission-company {
     display: grid;
-    font-size: 6.8pt;
-    gap: 0.3mm;
+    font-size: 6.3pt;
+    gap: 0.15mm;
     line-height: 1.08;
     text-align: center;
   }
 
   .remission-company b {
-    font-size: 12pt;
+    font-size: 11pt;
     line-height: 1;
   }
 
@@ -5568,14 +5568,14 @@ td {
 
   .remission-number b {
     color: #0e4aa7 !important;
-    font-size: 13pt;
+    font-size: 12.2pt;
     font-weight: 900;
   }
 
   .remission-number strong {
     color: #d00000 !important;
     font-family: "Courier New", monospace;
-    font-size: 18pt;
+    font-size: 17pt;
     font-weight: 500;
     letter-spacing: 2.5px;
   }
@@ -5585,24 +5585,24 @@ td {
   }
 
   .remission-number em {
-    font-size: 10.5pt;
+    font-size: 9.8pt;
     font-style: normal;
   }
 
   .remission-info-grid {
     display: grid;
-    font-size: 7.5pt;
-    gap: 2.4mm 5mm;
-    grid-template-columns: 1fr 1.35fr 34mm;
-    margin-top: 5mm;
+    font-size: 7.1pt;
+    gap: 1.8mm 4mm;
+    grid-template-columns: 1fr 1.25fr 33mm;
+    margin-top: 3.6mm;
   }
 
   .remission-line {
     align-items: end;
     display: grid;
-    gap: 2mm;
+    gap: 1.6mm;
     grid-template-columns: auto 1fr;
-    min-height: 5.2mm;
+    min-height: 4.8mm;
   }
 
   .remission-line span {
@@ -5614,7 +5614,7 @@ td {
     border-bottom: 1px dotted #000000;
     display: block;
     font-weight: 600;
-    min-height: 4mm;
+    min-height: 3.7mm;
     padding-left: 1mm;
   }
 
@@ -5637,8 +5637,8 @@ td {
 
   .remission-table {
     border-collapse: collapse;
-    font-size: 7.6pt;
-    margin-top: 3mm;
+    font-size: 7.2pt;
+    margin-top: 2.3mm;
     width: 100%;
   }
 
@@ -5646,8 +5646,8 @@ td {
     background: #0e4aa7 !important;
     border: 1px solid #0e4aa7;
     color: #ffffff !important;
-    font-size: 8.3pt;
-    height: 6mm;
+    font-size: 7.8pt;
+    height: 5.4mm;
     letter-spacing: 2px;
     text-align: center;
   }
@@ -5666,8 +5666,8 @@ td {
     border-left: 1px solid #0e4aa7;
     border-right: 1px solid #0e4aa7;
     border-bottom: 1px dotted #000000;
-    height: 7.3mm;
-    padding: 1.2mm 2mm;
+    height: 6.8mm;
+    padding: 1mm 2mm;
     vertical-align: top;
   }
 
@@ -5677,8 +5677,8 @@ td {
   }
 
   .prod-remission-copy footer {
-    font-size: 7.5pt;
-    margin-top: 1.8mm;
+    font-size: 7pt;
+    margin-top: 1.2mm;
   }
 
   .prod-delivery-note-page {
