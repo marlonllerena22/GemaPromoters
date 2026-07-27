@@ -871,6 +871,14 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         model_ids: parseJsonValue(note.model_ids_json, []),
         model_prices: parseJsonValue(note.model_prices_json, {})
       }));
+    const remissionGuides = db
+      .prepare(
+        `SELECT *
+         FROM production_remission_guides
+         WHERE order_id = ? AND establishment_id = ?
+         ORDER BY guide_number ASC, id ASC`
+      )
+      .all(order.id, businessId);
     const returnAllocations = db
       .prepare(
         `SELECT allocations.*, models.model_code, models.color, models.material
@@ -899,6 +907,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       ...order,
       payments,
       delivery_notes: deliveryNotes,
+      remission_guides: remissionGuides,
       return_allocations: returnAllocations,
       returned_allocations: returnedAllocations,
       models: models.map((model) => ({
@@ -925,6 +934,15 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
        WHERE order_id = ? AND establishment_id = ?`
     ).get(orderId, businessId);
     return Number(row?.next_number || 1);
+  }
+
+  function nextRemissionGuideNumber(businessId) {
+    const row = db.prepare(
+      `SELECT COALESCE(MAX(guide_number), 8200) + 1 AS next_number
+       FROM production_remission_guides
+       WHERE establishment_id = ?`
+    ).get(businessId);
+    return Math.max(8201, Number(row?.next_number || 8201));
   }
 
   function createDeliveryNoteRecord({ orderId, businessId, noteType, title, destination = '', modelIds, prices, shippingValue, discountValue, totalValue, userLabel }) {
@@ -3465,6 +3483,123 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     );
     audit(req, 'update', 'order_invoice', order.id, req.body.invoice_number || '');
     res.json(getOrder(order.id, req));
+  });
+
+  app.post('/api/producalza/orders/:id/remission-guide', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const order = getOrder(req.params.id, req);
+    if (!order) return res.status(404).json({ message: 'Pedido no encontrado' });
+
+    const guideId = Number(req.body.id || 0);
+    const issueDate = normalizeDateInput(req.body.issue_date, new Date().toISOString().slice(0, 10));
+    const payload = {
+      issueDate,
+      departurePlace: String(req.body.departure_place || 'PRODUCALZA RIEKER - Imbabura s/n y 9 de Octubre').trim(),
+      arrivalPlace: String(req.body.arrival_place || order.city || '').trim(),
+      saleReceipt: String(req.body.sale_receipt || order.invoice_number || order.order_number || '').trim(),
+      departureTime: String(req.body.departure_time || '').trim(),
+      arrivalTime: String(req.body.arrival_time || '').trim(),
+      transferReason: String(req.body.transfer_reason || 'VENTA').trim() || 'VENTA',
+      carrierIdentification: String(req.body.carrier_identification || '').trim(),
+      description: String(req.body.description || '').trim(),
+      createdBy: req.user?.username || req.user?.role || 'system'
+    };
+    if (!payload.description) {
+      return res.status(400).json({ message: 'Escribe la descripcion de cartones o paquetes enviados.' });
+    }
+    if (!payload.carrierIdentification) {
+      return res.status(400).json({ message: 'Escribe la identificacion de la persona encargada del transporte.' });
+    }
+
+    try {
+      const savedId = db.transaction(() => {
+        if (guideId) {
+          const current = db.prepare(
+            `SELECT * FROM production_remission_guides
+             WHERE id = ? AND order_id = ? AND establishment_id = ?`
+          ).get(guideId, order.id, business.id);
+          if (!current) throw new Error('Guia de remision no encontrada');
+          db.prepare(
+            `UPDATE production_remission_guides
+             SET issue_date = ?, departure_place = ?, arrival_place = ?, sale_receipt = ?,
+                 departure_time = ?, arrival_time = ?, transfer_reason = ?, carrier_identification = ?,
+                 description = ?, updated_at = datetime('now', 'localtime')
+             WHERE id = ? AND order_id = ? AND establishment_id = ?`
+          ).run(
+            payload.issueDate,
+            payload.departurePlace,
+            payload.arrivalPlace,
+            payload.saleReceipt,
+            payload.departureTime,
+            payload.arrivalTime,
+            payload.transferReason,
+            payload.carrierIdentification,
+            payload.description,
+            current.id,
+            order.id,
+            business.id
+          );
+          return current.id;
+        }
+        const existing = db.prepare(
+          `SELECT * FROM production_remission_guides
+           WHERE order_id = ? AND establishment_id = ?
+           ORDER BY guide_number ASC, id ASC
+           LIMIT 1`
+        ).get(order.id, business.id);
+        if (existing) {
+          db.prepare(
+            `UPDATE production_remission_guides
+             SET issue_date = ?, departure_place = ?, arrival_place = ?, sale_receipt = ?,
+                 departure_time = ?, arrival_time = ?, transfer_reason = ?, carrier_identification = ?,
+                 description = ?, updated_at = datetime('now', 'localtime')
+             WHERE id = ? AND order_id = ? AND establishment_id = ?`
+          ).run(
+            payload.issueDate,
+            payload.departurePlace,
+            payload.arrivalPlace,
+            payload.saleReceipt,
+            payload.departureTime,
+            payload.arrivalTime,
+            payload.transferReason,
+            payload.carrierIdentification,
+            payload.description,
+            existing.id,
+            order.id,
+            business.id
+          );
+          return existing.id;
+        }
+        const guideNumber = nextRemissionGuideNumber(business.id);
+        const result = db.prepare(
+          `INSERT INTO production_remission_guides
+           (establishment_id, order_id, guide_number, issue_date, departure_place, arrival_place,
+            sale_receipt, departure_time, arrival_time, transfer_reason, carrier_identification,
+            description, created_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          business.id,
+          order.id,
+          guideNumber,
+          payload.issueDate,
+          payload.departurePlace,
+          payload.arrivalPlace,
+          payload.saleReceipt,
+          payload.departureTime,
+          payload.arrivalTime,
+          payload.transferReason,
+          payload.carrierIdentification,
+          payload.description,
+          payload.createdBy
+        );
+        return result.lastInsertRowid;
+      })();
+      audit(req, guideId ? 'update' : 'create', 'remission_guide', savedId, `Pedido ${order.order_number}`);
+      res.json(getOrder(order.id, req));
+    } catch (error) {
+      res.status(400).json({ message: error.message });
+    }
   });
 
   app.patch('/api/producalza/orders/:id/delivery-notes/:noteId', requireProductionUser, (req, res) => {

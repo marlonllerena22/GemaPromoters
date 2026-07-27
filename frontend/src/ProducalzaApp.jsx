@@ -475,6 +475,24 @@ function deliveryOrderFromNote(order, note) {
   };
 }
 
+function remissionGuideValuesFromOrder(order) {
+  const guide = (order.remission_guides || [])[0] || {};
+  const today = new Date().toISOString().slice(0, 10);
+  return {
+    id: guide.id || '',
+    guide_number: guide.guide_number || '',
+    issue_date: guide.issue_date || today,
+    departure_place: guide.departure_place || 'PRODUCALZA RIEKER - Imbabura s/n y 9 de Octubre',
+    arrival_place: guide.arrival_place || [order.city, order.address].filter(Boolean).join(' - '),
+    sale_receipt: guide.sale_receipt || order.invoice_number || order.order_number || '',
+    departure_time: guide.departure_time || '',
+    arrival_time: guide.arrival_time || '',
+    transfer_reason: guide.transfer_reason || 'VENTA',
+    carrier_identification: guide.carrier_identification || '',
+    description: guide.description || ''
+  };
+}
+
 function paymentTotalsFromList(payments = []) {
   return payments.reduce((totals, payment) => {
     if (payment.status === 'paid') totals.paid += Number(payment.amount || 0);
@@ -1712,8 +1730,11 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
   const [saving, setSaving] = useState(false);
   const [showDeliveryEditor, setShowDeliveryEditor] = useState(false);
   const [showGuidePicker, setShowGuidePicker] = useState(false);
+  const [showRemissionForm, setShowRemissionForm] = useState(false);
   const [deliverySaving, setDeliverySaving] = useState(false);
+  const [remissionSaving, setRemissionSaving] = useState(false);
   const [deliveryForm, setDeliveryForm] = useState(() => deliveryValuesFromOrder(order));
+  const [remissionForm, setRemissionForm] = useState(() => remissionGuideValuesFromOrder(order));
   const [pendingNoteEdits, setPendingNoteEdits] = useState({});
   const [paymentForm, setPaymentForm] = useState(emptyPayment);
   const [upcomingPaymentForm, setUpcomingPaymentForm] = useState(emptyUpcomingPayment);
@@ -1737,9 +1758,11 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
     setModels(order.models);
     setDirtyIds([]);
     setDeliveryForm(deliveryValuesFromOrder(order));
+    setRemissionForm(remissionGuideValuesFromOrder(order));
     setPendingNoteEdits({});
     setShowDeliveryEditor(false);
     setShowGuidePicker(false);
+    setShowRemissionForm(false);
     setPaymentForm(emptyPayment);
     setUpcomingPaymentForm(emptyUpcomingPayment);
     setPaymentSummaryForm(paymentSummaryValues(order.payments || []));
@@ -2041,6 +2064,25 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
     }
   }
 
+  async function saveRemissionGuideAndPrint() {
+    setRemissionSaving(true);
+    try {
+      const updatedOrder = await api(scope(`/producalza/orders/${order.id}/remission-guide`), {
+        method: 'POST',
+        body: JSON.stringify(remissionForm)
+      });
+      const guide = (updatedOrder.remission_guides || [])[0];
+      setShowRemissionForm(false);
+      setRemissionForm(remissionGuideValuesFromOrder(updatedOrder));
+      await onUpdated('Guia de remision guardada');
+      onPrint('remission-guide', null, { ...updatedOrder, selected_remission_guide: guide });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setRemissionSaving(false);
+    }
+  }
+
   function updateReturnAllocation(modelId, size, destination, value) {
     const quantity = Math.max(0, Math.floor(Number(value || 0)));
     setReturnAllocations((current) => ({
@@ -2154,6 +2196,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
         <div>
           <button className="prod-secondary-button" onClick={onEdit}><Pencil size={17} />Editar</button>
           <button className="prod-primary-button delivery" onClick={() => setShowDeliveryEditor((value) => !value)}><Printer size={17} />Nota de entrega</button>
+          <button className="prod-secondary-button remision" onClick={() => setShowRemissionForm((value) => !value)}><FilePlus2 size={17} />Guia de remision</button>
           {isAdmin && !isReturnOrder && !isSampleOrder && (
             <button className="prod-secondary-button return" onClick={() => setShowReturnForm((value) => !value)}><PackageCheck size={17} />Registrar devolucion</button>
           )}
@@ -2426,6 +2469,36 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
             <button className="prod-secondary-button" onClick={() => setShowDeliveryEditor(false)}>Cancelar</button>
             <button className="prod-primary-button delivery" disabled={deliverySaving} onClick={saveDeliveryValuesAndPrint}>
               <Printer size={17} />{deliverySaving ? 'Guardando...' : 'Guardar e imprimir'}
+            </button>
+          </div>
+        </section>
+      )}
+      {showRemissionForm && (
+        <section className="prod-panel prod-remission-editor">
+          <div className="prod-panel-title">
+            <div><span>Salida de mercaderia</span><h2>Guia de remision</h2></div>
+            {remissionForm.guide_number && <strong className="prod-remission-number">Nro. {String(remissionForm.guide_number).padStart(8, '0')}</strong>}
+          </div>
+          <div className="prod-detail-grid">
+            <Detail label="Fecha de emision" value={displayDate(remissionForm.issue_date)} />
+            <Detail label="Comprobante de venta" value={remissionForm.sale_receipt} />
+            <Detail label="Punto de partida" value={remissionForm.departure_place} />
+            <Detail label="Punto de llegada" value={remissionForm.arrival_place} />
+            <Detail label="Cliente" value={order.client_name} />
+            <Detail label="RUC o cedula" value={order.tax_id} />
+          </div>
+          <div className="prod-form-grid">
+            <label className="span-2">Identificacion de la persona encargada del transporte
+              <input value={remissionForm.carrier_identification} onChange={(event) => setRemissionForm({ ...remissionForm, carrier_identification: event.target.value })} />
+            </label>
+            <label className="span-full">Descripcion de cartones o paquetes enviados
+              <textarea rows="4" value={remissionForm.description} onChange={(event) => setRemissionForm({ ...remissionForm, description: event.target.value })} />
+            </label>
+          </div>
+          <div className="prod-form-actions">
+            <button className="prod-secondary-button" onClick={() => setShowRemissionForm(false)}>Cancelar</button>
+            <button className="prod-primary-button guide" disabled={remissionSaving} onClick={saveRemissionGuideAndPrint}>
+              <Printer size={17} />{remissionSaving ? 'Guardando...' : 'Guardar e imprimir guia'}
             </button>
           </div>
         </section>
@@ -6086,10 +6159,11 @@ function PrintLayouts({ state, guideTemplates }) {
   }
   return (
     <div className={`prod-print-root ${
-      type === 'sheets' ? 'print-order' : type === 'delivery-note' ? 'print-delivery-note' : type === 'guides' ? 'print-guides' : 'print-cards'
+      type === 'sheets' ? 'print-order' : type === 'delivery-note' ? 'print-delivery-note' : type === 'guides' ? 'print-guides' : type === 'remission-guide' ? 'print-remission-guide' : 'print-cards'
     }`}>
       {type === 'sheets' && <ProductionOrderSheet order={order} />}
       {type === 'delivery-note' && <DeliveryNoteSheet order={order} />}
+      {type === 'remission-guide' && <RemissionGuideSheet order={order} />}
       {(type === 'cards' || type === 'card') && (
         <article className="prod-print-card-page">
           {models.map((model) => <ProductionCard order={order} model={model} key={`card-${model.id}`} />)}
@@ -6210,6 +6284,81 @@ function GuideLabel({ guide, order, template }) {
       <div className="prod-guide-size"><strong>{size}</strong></div>
       <div className="prod-guide-origin"><span>MADE IN EC</span><strong>BY PRODUCALZA</strong></div>
     </div>
+  );
+}
+
+function RemissionGuideSheet({ order }) {
+  const guide = order.selected_remission_guide || (order.remission_guides || [])[0] || {};
+  const guideNumber = String(guide.guide_number || 8201).padStart(8, '0');
+  const issueDate = guide.issue_date || new Date().toISOString().slice(0, 10);
+  const clientName = order.business_name || order.client_name || '';
+  const clientId = order.tax_id || '';
+  const pointArrival = guide.arrival_place || [order.city, order.address].filter(Boolean).join(' - ');
+  const totalPairs = (order.models || []).reduce((sum, model) => sum + Number(model.total_pairs || 0), 0);
+  const description = guide.description || `${totalPairs} pares de calzado segun pedido ${order.order_number}`;
+  const copies = [
+    { key: 'white', label: 'Original Adquiriente - 1ra.', tone: 'white' },
+    { key: 'green', label: 'Copia Emisor (Verde) - 2da.', tone: 'green' }
+  ];
+  const line = (label, value = '', className = '') => (
+    <div className={`remission-line ${className}`}>
+      <span>{label}</span>
+      <strong>{value || ''}</strong>
+    </div>
+  );
+  return (
+    <article className="prod-remission-page">
+      {copies.map((copy) => (
+        <section className={`prod-remission-copy ${copy.tone}`} key={copy.key}>
+          <aside className="remission-side-text">
+            Impr. Galaxia - RUC: 1600316680001 - Telf.: 032 451190 - Emision 18-03-2026 - del 8101 al 8200 - Valido hasta 18-03-2027
+          </aside>
+          <header>
+            <div className="remission-logo">
+              <img src="/producalza/nota-logo-producalza.jpeg" alt="Producalza Rieker" />
+            </div>
+            <div className="remission-company">
+              <strong>LLERENA VALDEZ LUIS GERMAN</strong>
+              <b>PRODUCALZA RIEKER</b>
+              <span>CALIFICACION ARTESANAL 2010-984 - CALIFICACION IMPRO</span>
+              <span>Direccion: Imbabura s/n y 9 de Octubre - Ibarra - Ecuador</span>
+              <span>Telf.: 032 851289 - 0995 858292</span>
+              <span>Email: producalza@hotmail.com</span>
+              <strong>Autorizacion SRI: 11333331615 - "Regimen General"</strong>
+            </div>
+            <div className="remission-number">
+              <b>GUIA DE REMISION</b>
+              <strong>{guideNumber}</strong>
+              <span>001-001</span>
+              <em>R.U.C. 1802727196001</em>
+            </div>
+          </header>
+          <section className="remission-info-grid">
+            {line('FECHA DE EMISION:', displayDate(issueDate))}
+            {line('LUGAR Y FECHA:', [order.city, displayDate(issueDate)].filter(Boolean).join(' - '))}
+            {line('MOTIVO DEL TRASLADO:', `[X] ${guide.transfer_reason || 'VENTA'}`, 'reason')}
+            {line('COMPROBANTE DE VENTA:', guide.sale_receipt || order.invoice_number || order.order_number)}
+            {line('DESTINATARIO:', order.client_name || '')}
+            {line('PUNTO DE PARTIDA:', guide.departure_place || 'PRODUCALZA RIEKER - Imbabura s/n y 9 de Octubre')}
+            {line('NOMBRE O RAZON SOCIAL:', clientName)}
+            {line('PUNTO DE LLEGADA:', pointArrival)}
+            {line('IDENTIFICACION DE LA PERSONA ENCARGADA DEL TRANSPORTE:', guide.carrier_identification || '', 'wide')}
+            {line('NOMBRE O RAZON SOCIAL:', clientName, 'wide-name')}
+            {line('RUC/C.I.:', clientId, 'short-id')}
+            {line('HORA DE SALIDA:', guide.departure_time || '')}
+            {line('HORA DE LLEGADA:', guide.arrival_time || '')}
+          </section>
+          <table className="remission-table">
+            <thead><tr><th>CANTIDAD</th><th>UNIDAD</th><th>DESCRIPCION</th></tr></thead>
+            <tbody>
+              <tr><td></td><td></td><td>{description}</td></tr>
+              {Array.from({ length: 5 }).map((_, index) => <tr key={index}><td></td><td></td><td></td></tr>)}
+            </tbody>
+          </table>
+          <footer>{copy.label}</footer>
+        </section>
+      ))}
+    </article>
   );
 }
 

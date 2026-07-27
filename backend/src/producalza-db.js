@@ -178,6 +178,28 @@ export function initProducalzaDb(db) {
       FOREIGN KEY (order_id) REFERENCES production_orders(id)
     );
 
+    CREATE TABLE IF NOT EXISTS production_remission_guides (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      order_id INTEGER NOT NULL,
+      guide_number INTEGER NOT NULL,
+      issue_date TEXT NOT NULL,
+      departure_place TEXT,
+      arrival_place TEXT,
+      sale_receipt TEXT,
+      departure_time TEXT,
+      arrival_time TEXT,
+      transfer_reason TEXT NOT NULL DEFAULT 'VENTA',
+      carrier_identification TEXT,
+      description TEXT,
+      created_by TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (order_id) REFERENCES production_orders(id),
+      UNIQUE(establishment_id, guide_number)
+    );
+
     CREATE TABLE IF NOT EXISTS production_return_allocations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       establishment_id INTEGER NOT NULL,
@@ -476,6 +498,8 @@ export function initProducalzaDb(db) {
       ON production_order_payments(establishment_id, due_date, status);
     CREATE INDEX IF NOT EXISTS idx_production_delivery_notes_order
       ON production_delivery_notes(establishment_id, order_id, note_number);
+    CREATE INDEX IF NOT EXISTS idx_production_remission_guides_order
+      ON production_remission_guides(establishment_id, order_id, guide_number);
     CREATE INDEX IF NOT EXISTS idx_production_return_allocations_order
       ON production_return_allocations(establishment_id, return_order_id, destination);
     CREATE INDEX IF NOT EXISTS idx_production_payroll_entries_period

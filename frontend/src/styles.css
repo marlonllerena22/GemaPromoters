@@ -2676,6 +2676,11 @@ td {
   background: #263f82;
 }
 
+.prod-secondary-button.remision {
+  border-color: #9ab4ef;
+  color: #184c9c;
+}
+
 .prod-primary-button.delivery {
   background: #8a5a16;
   border-color: #8a5a16;
@@ -5244,6 +5249,11 @@ td {
     margin: 7mm;
   }
 
+  @page remission-guide {
+    size: A4 portrait;
+    margin: 5mm;
+  }
+
   @page box-guides {
     size: A4 portrait;
     margin: 0;
@@ -5401,13 +5411,25 @@ td {
   .prod-print-root.print-delivery-note .prod-print-card-page,
   .prod-print-root.print-delivery-note .prod-print-card,
   .prod-print-root.print-delivery-note .prod-guide-page,
+  .prod-print-root.print-delivery-note .prod-remission-page,
+  .prod-print-root.print-remission-guide .prod-print-page,
+  .prod-print-root.print-remission-guide .prod-print-card-page,
+  .prod-print-root.print-remission-guide .prod-print-card,
+  .prod-print-root.print-remission-guide .prod-delivery-note-page,
+  .prod-print-root.print-remission-guide .prod-guide-page,
   .prod-print-root.print-cards .prod-print-page,
   .prod-print-root.print-cards .prod-delivery-note-page,
+  .prod-print-root.print-cards .prod-remission-page,
   .prod-print-root.print-cards .prod-guide-page,
   .prod-print-root.print-guides .prod-print-page,
   .prod-print-root.print-guides .prod-delivery-note-page,
+  .prod-print-root.print-guides .prod-remission-page,
   .prod-print-root.print-guides .prod-print-card-page,
   .prod-print-root.print-guides .prod-print-card {
+    display: none !important;
+  }
+
+  .prod-print-root.print-order .prod-remission-page {
     display: none !important;
   }
 
@@ -5472,6 +5494,191 @@ td {
   .prod-monthly-print .prod-table th:nth-child(7),
   .prod-monthly-print .prod-table td:nth-child(7) {
     display: none;
+  }
+
+  .prod-remission-page {
+    background: #ffffff;
+    color: #000000;
+    display: grid;
+    font-family: Arial, sans-serif;
+    gap: 3mm;
+    min-height: 287mm;
+    page: remission-guide;
+    width: 200mm;
+  }
+
+  .prod-remission-copy {
+    border: 1.2mm solid #0e4aa7;
+    border-radius: 2mm;
+    box-sizing: border-box;
+    min-height: 141mm;
+    overflow: hidden;
+    padding: 2.5mm 2.5mm 2mm 5mm;
+    position: relative;
+  }
+
+  .prod-remission-copy.green {
+    background: #eef8ef !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .remission-side-text {
+    bottom: 4mm;
+    font-size: 6.2pt;
+    left: 1mm;
+    position: absolute;
+    top: 4mm;
+    transform: rotate(180deg);
+    writing-mode: vertical-rl;
+  }
+
+  .prod-remission-copy header {
+    align-items: start;
+    display: grid;
+    gap: 3mm;
+    grid-template-columns: 43mm 1fr 47mm;
+  }
+
+  .remission-logo img {
+    height: 23mm;
+    object-fit: contain;
+    width: 42mm;
+  }
+
+  .remission-company {
+    display: grid;
+    font-size: 6.8pt;
+    gap: 0.3mm;
+    line-height: 1.08;
+    text-align: center;
+  }
+
+  .remission-company b {
+    font-size: 12pt;
+    line-height: 1;
+  }
+
+  .remission-number {
+    display: grid;
+    gap: 0.7mm;
+    justify-items: end;
+    text-align: right;
+  }
+
+  .remission-number b {
+    color: #0e4aa7 !important;
+    font-size: 13pt;
+    font-weight: 900;
+  }
+
+  .remission-number strong {
+    color: #d00000 !important;
+    font-family: "Courier New", monospace;
+    font-size: 18pt;
+    font-weight: 500;
+    letter-spacing: 2.5px;
+  }
+
+  .remission-number span {
+    font-size: 7.8pt;
+  }
+
+  .remission-number em {
+    font-size: 10.5pt;
+    font-style: normal;
+  }
+
+  .remission-info-grid {
+    display: grid;
+    font-size: 7.5pt;
+    gap: 2.4mm 5mm;
+    grid-template-columns: 1fr 1.35fr 34mm;
+    margin-top: 5mm;
+  }
+
+  .remission-line {
+    align-items: end;
+    display: grid;
+    gap: 2mm;
+    grid-template-columns: auto 1fr;
+    min-height: 5.2mm;
+  }
+
+  .remission-line span {
+    font-weight: 800;
+    white-space: nowrap;
+  }
+
+  .remission-line strong {
+    border-bottom: 1px dotted #000000;
+    display: block;
+    font-weight: 600;
+    min-height: 4mm;
+    padding-left: 1mm;
+  }
+
+  .remission-line.reason strong {
+    border-bottom: 0;
+    font-weight: 800;
+  }
+
+  .remission-line.wide {
+    grid-column: 1 / 4;
+  }
+
+  .remission-line.wide-name {
+    grid-column: 1 / 3;
+  }
+
+  .remission-line.short-id {
+    grid-column: 3 / 4;
+  }
+
+  .remission-table {
+    border-collapse: collapse;
+    font-size: 7.6pt;
+    margin-top: 3mm;
+    width: 100%;
+  }
+
+  .remission-table th {
+    background: #0e4aa7 !important;
+    border: 1px solid #0e4aa7;
+    color: #ffffff !important;
+    font-size: 8.3pt;
+    height: 6mm;
+    letter-spacing: 2px;
+    text-align: center;
+  }
+
+  .remission-table th:first-child {
+    letter-spacing: 0;
+    width: 28mm;
+  }
+
+  .remission-table th:nth-child(2) {
+    letter-spacing: 0;
+    width: 28mm;
+  }
+
+  .remission-table td {
+    border-left: 1px solid #0e4aa7;
+    border-right: 1px solid #0e4aa7;
+    border-bottom: 1px dotted #000000;
+    height: 7.3mm;
+    padding: 1.2mm 2mm;
+    vertical-align: top;
+  }
+
+  .remission-table td:first-child,
+  .remission-table td:nth-child(2) {
+    text-align: center;
+  }
+
+  .prod-remission-copy footer {
+    font-size: 7.5pt;
+    margin-top: 1.8mm;
   }
 
   .prod-delivery-note-page {
