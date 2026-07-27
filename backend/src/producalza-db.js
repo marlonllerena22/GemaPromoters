@@ -183,6 +183,7 @@ export function initProducalzaDb(db) {
       establishment_id INTEGER NOT NULL,
       order_id INTEGER NOT NULL,
       guide_number INTEGER NOT NULL,
+      format_type TEXT NOT NULL DEFAULT 'producalza',
       issue_date TEXT NOT NULL,
       departure_place TEXT,
       arrival_place TEXT,
@@ -555,6 +556,7 @@ export function initProducalzaDb(db) {
   addColumnIfMissing(db, 'production_remission_guides', 'recipient_name', 'TEXT');
   addColumnIfMissing(db, 'production_remission_guides', 'recipient_business_name', 'TEXT');
   addColumnIfMissing(db, 'production_remission_guides', 'recipient_tax_id', 'TEXT');
+  addColumnIfMissing(db, 'production_remission_guides', 'format_type', "TEXT NOT NULL DEFAULT 'producalza'");
   addColumnIfMissing(db, 'production_order_models', 'unit_price', 'REAL NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'production_employees', 'source_name', 'TEXT');
   addColumnIfMissing(db, 'production_employees', 'pay_type', "TEXT NOT NULL DEFAULT 'salary'");

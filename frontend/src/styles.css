@@ -3212,6 +3212,13 @@ td {
   min-width: 130px;
 }
 
+.prod-pending-note-edit.saved {
+  display: grid;
+  flex: 1 1 360px;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+
 .prod-pending-note-edit label {
   color: #7c2d12;
   display: grid;
@@ -5513,7 +5520,7 @@ td {
     box-sizing: border-box;
     height: 143.5mm;
     overflow: hidden;
-    padding: 2mm 2.5mm 1.6mm 5mm;
+    padding: 2mm 2.5mm 1.6mm;
     position: relative;
   }
 

@@ -140,6 +140,29 @@ const PAYMENT_METHOD_OPTIONS = [
   'Abonos: quincenales'
 ];
 
+const REMISSION_FORMATS = {
+  producalza: {
+    label: 'Producalza Rieker',
+    owner: 'LLERENA VALDEZ LUIS GERMAN',
+    business: 'PRODUCALZA RIEKER',
+    logo: '/producalza/nota-logo-producalza.jpeg',
+    ruc: '1802727196001',
+    address: 'Imbabura s/n e Isidro Viteri - Ambato - Ecuador',
+    phone: '032851293 - 0995858297',
+    email: 'producalza@hotmail.com'
+  },
+  marjorie: {
+    label: 'Marjorie Botas',
+    owner: 'RODRIGUEZ BURGOS MARJORIE ELIZABETH',
+    business: 'MARJORIE BOTAS',
+    logo: '/producalza/nota-logo-marjorie.png',
+    ruc: '1802973824001',
+    address: 'Imbabura S/N y boca del lobo',
+    phone: '099585297',
+    email: 'marjoriebotas@hotmail.com'
+  }
+};
+
 const RETURN_DESTINATIONS = [
   'Local Marjorie Botas Norte',
   'Local Marjorie Botas Sur',
@@ -481,6 +504,7 @@ function remissionGuideValuesFromOrder(order) {
   return {
     id: guide.id || '',
     guide_number: guide.guide_number || '',
+    format_type: guide.format_type || 'producalza',
     issue_date: guide.issue_date || today,
     departure_place: guide.departure_place || 'PRODUCALZA RIEKER - Imbabura s/n e Isidro Viteri - Ambato - Ecuador',
     arrival_place: guide.arrival_place || [order.city, order.address].filter(Boolean).join(' - '),
@@ -493,6 +517,22 @@ function remissionGuideValuesFromOrder(order) {
     transfer_reason: guide.transfer_reason || 'VENTA',
     carrier_identification: guide.carrier_identification || '',
     description: guide.description || ''
+  };
+}
+
+function deliveryNoteEditValues(order, note) {
+  const noteOrder = deliveryOrderFromNote(order, note);
+  return {
+    shipping_value: note.shipping_value ?? 0,
+    discount_value: note.discount_value ?? 0,
+    models: (noteOrder.models || []).map((model) => ({
+      id: model.id,
+      model_code: model.model_code,
+      color: model.color,
+      material: model.material,
+      total_pairs: model.total_pairs,
+      unit_price: note.model_prices?.[Number(model.id)] ?? model.unit_price ?? 0
+    }))
   };
 }
 
@@ -826,6 +866,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
   const [clients, setClients] = useState([]);
   const [orders, setOrders] = useState([]);
   const [production, setProduction] = useState([]);
+  const [remissionGuides, setRemissionGuides] = useState([]);
   const [clientActivity, setClientActivity] = useState([]);
   const [users, setUsers] = useState([]);
   const [guideTemplates, setGuideTemplates] = useState([]);
@@ -853,6 +894,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
         nextClients,
         nextOrders,
         nextProduction,
+        nextRemissionGuides,
         nextClientActivity,
         staticGuideTemplates,
         managedGuideTemplates,
@@ -864,6 +906,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
         api(scope('/producalza/clients')),
         api(scope('/producalza/orders')),
         api(scope('/producalza/production')),
+        isAdmin ? api(scope('/producalza/remission-guides')) : Promise.resolve([]),
         isAdmin ? api(scope('/producalza/client-activity-report')) : Promise.resolve([]),
         fetch('/producalza/guides/templates.json').then((response) => response.ok ? response.json() : []),
         api(scope('/producalza/guide-templates')),
@@ -875,6 +918,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
       setClients(nextClients);
       setOrders(nextOrders);
       setProduction(nextProduction);
+      setRemissionGuides(nextRemissionGuides || []);
       setClientActivity(nextClientActivity);
       setUsers(nextBootstrap.users || []);
       setGuideTemplates(mergeGuideTemplates(staticGuideTemplates || [], managedGuideTemplates || []));
@@ -914,6 +958,16 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
       const order = await api(scope(`/producalza/orders/${orderId}`));
       setEditingOrder(order);
       setView('new-order');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function printRemissionFromRegistry(guide) {
+    try {
+      const order = await api(scope(`/producalza/orders/${guide.order_id}`));
+      const selectedGuide = (order.remission_guides || []).find((item) => Number(item.id) === Number(guide.id)) || guide;
+      setPrintState({ order: { ...order, selected_remission_guide: selectedGuide }, type: 'remission-guide', modelId: null, guideTemplateKey: '' });
     } catch (err) {
       setError(err.message);
     }
@@ -990,6 +1044,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
     ['new-order', 'Crear pedido', FilePlus2],
     ['clients', 'Clientes', UsersRound],
     ['production', 'Produccion', Factory],
+    ...(isAdmin ? [['remissions', 'Remisiones', FileDown]] : []),
     ...(isAdmin || isLocalSecretary ? [['reports', 'Reportes', BarChart3]] : []),
     ...(isLocalSecretary ? [['local-attendance', 'Empleadas', Clock]] : []),
     ...(isAdmin ? [['payroll', 'Roles', DollarSign]] : []),
@@ -1103,6 +1158,16 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
           onRefresh={refresh}
           setError={setError}
           onPrint={preparePrint}
+        />
+      )}
+      {view === 'remissions' && isAdmin && (
+        <RemissionGuidesRegistry
+          guides={remissionGuides}
+          scope={scope}
+          setError={setError}
+          setGuides={setRemissionGuides}
+          onOpen={openOrder}
+          onPrint={printRemissionFromRegistry}
         />
       )}
       {view === 'reports' && (isAdmin || isLocalSecretary) && (
@@ -1441,6 +1506,82 @@ function OrdersList({ orders, users, isAdmin, scope, onOpen, onEdit, onRefresh, 
   );
 }
 
+function RemissionGuidesRegistry({ guides, scope, setError, setGuides, onOpen, onPrint }) {
+  const [filters, setFilters] = useState({ guide_number: '', client: '', date_from: '', date_to: '', format_type: '' });
+  const [loading, setLoading] = useState(false);
+
+  async function applyFilters() {
+    const query = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => value && query.set(key, value));
+    setLoading(true);
+    try {
+      setGuides(await api(scope(`/producalza/remission-guides?${query.toString()}`)));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="prod-stack">
+      <section className="prod-filterbar">
+        <label className="prod-search">
+          <Search size={17} />
+          <input
+            placeholder="Numero de guia"
+            value={filters.guide_number}
+            onChange={(event) => setFilters({ ...filters, guide_number: event.target.value })}
+          />
+        </label>
+        <input
+          placeholder="Cliente o destinatario"
+          value={filters.client}
+          onChange={(event) => setFilters({ ...filters, client: event.target.value })}
+        />
+        <input type="date" value={filters.date_from} onChange={(event) => setFilters({ ...filters, date_from: event.target.value })} />
+        <input type="date" value={filters.date_to} onChange={(event) => setFilters({ ...filters, date_to: event.target.value })} />
+        <select value={filters.format_type} onChange={(event) => setFilters({ ...filters, format_type: event.target.value })}>
+          <option value="">Todos los formatos</option>
+          {Object.entries(REMISSION_FORMATS).map(([value, format]) => <option value={value} key={value}>{format.label}</option>)}
+        </select>
+        <button className="prod-secondary-button" disabled={loading} onClick={applyFilters}>
+          <Filter size={17} />{loading ? 'Filtrando...' : 'Filtrar'}
+        </button>
+      </section>
+      <section className="prod-panel">
+        <div className="prod-panel-title">
+          <div><span>Registro</span><h2>Guias de remision emitidas</h2></div>
+          <strong>{guides.length} guias</strong>
+        </div>
+        <div className="prod-table-wrap">
+          <table className="prod-table">
+            <thead><tr><th>Guia</th><th>Formato</th><th>Fecha</th><th>Cliente</th><th>Destino</th><th>Pedido</th><th /></tr></thead>
+            <tbody>
+              {guides.map((guide) => (
+                <tr key={guide.id}>
+                  <td><strong>{String(guide.guide_number).padStart(8, '0')}</strong></td>
+                  <td>{REMISSION_FORMATS[guide.format_type || 'producalza']?.label || 'Producalza Rieker'}</td>
+                  <td>{displayDate(guide.issue_date)}</td>
+                  <td><strong>{guide.recipient_name || guide.client_name}</strong><small>{guide.recipient_business_name || guide.client_business_name || ''}</small></td>
+                  <td>{guide.arrival_place || guide.client_city || ''}</td>
+                  <td><button className="prod-link-button" onClick={() => onOpen(guide.order_id)}>{guide.order_number}</button></td>
+                  <td>
+                    <div className="prod-row-actions">
+                      <button title="Imprimir guia" onClick={() => onPrint(guide)}><Printer size={16} /></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!guides.length && <div className="prod-empty">No hay guias con esos filtros.</div>}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function OrderForm({ clients, users, isAdmin, isLocalSecretary, scope, initialOrder, onCancel, onSaved, setError, guideTemplates }) {
   const [form, setForm] = useState(() => initialOrder ? orderToForm(initialOrder) : emptyOrder());
   const [showNewClient, setShowNewClient] = useState(false);
@@ -1739,6 +1880,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
   const [deliveryForm, setDeliveryForm] = useState(() => deliveryValuesFromOrder(order));
   const [remissionForm, setRemissionForm] = useState(() => remissionGuideValuesFromOrder(order));
   const [pendingNoteEdits, setPendingNoteEdits] = useState({});
+  const [editingDeliveryNoteId, setEditingDeliveryNoteId] = useState(null);
   const [paymentForm, setPaymentForm] = useState(emptyPayment);
   const [upcomingPaymentForm, setUpcomingPaymentForm] = useState(emptyUpcomingPayment);
   const [paymentSummaryForm, setPaymentSummaryForm] = useState(() => paymentSummaryValues(order.payments || []));
@@ -1763,6 +1905,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
     setDeliveryForm(deliveryValuesFromOrder(order));
     setRemissionForm(remissionGuideValuesFromOrder(order));
     setPendingNoteEdits({});
+    setEditingDeliveryNoteId(null);
     setShowDeliveryEditor(false);
     setShowGuidePicker(false);
     setShowRemissionForm(false);
@@ -2029,17 +2172,49 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
         method: 'PATCH',
         body: JSON.stringify({
           shipping_value: edit.shipping_value ?? note.shipping_value ?? 0,
-          discount_value: edit.discount_value ?? note.discount_value ?? 0
+          discount_value: edit.discount_value ?? note.discount_value ?? 0,
+          models: edit.models || []
         })
       });
       const updatedNote = (updatedOrder.delivery_notes || []).find((item) => Number(item.id) === Number(note.id));
-      await onUpdated('Nota pendiente actualizada');
+      await onUpdated('Nota actualizada');
+      setEditingDeliveryNoteId(null);
       onPrint('delivery-note', null, deliveryOrderFromNote(updatedOrder, updatedNote || note));
     } catch (err) {
       setError(err.message);
     } finally {
       setDeliverySaving(false);
     }
+  }
+
+  function startEditingDeliveryNote(note) {
+    setPendingNoteEdits((current) => ({
+      ...current,
+      [note.id]: current[note.id] || deliveryNoteEditValues(order, note)
+    }));
+    setEditingDeliveryNoteId(note.id);
+  }
+
+  function updateSavedNoteValue(noteId, key, value) {
+    setPendingNoteEdits((current) => ({
+      ...current,
+      [noteId]: {
+        ...(current[noteId] || {}),
+        [key]: value
+      }
+    }));
+  }
+
+  function updateSavedNoteModel(noteId, modelId, value) {
+    setPendingNoteEdits((current) => ({
+      ...current,
+      [noteId]: {
+        ...(current[noteId] || {}),
+        models: (current[noteId]?.models || []).map((model) =>
+          Number(model.id) === Number(modelId) ? { ...model, unit_price: value } : model
+        )
+      }
+    }));
   }
 
   function printGuidesForNote(note) {
@@ -2344,30 +2519,51 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
                 <span>Notas guardadas</span>
                 <strong>Imprime una nota anterior o pendiente</strong>
               </div>
-              {deliveryNotes.map((note) => (
+              {deliveryNotes.map((note) => {
+                const isEditingNote = Number(editingDeliveryNoteId) === Number(note.id);
+                const edit = pendingNoteEdits[note.id] || deliveryNoteEditValues(order, note);
+                return (
                 <article key={note.id} className={note.note_type === 'pending' ? 'pending' : ''}>
                   <div>
                     <strong>Nota #{note.note_number} · {note.title || 'Nota de entrega'}</strong>
                     <span>{displayMoney(note.total_value)} · {displayDate(note.created_at?.slice(0, 10))}{note.destination ? ` · ${shortDestinationName(note.destination)}` : ''}</span>
                   </div>
-                  {note.note_type === 'pending' && (
-                    <div className="prod-pending-note-edit">
-                      <label>Envio 2da nota
+                  {isEditingNote && (
+                    <div className="prod-pending-note-edit saved">
+                      {(edit.models || []).map((model) => (
+                        <label key={model.id}>{model.model_code}
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={model.unit_price}
+                            onChange={(event) => updateSavedNoteModel(note.id, model.id, event.target.value)}
+                          />
+                        </label>
+                      ))}
+                      <label>Envio
                         <input
                           type="number"
                           min="0"
                           step="0.01"
-                          value={pendingNoteEdits[note.id]?.shipping_value ?? note.shipping_value ?? ''}
-                          onChange={(event) => setPendingNoteEdits((current) => ({
-                            ...current,
-                            [note.id]: { ...(current[note.id] || {}), shipping_value: event.target.value }
-                          }))}
+                          value={edit.shipping_value ?? ''}
+                          onChange={(event) => updateSavedNoteValue(note.id, 'shipping_value', event.target.value)}
+                        />
+                      </label>
+                      <label>Descuento
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={edit.discount_value ?? ''}
+                          onChange={(event) => updateSavedNoteValue(note.id, 'discount_value', event.target.value)}
                         />
                       </label>
                     </div>
                   )}
-                  {note.note_type === 'pending' ? (
-                    <div className="prod-saved-note-actions">
+                  <div className="prod-saved-note-actions">
+                  {isEditingNote ? (
+                    <>
                       <button
                         className="prod-secondary-button compact"
                         disabled={deliverySaving}
@@ -2375,12 +2571,15 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
                       >
                         <Printer size={16} />Guardar e imprimir
                       </button>
-                      <button className="prod-secondary-button compact" onClick={() => printGuidesForNote(note)}>
-                        <Tags size={16} />Guias
+                      <button className="prod-secondary-button compact" onClick={() => setEditingDeliveryNoteId(null)}>
+                        <X size={16} />Cancelar
                       </button>
-                    </div>
+                    </>
                   ) : (
-                    <div className="prod-saved-note-actions">
+                    <>
+                      <button className="prod-secondary-button compact" onClick={() => startEditingDeliveryNote(note)}>
+                        <Pencil size={16} />Editar
+                      </button>
                       <button
                         className="prod-secondary-button compact"
                         onClick={() => onPrint('delivery-note', null, deliveryOrderFromNote(order, note))}
@@ -2390,10 +2589,12 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
                       <button className="prod-secondary-button compact" onClick={() => printGuidesForNote(note)}>
                         <Tags size={16} />Guias
                       </button>
-                    </div>
+                    </>
                   )}
+                  </div>
                 </article>
-              ))}
+                );
+              })}
             </div>
           )}
           <div className="prod-delivery-editor-list">
@@ -2487,6 +2688,11 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
             <Detail label="Comprobante de venta" value={remissionForm.sale_receipt} />
           </div>
           <div className="prod-form-grid">
+            <label>Formato de guia
+              <select value={remissionForm.format_type} onChange={(event) => setRemissionForm({ ...remissionForm, format_type: event.target.value })}>
+                {Object.entries(REMISSION_FORMATS).map(([value, format]) => <option value={value} key={value}>{format.label}</option>)}
+              </select>
+            </label>
             <label>Destinatario
               <input value={remissionForm.recipient_name} onChange={(event) => setRemissionForm({ ...remissionForm, recipient_name: event.target.value })} />
             </label>
@@ -6300,6 +6506,7 @@ function GuideLabel({ guide, order, template }) {
 
 function RemissionGuideSheet({ order }) {
   const guide = order.selected_remission_guide || (order.remission_guides || [])[0] || {};
+  const format = REMISSION_FORMATS[guide.format_type || 'producalza'] || REMISSION_FORMATS.producalza;
   const guideNumber = String(guide.guide_number || 8201).padStart(8, '0');
   const issueDate = guide.issue_date || new Date().toISOString().slice(0, 10);
   const recipientName = guide.recipient_name || order.client_name || '';
@@ -6322,26 +6529,23 @@ function RemissionGuideSheet({ order }) {
     <article className="prod-remission-page">
       {copies.map((copy) => (
         <section className={`prod-remission-copy ${copy.tone}`} key={copy.key}>
-          <aside className="remission-side-text">
-            Impr. Galaxia - RUC: 1600316680001 - Telf.: 032 451190 - Emision 18-03-2026 - del 8101 al 8200 - Valido hasta 18-03-2027
-          </aside>
           <header>
             <div className="remission-logo">
-              <img src="/producalza/nota-logo-producalza.jpeg" alt="Producalza Rieker" />
+              <img src={format.logo} alt={format.business} />
             </div>
             <div className="remission-company">
-              <strong>LLERENA VALDEZ LUIS GERMAN</strong>
-              <b>PRODUCALZA RIEKER</b>
+              <strong>{format.owner}</strong>
+              <b>{format.business}</b>
               <span>CALIFICACION ARTESANAL - CALIFICACION IMPRO</span>
-              <span>Direccion: Imbabura s/n e Isidro Viteri - Ambato - Ecuador</span>
-              <span>Telf.: 032851293 - 0995858297</span>
-              <span>Email: producalza@hotmail.com</span>
+              <span>Direccion: {format.address}</span>
+              <span>Telf.: {format.phone}</span>
+              <span>Email: {format.email}</span>
             </div>
             <div className="remission-number">
               <b>GUIA DE REMISION</b>
               <strong>{guideNumber}</strong>
               <span>001-001</span>
-              <em>R.U.C. 1802727196001</em>
+              <em>R.U.C. {format.ruc}</em>
             </div>
           </header>
           <section className="remission-info-grid compact">

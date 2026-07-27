@@ -936,13 +936,15 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     return Number(row?.next_number || 1);
   }
 
-  function nextRemissionGuideNumber(businessId) {
+  function nextRemissionGuideNumber(businessId, formatType = 'producalza') {
+    const normalizedFormat = formatType === 'marjorie' ? 'marjorie' : 'producalza';
+    const startFrom = normalizedFormat === 'marjorie' ? 100 : 8201;
     const row = db.prepare(
-      `SELECT COALESCE(MAX(guide_number), 8200) + 1 AS next_number
+      `SELECT COALESCE(MAX(guide_number), ?) + 1 AS next_number
        FROM production_remission_guides
-       WHERE establishment_id = ?`
-    ).get(businessId);
-    return Math.max(8201, Number(row?.next_number || 8201));
+       WHERE establishment_id = ? AND COALESCE(format_type, 'producalza') = ?`
+    ).get(startFrom - 1, businessId, normalizedFormat);
+    return Math.max(startFrom, Number(row?.next_number || startFrom));
   }
 
   function createDeliveryNoteRecord({ orderId, businessId, noteType, title, destination = '', modelIds, prices, shippingValue, discountValue, totalValue, userLabel }) {
@@ -3229,6 +3231,53 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     res.json(rows);
   });
 
+  app.get('/api/producalza/remission-guides', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const visibility = orderVisibility(req);
+    const guideNumber = String(req.query.guide_number || '').trim();
+    const client = `%${String(req.query.client || '').trim()}%`;
+    const dateFrom = String(req.query.date_from || '').trim();
+    const dateTo = String(req.query.date_to || '').trim();
+    const formatType = String(req.query.format_type || '').trim();
+    const filters = [];
+    const params = [business.id, client, client, client];
+    if (guideNumber) {
+      filters.push('CAST(guides.guide_number AS TEXT) LIKE ?');
+      params.push(`%${guideNumber}%`);
+    }
+    if (dateFrom) {
+      filters.push('guides.issue_date >= ?');
+      params.push(dateFrom);
+    }
+    if (dateTo) {
+      filters.push('guides.issue_date <= ?');
+      params.push(dateTo);
+    }
+    if (formatType) {
+      filters.push("COALESCE(guides.format_type, 'producalza') = ?");
+      params.push(formatType);
+    }
+    params.push(...visibility.params);
+    const rows = db.prepare(
+      `SELECT guides.*, orders.order_number, orders.status AS order_status,
+              clients.name AS client_name, clients.business_name AS client_business_name,
+              clients.tax_id AS client_tax_id, clients.city AS client_city,
+              users.name AS seller_name
+       FROM production_remission_guides AS guides
+       JOIN production_orders AS orders ON orders.id = guides.order_id
+       JOIN production_clients AS clients ON clients.id = orders.client_id
+       LEFT JOIN production_users AS users ON users.id = orders.seller_user_id
+       WHERE guides.establishment_id = ?
+         AND orders.deleted_at IS NULL
+         AND (clients.name LIKE ? OR clients.business_name LIKE ? OR COALESCE(guides.recipient_name, '') LIKE ?)
+         ${filters.length ? `AND ${filters.join(' AND ')}` : ''}
+         ${visibility.sql}
+       ORDER BY guides.issue_date DESC, guides.guide_number DESC, guides.id DESC`
+    ).all(...params);
+    res.json(rows);
+  });
+
   app.get('/api/producalza/orders/:id', requireProductionUser, (req, res) => {
     const business = ensureProductionBusiness(req, res);
     if (!business) return;
@@ -3493,7 +3542,9 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
 
     const guideId = Number(req.body.id || 0);
     const issueDate = normalizeDateInput(req.body.issue_date, new Date().toISOString().slice(0, 10));
+    const formatType = req.body.format_type === 'marjorie' ? 'marjorie' : 'producalza';
     const payload = {
+      formatType,
       issueDate,
       departurePlace: String(req.body.departure_place || 'PRODUCALZA RIEKER - Imbabura s/n e Isidro Viteri - Ambato - Ecuador').trim(),
       arrivalPlace: String(req.body.arrival_place || [order.city, order.address].filter(Boolean).join(' - ')).trim(),
@@ -3523,14 +3574,19 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
              WHERE id = ? AND order_id = ? AND establishment_id = ?`
           ).get(guideId, order.id, business.id);
           if (!current) throw new Error('Guia de remision no encontrada');
+          const guideNumber = (current.format_type || 'producalza') === payload.formatType
+            ? current.guide_number
+            : nextRemissionGuideNumber(business.id, payload.formatType);
           db.prepare(
             `UPDATE production_remission_guides
-             SET issue_date = ?, departure_place = ?, arrival_place = ?, recipient_name = ?,
+             SET guide_number = ?, format_type = ?, issue_date = ?, departure_place = ?, arrival_place = ?, recipient_name = ?,
                  recipient_business_name = ?, recipient_tax_id = ?, sale_receipt = ?,
                  departure_time = ?, arrival_time = ?, transfer_reason = ?, carrier_identification = ?,
                  description = ?, updated_at = datetime('now', 'localtime')
              WHERE id = ? AND order_id = ? AND establishment_id = ?`
           ).run(
+            guideNumber,
+            payload.formatType,
             payload.issueDate,
             payload.departurePlace,
             payload.arrivalPlace,
@@ -3556,14 +3612,19 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
            LIMIT 1`
         ).get(order.id, business.id);
         if (existing) {
+          const guideNumber = (existing.format_type || 'producalza') === payload.formatType
+            ? existing.guide_number
+            : nextRemissionGuideNumber(business.id, payload.formatType);
           db.prepare(
             `UPDATE production_remission_guides
-             SET issue_date = ?, departure_place = ?, arrival_place = ?, recipient_name = ?,
+             SET guide_number = ?, format_type = ?, issue_date = ?, departure_place = ?, arrival_place = ?, recipient_name = ?,
                  recipient_business_name = ?, recipient_tax_id = ?, sale_receipt = ?,
                  departure_time = ?, arrival_time = ?, transfer_reason = ?, carrier_identification = ?,
                  description = ?, updated_at = datetime('now', 'localtime')
              WHERE id = ? AND order_id = ? AND establishment_id = ?`
           ).run(
+            guideNumber,
+            payload.formatType,
             payload.issueDate,
             payload.departurePlace,
             payload.arrivalPlace,
@@ -3582,18 +3643,19 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
           );
           return existing.id;
         }
-        const guideNumber = nextRemissionGuideNumber(business.id);
+        const guideNumber = nextRemissionGuideNumber(business.id, payload.formatType);
         const result = db.prepare(
           `INSERT INTO production_remission_guides
-           (establishment_id, order_id, guide_number, issue_date, departure_place, arrival_place,
+           (establishment_id, order_id, guide_number, format_type, issue_date, departure_place, arrival_place,
             recipient_name, recipient_business_name, recipient_tax_id, sale_receipt,
             departure_time, arrival_time, transfer_reason, carrier_identification,
             description, created_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).run(
           business.id,
           order.id,
           guideNumber,
+          payload.formatType,
           payload.issueDate,
           payload.departurePlace,
           payload.arrivalPlace,
@@ -3631,7 +3693,13 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const shippingValue = moneyValue(req.body.shipping_value);
     const discountValue = moneyValue(req.body.discount_value);
     const modelIds = new Set(parseJsonValue(note.model_ids_json, []).map((id) => Number(id)));
-    const pricesById = parseJsonValue(note.model_prices_json, {});
+    const currentPricesById = parseJsonValue(note.model_prices_json, {});
+    const submittedPrices = Array.isArray(req.body.models) ? req.body.models : [];
+    const pricesById = { ...currentPricesById };
+    for (const model of submittedPrices) {
+      const modelId = Number(model.id || 0);
+      if (modelIds.has(modelId)) pricesById[modelId] = moneyValue(model.unit_price);
+    }
     const noteSubtotal = order.models
       .filter((model) => modelIds.has(Number(model.id)))
       .reduce((sum, model) => {
@@ -3646,9 +3714,10 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     db.transaction(() => {
       db.prepare(
         `UPDATE production_delivery_notes
-         SET shipping_value = ?, discount_value = ?, total_value = ?
+         SET model_prices_json = ?, shipping_value = ?, discount_value = ?, total_value = ?,
+             updated_at = datetime('now', 'localtime')
          WHERE id = ? AND order_id = ? AND establishment_id = ?`
-      ).run(shippingValue, discountValue, newTotal, note.id, order.id, business.id);
+      ).run(JSON.stringify(pricesById), shippingValue, discountValue, newTotal, note.id, order.id, business.id);
       if (delta > 0) addPendingBalance(order.id, business.id, delta, userLabel);
       if (delta < 0) reducePendingBalance(order.id, business.id, Math.abs(delta));
     })();
