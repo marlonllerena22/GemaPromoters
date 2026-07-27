@@ -482,8 +482,11 @@ function remissionGuideValuesFromOrder(order) {
     id: guide.id || '',
     guide_number: guide.guide_number || '',
     issue_date: guide.issue_date || today,
-    departure_place: guide.departure_place || 'PRODUCALZA RIEKER - Imbabura s/n y 9 de Octubre',
+    departure_place: guide.departure_place || 'PRODUCALZA RIEKER - Imbabura s/n e Isidro Viteri - Ambato - Ecuador',
     arrival_place: guide.arrival_place || [order.city, order.address].filter(Boolean).join(' - '),
+    recipient_name: guide.recipient_name || order.client_name || '',
+    recipient_business_name: guide.recipient_business_name || order.business_name || order.client_name || '',
+    recipient_tax_id: guide.recipient_tax_id || order.tax_id || '',
     sale_receipt: guide.sale_receipt || order.invoice_number || order.order_number || '',
     departure_time: guide.departure_time || '',
     arrival_time: guide.arrival_time || '',
@@ -2482,12 +2485,21 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
           <div className="prod-detail-grid">
             <Detail label="Fecha de emision" value={displayDate(remissionForm.issue_date)} />
             <Detail label="Comprobante de venta" value={remissionForm.sale_receipt} />
-            <Detail label="Punto de llegada" value={remissionForm.arrival_place} />
-            <Detail label="Cliente" value={order.client_name} />
-            <Detail label="RUC o cedula" value={order.tax_id} />
           </div>
           <div className="prod-form-grid">
-            <label className="span-2">Identificacion de la persona encargada del transporte
+            <label>Destinatario
+              <input value={remissionForm.recipient_name} onChange={(event) => setRemissionForm({ ...remissionForm, recipient_name: event.target.value })} />
+            </label>
+            <label>Nombre o razon social
+              <input value={remissionForm.recipient_business_name} onChange={(event) => setRemissionForm({ ...remissionForm, recipient_business_name: event.target.value })} />
+            </label>
+            <label className="span-2">Punto de llegada
+              <input value={remissionForm.arrival_place} onChange={(event) => setRemissionForm({ ...remissionForm, arrival_place: event.target.value })} />
+            </label>
+            <label>RUC o cedula
+              <input value={remissionForm.recipient_tax_id} onChange={(event) => setRemissionForm({ ...remissionForm, recipient_tax_id: event.target.value })} />
+            </label>
+            <label>Empresa encargada de transporte
               <input value={remissionForm.carrier_identification} onChange={(event) => setRemissionForm({ ...remissionForm, carrier_identification: event.target.value })} />
             </label>
             <label className="span-full">Descripcion de cartones o paquetes enviados
@@ -6290,8 +6302,9 @@ function RemissionGuideSheet({ order }) {
   const guide = order.selected_remission_guide || (order.remission_guides || [])[0] || {};
   const guideNumber = String(guide.guide_number || 8201).padStart(8, '0');
   const issueDate = guide.issue_date || new Date().toISOString().slice(0, 10);
-  const clientName = order.business_name || order.client_name || '';
-  const clientId = order.tax_id || '';
+  const recipientName = guide.recipient_name || order.client_name || '';
+  const clientName = guide.recipient_business_name || order.business_name || order.client_name || '';
+  const clientId = guide.recipient_tax_id || order.tax_id || '';
   const pointArrival = guide.arrival_place || [order.city, order.address].filter(Boolean).join(' - ');
   const totalPairs = (order.models || []).reduce((sum, model) => sum + Number(model.total_pairs || 0), 0);
   const description = guide.description || `${totalPairs} pares de calzado segun pedido ${order.order_number}`;
@@ -6319,11 +6332,10 @@ function RemissionGuideSheet({ order }) {
             <div className="remission-company">
               <strong>LLERENA VALDEZ LUIS GERMAN</strong>
               <b>PRODUCALZA RIEKER</b>
-              <span>CALIFICACION ARTESANAL 2010-984 - CALIFICACION IMPRO</span>
-              <span>Direccion: Imbabura s/n y 9 de Octubre - Ibarra - Ecuador</span>
-              <span>Telf.: 032 851289 - 0995 858292</span>
+              <span>CALIFICACION ARTESANAL - CALIFICACION IMPRO</span>
+              <span>Direccion: Imbabura s/n e Isidro Viteri - Ambato - Ecuador</span>
+              <span>Telf.: 032851293 - 0995858297</span>
               <span>Email: producalza@hotmail.com</span>
-              <strong>Autorizacion SRI: 11333331615 - "Regimen General"</strong>
             </div>
             <div className="remission-number">
               <b>GUIA DE REMISION</b>
@@ -6335,7 +6347,7 @@ function RemissionGuideSheet({ order }) {
           <section className="remission-info-grid compact">
             {line('FECHA DE EMISION:', displayDate(issueDate), 'full date')}
             <h3>DATOS DEL DESTINATARIO</h3>
-            {line('DESTINATARIO:', order.client_name || '', 'recipient-main')}
+            {line('DESTINATARIO:', recipientName, 'recipient-main')}
             {line('NOMBRE O RAZON SOCIAL:', clientName, 'recipient-main')}
             {line('PUNTO DE LLEGADA:', pointArrival, 'recipient-main')}
             {line('RUC/C.I.:', clientId, 'recipient-main')}

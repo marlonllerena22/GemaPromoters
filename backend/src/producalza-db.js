@@ -186,6 +186,9 @@ export function initProducalzaDb(db) {
       issue_date TEXT NOT NULL,
       departure_place TEXT,
       arrival_place TEXT,
+      recipient_name TEXT,
+      recipient_business_name TEXT,
+      recipient_tax_id TEXT,
       sale_receipt TEXT,
       departure_time TEXT,
       arrival_time TEXT,
@@ -549,6 +552,9 @@ export function initProducalzaDb(db) {
   addColumnIfMissing(db, 'production_orders', 'invoice_number', 'TEXT');
   addColumnIfMissing(db, 'production_orders', 'invoice_date', 'TEXT');
   addColumnIfMissing(db, 'production_orders', 'invoice_value', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'production_remission_guides', 'recipient_name', 'TEXT');
+  addColumnIfMissing(db, 'production_remission_guides', 'recipient_business_name', 'TEXT');
+  addColumnIfMissing(db, 'production_remission_guides', 'recipient_tax_id', 'TEXT');
   addColumnIfMissing(db, 'production_order_models', 'unit_price', 'REAL NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'production_employees', 'source_name', 'TEXT');
   addColumnIfMissing(db, 'production_employees', 'pay_type', "TEXT NOT NULL DEFAULT 'salary'");

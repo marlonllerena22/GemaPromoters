@@ -3495,8 +3495,11 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const issueDate = normalizeDateInput(req.body.issue_date, new Date().toISOString().slice(0, 10));
     const payload = {
       issueDate,
-      departurePlace: String(req.body.departure_place || 'PRODUCALZA RIEKER - Imbabura s/n y 9 de Octubre').trim(),
-      arrivalPlace: String(req.body.arrival_place || order.city || '').trim(),
+      departurePlace: String(req.body.departure_place || 'PRODUCALZA RIEKER - Imbabura s/n e Isidro Viteri - Ambato - Ecuador').trim(),
+      arrivalPlace: String(req.body.arrival_place || [order.city, order.address].filter(Boolean).join(' - ')).trim(),
+      recipientName: String(req.body.recipient_name || order.client_name || '').trim(),
+      recipientBusinessName: String(req.body.recipient_business_name || order.business_name || order.client_name || '').trim(),
+      recipientTaxId: String(req.body.recipient_tax_id || order.tax_id || '').trim(),
       saleReceipt: String(req.body.sale_receipt || order.invoice_number || order.order_number || '').trim(),
       departureTime: String(req.body.departure_time || '').trim(),
       arrivalTime: String(req.body.arrival_time || '').trim(),
@@ -3509,7 +3512,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       return res.status(400).json({ message: 'Escribe la descripcion de cartones o paquetes enviados.' });
     }
     if (!payload.carrierIdentification) {
-      return res.status(400).json({ message: 'Escribe la identificacion de la persona encargada del transporte.' });
+      return res.status(400).json({ message: 'Escribe la empresa encargada de transporte.' });
     }
 
     try {
@@ -3522,7 +3525,8 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
           if (!current) throw new Error('Guia de remision no encontrada');
           db.prepare(
             `UPDATE production_remission_guides
-             SET issue_date = ?, departure_place = ?, arrival_place = ?, sale_receipt = ?,
+             SET issue_date = ?, departure_place = ?, arrival_place = ?, recipient_name = ?,
+                 recipient_business_name = ?, recipient_tax_id = ?, sale_receipt = ?,
                  departure_time = ?, arrival_time = ?, transfer_reason = ?, carrier_identification = ?,
                  description = ?, updated_at = datetime('now', 'localtime')
              WHERE id = ? AND order_id = ? AND establishment_id = ?`
@@ -3530,6 +3534,9 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
             payload.issueDate,
             payload.departurePlace,
             payload.arrivalPlace,
+            payload.recipientName,
+            payload.recipientBusinessName,
+            payload.recipientTaxId,
             payload.saleReceipt,
             payload.departureTime,
             payload.arrivalTime,
@@ -3551,7 +3558,8 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         if (existing) {
           db.prepare(
             `UPDATE production_remission_guides
-             SET issue_date = ?, departure_place = ?, arrival_place = ?, sale_receipt = ?,
+             SET issue_date = ?, departure_place = ?, arrival_place = ?, recipient_name = ?,
+                 recipient_business_name = ?, recipient_tax_id = ?, sale_receipt = ?,
                  departure_time = ?, arrival_time = ?, transfer_reason = ?, carrier_identification = ?,
                  description = ?, updated_at = datetime('now', 'localtime')
              WHERE id = ? AND order_id = ? AND establishment_id = ?`
@@ -3559,6 +3567,9 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
             payload.issueDate,
             payload.departurePlace,
             payload.arrivalPlace,
+            payload.recipientName,
+            payload.recipientBusinessName,
+            payload.recipientTaxId,
             payload.saleReceipt,
             payload.departureTime,
             payload.arrivalTime,
@@ -3575,9 +3586,10 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         const result = db.prepare(
           `INSERT INTO production_remission_guides
            (establishment_id, order_id, guide_number, issue_date, departure_place, arrival_place,
-            sale_receipt, departure_time, arrival_time, transfer_reason, carrier_identification,
+            recipient_name, recipient_business_name, recipient_tax_id, sale_receipt,
+            departure_time, arrival_time, transfer_reason, carrier_identification,
             description, created_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).run(
           business.id,
           order.id,
@@ -3585,6 +3597,9 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
           payload.issueDate,
           payload.departurePlace,
           payload.arrivalPlace,
+          payload.recipientName,
+          payload.recipientBusinessName,
+          payload.recipientTaxId,
           payload.saleReceipt,
           payload.departureTime,
           payload.arrivalTime,
