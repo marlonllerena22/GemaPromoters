@@ -202,13 +202,44 @@ function drawWrappedCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines =
   return visible.length * lineHeight;
 }
 
+function longSpanishDate(value) {
+  const date = value ? new Date(`${value}T12:00:00`) : new Date();
+  const formatted = new Intl.DateTimeFormat('es-EC', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  }).format(date);
+  return formatted.charAt(0).toUpperCase() + formatted.slice(1);
+}
+
 async function createPhysicalDailyReportImage(report, reportDate) {
   const current = report || {};
   const totals = current.totals || {};
   const sales = current.sales || [];
-  const byLocation = current.by_location || [];
-  const byPayment = (current.by_payment || []).filter((row) => Number(row.quantity || 0) > 0 || Number(row.total || 0) > 0);
   const expenses = current.expenses || [];
+  const paymentKeys = ['cash', 'transfer', 'card'];
+  const rowsByLocation = new Map();
+  const paymentTotals = { cash: 0, transfer: 0, card: 0 };
+  const quantityTotals = { cash: 0, transfer: 0, card: 0 };
+
+  for (const sale of sales) {
+    const method = paymentKeys.includes(sale.payment_method) ? sale.payment_method : 'cash';
+    paymentTotals[method] += Number(sale.total || 0);
+    for (const item of sale.items || []) {
+      const location = item.location || 'Sin localidad';
+      const row = rowsByLocation.get(location) || { location, cash: 0, transfer: 0, card: 0, total: 0 };
+      const quantity = Number(item.quantity || 0);
+      row[method] += quantity;
+      row.total += quantity;
+      quantityTotals[method] += quantity;
+      rowsByLocation.set(location, row);
+    }
+  }
+
+  const tableRows = [...rowsByLocation.values()].sort((a, b) => a.location.localeCompare(b.location));
+  const totalQuantity = paymentKeys.reduce((sum, key) => sum + quantityTotals[key], 0);
+  const expenseTotal = expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
   const canvas = document.createElement('canvas');
   canvas.width = 1240;
   canvas.height = 1754;
@@ -222,25 +253,25 @@ async function createPhysicalDailyReportImage(report, reportDate) {
   ctx.fillStyle = '#111827';
   ctx.font = '800 30px Arial';
   ctx.fillText('PROMOTERS / GEMASHOW', 70, 96);
-  ctx.font = '900 48px Arial';
-  ctx.fillText('Reporte diario de entradas fisicas', 70, 154);
+  ctx.font = '900 50px Arial';
+  ctx.fillText('Resumen diario de entradas', 70, 154);
   ctx.fillStyle = '#6d28d9';
-  ctx.font = '800 30px Arial';
-  ctx.fillText(current.date_from || reportDate, 920, 120);
+  ctx.font = '800 28px Arial';
+  ctx.fillText(`Fecha: ${longSpanishDate(current.date_from || reportDate)}`, 70, 205);
 
   const summary = [
     ['Entradas vendidas', totals.soldQuantity || 0],
-    ['Subtotal', money(totals.subtotal)],
-    ['Descuentos', money(totals.discounts)],
+    ['Efectivo', money(paymentTotals.cash)],
+    ['Transferencia', money(paymentTotals.transfer)],
+    ['Tarjeta', money(paymentTotals.card)],
     ['Venta total', money(totals.total)],
-    ['Gastos', money(totals.expenses)],
     ['Neto', money(totals.net)]
   ];
   summary.forEach(([label, value], index) => {
     const col = index % 3;
     const row = Math.floor(index / 3);
     const x = 70 + col * 365;
-    const y = 215 + row * 115;
+    const y = 255 + row * 115;
     ctx.fillStyle = '#f5f3ff';
     ctx.fillRect(x, y, 330, 82);
     ctx.strokeStyle = '#c4b5fd';
@@ -254,86 +285,86 @@ async function createPhysicalDailyReportImage(report, reportDate) {
     ctx.fillText(String(value), x + 18, y + 66);
   });
 
-  function sectionTitle(title, x, y) {
-    ctx.fillStyle = '#111827';
-    ctx.font = '900 26px Arial';
-    ctx.fillText(title, x, y);
+  const tableX = 70;
+  let tableY = 510;
+  const tableWidth = 1100;
+  const colWidths = [315, 180, 230, 175, 200];
+  const rowHeight = Math.max(48, Math.min(74, Math.floor(760 / Math.max(3, tableRows.length + 2))));
+  const headers = ['LOCALIDAD', 'EFECTIVO', 'TRANSFERENCIA', 'TARJETA', 'TOTAL'];
+  ctx.fillStyle = '#111827';
+  ctx.font = '900 30px Arial';
+  ctx.fillText('Ventas por localidad y forma de pago', tableX, tableY - 24);
+
+  function drawCell(text, x, y, width, height, options = {}) {
+    ctx.fillStyle = options.fill || '#ffffff';
+    ctx.fillRect(x, y, width, height);
     ctx.strokeStyle = '#111827';
     ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(x, y + 10);
-    ctx.lineTo(x + 470, y + 10);
-    ctx.stroke();
+    ctx.strokeRect(x, y, width, height);
+    ctx.fillStyle = options.color || '#111827';
+    ctx.font = options.font || '800 25px Arial';
+    ctx.textAlign = options.align || 'center';
+    ctx.textBaseline = 'middle';
+    const textX = options.align === 'left' ? x + 18 : x + width / 2;
+    if (options.wrap) {
+      ctx.textBaseline = 'alphabetic';
+      ctx.textAlign = 'left';
+      drawWrappedCanvasText(ctx, text, x + 16, y + Math.min(34, height / 2 + 8), width - 28, 26, 2);
+    } else {
+      ctx.fillText(String(text), textX, y + height / 2 + 1);
+    }
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
   }
 
-  const salesX = 70;
-  let salesY = 490;
-  sectionTitle('Ventas', salesX, salesY);
-  salesY += 34;
-  const rowHeight = Math.max(34, Math.min(58, Math.floor(610 / Math.max(1, sales.length + 1))));
-  ctx.font = '800 19px Arial';
-  ctx.fillStyle = '#e5e7eb';
-  ctx.fillRect(salesX, salesY, 690, rowHeight);
-  ctx.strokeStyle = '#111827';
-  ctx.strokeRect(salesX, salesY, 690, rowHeight);
-  ctx.fillStyle = '#111827';
-  ctx.fillText('Venta', salesX + 12, salesY + 25);
-  ctx.fillText('Pago', salesX + 160, salesY + 25);
-  ctx.fillText('Entradas', salesX + 300, salesY + 25);
-  ctx.fillText('Total', salesX + 600, salesY + 25);
-  salesY += rowHeight;
-  ctx.font = `${rowHeight <= 38 ? '16' : '18'}px Arial`;
-  if (sales.length) {
-    sales.forEach((sale) => {
-      ctx.strokeRect(salesX, salesY, 690, rowHeight);
-      ctx.fillStyle = '#111827';
-      ctx.fillText(sale.sale_number || '-', salesX + 12, salesY + 24);
-      ctx.fillText(physicalPaymentLabels[sale.payment_method] || sale.payment_method || '-', salesX + 160, salesY + 24);
-      drawWrappedCanvasText(ctx, sale.items.map((item) => `${item.location} x${item.quantity}`).join(', '), salesX + 300, salesY + 24, 270, rowHeight <= 38 ? 17 : 19, 2);
-      ctx.font = `800 ${rowHeight <= 38 ? '16' : '18'}px Arial`;
-      ctx.fillText(money(sale.total), salesX + 600, salesY + 24);
-      ctx.font = `${rowHeight <= 38 ? '16' : '18'}px Arial`;
-      salesY += rowHeight;
+  let x = tableX;
+  headers.forEach((header, index) => {
+    drawCell(header, x, tableY, colWidths[index], 58, { fill: '#4c1d95', color: '#ffffff', font: '900 22px Arial' });
+    x += colWidths[index];
+  });
+  tableY += 58;
+
+  const displayRows = tableRows.length ? tableRows : [{ location: 'Sin ventas registradas', cash: 0, transfer: 0, card: 0, total: 0 }];
+  displayRows.forEach((row, rowIndex) => {
+    const fill = rowIndex % 2 === 0 ? '#ffffff' : '#f8fafc';
+    let cellX = tableX;
+    drawCell(row.location, cellX, tableY, colWidths[0], rowHeight, { fill, font: '800 24px Arial', align: 'left', wrap: true });
+    cellX += colWidths[0];
+    paymentKeys.forEach((key, keyIndex) => {
+      drawCell(row[key] || 0, cellX, tableY, colWidths[keyIndex + 1], rowHeight, { fill, font: '900 30px Arial' });
+      cellX += colWidths[keyIndex + 1];
     });
-  } else {
-    ctx.strokeRect(salesX, salesY, 690, rowHeight);
-    ctx.fillText('Sin ventas registradas.', salesX + 12, salesY + 25);
-  }
+    drawCell(row.total || 0, cellX, tableY, colWidths[4], rowHeight, { fill: '#f5f3ff', font: '900 32px Arial' });
+    tableY += rowHeight;
+  });
+  x = tableX;
+  drawCell('TOTAL', x, tableY, colWidths[0], 62, { fill: '#111827', color: '#ffffff', font: '900 26px Arial', align: 'left' });
+  x += colWidths[0];
+  paymentKeys.forEach((key, index) => {
+    drawCell(quantityTotals[key], x, tableY, colWidths[index + 1], 62, { fill: '#111827', color: '#ffffff', font: '900 32px Arial' });
+    x += colWidths[index + 1];
+  });
+  drawCell(totalQuantity, x, tableY, colWidths[4], 62, { fill: '#6d28d9', color: '#ffffff', font: '900 34px Arial' });
+  tableY += 104;
 
-  const rightX = 810;
-  let rightY = 490;
-  sectionTitle('Por localidad', rightX, rightY);
-  rightY += 42;
-  ctx.font = '19px Arial';
-  (byLocation.length ? byLocation : [{ location: 'Sin ventas', quantity: 0, total: 0 }]).forEach((row) => {
+  const totalBoxes = [
+    ['TOTAL VENTA', money(totals.total)],
+    ['GASTOS', money(expenseTotal)],
+    ['TOTAL NETO', money(totals.net)]
+  ];
+  totalBoxes.forEach(([label, value], index) => {
+    const boxX = 70 + index * 365;
+    ctx.fillStyle = index === 2 ? '#ecfdf5' : '#f8fafc';
+    ctx.fillRect(boxX, tableY, 330, 110);
+    ctx.strokeStyle = index === 2 ? '#059669' : '#111827';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(boxX, tableY, 330, 110);
+    ctx.fillStyle = index === 2 ? '#047857' : '#374151';
+    ctx.font = '900 22px Arial';
+    ctx.fillText(label, boxX + 18, tableY + 36);
     ctx.fillStyle = '#111827';
-    ctx.fillText(`${row.location}: ${row.quantity} entradas`, rightX, rightY);
-    ctx.font = '800 19px Arial';
-    ctx.fillText(money(row.total), rightX + 300, rightY);
-    ctx.font = '19px Arial';
-    rightY += 34;
-  });
-  rightY += 18;
-  sectionTitle('Formas de pago', rightX, rightY);
-  rightY += 42;
-  (byPayment.length ? byPayment : [{ method: 'cash', quantity: 0, total: 0 }]).forEach((row) => {
-    ctx.fillStyle = '#111827';
-    ctx.fillText(`${physicalPaymentLabels[row.method] || row.method}: ${row.quantity}`, rightX, rightY);
-    ctx.font = '800 19px Arial';
-    ctx.fillText(money(row.total), rightX + 300, rightY);
-    ctx.font = '19px Arial';
-    rightY += 34;
-  });
-  rightY += 18;
-  sectionTitle('Gastos del dia', rightX, rightY);
-  rightY += 42;
-  ctx.font = '18px Arial';
-  (expenses.length ? expenses : [{ description: 'Sin gastos', amount: 0 }]).forEach((expense) => {
-    drawWrappedCanvasText(ctx, expense.description, rightX, rightY, 270, 22, 2);
-    ctx.font = '800 18px Arial';
-    ctx.fillText(money(expense.amount), rightX + 300, rightY);
-    ctx.font = '18px Arial';
-    rightY += 42;
+    ctx.font = '900 40px Arial';
+    ctx.fillText(value, boxX + 18, tableY + 82);
   });
 
   ctx.fillStyle = '#6b7280';
