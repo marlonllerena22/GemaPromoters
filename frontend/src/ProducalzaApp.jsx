@@ -5493,7 +5493,7 @@ function LocalAttendanceAdmin({ scope, setError }) {
           <label>Local
             <select value={filters.location} onChange={(event) => setFilters({ ...filters, location: event.target.value })}>
               <option value="">Todos</option>
-              {(data?.locations || ['Norte', 'Sur', 'Valle', 'Bosque']).map((location) => <option value={location} key={location}>{location}</option>)}
+              {(data?.locations || RETURN_DESTINATIONS).map((location) => <option value={location} key={location}>{location}</option>)}
             </select>
           </label>
           <label>Empleada

@@ -621,6 +621,7 @@ export function initProducalzaDb(db) {
   seedLocalStores(db, establishment.id);
   seedLocalSecretary(db, establishment.id);
   seedLocalStaff(db, establishment.id);
+  normalizeLocalStoreReferences(db);
 
   db.prepare('DELETE FROM production_monthly_report_rows WHERE establishment_id = ?').run(establishment.id);
 }
@@ -630,6 +631,151 @@ function addColumnIfMissing(db, table, column, definition) {
   if (!columns.some((item) => item.name === column)) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
+}
+
+function normalizeLocalStoreName(value = '') {
+  const raw = String(value || '').trim();
+  const clean = raw
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .toUpperCase();
+  if (!clean) return '';
+  if (clean.includes('NORTE')) return 'Local Marjorie Botas Norte';
+  if (clean.includes('SUR')) return 'Local Marjorie Botas Sur';
+  if (clean.includes('VALLE')) return 'Local Marjorie Botas Valle';
+  if (clean.includes('BOSQUE') || clean.includes('SEBAST')) return 'Sebastians';
+  return raw;
+}
+
+function normalizeLocalStoreArray(value = '[]') {
+  let items = [];
+  try {
+    items = JSON.parse(value || '[]');
+  } catch {
+    items = [];
+  }
+  const normalized = [];
+  for (const item of items) {
+    const location = normalizeLocalStoreName(item);
+    if (location && !normalized.includes(location)) normalized.push(location);
+  }
+  return JSON.stringify(normalized);
+}
+
+function hasColumn(db, table, column) {
+  return db.prepare(`PRAGMA table_info(${table})`).all().some((item) => item.name === column);
+}
+
+function normalizeColumnValues(db, table, column) {
+  if (!hasColumn(db, table, column)) return;
+  const rows = db
+    .prepare(`SELECT id, ${column} AS value FROM ${table} WHERE ${column} IS NOT NULL AND TRIM(${column}) <> ''`)
+    .all();
+  const update = db.prepare(`UPDATE ${table} SET ${column} = ? WHERE id = ?`);
+  for (const row of rows) {
+    const normalized = normalizeLocalStoreName(row.value);
+    if (normalized && normalized !== row.value) {
+      try {
+        update.run(normalized, row.id);
+      } catch {
+        // Some monthly tables have unique constraints; leave those rare conflicts untouched instead of blocking startup.
+      }
+    }
+  }
+}
+
+function normalizeLocalStaffLocations(db) {
+  if (!hasColumn(db, 'production_local_staff', 'allowed_locations_json')) return;
+  const rows = db
+    .prepare('SELECT id, allowed_locations_json, default_location FROM production_local_staff')
+    .all();
+  const update = db.prepare(
+    `UPDATE production_local_staff
+     SET allowed_locations_json = ?, default_location = ?, updated_at = datetime('now', 'localtime')
+     WHERE id = ?`
+  );
+  for (const row of rows) {
+    const allowed = normalizeLocalStoreArray(row.allowed_locations_json);
+    const defaultLocation = normalizeLocalStoreName(row.default_location);
+    if (allowed !== (row.allowed_locations_json || '[]') || defaultLocation !== (row.default_location || '')) {
+      update.run(allowed, defaultLocation, row.id);
+    }
+  }
+}
+
+function mergeDuplicateLocalClients(db) {
+  const stores = {
+    'Local Marjorie Botas Norte': { key: 'marjorie-norte', city: 'Norte', brand: 'Marjorie Botas' },
+    'Local Marjorie Botas Sur': { key: 'marjorie-sur', city: 'Sur', brand: 'Marjorie Botas' },
+    'Local Marjorie Botas Valle': { key: 'marjorie-valle', city: 'Valle', brand: 'Marjorie Botas' },
+    Sebastians: { key: 'sebastians', city: 'El Bosque', brand: 'Sebastians' }
+  };
+  const clients = db
+    .prepare(
+      `SELECT id, establishment_id, name, local_store_key
+       FROM production_clients
+       WHERE local_store_key IS NOT NULL
+          OR upper(name) LIKE '%MARJORIE%'
+          OR upper(name) LIKE '%SEBAST%'
+          OR upper(name) IN ('NORTE', 'SUR', 'VALLE', 'BOSQUE')`
+    )
+    .all();
+  const groups = new Map();
+  for (const client of clients) {
+    const name = normalizeLocalStoreName(client.name);
+    if (!stores[name]) continue;
+    const key = `${client.establishment_id}:${name}`;
+    groups.set(key, [...(groups.get(key) || []), { ...client, normalizedName: name }]);
+  }
+  const clientReferenceTables = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+    .all()
+    .map((row) => row.name)
+    .filter((table) => hasColumn(db, table, 'client_id'));
+  for (const group of groups.values()) {
+    group.sort((a, b) => {
+      const aExact = a.name === a.normalizedName ? 0 : 1;
+      const bExact = b.name === b.normalizedName ? 0 : 1;
+      return aExact - bExact || a.id - b.id;
+    });
+    const [canonical, ...duplicates] = group;
+    const store = stores[canonical.normalizedName];
+    db.prepare(
+      `UPDATE production_clients
+       SET name = ?, local_store_key = ?, city = COALESCE(NULLIF(city, ''), ?),
+           brand = COALESCE(NULLIF(brand, ''), ?),
+           classification = COALESCE(NULLIF(classification, ''), 'Local comercial'),
+           updated_at = datetime('now', 'localtime')
+       WHERE id = ?`
+    ).run(canonical.normalizedName, store.key, store.city, store.brand, canonical.id);
+    for (const duplicate of duplicates) {
+      for (const table of clientReferenceTables) {
+        db.prepare(`UPDATE ${table} SET client_id = ? WHERE client_id = ?`).run(canonical.id, duplicate.id);
+      }
+      db.prepare('DELETE FROM production_clients WHERE id = ?').run(duplicate.id);
+    }
+  }
+}
+
+function normalizeLocalStoreReferences(db) {
+  db.transaction(() => {
+    const columns = [
+      ['production_delivery_notes', 'destination'],
+      ['production_local_attendance', 'location'],
+      ['production_local_daily_sales', 'local_name'],
+      ['production_local_finances', 'local_name'],
+      ['production_local_monthly_reports', 'local_name'],
+      ['production_local_payroll_cards', 'local_name'],
+      ['production_orders', 'sample_destination'],
+      ['production_return_allocations', 'destination']
+    ];
+    for (const [table, column] of columns) {
+      normalizeColumnValues(db, table, column);
+    }
+    normalizeLocalStaffLocations(db);
+    mergeDuplicateLocalClients(db);
+  })();
 }
 
 function seedLocalStores(db, establishmentId) {
@@ -679,11 +825,11 @@ function seedLocalSecretary(db, establishmentId) {
 
 function seedLocalStaff(db, establishmentId) {
   const staff = [
-    ['Liliana Jima', 'liliana', 'liliana123', ['Norte'], 'Norte'],
-    ['Selena Sarango', 'selena', 'selena123', ['Sur'], 'Sur'],
-    ['Nayely Vera', 'nayely', 'nayely123', ['Valle'], 'Valle'],
-    ['Belen', 'belen', 'belen123', ['Bosque'], 'Bosque'],
-    ['Yamileth', 'yamileth', 'yamileth123', ['Sur', 'Valle', 'Bosque'], 'Valle']
+    ['Liliana Jima', 'liliana', 'liliana123', ['Local Marjorie Botas Norte'], 'Local Marjorie Botas Norte'],
+    ['Selena Sarango', 'selena', 'selena123', ['Local Marjorie Botas Sur'], 'Local Marjorie Botas Sur'],
+    ['Nayely Vera', 'nayely', 'nayely123', ['Local Marjorie Botas Valle'], 'Local Marjorie Botas Valle'],
+    ['Belen', 'belen', 'belen123', ['Sebastians'], 'Sebastians'],
+    ['Yamileth', 'yamileth', 'yamileth123', ['Local Marjorie Botas Sur', 'Local Marjorie Botas Valle', 'Sebastians'], 'Local Marjorie Botas Valle']
   ];
   const statement = db.prepare(
     `INSERT INTO production_local_staff

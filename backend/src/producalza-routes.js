@@ -16,10 +16,10 @@ const RETURN_DESTINATIONS = [
 const LOCAL_SALE_KINDS = ['normal', 'separated', 'wholesale'];
 const LOCAL_FINANCE_GROUPS = ['various', 'service', 'deposit', 'admin', 'income'];
 const LOCAL_ATTENDANCE_GROUPS = {
-  Sur: 'https://chat.whatsapp.com/LSFur45K8mT7Jx23IdG8RE?s=sw&p=a&ilr=0&amv=1',
-  Valle: 'https://chat.whatsapp.com/HbogTXLn22mBqKwQWz6Ire?s=sw&p=a&ilr=0&amv=1',
-  Norte: 'https://chat.whatsapp.com/DXvYvOC2QzBLYbfZrAMvtw?s=sw&p=a&ilr=0&amv=1',
-  Bosque: 'https://chat.whatsapp.com/Hd8QLghDr8qLaCq5SRURhe?s=sw&p=a&ilr=0&amv=1'
+  'Local Marjorie Botas Sur': 'https://chat.whatsapp.com/LSFur45K8mT7Jx23IdG8RE?s=sw&p=a&ilr=0&amv=1',
+  'Local Marjorie Botas Valle': 'https://chat.whatsapp.com/HbogTXLn22mBqKwQWz6Ire?s=sw&p=a&ilr=0&amv=1',
+  'Local Marjorie Botas Norte': 'https://chat.whatsapp.com/DXvYvOC2QzBLYbfZrAMvtw?s=sw&p=a&ilr=0&amv=1',
+  Sebastians: 'https://chat.whatsapp.com/Hd8QLghDr8qLaCq5SRURhe?s=sw&p=a&ilr=0&amv=1'
 };
 const DELIVERY_NOTE_BALANCE_REF = 'AUTO-NOTA-ENTREGA';
 const MANUAL_PAID_TOTAL_REF = 'MANUAL-TOTAL-PAGADO';
@@ -34,6 +34,21 @@ function cleanEmployeeName(value = '') {
     .replace(/^(SRTA\.?|SRA\.?|SR\.?)\s*/i, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function normalizeLocalLocation(value = '') {
+  const raw = String(value || '').trim();
+  const clean = raw
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .toUpperCase();
+  if (!clean) return '';
+  if (clean.includes('NORTE')) return 'Local Marjorie Botas Norte';
+  if (clean.includes('SUR')) return 'Local Marjorie Botas Sur';
+  if (clean.includes('VALLE')) return 'Local Marjorie Botas Valle';
+  if (clean.includes('BOSQUE') || clean.includes('SEBAST')) return 'Sebastians';
+  return raw;
 }
 
 function employeeKey(value = '') {
@@ -1004,7 +1019,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
          AND establishments.module_type = 'production'`
     ).get(username, password);
     if (!staff) return res.status(401).json({ message: 'Usuario o contrasena incorrectos' });
-    const locations = parseJsonValue(staff.allowed_locations_json, []);
+    const locations = parseJsonValue(staff.allowed_locations_json, []).map(normalizeLocalLocation).filter(Boolean);
     res.json({
       token: createToken({
         role: 'production_local_staff',
@@ -1019,7 +1034,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         establishment_id: staff.establishment_id,
         establishment_display_name: staff.establishment_name || 'PRODUCALZA',
         locations,
-        default_location: staff.default_location || locations[0] || ''
+        default_location: normalizeLocalLocation(staff.default_location || locations[0] || '')
       }
     });
   });
@@ -1030,8 +1045,8 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
        WHERE id = ? AND establishment_id = ? AND status = 'active'`
     ).get(req.user.staffId, establishmentId(req));
     if (!staff) return res.status(404).json({ message: 'Empleada no encontrada' });
-    const locations = parseJsonValue(staff.allowed_locations_json, []);
-    const location = String(req.body.location || staff.default_location || locations[0] || '').trim();
+    const locations = parseJsonValue(staff.allowed_locations_json, []).map(normalizeLocalLocation).filter(Boolean);
+    const location = normalizeLocalLocation(req.body.location || staff.default_location || locations[0] || '');
     const action = req.body.action === 'out' ? 'out' : 'in';
     if (!locations.includes(location)) {
       return res.status(400).json({ message: 'No tienes permiso para registrar asistencia en ese local' });
@@ -1062,7 +1077,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const today = new Date().toISOString().slice(0, 10);
     const dateFrom = normalizeDateInput(req.query.date_from, today);
     const dateTo = normalizeDateInput(req.query.date_to, today);
-    const location = String(req.query.location || '').trim();
+    const location = normalizeLocalLocation(req.query.location || '');
     const staffId = Number(req.query.staff_id || 0);
     const filters = ['attendance.establishment_id = ?', 'attendance.local_date BETWEEN ? AND ?'];
     const params = [business.id, dateFrom, dateTo];
@@ -1081,7 +1096,8 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
        ORDER BY status DESC, name`
     ).all(business.id).map((item) => ({
       ...item,
-      locations: parseJsonValue(item.allowed_locations_json, [])
+      locations: parseJsonValue(item.allowed_locations_json, []).map(normalizeLocalLocation).filter(Boolean),
+      default_location: normalizeLocalLocation(item.default_location || '')
     }));
     const rows = db.prepare(
       `SELECT attendance.*, staff.username
@@ -2430,12 +2446,23 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
   });
 
   function ensureImportedLocalStaff(establishmentId, staff) {
+    const location = normalizeLocalLocation(staff.location);
     const existing = db.prepare(
       `SELECT * FROM production_local_staff
        WHERE establishment_id = ? AND (lower(username) = lower(?) OR lower(name) = lower(?))
        ORDER BY id LIMIT 1`
     ).get(establishmentId, staff.username, staff.name);
-    if (existing) return existing.id;
+    if (existing) {
+      const locations = parseJsonValue(existing.allowed_locations_json, []).map(normalizeLocalLocation).filter(Boolean);
+      if (location && !locations.includes(location)) locations.push(location);
+      const defaultLocation = normalizeLocalLocation(existing.default_location) || location || locations[0] || '';
+      db.prepare(
+        `UPDATE production_local_staff
+         SET allowed_locations_json = ?, default_location = ?, updated_at = datetime('now', 'localtime')
+         WHERE id = ?`
+      ).run(JSON.stringify(locations), defaultLocation, existing.id);
+      return existing.id;
+    }
     const result = db.prepare(
       `INSERT INTO production_local_staff
        (establishment_id, name, username, password, allowed_locations_json, default_location, status)
@@ -2445,8 +2472,8 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       staff.name,
       staff.username,
       `${staff.username}123`,
-      JSON.stringify([staff.location]),
-      staff.location,
+      JSON.stringify([location]),
+      location,
       staff.active ? 'active' : 'inactive'
     );
     return result.lastInsertRowid;
@@ -2537,8 +2564,9 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         );
         for (const item of parsed.attendance) {
           const staffId = ensureImportedLocalStaff(business.id, item.staff);
-          insertAttendance.run(business.id, staffId, item.staff.name, item.staff.location, 'in', item.local_date, item.in_time, item.message);
-          insertAttendance.run(business.id, staffId, item.staff.name, item.staff.location, 'out', item.local_date, item.out_time, item.message);
+          const location = normalizeLocalLocation(item.staff.location);
+          insertAttendance.run(business.id, staffId, item.staff.name, location, 'in', item.local_date, item.in_time, item.message);
+          insertAttendance.run(business.id, staffId, item.staff.name, location, 'out', item.local_date, item.out_time, item.message);
         }
       })();
     } catch (error) {
