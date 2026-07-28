@@ -5364,7 +5364,7 @@ td {
 
   @page physical-ticket-report {
     size: A4 portrait;
-    margin: 8mm;
+    margin: 5mm;
   }
 
   body * {
@@ -5436,9 +5436,10 @@ td {
     break-after: auto;
     box-sizing: border-box;
     color: #000000;
-    height: 279mm;
+    height: 287mm;
     overflow: hidden;
-    padding: 5mm;
+    padding: 3.5mm;
+    width: 200mm;
   }
 
   .physical-print-page header {
@@ -5446,40 +5447,40 @@ td {
     border-bottom: 2px solid #111111;
     display: flex;
     justify-content: space-between;
-    margin-bottom: 5mm;
-    padding-bottom: 3mm;
+    margin-bottom: 3mm;
+    padding-bottom: 2mm;
   }
 
   .physical-print-page header span {
     display: block;
-    font-size: 8pt;
+    font-size: 7pt;
     font-weight: 800;
     letter-spacing: 0;
   }
 
   .physical-print-page h1 {
-    font-size: 18pt;
+    font-size: 14pt;
     margin: 1mm 0 0;
     text-transform: uppercase;
   }
 
   .physical-print-page h2 {
-    font-size: 10pt;
-    margin: 4mm 0 1.5mm;
+    font-size: 8.5pt;
+    margin: 2.5mm 0 1mm;
     text-transform: uppercase;
   }
 
   .physical-print-page header strong {
     border: 1px solid #111111;
-    font-size: 13pt;
-    padding: 2mm 4mm;
+    font-size: 10pt;
+    padding: 1.4mm 2.5mm;
   }
 
   .physical-print-summary {
     display: grid;
-    gap: 2mm;
+    gap: 1.2mm;
     grid-template-columns: repeat(3, 1fr);
-    margin-bottom: 4mm;
+    margin-bottom: 2.5mm;
   }
 
   .physical-print-summary.compact {
@@ -5488,40 +5489,43 @@ td {
 
   .physical-print-summary div {
     border: 1px solid #111111;
-    padding: 2mm;
+    padding: 1.2mm;
   }
 
   .physical-print-summary span {
     display: block;
-    font-size: 7pt;
+    font-size: 6pt;
     font-weight: 800;
     text-transform: uppercase;
   }
 
   .physical-print-summary strong {
     display: block;
-    font-size: 14pt;
-    margin-top: 1mm;
+    font-size: 10.5pt;
+    margin-top: 0.5mm;
   }
 
   .physical-print-grid {
     display: grid;
-    gap: 5mm;
-    grid-template-columns: 1.45fr 1fr;
+    gap: 3mm;
+    grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
   }
 
   .physical-print-page table {
     border-collapse: collapse;
-    font-size: 8pt;
-    line-height: 1.2;
+    font-size: 6.2pt;
+    line-height: 1.08;
+    table-layout: fixed;
     width: 100%;
   }
 
   .physical-print-page th,
   .physical-print-page td {
     border: 1px solid #111111;
-    padding: 1.4mm;
+    overflow-wrap: anywhere;
+    padding: 0.75mm;
     vertical-align: top;
+    word-break: break-word;
   }
 
   .physical-print-page th {

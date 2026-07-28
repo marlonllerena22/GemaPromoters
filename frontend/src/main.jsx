@@ -168,6 +168,180 @@ function money(value) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
 
+function canvasToBlob(canvas) {
+  return new Promise((resolve) => canvas.toBlob(resolve, 'image/png', 0.96));
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1200);
+}
+
+function drawWrappedCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines = 3) {
+  const words = String(text || '').split(/\s+/).filter(Boolean);
+  const lines = [];
+  let line = '';
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (ctx.measureText(next).width <= maxWidth || !line) {
+      line = next;
+    } else {
+      lines.push(line);
+      line = word;
+    }
+  }
+  if (line) lines.push(line);
+  const visible = lines.slice(0, maxLines);
+  visible.forEach((item, index) => ctx.fillText(item, x, y + index * lineHeight));
+  return visible.length * lineHeight;
+}
+
+async function createPhysicalDailyReportImage(report, reportDate) {
+  const current = report || {};
+  const totals = current.totals || {};
+  const sales = current.sales || [];
+  const byLocation = current.by_location || [];
+  const byPayment = (current.by_payment || []).filter((row) => Number(row.quantity || 0) > 0 || Number(row.total || 0) > 0);
+  const expenses = current.expenses || [];
+  const canvas = document.createElement('canvas');
+  canvas.width = 1240;
+  canvas.height = 1754;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = '#111827';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(34, 34, canvas.width - 68, canvas.height - 68);
+
+  ctx.fillStyle = '#111827';
+  ctx.font = '800 30px Arial';
+  ctx.fillText('PROMOTERS / GEMASHOW', 70, 96);
+  ctx.font = '900 48px Arial';
+  ctx.fillText('Reporte diario de entradas fisicas', 70, 154);
+  ctx.fillStyle = '#6d28d9';
+  ctx.font = '800 30px Arial';
+  ctx.fillText(current.date_from || reportDate, 920, 120);
+
+  const summary = [
+    ['Entradas vendidas', totals.soldQuantity || 0],
+    ['Subtotal', money(totals.subtotal)],
+    ['Descuentos', money(totals.discounts)],
+    ['Venta total', money(totals.total)],
+    ['Gastos', money(totals.expenses)],
+    ['Neto', money(totals.net)]
+  ];
+  summary.forEach(([label, value], index) => {
+    const col = index % 3;
+    const row = Math.floor(index / 3);
+    const x = 70 + col * 365;
+    const y = 215 + row * 115;
+    ctx.fillStyle = '#f5f3ff';
+    ctx.fillRect(x, y, 330, 82);
+    ctx.strokeStyle = '#c4b5fd';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, 330, 82);
+    ctx.fillStyle = '#4c1d95';
+    ctx.font = '800 20px Arial';
+    ctx.fillText(label.toUpperCase(), x + 18, y + 29);
+    ctx.fillStyle = '#111827';
+    ctx.font = '900 32px Arial';
+    ctx.fillText(String(value), x + 18, y + 66);
+  });
+
+  function sectionTitle(title, x, y) {
+    ctx.fillStyle = '#111827';
+    ctx.font = '900 26px Arial';
+    ctx.fillText(title, x, y);
+    ctx.strokeStyle = '#111827';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x, y + 10);
+    ctx.lineTo(x + 470, y + 10);
+    ctx.stroke();
+  }
+
+  const salesX = 70;
+  let salesY = 490;
+  sectionTitle('Ventas', salesX, salesY);
+  salesY += 34;
+  const rowHeight = Math.max(34, Math.min(58, Math.floor(610 / Math.max(1, sales.length + 1))));
+  ctx.font = '800 19px Arial';
+  ctx.fillStyle = '#e5e7eb';
+  ctx.fillRect(salesX, salesY, 690, rowHeight);
+  ctx.strokeStyle = '#111827';
+  ctx.strokeRect(salesX, salesY, 690, rowHeight);
+  ctx.fillStyle = '#111827';
+  ctx.fillText('Venta', salesX + 12, salesY + 25);
+  ctx.fillText('Pago', salesX + 160, salesY + 25);
+  ctx.fillText('Entradas', salesX + 300, salesY + 25);
+  ctx.fillText('Total', salesX + 600, salesY + 25);
+  salesY += rowHeight;
+  ctx.font = `${rowHeight <= 38 ? '16' : '18'}px Arial`;
+  if (sales.length) {
+    sales.forEach((sale) => {
+      ctx.strokeRect(salesX, salesY, 690, rowHeight);
+      ctx.fillStyle = '#111827';
+      ctx.fillText(sale.sale_number || '-', salesX + 12, salesY + 24);
+      ctx.fillText(physicalPaymentLabels[sale.payment_method] || sale.payment_method || '-', salesX + 160, salesY + 24);
+      drawWrappedCanvasText(ctx, sale.items.map((item) => `${item.location} x${item.quantity}`).join(', '), salesX + 300, salesY + 24, 270, rowHeight <= 38 ? 17 : 19, 2);
+      ctx.font = `800 ${rowHeight <= 38 ? '16' : '18'}px Arial`;
+      ctx.fillText(money(sale.total), salesX + 600, salesY + 24);
+      ctx.font = `${rowHeight <= 38 ? '16' : '18'}px Arial`;
+      salesY += rowHeight;
+    });
+  } else {
+    ctx.strokeRect(salesX, salesY, 690, rowHeight);
+    ctx.fillText('Sin ventas registradas.', salesX + 12, salesY + 25);
+  }
+
+  const rightX = 810;
+  let rightY = 490;
+  sectionTitle('Por localidad', rightX, rightY);
+  rightY += 42;
+  ctx.font = '19px Arial';
+  (byLocation.length ? byLocation : [{ location: 'Sin ventas', quantity: 0, total: 0 }]).forEach((row) => {
+    ctx.fillStyle = '#111827';
+    ctx.fillText(`${row.location}: ${row.quantity} entradas`, rightX, rightY);
+    ctx.font = '800 19px Arial';
+    ctx.fillText(money(row.total), rightX + 300, rightY);
+    ctx.font = '19px Arial';
+    rightY += 34;
+  });
+  rightY += 18;
+  sectionTitle('Formas de pago', rightX, rightY);
+  rightY += 42;
+  (byPayment.length ? byPayment : [{ method: 'cash', quantity: 0, total: 0 }]).forEach((row) => {
+    ctx.fillStyle = '#111827';
+    ctx.fillText(`${physicalPaymentLabels[row.method] || row.method}: ${row.quantity}`, rightX, rightY);
+    ctx.font = '800 19px Arial';
+    ctx.fillText(money(row.total), rightX + 300, rightY);
+    ctx.font = '19px Arial';
+    rightY += 34;
+  });
+  rightY += 18;
+  sectionTitle('Gastos del dia', rightX, rightY);
+  rightY += 42;
+  ctx.font = '18px Arial';
+  (expenses.length ? expenses : [{ description: 'Sin gastos', amount: 0 }]).forEach((expense) => {
+    drawWrappedCanvasText(ctx, expense.description, rightX, rightY, 270, 22, 2);
+    ctx.font = '800 18px Arial';
+    ctx.fillText(money(expense.amount), rightX + 300, rightY);
+    ctx.font = '18px Arial';
+    rightY += 42;
+  });
+
+  ctx.fillStyle = '#6b7280';
+  ctx.font = '16px Arial';
+  ctx.fillText('Reporte generado por PROMOTERS', 70, 1685);
+  return canvasToBlob(canvas);
+}
+
 function benefitsText(items) {
   return Array.isArray(items) ? items.join('\n') : String(items || '');
 }
@@ -1559,39 +1733,21 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
     }
   }
 
-  function reportText() {
-    const current = report || {};
-    const totals = current.totals || {};
-    const locationLines = (current.by_location || []).map((row) => `- ${row.location}: ${row.quantity} entradas / ${money(row.total)}`).join('\n') || '- Sin ventas';
-    const paymentLines = (current.by_payment || [])
-      .filter((row) => Number(row.quantity || 0) > 0 || Number(row.total || 0) > 0)
-      .map((row) => `- ${physicalPaymentLabels[row.method]}: ${row.quantity} entradas / ${money(row.total)}`)
-      .join('\n') || '- Sin cobros';
-    const expenseLines = (current.expenses || []).map((expense) => `- ${expense.description}: ${money(expense.amount)}`).join('\n') || '- Sin gastos';
-    return [
-      `*Reporte entradas fisicas GEMASHOW*`,
-      `Fecha: ${current.date_from || reportDate}`,
-      '',
-      `*Entradas vendidas:* ${totals.soldQuantity || 0}`,
-      `*Subtotal:* ${money(totals.subtotal)}`,
-      `*Descuentos:* ${money(totals.discounts)}`,
-      `*Venta total:* ${money(totals.total)}`,
-      `*Gastos:* ${money(totals.expenses)}`,
-      `*Neto:* ${money(totals.net)}`,
-      '',
-      '*Ventas por localidad:*',
-      locationLines,
-      '',
-      '*Formas de pago:*',
-      paymentLines,
-      '',
-      '*Gastos del dia:*',
-      expenseLines
-    ].join('\n');
-  }
-
   async function shareReport() {
-    await navigator.clipboard?.writeText(reportText()).catch(() => {});
+    const blob = await createPhysicalDailyReportImage(report, reportDate);
+    const filename = `Reporte entradas fisicas ${report?.date_from || reportDate}.png`;
+    let copied = false;
+    try {
+      if (navigator.clipboard && window.ClipboardItem) {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        copied = true;
+      }
+    } catch {
+      copied = false;
+    }
+    downloadBlob(blob, filename);
+    setStatusMessage(copied ? 'Imagen copiada y descargada. Pegala en WhatsApp.' : 'Imagen descargada. Adjuntala en WhatsApp.');
+    setTimeout(() => setStatusMessage(''), 4200);
     window.open(groupUrl, '_blank', 'noopener,noreferrer');
   }
 
@@ -1613,7 +1769,7 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
             <button className="ghost-button" onClick={() => loadReport(reportDate)}>Generar</button>
             <button className="ghost-button" onClick={() => printReport('daily')}>Imprimir diario</button>
             <button className="ghost-button" onClick={() => printReport('stock')}>Reporte ingreso de entradas</button>
-            <button className="primary-button" onClick={shareReport}>Copiar y abrir WhatsApp</button>
+            <button className="primary-button" onClick={shareReport}>Crear imagen y abrir WhatsApp</button>
           </div>
         </div>
         <div className="stats-grid">
