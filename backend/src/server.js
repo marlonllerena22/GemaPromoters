@@ -1537,20 +1537,32 @@ app.post('/api/physical-tickets/stock', requireAdmin, (req, res) => {
   const eventId = getRequestEventId(req);
   const establishmentId = getRequestEstablishmentId(req);
   const entryDate = String(req.body.entry_date || new Date().toISOString().slice(0, 10)).trim();
-  const location = String(req.body.location || '').trim();
-  const quantity = Math.floor(Number(req.body.quantity || 0));
-  if (!location || quantity <= 0) {
-    return res.status(400).json({ message: 'Selecciona localidad y cantidad ingresada.' });
+  const requestedItems = Array.isArray(req.body.items) ? req.body.items : [{ location: req.body.location, quantity: req.body.quantity, notes: req.body.notes }];
+  const normalizedItems = requestedItems
+    .map((item) => ({
+      location: String(item.location || '').trim(),
+      quantity: Math.floor(Number(item.quantity || 0)),
+      notes: String(item.notes || req.body.notes || '').trim()
+    }))
+    .filter((item) => item.location && item.quantity > 0);
+  if (!normalizedItems.length) {
+    return res.status(400).json({ message: 'Agrega al menos una localidad y cantidad ingresada.' });
   }
-  const validLocation = db.prepare("SELECT id FROM event_locations WHERE event_id = ? AND name = ?").get(eventId, location);
-  if (!validLocation) {
+  const validLocations = new Set(db.prepare('SELECT name FROM event_locations WHERE event_id = ?').all(eventId).map((item) => item.name));
+  if (normalizedItems.some((item) => !validLocations.has(item.location))) {
     return res.status(400).json({ message: 'Localidad no encontrada.' });
   }
-  db.prepare(
-    `INSERT INTO physical_ticket_stock_entries
-     (establishment_id, event_id, entry_date, location, quantity, notes, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(establishmentId, eventId, entryDate, location, quantity, String(req.body.notes || '').trim(), req.user?.username || req.user?.role || 'admin');
+  const createdBy = req.user?.username || req.user?.role || 'admin';
+  db.transaction(() => {
+    const insertEntry = db.prepare(
+      `INSERT INTO physical_ticket_stock_entries
+       (establishment_id, event_id, entry_date, location, quantity, notes, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const item of normalizedItems) {
+      insertEntry.run(establishmentId, eventId, entryDate, item.location, item.quantity, item.notes, createdBy);
+    }
+  })();
   res.status(201).json(physicalTicketsReport(eventId, establishmentId, entryDate, entryDate));
 });
 

@@ -742,6 +742,10 @@ input[type="file"] {
   margin-top: 16px;
 }
 
+.physical-print-root {
+  display: none;
+}
+
 .filter-control {
   display: grid;
   gap: 8px;
@@ -5358,14 +5362,44 @@ td {
     margin: 8mm;
   }
 
+  @page physical-ticket-report {
+    size: A4 portrait;
+    margin: 8mm;
+  }
+
   body * {
     visibility: hidden !important;
+  }
+
+  body:has(.physical-print-root) {
+    background: #ffffff !important;
+    margin: 0 !important;
+  }
+
+  body:has(.physical-print-root) .app-shell {
+    display: block !important;
+  }
+
+  body:has(.physical-print-root) .sidebar,
+  body:has(.physical-print-root) .topbar,
+  body:has(.physical-print-root) .physical-ticket-admin > :not(.physical-print-root) {
+    display: none !important;
+  }
+
+  body:has(.physical-print-root) .content,
+  body:has(.physical-print-root) .physical-ticket-admin {
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
   }
 
   .prod-print-root,
   .prod-print-root *,
   .prod-monthly-print,
-  .prod-monthly-print * {
+  .prod-monthly-print *,
+  .physical-print-root,
+  .physical-print-root * {
     visibility: visible !important;
   }
 
@@ -5382,6 +5416,118 @@ td {
   .prod-payroll-print-root {
     font-family: Arial, sans-serif;
     page: payroll-page;
+  }
+
+  .physical-print-root {
+    background: #ffffff;
+    color: #000000;
+    display: block;
+    font-family: Arial, sans-serif;
+    left: 0;
+    page: physical-ticket-report;
+    position: absolute;
+    top: 0;
+    width: 100%;
+  }
+
+  .physical-print-page {
+    background: #ffffff;
+    border: 1.5px solid #111111;
+    break-after: auto;
+    box-sizing: border-box;
+    color: #000000;
+    height: 279mm;
+    overflow: hidden;
+    padding: 5mm;
+  }
+
+  .physical-print-page header {
+    align-items: flex-start;
+    border-bottom: 2px solid #111111;
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 5mm;
+    padding-bottom: 3mm;
+  }
+
+  .physical-print-page header span {
+    display: block;
+    font-size: 8pt;
+    font-weight: 800;
+    letter-spacing: 0;
+  }
+
+  .physical-print-page h1 {
+    font-size: 18pt;
+    margin: 1mm 0 0;
+    text-transform: uppercase;
+  }
+
+  .physical-print-page h2 {
+    font-size: 10pt;
+    margin: 4mm 0 1.5mm;
+    text-transform: uppercase;
+  }
+
+  .physical-print-page header strong {
+    border: 1px solid #111111;
+    font-size: 13pt;
+    padding: 2mm 4mm;
+  }
+
+  .physical-print-summary {
+    display: grid;
+    gap: 2mm;
+    grid-template-columns: repeat(3, 1fr);
+    margin-bottom: 4mm;
+  }
+
+  .physical-print-summary.compact {
+    grid-template-columns: 1fr;
+  }
+
+  .physical-print-summary div {
+    border: 1px solid #111111;
+    padding: 2mm;
+  }
+
+  .physical-print-summary span {
+    display: block;
+    font-size: 7pt;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+
+  .physical-print-summary strong {
+    display: block;
+    font-size: 14pt;
+    margin-top: 1mm;
+  }
+
+  .physical-print-grid {
+    display: grid;
+    gap: 5mm;
+    grid-template-columns: 1.45fr 1fr;
+  }
+
+  .physical-print-page table {
+    border-collapse: collapse;
+    font-size: 8pt;
+    line-height: 1.2;
+    width: 100%;
+  }
+
+  .physical-print-page th,
+  .physical-print-page td {
+    border: 1px solid #111111;
+    padding: 1.4mm;
+    vertical-align: top;
+  }
+
+  .physical-print-page th {
+    background: #eeeeee;
+    font-weight: 800;
+    text-transform: uppercase;
   }
 
   .prod-payroll-report-page {

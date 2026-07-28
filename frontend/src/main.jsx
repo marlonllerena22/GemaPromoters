@@ -148,6 +148,12 @@ const emptyPhysicalSaleItem = {
   unit_price: 0
 };
 
+const emptyPhysicalStockItem = {
+  location: '',
+  quantity: '',
+  notes: ''
+};
+
 const emptyRegister = {
   establishment_id: '',
   name: '',
@@ -1456,9 +1462,11 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
     notes: '',
     items: [{ ...emptyPhysicalSaleItem }]
   });
-  const [stockForm, setStockForm] = useState({ entry_date: today, location: '', quantity: '', notes: '' });
+  const [stockForm, setStockForm] = useState({ entry_date: today, items: [{ ...emptyPhysicalStockItem }] });
   const [expenseForm, setExpenseForm] = useState({ expense_date: today, description: '', amount: '' });
   const [error, setError] = useState('');
+  const [statusMessage, setStatusMessage] = useState('');
+  const [printMode, setPrintMode] = useState('');
   const activeLocations = locations.filter((location) => location.status === 'active');
   const saleSubtotal = saleForm.items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unit_price || 0), 0);
   const saleTotal = Math.max(0, saleSubtotal - Number(saleForm.discount_value || 0));
@@ -1469,9 +1477,16 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
   }, [initialReport]);
 
   async function loadReport(date = reportDate) {
-    const query = new URLSearchParams({ date_from: date, date_to: date });
-    const nextReport = await api(withScope(`/physical-tickets/report?${query.toString()}`, eventId, establishmentId));
-    setReport(nextReport);
+    setError('');
+    try {
+      const query = new URLSearchParams({ date_from: date, date_to: date });
+      const nextReport = await api(withScope(`/physical-tickets/report?${query.toString()}`, eventId, establishmentId));
+      setReport(nextReport);
+      setStatusMessage(`Reporte generado para ${date}`);
+      setTimeout(() => setStatusMessage(''), 2400);
+    } catch (err) {
+      setError(err.message);
+    }
   }
 
   function updateSaleItem(index, patch) {
@@ -1484,6 +1499,13 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
   function selectLocation(index, value) {
     const selected = activeLocations.find((location) => location.name === value);
     updateSaleItem(index, { location: value, unit_price: selected ? selected.price : 0 });
+  }
+
+  function updateStockItem(index, patch) {
+    setStockForm((current) => ({
+      ...current,
+      items: current.items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item)
+    }));
   }
 
   async function submitSale(event) {
@@ -1511,7 +1533,7 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
         method: 'POST',
         body: JSON.stringify(stockForm)
       });
-      setStockForm({ entry_date: stockForm.entry_date, location: '', quantity: '', notes: '' });
+      setStockForm({ entry_date: stockForm.entry_date, items: [{ ...emptyPhysicalStockItem }] });
       setReportDate(stockForm.entry_date);
       await loadReport(stockForm.entry_date);
       onRefresh('Ingreso de entradas registrado');
@@ -1550,7 +1572,6 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
       `*Reporte entradas fisicas GEMASHOW*`,
       `Fecha: ${current.date_from || reportDate}`,
       '',
-      `*Entradas ingresadas:* ${totals.stockQuantity || 0}`,
       `*Entradas vendidas:* ${totals.soldQuantity || 0}`,
       `*Subtotal:* ${money(totals.subtotal)}`,
       `*Descuentos:* ${money(totals.discounts)}`,
@@ -1574,22 +1595,31 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
     window.open(groupUrl, '_blank', 'noopener,noreferrer');
   }
 
+  function printReport(mode) {
+    setPrintMode(mode);
+    window.setTimeout(() => window.print(), 80);
+    window.setTimeout(() => setPrintMode(''), 700);
+  }
+
   return (
     <div className="stacked-layout physical-ticket-admin">
       {error && <div className="alert error">{error}</div>}
+      {statusMessage && <div className="alert success">{statusMessage}</div>}
       <section className="panel">
         <div className="panel-title">
           <h3>Reporte entradas fisicas</h3>
           <div className="row-actions">
             <Input type="date" label="Fecha reporte" value={reportDate} onChange={(value) => setReportDate(value)} />
             <button className="ghost-button" onClick={() => loadReport(reportDate)}>Generar</button>
-            <button className="ghost-button" onClick={() => window.print()}>Imprimir</button>
+            <button className="ghost-button" onClick={() => printReport('daily')}>Imprimir diario</button>
+            <button className="ghost-button" onClick={() => printReport('stock')}>Reporte ingreso de entradas</button>
             <button className="primary-button" onClick={shareReport}>Copiar y abrir WhatsApp</button>
           </div>
         </div>
         <div className="stats-grid">
-          <article><span>Entradas ingresadas</span><strong>{report?.totals?.stockQuantity || 0}</strong></article>
           <article><span>Entradas vendidas</span><strong>{report?.totals?.soldQuantity || 0}</strong></article>
+          <article><span>Subtotal</span><strong>{money(report?.totals?.subtotal)}</strong></article>
+          <article><span>Descuentos</span><strong>{money(report?.totals?.discounts)}</strong></article>
           <article><span>Venta total</span><strong>{money(report?.totals?.total)}</strong></article>
           <article><span>Gastos</span><strong>{money(report?.totals?.expenses)}</strong></article>
           <article><span>Neto del dia</span><strong>{money(report?.totals?.net)}</strong></article>
@@ -1636,14 +1666,24 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
           <div className="panel-title"><h3>Entradas ingresadas y gastos</h3></div>
           <form className="form-grid" onSubmit={submitStock}>
             <Input type="date" label="Fecha ingreso" value={stockForm.entry_date} onChange={(entry_date) => setStockForm({ ...stockForm, entry_date })} />
-            <label>Localidad
-              <select value={stockForm.location} onChange={(event) => setStockForm({ ...stockForm, location: event.target.value })}>
-                <option value="">Seleccionar</option>
-                {locations.map((location) => <option value={location.name} key={location.id}>{location.name}</option>)}
-              </select>
-            </label>
-            <Input type="number" label="Cantidad ingresada" value={stockForm.quantity} onChange={(quantity) => setStockForm({ ...stockForm, quantity })} />
-            <Input label="Nota" value={stockForm.notes} onChange={(notes) => setStockForm({ ...stockForm, notes })} />
+            <div className="span-2 physical-items">
+              {stockForm.items.map((item, index) => (
+                <article key={index}>
+                  <label>Localidad
+                    <select value={item.location} onChange={(event) => updateStockItem(index, { location: event.target.value })}>
+                      <option value="">Seleccionar</option>
+                      {locations.map((location) => <option value={location.name} key={location.id}>{location.name}</option>)}
+                    </select>
+                  </label>
+                  <Input type="number" label="Cantidad ingresada" value={item.quantity} onChange={(quantity) => updateStockItem(index, { quantity })} />
+                  <Input label="Nota" value={item.notes} onChange={(notes) => updateStockItem(index, { notes })} />
+                  {stockForm.items.length > 1 && <button type="button" className="danger-button" onClick={() => setStockForm({ ...stockForm, items: stockForm.items.filter((_, itemIndex) => itemIndex !== index) })}>Quitar</button>}
+                </article>
+              ))}
+              <button type="button" className="ghost-button" onClick={() => setStockForm({ ...stockForm, items: [...stockForm.items, { ...emptyPhysicalStockItem }] })}>
+                <Plus size={16} />Agregar otra localidad
+              </button>
+            </div>
             <button className="ghost-button span-2" type="submit">Registrar ingreso</button>
           </form>
           <form className="form-grid expense-form" onSubmit={submitExpense}>
@@ -1671,11 +1711,126 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
         />
         <div className="report-columns">
           <DataTable columns={['Localidad', 'Vendido', 'Total']} rows={(report?.by_location || []).map((row) => [row.location, row.quantity, money(row.total)])} />
-          <DataTable columns={['Ingresos', 'Localidad', 'Cantidad']} rows={(report?.stock_entries || []).map((row) => [row.entry_date, row.location, row.quantity])} />
           <DataTable columns={['Gasto', 'Fecha', 'Valor']} rows={(report?.expenses || []).map((row) => [row.description, row.expense_date, money(row.amount)])} />
         </div>
       </section>
+      <section className="panel">
+        <div className="panel-title"><h3>Ingresos de entradas</h3></div>
+        <DataTable
+          columns={['Fecha', 'Localidad', 'Cantidad', 'Nota']}
+          rows={(report?.stock_entries || []).map((row) => [row.entry_date, row.location, row.quantity, row.notes || '-'])}
+        />
+      </section>
+      {printMode && (
+        <section className="physical-print-root">
+          {printMode === 'daily' ? (
+            <PhysicalDailyPrint report={report} reportDate={reportDate} />
+          ) : (
+            <PhysicalStockPrint report={report} reportDate={reportDate} />
+          )}
+        </section>
+      )}
     </div>
+  );
+}
+
+function PhysicalDailyPrint({ report, reportDate }) {
+  const current = report || {};
+  const totals = current.totals || {};
+  const sales = current.sales || [];
+  const byLocation = current.by_location || [];
+  const byPayment = (current.by_payment || []).filter((row) => Number(row.quantity || 0) > 0 || Number(row.total || 0) > 0);
+  const expenses = current.expenses || [];
+  return (
+    <article className="physical-print-page">
+      <header>
+        <div>
+          <span>PROMOTERS / GEMASHOW</span>
+          <h1>Reporte diario de entradas fisicas</h1>
+        </div>
+        <strong>{current.date_from || reportDate}</strong>
+      </header>
+      <section className="physical-print-summary">
+        <div><span>Entradas vendidas</span><strong>{totals.soldQuantity || 0}</strong></div>
+        <div><span>Subtotal</span><strong>{money(totals.subtotal)}</strong></div>
+        <div><span>Descuentos</span><strong>{money(totals.discounts)}</strong></div>
+        <div><span>Venta total</span><strong>{money(totals.total)}</strong></div>
+        <div><span>Gastos</span><strong>{money(totals.expenses)}</strong></div>
+        <div><span>Neto</span><strong>{money(totals.net)}</strong></div>
+      </section>
+      <div className="physical-print-grid">
+        <section>
+          <h2>Ventas</h2>
+          <table>
+            <thead><tr><th>Venta</th><th>Pago</th><th>Entradas</th><th>Total</th></tr></thead>
+            <tbody>
+              {sales.length ? sales.map((sale) => (
+                <tr key={sale.id}>
+                  <td>{sale.sale_number}</td>
+                  <td>{physicalPaymentLabels[sale.payment_method]}</td>
+                  <td>{sale.items.map((item) => `${item.location} x${item.quantity}`).join(', ')}</td>
+                  <td>{money(sale.total)}</td>
+                </tr>
+              )) : <tr><td colSpan="4">Sin ventas registradas.</td></tr>}
+            </tbody>
+          </table>
+        </section>
+        <section>
+          <h2>Resumen por localidad</h2>
+          <table>
+            <thead><tr><th>Localidad</th><th>Cantidad</th><th>Total</th></tr></thead>
+            <tbody>
+              {byLocation.length ? byLocation.map((row) => <tr key={row.location}><td>{row.location}</td><td>{row.quantity}</td><td>{money(row.total)}</td></tr>) : <tr><td colSpan="3">Sin ventas.</td></tr>}
+            </tbody>
+          </table>
+          <h2>Formas de pago</h2>
+          <table>
+            <tbody>
+              {byPayment.length ? byPayment.map((row) => <tr key={row.method}><td>{physicalPaymentLabels[row.method]}</td><td>{row.quantity}</td><td>{money(row.total)}</td></tr>) : <tr><td colSpan="3">Sin cobros.</td></tr>}
+            </tbody>
+          </table>
+          <h2>Gastos del dia</h2>
+          <table>
+            <tbody>
+              {expenses.length ? expenses.map((expense) => <tr key={expense.id}><td>{expense.description}</td><td>{money(expense.amount)}</td></tr>) : <tr><td colSpan="2">Sin gastos.</td></tr>}
+            </tbody>
+          </table>
+        </section>
+      </div>
+    </article>
+  );
+}
+
+function PhysicalStockPrint({ report, reportDate }) {
+  const current = report || {};
+  const stockEntries = current.stock_entries || [];
+  const totals = current.totals || {};
+  return (
+    <article className="physical-print-page physical-stock-print-page">
+      <header>
+        <div>
+          <span>PROMOTERS / GEMASHOW</span>
+          <h1>Reporte ingreso de entradas</h1>
+        </div>
+        <strong>{current.date_from || reportDate}</strong>
+      </header>
+      <section className="physical-print-summary compact">
+        <div><span>Total ingresado</span><strong>{totals.stockQuantity || 0}</strong></div>
+      </section>
+      <table>
+        <thead><tr><th>Fecha</th><th>Localidad</th><th>Cantidad</th><th>Nota</th></tr></thead>
+        <tbody>
+          {stockEntries.length ? stockEntries.map((entry) => (
+            <tr key={entry.id}>
+              <td>{entry.entry_date}</td>
+              <td>{entry.location}</td>
+              <td>{entry.quantity}</td>
+              <td>{entry.notes || '-'}</td>
+            </tr>
+          )) : <tr><td colSpan="4">Sin ingresos registrados.</td></tr>}
+        </tbody>
+      </table>
+    </article>
   );
 }
 
