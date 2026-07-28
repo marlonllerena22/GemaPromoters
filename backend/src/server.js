@@ -1425,6 +1425,38 @@ function physicalPaymentMethod(value) {
   return ['cash', 'transfer', 'card', 'other'].includes(value) ? value : 'cash';
 }
 
+function normalizePhysicalSaleItems(items) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => ({
+      location: String(item.location || '').trim(),
+      quantity: Math.floor(Number(item.quantity || 0)),
+      unit_price: Math.max(0, Number(item.unit_price || 0))
+    }))
+    .filter((item) => item.location && item.quantity > 0);
+}
+
+function validatePhysicalSaleItems(eventId, normalizedItems) {
+  if (!normalizedItems.length) {
+    return 'Agrega al menos una entrada para vender.';
+  }
+  const validLocations = new Set(db.prepare("SELECT name FROM event_locations WHERE event_id = ? AND status = 'active'").all(eventId).map((item) => item.name));
+  if (normalizedItems.some((item) => !validLocations.has(item.location))) {
+    return 'Selecciona solo localidades activas.';
+  }
+  return '';
+}
+
+function savePhysicalSaleItems(saleId, establishmentId, eventId, normalizedItems) {
+  const insertItem = db.prepare(
+    `INSERT INTO physical_ticket_sale_items
+     (sale_id, establishment_id, event_id, location, quantity, unit_price, total)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  );
+  for (const item of normalizedItems) {
+    insertItem.run(saleId, establishmentId, eventId, item.location, item.quantity, toMoney(item.unit_price), toMoney(item.quantity * item.unit_price));
+  }
+}
+
 function physicalTicketsReport(eventId, establishmentId, dateFrom, dateTo) {
   const from = dateFrom || new Date().toISOString().slice(0, 10);
   const to = dateTo || from;
@@ -1454,6 +1486,31 @@ function physicalTicketsReport(eventId, establishmentId, dateFrom, dateTo) {
      WHERE establishment_id = ? AND event_id = ? AND expense_date BETWEEN ? AND ?
      ORDER BY expense_date DESC, id DESC`
   ).all(establishmentId, eventId, from, to);
+  const inventoryRows = db.prepare(
+    `SELECT locations.name AS location,
+            COALESCE(stock.quantity, 0) AS stock_quantity,
+            COALESCE(sold.quantity, 0) AS sold_quantity
+     FROM event_locations AS locations
+     LEFT JOIN (
+       SELECT location, SUM(quantity) AS quantity
+       FROM physical_ticket_stock_entries
+       WHERE establishment_id = ? AND event_id = ?
+       GROUP BY location
+     ) AS stock ON stock.location = locations.name
+     LEFT JOIN (
+       SELECT location, SUM(quantity) AS quantity
+       FROM physical_ticket_sale_items
+       WHERE establishment_id = ? AND event_id = ?
+       GROUP BY location
+     ) AS sold ON sold.location = locations.name
+     WHERE locations.event_id = ?
+     ORDER BY locations.name COLLATE NOCASE`
+  ).all(establishmentId, eventId, establishmentId, eventId, eventId).map((row) => ({
+    location: row.location,
+    stock_quantity: Number(row.stock_quantity || 0),
+    sold_quantity: Number(row.sold_quantity || 0),
+    remaining_quantity: Number(row.stock_quantity || 0) - Number(row.sold_quantity || 0)
+  }));
   const salesWithItems = sales.map((sale) => ({
     ...sale,
     items: items.filter((item) => Number(item.sale_id) === Number(sale.id))
@@ -1481,7 +1538,7 @@ function physicalTicketsReport(eventId, establishmentId, dateFrom, dateTo) {
     expenses: toMoney(expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0))
   };
   totals.net = toMoney(totals.total - totals.expenses);
-  return { date_from: from, date_to: to, sales: salesWithItems, stock_entries: stockEntries, expenses, by_location: [...byLocation.values()], by_payment: byPayment, totals };
+  return { date_from: from, date_to: to, sales: salesWithItems, stock_entries: stockEntries, expenses, by_location: [...byLocation.values()], by_payment: byPayment, inventory_by_location: inventoryRows, totals };
 }
 
 app.get('/api/physical-tickets/report', requireAdmin, (req, res) => {
@@ -1498,16 +1555,10 @@ app.post('/api/physical-tickets/sales', requireAdmin, (req, res) => {
   const saleDate = String(req.body.sale_date || new Date().toISOString().slice(0, 10)).trim();
   const paymentMethod = physicalPaymentMethod(req.body.payment_method);
   const discountValue = Math.max(0, Number(req.body.discount_value || 0));
-  const items = Array.isArray(req.body.items) ? req.body.items : [];
-  const normalizedItems = items
-    .map((item) => ({ location: String(item.location || '').trim(), quantity: Math.floor(Number(item.quantity || 0)), unit_price: Math.max(0, Number(item.unit_price || 0)) }))
-    .filter((item) => item.location && item.quantity > 0);
-  if (!normalizedItems.length) {
-    return res.status(400).json({ message: 'Agrega al menos una entrada para vender.' });
-  }
-  const validLocations = new Set(db.prepare("SELECT name FROM event_locations WHERE event_id = ? AND status = 'active'").all(eventId).map((item) => item.name));
-  if (normalizedItems.some((item) => !validLocations.has(item.location))) {
-    return res.status(400).json({ message: 'Selecciona solo localidades activas.' });
+  const normalizedItems = normalizePhysicalSaleItems(req.body.items);
+  const validationMessage = validatePhysicalSaleItems(eventId, normalizedItems);
+  if (validationMessage) {
+    return res.status(400).json({ message: validationMessage });
   }
   const subtotal = toMoney(normalizedItems.reduce((sum, item) => sum + item.quantity * item.unit_price, 0));
   const total = toMoney(Math.max(0, subtotal - discountValue));
@@ -1520,17 +1571,53 @@ app.post('/api/physical-tickets/sales', requireAdmin, (req, res) => {
     ).run(establishmentId, eventId, saleDate, paymentMethod, toMoney(discountValue), subtotal, total, String(req.body.notes || '').trim(), createdBy);
     const saleNumber = `FIS-${String(result.lastInsertRowid).padStart(6, '0')}`;
     db.prepare('UPDATE physical_ticket_sales SET sale_number = ? WHERE id = ?').run(saleNumber, result.lastInsertRowid);
-    const insertItem = db.prepare(
-      `INSERT INTO physical_ticket_sale_items
-       (sale_id, establishment_id, event_id, location, quantity, unit_price, total)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    );
-    for (const item of normalizedItems) {
-      insertItem.run(result.lastInsertRowid, establishmentId, eventId, item.location, item.quantity, toMoney(item.unit_price), toMoney(item.quantity * item.unit_price));
-    }
+    savePhysicalSaleItems(result.lastInsertRowid, establishmentId, eventId, normalizedItems);
     return result.lastInsertRowid;
   })();
   res.status(201).json({ ok: true, sale_id: saleId, report: physicalTicketsReport(eventId, establishmentId, saleDate, saleDate) });
+});
+
+app.put('/api/physical-tickets/sales/:id', requireAdmin, (req, res) => {
+  const eventId = getRequestEventId(req);
+  const establishmentId = getRequestEstablishmentId(req);
+  const currentSale = db.prepare('SELECT id, sale_date FROM physical_ticket_sales WHERE id = ? AND establishment_id = ? AND event_id = ?').get(req.params.id, establishmentId, eventId);
+  if (!currentSale) {
+    return res.status(404).json({ message: 'Venta fisica no encontrada.' });
+  }
+  const saleDate = String(req.body.sale_date || currentSale.sale_date || new Date().toISOString().slice(0, 10)).trim();
+  const paymentMethod = physicalPaymentMethod(req.body.payment_method);
+  const discountValue = Math.max(0, Number(req.body.discount_value || 0));
+  const normalizedItems = normalizePhysicalSaleItems(req.body.items);
+  const validationMessage = validatePhysicalSaleItems(eventId, normalizedItems);
+  if (validationMessage) {
+    return res.status(400).json({ message: validationMessage });
+  }
+  const subtotal = toMoney(normalizedItems.reduce((sum, item) => sum + item.quantity * item.unit_price, 0));
+  const total = toMoney(Math.max(0, subtotal - discountValue));
+  db.transaction(() => {
+    db.prepare(
+      `UPDATE physical_ticket_sales
+       SET sale_date = ?, payment_method = ?, discount_value = ?, subtotal = ?, total = ?, notes = ?
+       WHERE id = ? AND establishment_id = ? AND event_id = ?`
+    ).run(saleDate, paymentMethod, toMoney(discountValue), subtotal, total, String(req.body.notes || '').trim(), req.params.id, establishmentId, eventId);
+    db.prepare('DELETE FROM physical_ticket_sale_items WHERE sale_id = ? AND establishment_id = ? AND event_id = ?').run(req.params.id, establishmentId, eventId);
+    savePhysicalSaleItems(req.params.id, establishmentId, eventId, normalizedItems);
+  })();
+  res.json({ ok: true, report: physicalTicketsReport(eventId, establishmentId, saleDate, saleDate) });
+});
+
+app.delete('/api/physical-tickets/sales/:id', requireAdmin, (req, res) => {
+  const eventId = getRequestEventId(req);
+  const establishmentId = getRequestEstablishmentId(req);
+  const currentSale = db.prepare('SELECT id, sale_date FROM physical_ticket_sales WHERE id = ? AND establishment_id = ? AND event_id = ?').get(req.params.id, establishmentId, eventId);
+  if (!currentSale) {
+    return res.status(404).json({ message: 'Venta fisica no encontrada.' });
+  }
+  db.transaction(() => {
+    db.prepare('DELETE FROM physical_ticket_sale_items WHERE sale_id = ? AND establishment_id = ? AND event_id = ?').run(req.params.id, establishmentId, eventId);
+    db.prepare('DELETE FROM physical_ticket_sales WHERE id = ? AND establishment_id = ? AND event_id = ?').run(req.params.id, establishmentId, eventId);
+  })();
+  res.json({ ok: true, report: physicalTicketsReport(eventId, establishmentId, currentSale.sale_date, currentSale.sale_date) });
 });
 
 app.post('/api/physical-tickets/stock', requireAdmin, (req, res) => {
@@ -1564,6 +1651,42 @@ app.post('/api/physical-tickets/stock', requireAdmin, (req, res) => {
     }
   })();
   res.status(201).json(physicalTicketsReport(eventId, establishmentId, entryDate, entryDate));
+});
+
+app.put('/api/physical-tickets/stock/:id', requireAdmin, (req, res) => {
+  const eventId = getRequestEventId(req);
+  const establishmentId = getRequestEstablishmentId(req);
+  const currentEntry = db.prepare('SELECT id, entry_date FROM physical_ticket_stock_entries WHERE id = ? AND establishment_id = ? AND event_id = ?').get(req.params.id, establishmentId, eventId);
+  if (!currentEntry) {
+    return res.status(404).json({ message: 'Ingreso de entradas no encontrado.' });
+  }
+  const entryDate = String(req.body.entry_date || currentEntry.entry_date || new Date().toISOString().slice(0, 10)).trim();
+  const location = String(req.body.location || '').trim();
+  const quantity = Math.floor(Number(req.body.quantity || 0));
+  if (!location || quantity <= 0) {
+    return res.status(400).json({ message: 'Selecciona localidad y cantidad ingresada.' });
+  }
+  const validLocation = db.prepare('SELECT id FROM event_locations WHERE event_id = ? AND name = ?').get(eventId, location);
+  if (!validLocation) {
+    return res.status(400).json({ message: 'Localidad no encontrada.' });
+  }
+  db.prepare(
+    `UPDATE physical_ticket_stock_entries
+     SET entry_date = ?, location = ?, quantity = ?, notes = ?
+     WHERE id = ? AND establishment_id = ? AND event_id = ?`
+  ).run(entryDate, location, quantity, String(req.body.notes || '').trim(), req.params.id, establishmentId, eventId);
+  res.json({ ok: true, report: physicalTicketsReport(eventId, establishmentId, entryDate, entryDate) });
+});
+
+app.delete('/api/physical-tickets/stock/:id', requireAdmin, (req, res) => {
+  const eventId = getRequestEventId(req);
+  const establishmentId = getRequestEstablishmentId(req);
+  const currentEntry = db.prepare('SELECT id, entry_date FROM physical_ticket_stock_entries WHERE id = ? AND establishment_id = ? AND event_id = ?').get(req.params.id, establishmentId, eventId);
+  if (!currentEntry) {
+    return res.status(404).json({ message: 'Ingreso de entradas no encontrado.' });
+  }
+  db.prepare('DELETE FROM physical_ticket_stock_entries WHERE id = ? AND establishment_id = ? AND event_id = ?').run(req.params.id, establishmentId, eventId);
+  res.json({ ok: true, report: physicalTicketsReport(eventId, establishmentId, currentEntry.entry_date, currentEntry.entry_date) });
 });
 
 app.post('/api/physical-tickets/expenses', requireAdmin, (req, res) => {

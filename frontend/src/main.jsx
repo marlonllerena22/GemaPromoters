@@ -1641,9 +1641,12 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
   const [error, setError] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
   const [printMode, setPrintMode] = useState('');
+  const [editingSaleId, setEditingSaleId] = useState(null);
+  const [editingStockId, setEditingStockId] = useState(null);
   const activeLocations = locations.filter((location) => location.status === 'active');
   const saleSubtotal = saleForm.items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unit_price || 0), 0);
   const saleTotal = Math.max(0, saleSubtotal - Number(saleForm.discount_value || 0));
+  const remainingTotal = (report?.inventory_by_location || []).reduce((sum, row) => sum + Number(row.remaining_quantity || 0), 0);
   const groupUrl = 'https://chat.whatsapp.com/KIp2zRsasGG1BM6e1mBQdA?s=cl&p=a&ilr=0&amv=3';
 
   useEffect(() => {
@@ -1675,6 +1678,45 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
     updateSaleItem(index, { location: value, unit_price: selected ? selected.price : 0 });
   }
 
+  function resetSaleForm(date = saleForm.sale_date) {
+    setSaleForm({ sale_date: date, payment_method: 'cash', discount_value: '', notes: '', items: [{ ...emptyPhysicalSaleItem }] });
+    setEditingSaleId(null);
+  }
+
+  function resetStockForm(date = stockForm.entry_date) {
+    setStockForm({ entry_date: date, items: [{ ...emptyPhysicalStockItem }] });
+    setEditingStockId(null);
+  }
+
+  function editSale(sale) {
+    setEditingSaleId(sale.id);
+    setSaleForm({
+      sale_date: sale.sale_date,
+      payment_method: sale.payment_method || 'cash',
+      discount_value: sale.discount_value || '',
+      notes: sale.notes || '',
+      items: (sale.items || []).map((item) => ({
+        location: item.location,
+        quantity: item.quantity,
+        unit_price: item.unit_price
+      }))
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function editStock(entry) {
+    setEditingStockId(entry.id);
+    setStockForm({
+      entry_date: entry.entry_date,
+      items: [{
+        location: entry.location,
+        quantity: entry.quantity,
+        notes: entry.notes || ''
+      }]
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
   function updateStockItem(index, patch) {
     setStockForm((current) => ({
       ...current,
@@ -1686,14 +1728,15 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
     event.preventDefault();
     setError('');
     try {
-      await api(withScope('/physical-tickets/sales', eventId, establishmentId), {
-        method: 'POST',
+      const endpoint = editingSaleId ? `/physical-tickets/sales/${editingSaleId}` : '/physical-tickets/sales';
+      await api(withScope(endpoint, eventId, establishmentId), {
+        method: editingSaleId ? 'PUT' : 'POST',
         body: JSON.stringify(saleForm)
       });
-      setSaleForm({ sale_date: saleForm.sale_date, payment_method: 'cash', discount_value: '', notes: '', items: [{ ...emptyPhysicalSaleItem }] });
+      resetSaleForm(saleForm.sale_date);
       setReportDate(saleForm.sale_date);
       await loadReport(saleForm.sale_date);
-      onRefresh('Venta fisica registrada');
+      onRefresh(editingSaleId ? 'Venta fisica actualizada' : 'Venta fisica registrada');
     } catch (err) {
       setError(err.message);
     }
@@ -1703,14 +1746,41 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
     event.preventDefault();
     setError('');
     try {
-      await api(withScope('/physical-tickets/stock', eventId, establishmentId), {
-        method: 'POST',
-        body: JSON.stringify(stockForm)
+      const firstItem = stockForm.items[0] || {};
+      const endpoint = editingStockId ? `/physical-tickets/stock/${editingStockId}` : '/physical-tickets/stock';
+      const body = editingStockId ? { entry_date: stockForm.entry_date, ...firstItem } : stockForm;
+      await api(withScope(endpoint, eventId, establishmentId), {
+        method: editingStockId ? 'PUT' : 'POST',
+        body: JSON.stringify(body)
       });
-      setStockForm({ entry_date: stockForm.entry_date, items: [{ ...emptyPhysicalStockItem }] });
+      resetStockForm(stockForm.entry_date);
       setReportDate(stockForm.entry_date);
       await loadReport(stockForm.entry_date);
-      onRefresh('Ingreso de entradas registrado');
+      onRefresh(editingStockId ? 'Ingreso de entradas actualizado' : 'Ingreso de entradas registrado');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function deleteSale(sale) {
+    if (!window.confirm(`Seguro quieres eliminar la venta ${sale.sale_number}? No se podra recuperar.`)) return;
+    setError('');
+    try {
+      await api(withScope(`/physical-tickets/sales/${sale.id}`, eventId, establishmentId), { method: 'DELETE' });
+      await loadReport(reportDate);
+      onRefresh('Venta fisica eliminada');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function deleteStock(entry) {
+    if (!window.confirm(`Seguro quieres eliminar el ingreso de ${entry.location}? No se podra recuperar.`)) return;
+    setError('');
+    try {
+      await api(withScope(`/physical-tickets/stock/${entry.id}`, eventId, establishmentId), { method: 'DELETE' });
+      await loadReport(reportDate);
+      onRefresh('Ingreso de entradas eliminado');
     } catch (err) {
       setError(err.message);
     }
@@ -1774,6 +1844,7 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
         </div>
         <div className="stats-grid">
           <article><span>Entradas vendidas</span><strong>{report?.totals?.soldQuantity || 0}</strong></article>
+          <article><span>Entradas faltantes</span><strong>{remainingTotal}</strong></article>
           <article><span>Subtotal</span><strong>{money(report?.totals?.subtotal)}</strong></article>
           <article><span>Descuentos</span><strong>{money(report?.totals?.discounts)}</strong></article>
           <article><span>Venta total</span><strong>{money(report?.totals?.total)}</strong></article>
@@ -1782,9 +1853,26 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
         </div>
       </section>
 
+      <section className="panel physical-inventory-panel">
+        <div className="panel-title"><h3>Entradas faltantes por localidad</h3></div>
+        <div className="physical-inventory-grid">
+          {(report?.inventory_by_location || []).map((row) => (
+            <article key={row.location} className={Number(row.remaining_quantity || 0) <= 0 ? 'empty' : ''}>
+              <strong>{row.location}</strong>
+              <span>Ingresadas: {row.stock_quantity}</span>
+              <span>Vendidas: {row.sold_quantity}</span>
+              <b>Faltantes: {row.remaining_quantity}</b>
+            </article>
+          ))}
+        </div>
+      </section>
+
       <div className="two-column">
         <section className="panel">
-          <div className="panel-title"><h3>Registrar venta fisica</h3></div>
+          <div className="panel-title">
+            <h3>{editingSaleId ? 'Editar venta fisica' : 'Registrar venta fisica'}</h3>
+            {editingSaleId && <button type="button" className="ghost-button" onClick={() => resetSaleForm()}>Cancelar edicion</button>}
+          </div>
           <form className="form-grid" onSubmit={submitSale}>
             <Input type="date" label="Fecha" value={saleForm.sale_date} onChange={(sale_date) => setSaleForm({ ...saleForm, sale_date })} />
             <label>Forma de pago
@@ -1814,12 +1902,15 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
               </button>
             </div>
             <div className="computed span-2"><span>Subtotal {money(saleSubtotal)}</span><strong>Total {money(saleTotal)}</strong></div>
-            <button className="primary-button span-2" type="submit"><Ticket size={18} />Registrar venta fisica</button>
+            <button className="primary-button span-2" type="submit"><Ticket size={18} />{editingSaleId ? 'Guardar cambios de venta' : 'Registrar venta fisica'}</button>
           </form>
         </section>
 
         <section className="panel">
-          <div className="panel-title"><h3>Entradas ingresadas y gastos</h3></div>
+          <div className="panel-title">
+            <h3>{editingStockId ? 'Editar ingreso de entradas' : 'Entradas ingresadas y gastos'}</h3>
+            {editingStockId && <button type="button" className="ghost-button" onClick={() => resetStockForm()}>Cancelar edicion</button>}
+          </div>
           <form className="form-grid" onSubmit={submitStock}>
             <Input type="date" label="Fecha ingreso" value={stockForm.entry_date} onChange={(entry_date) => setStockForm({ ...stockForm, entry_date })} />
             <div className="span-2 physical-items">
@@ -1836,11 +1927,13 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
                   {stockForm.items.length > 1 && <button type="button" className="danger-button" onClick={() => setStockForm({ ...stockForm, items: stockForm.items.filter((_, itemIndex) => itemIndex !== index) })}>Quitar</button>}
                 </article>
               ))}
-              <button type="button" className="ghost-button" onClick={() => setStockForm({ ...stockForm, items: [...stockForm.items, { ...emptyPhysicalStockItem }] })}>
-                <Plus size={16} />Agregar otra localidad
-              </button>
+              {!editingStockId && (
+                <button type="button" className="ghost-button" onClick={() => setStockForm({ ...stockForm, items: [...stockForm.items, { ...emptyPhysicalStockItem }] })}>
+                  <Plus size={16} />Agregar otra localidad
+                </button>
+              )}
             </div>
-            <button className="ghost-button span-2" type="submit">Registrar ingreso</button>
+            <button className="ghost-button span-2" type="submit">{editingStockId ? 'Guardar ingreso' : 'Registrar ingreso'}</button>
           </form>
           <form className="form-grid expense-form" onSubmit={submitExpense}>
             <Input type="date" label="Fecha gasto" value={expenseForm.expense_date} onChange={(expense_date) => setExpenseForm({ ...expenseForm, expense_date })} />
@@ -1854,7 +1947,7 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
       <section className="panel physical-report-print">
         <div className="panel-title"><h3>Detalle diario</h3></div>
         <DataTable
-          columns={['Venta', 'Fecha', 'Pago', 'Entradas', 'Subtotal', 'Descuento', 'Total']}
+          columns={['Venta', 'Fecha', 'Pago', 'Entradas', 'Subtotal', 'Descuento', 'Total', 'Acciones']}
           rows={(report?.sales || []).map((sale) => [
             sale.sale_number,
             sale.sale_date,
@@ -1862,7 +1955,11 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
             sale.items.map((item) => `${item.location} x${item.quantity}`).join(', '),
             money(sale.subtotal),
             money(sale.discount_value),
-            money(sale.total)
+            money(sale.total),
+            <div className="row-actions compact-actions">
+              <button className="ghost-button" onClick={() => editSale(sale)}>Editar</button>
+              <button className="danger-button" onClick={() => deleteSale(sale)}>Eliminar</button>
+            </div>
           ])}
         />
         <div className="report-columns">
@@ -1873,8 +1970,17 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
       <section className="panel">
         <div className="panel-title"><h3>Ingresos de entradas</h3></div>
         <DataTable
-          columns={['Fecha', 'Localidad', 'Cantidad', 'Nota']}
-          rows={(report?.stock_entries || []).map((row) => [row.entry_date, row.location, row.quantity, row.notes || '-'])}
+          columns={['Fecha', 'Localidad', 'Cantidad', 'Nota', 'Acciones']}
+          rows={(report?.stock_entries || []).map((row) => [
+            row.entry_date,
+            row.location,
+            row.quantity,
+            row.notes || '-',
+            <div className="row-actions compact-actions">
+              <button className="ghost-button" onClick={() => editStock(row)}>Editar</button>
+              <button className="danger-button" onClick={() => deleteStock(row)}>Eliminar</button>
+            </div>
+          ])}
         />
       </section>
       {printMode && (
