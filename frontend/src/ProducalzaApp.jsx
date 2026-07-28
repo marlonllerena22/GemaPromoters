@@ -137,6 +137,7 @@ const PAYMENT_METHOD_OPTIONS = [
   'Credito con cheques: 30-60-90 dias',
   'Contado: efectivo',
   'Contado: 50% al pedido y saldo a la entrega',
+  'AB Y EF',
   'Abonos: semanales',
   'Abonos: quincenales'
 ];
@@ -605,6 +606,15 @@ function paymentSummaryValues(payments = []) {
     paid_total: totals.paid.toFixed(2),
     pending_total: totals.pending.toFixed(2)
   };
+}
+
+function paymentDetailText(payment = {}) {
+  const parts = [
+    payment.bank ? `Banco: ${payment.bank}` : '',
+    payment.reference ? `Ref/Cheque: ${payment.reference}` : '',
+    payment.notes ? `Obs: ${payment.notes}` : ''
+  ].filter(Boolean);
+  return parts.length ? parts.join(' | ') : 'Sin detalle adicional';
 }
 
 function processStateForStatus(status) {
@@ -3004,7 +3014,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
               <article className={`prod-payment-item ${payment.status}`} key={payment.id}>
                 <div>
                   <strong>{PAYMENT_TYPE_LABELS[payment.payment_type] || payment.payment_type}</strong>
-                  <span>{payment.bank || payment.reference || payment.notes || 'Sin detalle adicional'}</span>
+                  <span>{paymentDetailText(payment)}</span>
                   <small>{payment.payment_date ? `Pago: ${displayDate(payment.payment_date)}` : 'Cobro verificado'}</small>
                 </div>
                 <div>
@@ -3050,7 +3060,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
               <article className="prod-payment-item pending" key={payment.id}>
                 <div>
                   <strong>{PAYMENT_TYPE_LABELS[payment.payment_type] || payment.payment_type}</strong>
-                  <span>{payment.bank || payment.reference || payment.notes || 'Sin detalle adicional'}</span>
+                  <span>{paymentDetailText(payment)}</span>
                   <small>{payment.due_date ? `Cobrar: ${displayDate(payment.due_date)}` : 'Sin fecha de alerta'}</small>
                 </div>
                 <div>
@@ -5836,7 +5846,11 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
   const dispatchTotals = {
     total: visibleDispatchRows.reduce((sum, row) => sum + Number(row.total || 0), 0),
     paid: visibleDispatchRows.reduce((sum, row) => sum + Number(row.paid_total || 0), 0),
-    balance: visibleDispatchRows.reduce((sum, row) => sum + Number(row.balance || 0), 0)
+    balance: visibleDispatchRows.reduce((sum, row) => sum + Number(row.balance || 0), 0),
+    cheques: visibleDispatchRows.reduce((sum, row) => sum + Number(row.cheque_total || 0), 0),
+    abonos: visibleDispatchRows.reduce((sum, row) => sum + Number(row.abono_total || 0), 0),
+    efectivo: visibleDispatchRows.reduce((sum, row) => sum + Number(row.efectivo_total || 0), 0),
+    collected: visibleDispatchRows.reduce((sum, row) => sum + Number(row.collected_total || 0), 0)
   };
   const monthlyDays = Math.max(1, Number(monthlyFilters.days || 1) || 1);
   const monthlyEntered = visibleMonthlyEnteredRows.reduce((sum, row) => sum + Number(row.entered_pairs || 0), 0);
@@ -6050,9 +6064,11 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
           <>
             <div className="prod-monthly-summary">
               <article><span>Total despachado</span><strong>{displayMoney(dispatchTotals.total)}</strong><small>{visibleDispatchRows.length} pedidos</small></article>
-              <article><span>Pagado</span><strong>{displayMoney(dispatchTotals.paid)}</strong><small>Valores confirmados</small></article>
+              <article><span>Cheques</span><strong>{displayMoney(dispatchTotals.cheques)}</strong><small>Cobros registrados</small></article>
+              <article><span>Abonos</span><strong>{displayMoney(dispatchTotals.abonos)}</strong><small>Abonos y transferencias</small></article>
+              <article><span>Efectivo</span><strong>{displayMoney(dispatchTotals.efectivo)}</strong><small>Cobros en efectivo</small></article>
+              <article><span>Total cobros</span><strong>{displayMoney(dispatchTotals.collected)}</strong><small>Cheques + abonos + efectivo</small></article>
               <article><span>Saldo</span><strong>{displayMoney(dispatchTotals.balance)}</strong><small>Pendiente de cobro</small></article>
-              <article><span>Filtro</span><strong>{dispatchFilters.status === 'all' ? 'Todos' : dispatchFilters.status === 'paid' ? 'Pagados' : 'Pendientes'}</strong><small>{displayDate(dispatchReport.date_from)} - {displayDate(dispatchReport.date_to)}</small></article>
             </div>
             <div className="prod-monthly-client-picker">
               <div><span>Clientes del reporte</span><strong>Desmarca los que no quieres incluir</strong></div>
@@ -6082,11 +6098,10 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
                   <col className="prod-dispatch-col-money" />
                   <col className="prod-dispatch-col-payments" />
                   <col className="prod-dispatch-col-money" />
-                  <col className="prod-dispatch-col-status" />
                 </colgroup>
                 <thead>
                   <tr>
-                    <th>Fecha despacho</th><th>Cliente</th><th>Forma de pago</th><th>Valor inicial</th><th>Abonos</th><th>Saldo</th><th>Estado</th>
+                    <th>Fecha despacho</th><th>Cliente</th><th>Forma de pago</th><th>Valor inicial</th><th>Abonos</th><th>Saldo</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -6097,13 +6112,12 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
                       <td>{row.payment_method || '-'}</td>
                       <td>{displayMoney(row.total)}</td>
                       <td>
-                        <strong>{displayMoney(row.paid_total)}</strong>
-                        {(row.payment_rows || []).slice(0, 3).map((payment, index) => (
-                          <small key={index}>{PAYMENT_TYPE_LABELS[payment.payment_type] || payment.payment_type}: {displayMoney(payment.amount)} {payment.due_date ? `· ${displayDate(payment.due_date)}` : ''}</small>
-                        ))}
+                        <strong>{displayMoney(row.collected_total ?? row.paid_total)}</strong>
+                        {(row.payment_rows || []).length ? (row.payment_rows || []).map((payment, index) => (
+                          <small key={index}>{PAYMENT_TYPE_LABELS[payment.payment_type] || payment.payment_type}: {displayMoney(payment.amount)}{(payment.payment_date || payment.due_date) ? ` | ${displayDate(payment.payment_date || payment.due_date)}` : ''}{paymentDetailText(payment) !== 'Sin detalle adicional' ? ` | ${paymentDetailText(payment)}` : ''}</small>
+                        )) : <small>Sin abonos registrados</small>}
                       </td>
                       <td>{displayMoney(row.balance)}</td>
-                      <td><span className={`prod-status ${row.payment_status === 'paid' ? 'status-delivered' : 'status-received'}`}>{row.payment_status === 'paid' ? 'Pagado' : 'Pendiente'}</span></td>
                     </tr>
                   ))}
                 </tbody>

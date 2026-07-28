@@ -596,6 +596,71 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     createInitialPendingBalance(orderId, businessId, pendingAmount, userLabel);
   }
 
+  function syncInvoicePendingBalance(orderId, businessId, userLabel = 'system') {
+    const invoiceTotal = db.prepare(
+      `SELECT COALESCE(SUM(invoice_value), 0) AS total
+       FROM production_order_invoices
+       WHERE order_id = ? AND establishment_id = ?`
+    ).get(orderId, businessId);
+    const targetTotal = moneyValue(invoiceTotal?.total || 0);
+    if (targetTotal <= 0) return;
+
+    const totals = db.prepare(
+      `SELECT
+         COALESCE(SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END), 0) AS paid_total,
+         COALESCE(SUM(CASE
+           WHEN status = 'pending'
+            AND COALESCE(reference, '') NOT IN (?, ?)
+           THEN amount ELSE 0 END), 0) AS other_pending_total
+       FROM production_order_payments
+       WHERE order_id = ? AND establishment_id = ?`
+    ).get(MANUAL_PENDING_TOTAL_REF, DELIVERY_NOTE_BALANCE_REF, orderId, businessId);
+    const pendingAmount = moneyValue(Math.max(
+      0,
+      targetTotal - Number(totals?.paid_total || 0) - Number(totals?.other_pending_total || 0)
+    ));
+    const current = db.prepare(
+      `SELECT id
+       FROM production_order_payments
+       WHERE order_id = ? AND establishment_id = ?
+         AND status = 'pending'
+         AND reference = ?
+         AND due_date IS NULL
+       ORDER BY id DESC
+       LIMIT 1`
+    ).get(orderId, businessId, MANUAL_PENDING_TOTAL_REF);
+    db.prepare(
+      `DELETE FROM production_order_payments
+       WHERE order_id = ? AND establishment_id = ?
+         AND status = 'pending'
+         AND reference = ?
+         AND id <> COALESCE(?, -1)`
+    ).run(orderId, businessId, MANUAL_PENDING_TOTAL_REF, current?.id || -1);
+
+    if (pendingAmount <= 0) {
+      if (current) {
+        db.prepare('DELETE FROM production_order_payments WHERE id = ? AND order_id = ? AND establishment_id = ?')
+          .run(current.id, orderId, businessId);
+      }
+      return;
+    }
+    if (current) {
+      db.prepare(
+        `UPDATE production_order_payments
+         SET amount = ?, notes = ?, updated_at = datetime('now', 'localtime')
+         WHERE id = ? AND order_id = ? AND establishment_id = ?`
+      ).run(
+        pendingAmount,
+        'Saldo pendiente automatico por facturas',
+        current.id,
+        orderId,
+        businessId
+      );
+      return;
+    }
+    createInitialPendingBalance(orderId, businessId, pendingAmount, userLabel);
+  }
+
   function reducePendingBalance(orderId, businessId, amount, excludedPaymentId = null) {
     let remaining = moneyValue(amount);
     if (remaining <= 0) return;
@@ -3273,40 +3338,60 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const today = new Date().toISOString().slice(0, 10);
     const dateFrom = normalizeDateInput(req.query.date_from, '');
     const dateTo = normalizeDateInput(req.query.date_to, today);
-    const filters = ["orders.status = 'delivered'", 'orders.deleted_at IS NULL'];
-    const params = [business.id];
+    const filters = ['orders.deleted_at IS NULL', 'shipments.dispatched_date IS NOT NULL'];
+    const params = [];
     if (dateFrom) {
-      filters.push('date(COALESCE(orders.dispatched_date, orders.updated_at)) >= ?');
+      filters.push('date(shipments.dispatched_date) >= ?');
       params.push(dateFrom);
     }
     if (dateTo) {
-      filters.push('date(COALESCE(orders.dispatched_date, orders.updated_at)) <= ?');
+      filters.push('date(shipments.dispatched_date) <= ?');
       params.push(dateTo);
     }
 
     const rows = db.prepare(
       `SELECT orders.id, orders.order_number, orders.order_date,
-              date(COALESCE(orders.dispatched_date, orders.updated_at)) AS dispatched_date,
+              date(shipments.dispatched_date) AS dispatched_date,
               orders.payment_method, orders.shipping_value, orders.discount_value, orders.invoice_value,
               clients.name AS client_name, clients.city,
               COALESCE(model_totals.subtotal, 0) AS subtotal,
+              COALESCE(invoice_totals.invoice_total, orders.invoice_value, 0) AS invoice_total,
               COALESCE(payments.paid_total, 0) AS paid_total,
               COALESCE(payments.pending_total, 0) AS pending_total,
               GROUP_CONCAT(
                 CASE
                   WHEN pay_rows.id IS NULL THEN NULL
-                  ELSE pay_rows.payment_type || '|' || pay_rows.amount || '|' || COALESCE(pay_rows.due_date, '') || '|' || COALESCE(pay_rows.payment_date, '') || '|' || pay_rows.status
+                  ELSE pay_rows.payment_type || '|' || pay_rows.amount || '|' || COALESCE(pay_rows.due_date, '') || '|' || COALESCE(pay_rows.payment_date, '') || '|' || pay_rows.status || '|' || COALESCE(pay_rows.bank, '') || '|' || COALESCE(pay_rows.reference, '') || '|' || COALESCE(REPLACE(pay_rows.notes, '|', '/'), '')
                 END,
                 ';;'
               ) AS payment_rows
        FROM production_orders AS orders
        JOIN production_clients AS clients ON clients.id = orders.client_id
        LEFT JOIN (
+         SELECT order_id, MAX(dispatched_date) AS dispatched_date
+         FROM (
+           SELECT order_id, dispatched_date
+           FROM production_delivery_notes
+           WHERE establishment_id = ? AND dispatched_date IS NOT NULL
+           UNION ALL
+           SELECT order_id, dispatched_date
+           FROM production_order_invoices
+           WHERE establishment_id = ? AND dispatched_date IS NOT NULL
+         )
+         GROUP BY order_id
+       ) AS shipments ON shipments.order_id = orders.id
+       LEFT JOIN (
          SELECT order_id, COALESCE(SUM(total_pairs * unit_price), 0) AS subtotal
          FROM production_order_models
          WHERE establishment_id = ?
          GROUP BY order_id
        ) AS model_totals ON model_totals.order_id = orders.id
+       LEFT JOIN (
+         SELECT order_id, COALESCE(SUM(invoice_value), 0) AS invoice_total
+         FROM production_order_invoices
+         WHERE establishment_id = ?
+         GROUP BY order_id
+       ) AS invoice_totals ON invoice_totals.order_id = orders.id
        LEFT JOIN (
          SELECT order_id,
                 SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END) AS paid_total,
@@ -3317,20 +3402,50 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
        ) AS payments ON payments.order_id = orders.id
        LEFT JOIN production_order_payments AS pay_rows
          ON pay_rows.order_id = orders.id AND pay_rows.establishment_id = orders.establishment_id
+         AND pay_rows.status = 'paid'
+         AND COALESCE(pay_rows.reference, '') NOT IN (?, ?)
+         AND pay_rows.payment_type <> 'saldo'
        WHERE orders.establishment_id = ?
          AND ${filters.join(' AND ')}
        GROUP BY orders.id
        ORDER BY dispatched_date ASC, orders.id ASC`
-    ).all(business.id, business.id, ...params);
+    ).all(
+      business.id,
+      business.id,
+      business.id,
+      business.id,
+      business.id,
+      DELIVERY_NOTE_BALANCE_REF,
+      MANUAL_PENDING_TOTAL_REF,
+      business.id,
+      ...params
+    );
 
     const normalized = rows.map((row) => {
       const subtotal = moneyValue(row.subtotal);
-      const total = moneyValue(Number(row.invoice_value || 0) > 0
-        ? Number(row.invoice_value || 0)
+      const total = moneyValue(Number(row.invoice_total || 0) > 0
+        ? Number(row.invoice_total || 0)
         : subtotal + Number(row.shipping_value || 0) - Number(row.discount_value || 0));
       const paid = moneyValue(row.paid_total);
       const balance = moneyValue(Math.max(0, total - paid));
       const paymentStatus = balance <= 0 ? 'paid' : 'pending';
+      const paymentRows = String(row.payment_rows || '')
+        .split(';;')
+        .filter(Boolean)
+        .map((item) => {
+          const [payment_type, amount, due_date, payment_date, payment_status, bank, reference, notes] = item.split('|');
+          return { payment_type, amount: Number(amount || 0), due_date, payment_date, status: payment_status, bank, reference, notes };
+        });
+      const chequeTotal = moneyValue(paymentRows
+        .filter((payment) => payment.payment_type === 'cheque')
+        .reduce((sum, payment) => sum + Number(payment.amount || 0), 0));
+      const abonoTotal = moneyValue(paymentRows
+        .filter((payment) => ['abono', 'transferencia'].includes(payment.payment_type))
+        .reduce((sum, payment) => sum + Number(payment.amount || 0), 0));
+      const efectivoTotal = moneyValue(paymentRows
+        .filter((payment) => payment.payment_type === 'efectivo')
+        .reduce((sum, payment) => sum + Number(payment.amount || 0), 0));
+      const collectedTotal = moneyValue(chequeTotal + abonoTotal + efectivoTotal);
       return {
         ...row,
         subtotal,
@@ -3338,13 +3453,11 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         paid_total: paid,
         balance,
         payment_status: paymentStatus,
-        payment_rows: String(row.payment_rows || '')
-          .split(';;')
-          .filter(Boolean)
-          .map((item) => {
-            const [payment_type, amount, due_date, payment_date, payment_status] = item.split('|');
-            return { payment_type, amount: Number(amount || 0), due_date, payment_date, status: payment_status };
-          })
+        cheque_total: chequeTotal,
+        abono_total: abonoTotal,
+        efectivo_total: efectivoTotal,
+        collected_total: collectedTotal,
+        payment_rows: paymentRows
       };
     }).filter((row) => status === 'all' || row.payment_status === status);
 
@@ -3356,7 +3469,11 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       totals: {
         total: normalized.reduce((sum, row) => sum + Number(row.total || 0), 0),
         paid: normalized.reduce((sum, row) => sum + Number(row.paid_total || 0), 0),
-        balance: normalized.reduce((sum, row) => sum + Number(row.balance || 0), 0)
+        balance: normalized.reduce((sum, row) => sum + Number(row.balance || 0), 0),
+        cheques: normalized.reduce((sum, row) => sum + Number(row.cheque_total || 0), 0),
+        abonos: normalized.reduce((sum, row) => sum + Number(row.abono_total || 0), 0),
+        efectivo: normalized.reduce((sum, row) => sum + Number(row.efectivo_total || 0), 0),
+        collected_total: normalized.reduce((sum, row) => sum + Number(row.collected_total || 0), 0)
       }
     });
   });
@@ -3852,7 +3969,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
              updated_at = datetime('now', 'localtime')
          WHERE id = ? AND establishment_id = ?`
       ).run(invoiceNumber, invoiceDate, invoiceValue, order.id, business.id);
-      if (invoiceValue > 0) addPendingBalance(order.id, business.id, invoiceValue, userLabel);
+      if (invoiceValue > 0) syncInvoicePendingBalance(order.id, business.id, userLabel);
     })();
     audit(req, 'create', 'order_invoice', invoiceId, invoiceNumber || order.order_number);
     res.json(getOrder(order.id, req));
