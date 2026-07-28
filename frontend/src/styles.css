@@ -715,6 +715,14 @@ input[type="file"] {
   min-width: 160px;
 }
 
+.physical-report-toggle {
+  display: none;
+}
+
+.physical-mobile-shortcut {
+  display: none;
+}
+
 .physical-items {
   display: grid;
   gap: 10px;
@@ -2294,20 +2302,52 @@ td {
   }
 
   .physical-ticket-admin {
-    gap: 12px;
+    gap: 14px;
+    margin-left: -6px;
+    margin-right: -6px;
   }
 
   .physical-ticket-admin .panel {
-    padding: 13px;
+    border-radius: 12px;
+    padding: 14px;
   }
 
   .physical-ticket-admin .panel-title {
+    align-items: stretch;
+    flex-direction: column;
     gap: 8px;
+  }
+
+  .physical-report-header h3 {
+    font-size: 20px;
+  }
+
+  .physical-report-toggle {
+    align-items: center;
+    display: inline-flex;
+    justify-content: center;
+    width: 100%;
+  }
+
+  .physical-report-toolbar {
+    background: #f7faf8;
+    border: 1px solid #dbe7e0;
+    border-radius: 12px;
+    display: none !important;
+    padding: 10px;
+  }
+
+  .physical-report-toolbar.open {
+    display: grid !important;
+  }
+
+  .physical-mobile-shortcut {
+    display: inline-flex;
   }
 
   .physical-ticket-admin .panel-title .row-actions {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
     justify-content: stretch;
     width: 100%;
   }
@@ -2316,6 +2356,21 @@ td {
   .physical-ticket-admin .panel-title .row-actions button {
     min-width: 0;
     width: 100%;
+  }
+
+  .physical-ticket-admin label {
+    font-size: 13px;
+    gap: 6px;
+  }
+
+  .physical-ticket-admin input,
+  .physical-ticket-admin select {
+    font-size: 16px;
+    min-height: 48px;
+  }
+
+  .physical-ticket-admin button {
+    min-height: 46px;
   }
 
   .physical-ticket-admin .stats-grid {
@@ -2386,6 +2441,61 @@ td {
     display: grid;
     grid-template-columns: 1fr;
     min-width: 96px;
+  }
+
+  .physical-ticket-admin .table-wrap {
+    overflow: visible;
+  }
+
+  .physical-ticket-admin table,
+  .physical-ticket-admin thead,
+  .physical-ticket-admin tbody,
+  .physical-ticket-admin tr,
+  .physical-ticket-admin td {
+    display: block;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .physical-ticket-admin thead {
+    display: none;
+  }
+
+  .physical-ticket-admin tbody {
+    display: grid;
+    gap: 10px;
+  }
+
+  .physical-ticket-admin tr {
+    background: #fbfcfa;
+    border: 1px solid #e2e9e3;
+    border-radius: 12px;
+    padding: 8px;
+  }
+
+  .physical-ticket-admin td {
+    align-items: flex-start;
+    border-bottom: 1px solid #e8eee9;
+    display: grid;
+    gap: 5px;
+    grid-template-columns: minmax(96px, 35%) minmax(0, 1fr);
+    padding: 9px 4px;
+  }
+
+  .physical-ticket-admin td:last-child {
+    border-bottom: 0;
+  }
+
+  .physical-ticket-admin td::before {
+    color: #66736c;
+    content: attr(data-label);
+    font-size: 11px;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+
+  .physical-ticket-admin td .row-actions {
+    width: 100%;
   }
 
   .person-row,

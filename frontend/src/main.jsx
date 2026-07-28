@@ -1674,6 +1674,7 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
   const [printMode, setPrintMode] = useState('');
   const [editingSaleId, setEditingSaleId] = useState(null);
   const [editingStockId, setEditingStockId] = useState(null);
+  const [reportOptionsOpen, setReportOptionsOpen] = useState(false);
   const activeLocations = locations.filter((location) => location.status === 'active');
   const saleSubtotal = saleForm.items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unit_price || 0), 0);
   const saleTotal = Math.max(0, saleSubtotal - Number(saleForm.discount_value || 0));
@@ -1863,14 +1864,21 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
       {error && <div className="alert error">{error}</div>}
       {statusMessage && <div className="alert success">{statusMessage}</div>}
       <section className="panel">
-        <div className="panel-title">
+        <div className="panel-title physical-report-header">
           <h3>Reporte entradas fisicas</h3>
-          <div className="row-actions">
+          <button type="button" className="ghost-button physical-report-toggle" onClick={() => setReportOptionsOpen((open) => !open)}>
+            <Settings size={17} />
+            Opciones del reporte
+          </button>
+          <div className={`row-actions physical-report-toolbar ${reportOptionsOpen ? 'open' : ''}`}>
             <Input type="date" label="Fecha reporte" value={reportDate} onChange={(value) => setReportDate(value)} />
             <button className="ghost-button" onClick={() => loadReport(reportDate)}>Generar</button>
             <button className="ghost-button" onClick={() => printReport('daily')}>Imprimir diario</button>
             <button className="ghost-button" onClick={() => printReport('stock')}>Reporte ingreso de entradas</button>
             <button className="primary-button" onClick={shareReport}>Crear imagen y abrir WhatsApp</button>
+            <button className="ghost-button physical-mobile-shortcut" onClick={() => document.getElementById('physical-sale-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Ir a venta</button>
+            <button className="ghost-button physical-mobile-shortcut" onClick={() => document.getElementById('physical-stock-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Ir a ingresos</button>
+            <button className="ghost-button physical-mobile-shortcut" onClick={() => document.getElementById('physical-daily-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Ir a detalle</button>
           </div>
         </div>
         <div className="stats-grid">
@@ -1899,7 +1907,7 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
       </section>
 
       <div className="two-column">
-        <section className="panel">
+        <section className="panel" id="physical-sale-form">
           <div className="panel-title">
             <h3>{editingSaleId ? 'Editar venta fisica' : 'Registrar venta fisica'}</h3>
             {editingSaleId && <button type="button" className="ghost-button" onClick={() => resetSaleForm()}>Cancelar edicion</button>}
@@ -1937,7 +1945,7 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
           </form>
         </section>
 
-        <section className="panel">
+        <section className="panel" id="physical-stock-form">
           <div className="panel-title">
             <h3>{editingStockId ? 'Editar ingreso de entradas' : 'Entradas ingresadas y gastos'}</h3>
             {editingStockId && <button type="button" className="ghost-button" onClick={() => resetStockForm()}>Cancelar edicion</button>}
@@ -1975,7 +1983,7 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
         </section>
       </div>
 
-      <section className="panel physical-report-print">
+      <section className="panel physical-report-print" id="physical-daily-detail">
         <div className="panel-title"><h3>Detalle diario</h3></div>
         <DataTable
           columns={['Venta', 'Fecha', 'Pago', 'Entradas', 'Subtotal', 'Descuento', 'Total', 'Acciones']}
@@ -3531,7 +3539,7 @@ function DataTable({ columns, rows }) {
         <tbody>
           {rows.map((row, rowIndex) => (
             <tr key={rowIndex}>
-              {row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}
+              {row.map((cell, cellIndex) => <td data-label={columns[cellIndex]} key={cellIndex}>{cell}</td>)}
             </tr>
           ))}
         </tbody>
