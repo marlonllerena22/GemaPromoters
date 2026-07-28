@@ -274,6 +274,14 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  max-width: 100%;
+  overflow-x: hidden;
+  width: 100%;
+}
+
 body {
   margin: 0;
   min-width: 320px;
@@ -488,6 +496,16 @@ input[type="file"] {
 .sidebar nav {
   display: grid;
   gap: 8px;
+}
+
+.mobile-admin-menu-toggle {
+  display: none;
+}
+
+.mobile-sidebar-actions {
+  display: grid;
+  gap: 8px;
+  margin-top: auto;
 }
 
 .sidebar button,
@@ -5569,6 +5587,238 @@ td {
 
   .prod-followup-alert-list b {
     text-align: left;
+  }
+}
+
+@media (max-width: 680px) {
+  .app-shell {
+    display: block;
+    min-height: 100vh;
+    width: 100%;
+  }
+
+  .sidebar {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    gap: 10px;
+    padding: 12px;
+    position: sticky;
+    top: 0;
+    width: 100%;
+    z-index: 20;
+  }
+
+  .sidebar-brand {
+    align-items: center;
+    margin: 0;
+  }
+
+  .brand-mark.small {
+    height: 34px;
+    width: 34px;
+  }
+
+  .sidebar-brand strong {
+    font-size: 14px;
+  }
+
+  .sidebar-brand span {
+    font-size: 10px;
+  }
+
+  .mobile-admin-menu-toggle {
+    align-items: center;
+    background: #24332d;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    color: #ffffff;
+    display: flex;
+    font-size: 15px;
+    font-weight: 850;
+    gap: 9px;
+    justify-content: center;
+    min-height: 44px;
+    padding: 10px 12px;
+    width: 100%;
+  }
+
+  .sidebar nav,
+  .mobile-sidebar-actions {
+    display: none;
+    margin: 0;
+  }
+
+  .sidebar nav.open,
+  .mobile-sidebar-actions.open {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .sidebar nav {
+    overflow: visible;
+    padding: 0;
+  }
+
+  .sidebar button,
+  .public-link,
+  .logout {
+    border-radius: 12px;
+    font-size: 13px;
+    justify-content: flex-start;
+    min-height: 44px;
+    min-width: 0;
+    padding: 10px;
+    width: 100%;
+    white-space: normal;
+  }
+
+  .mobile-sidebar-actions .public-link {
+    margin-top: 0;
+  }
+
+  .content {
+    padding: 12px;
+    width: 100%;
+  }
+
+  .topbar {
+    background: transparent;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .topbar p {
+    font-size: 10px;
+  }
+
+  .topbar h2 {
+    font-size: 24px;
+    line-height: 1.05;
+  }
+
+  .event-selector {
+    font-size: 13px;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .event-selector select,
+  .topbar select {
+    font-size: 15px;
+    min-height: 46px;
+    width: 100%;
+  }
+
+  .stacked-layout,
+  .stack,
+  .two-column {
+    gap: 12px;
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .panel,
+  .metric-card {
+    border-radius: 14px;
+    box-shadow: 0 8px 18px rgba(17, 28, 23, 0.05);
+  }
+
+  .panel {
+    padding: 14px;
+  }
+
+  .panel-title {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .panel-title h3 {
+    font-size: 18px;
+  }
+
+  label {
+    font-size: 13px;
+  }
+
+  input,
+  select {
+    font-size: 16px;
+    min-height: 48px;
+    width: 100%;
+  }
+
+  button,
+  .primary-button,
+  .ghost-button,
+  .danger-button {
+    font-size: 14px;
+    min-height: 46px;
+  }
+
+  .physical-ticket-admin {
+    gap: 12px;
+    margin-left: 0;
+    margin-right: 0;
+    width: 100%;
+  }
+
+  .physical-ticket-admin .panel {
+    padding: 14px;
+  }
+
+  .physical-report-toolbar {
+    padding: 12px;
+  }
+
+  .physical-ticket-admin .stats-grid {
+    gap: 10px;
+    grid-template-columns: 1fr;
+  }
+
+  .physical-ticket-admin .stats-grid article {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+    padding: 12px;
+  }
+
+  .physical-ticket-admin .stats-grid span {
+    font-size: 12px;
+    margin: 0;
+  }
+
+  .physical-ticket-admin .stats-grid strong {
+    font-size: 22px;
+  }
+
+  .physical-inventory-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .physical-inventory-grid article {
+    padding: 12px;
+  }
+
+  .physical-inventory-grid strong {
+    font-size: 15px;
+  }
+
+  .physical-inventory-grid span {
+    font-size: 12px;
+  }
+
+  .physical-inventory-grid b {
+    font-size: 20px;
+  }
+
+  .physical-items article {
+    padding: 12px;
+  }
+
+  .physical-ticket-admin td {
+    font-size: 14px;
+    grid-template-columns: 112px minmax(0, 1fr);
   }
 }
 

@@ -16,6 +16,7 @@ import {
   Lock,
   LogOut,
   Medal,
+  Menu,
   Plus,
   Search,
   Share2,
@@ -729,6 +730,7 @@ function RegisterPage() {
 
 function AdminApp({ user, onLogout }) {
   const [view, setView] = useState('dashboard');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [data, setData] = useState({
     dashboard: null,
     establishments: [],
@@ -853,29 +855,35 @@ function AdminApp({ user, onLogout }) {
   return (
     <main className="app-shell">
       <aside className="sidebar">
-          <div className="sidebar-brand">
+        <div className="sidebar-brand">
           <div className="brand-mark small">P</div>
           <div>
             <strong>PROMOTERS</strong>
             <span>{user?.role === 'supreme' ? 'Administrador supremo' : user?.establishment_display_name || currentEstablishment?.display_name || 'Negocio'}</span>
           </div>
         </div>
-        <nav>
+        <button className="mobile-admin-menu-toggle" type="button" onClick={() => setMobileMenuOpen((open) => !open)}>
+          <Menu size={18} />
+          Menu del panel
+        </button>
+        <nav className={mobileMenuOpen ? 'open' : ''}>
           {nav.map(([key, label, Icon]) => (
-            <button key={key} className={view === key ? 'active' : ''} onClick={() => setView(key)}>
+            <button key={key} className={view === key ? 'active' : ''} onClick={() => { setView(key); setMobileMenuOpen(false); }}>
               <Icon size={18} />
               {label}
             </button>
           ))}
         </nav>
-        <a className="public-link" href="/verificar" target="_blank" rel="noreferrer">
-          <Search size={17} />
-          Verificar codigo
-        </a>
-        <button className="logout" onClick={onLogout}>
-          <LogOut size={18} />
-          Salir
-        </button>
+        <div className={`mobile-sidebar-actions ${mobileMenuOpen ? 'open' : ''}`}>
+          <a className="public-link" href="/verificar" target="_blank" rel="noreferrer">
+            <Search size={17} />
+            Verificar codigo
+          </a>
+          <button className="logout" onClick={onLogout}>
+            <LogOut size={18} />
+            Salir
+          </button>
+        </div>
       </aside>
 
       <section className="content">
