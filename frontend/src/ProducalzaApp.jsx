@@ -5802,7 +5802,7 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
                       <td>{pair.entered?.entry_date ? displayShortDate(pair.entered.entry_date) : ''}</td>
                       <td><strong>{pair.entered?.client_name || ''}</strong></td>
                       <td>{pair.entered?.entered_pairs || ''}</td>
-                      <td>{pair.entered?.observations || ''}</td>
+                      <td></td>
                       <td>{pair.dispatched?.dispatched_pairs || ''}</td>
                       <td>{pair.dispatched?.dispatched_date ? displayShortDate(pair.dispatched.dispatched_date) : ''}</td>
                     </tr>
