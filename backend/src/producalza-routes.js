@@ -884,7 +884,21 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       .map((note) => ({
         ...note,
         model_ids: parseJsonValue(note.model_ids_json, []),
+        item_quantities: parseJsonValue(note.item_quantities_json, {}),
         model_prices: parseJsonValue(note.model_prices_json, {})
+      }));
+    const invoices = db
+      .prepare(
+        `SELECT *
+         FROM production_order_invoices
+         WHERE order_id = ? AND establishment_id = ?
+         ORDER BY invoice_date ASC, id ASC`
+      )
+      .all(order.id, businessId)
+      .map((invoice) => ({
+        ...invoice,
+        model_ids: parseJsonValue(invoice.model_ids_json, []),
+        item_quantities: parseJsonValue(invoice.item_quantities_json, {})
       }));
     const remissionGuides = db
       .prepare(
@@ -918,19 +932,25 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
          ORDER BY returns.order_date DESC, returns.id DESC, allocations.source_model_id, allocations.destination, allocations.size`
       )
       .all(order.id, businessId);
+    const mappedModels = models.map((model) => ({
+      ...model,
+      sizes: Object.fromEntries(
+        sizes.filter((size) => size.model_id === model.id).map((size) => [size.size, size.quantity])
+      )
+    }));
+    const shipment = shipmentSummaryForModels(mappedModels, deliveryNotes, invoices);
     return {
       ...order,
       payments,
       delivery_notes: deliveryNotes,
+      invoices,
       remission_guides: remissionGuides,
       return_allocations: returnAllocations,
       returned_allocations: returnedAllocations,
-      models: models.map((model) => ({
-        ...model,
-        sizes: Object.fromEntries(
-          sizes.filter((size) => size.model_id === model.id).map((size) => [size.size, size.quantity])
-        )
-      }))
+      shipment_status: shipment.status,
+      shipped_pairs: shipment.shippedPairs,
+      pending_shipment_pairs: shipment.pendingPairs,
+      models: mappedModels
     };
   }
 
@@ -951,6 +971,150 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     return Number(row?.next_number || 1);
   }
 
+  function normalizeItemQuantities(value, orderModels = []) {
+    const source = value && typeof value === 'object' ? value : {};
+    const normalized = {};
+    for (const model of orderModels) {
+      const modelId = String(model.id);
+      const modelSelection = source[modelId] || source[Number(model.id)] || {};
+      const sizes = {};
+      for (const [size, maxQty] of Object.entries(model.sizes || {})) {
+        const qty = Math.max(0, Math.min(Math.floor(Number(modelSelection[size] || 0)), Number(maxQty || 0)));
+        if (qty > 0) sizes[size] = qty;
+      }
+      if (Object.keys(sizes).length) normalized[modelId] = sizes;
+    }
+    return normalized;
+  }
+
+  function itemQuantitiesFromModelIds(orderModels = [], modelIds = []) {
+    const ids = new Set(modelIds.map((id) => Number(id || 0)).filter(Boolean));
+    const quantities = {};
+    for (const model of orderModels) {
+      if (!ids.has(Number(model.id))) continue;
+      const sizes = {};
+      for (const [size, qty] of Object.entries(model.sizes || {})) {
+        const count = Math.max(0, Math.floor(Number(qty || 0)));
+        if (count > 0) sizes[size] = count;
+      }
+      if (Object.keys(sizes).length) quantities[String(model.id)] = sizes;
+    }
+    return quantities;
+  }
+
+  function pairsFromItemQuantities(itemQuantities = {}) {
+    return Object.values(itemQuantities || {}).reduce((sum, sizes) => (
+      sum + Object.values(sizes || {}).reduce((inner, qty) => inner + Number(qty || 0), 0)
+    ), 0);
+  }
+
+  function documentItemQuantities(document, orderModels = []) {
+    const quantities = document.item_quantities && Object.keys(document.item_quantities).length
+      ? normalizeItemQuantities(document.item_quantities, orderModels)
+      : itemQuantitiesFromModelIds(orderModels, document.model_ids || parseJsonValue(document.model_ids_json, []));
+    return quantities;
+  }
+
+  function shipmentSummaryForModels(orderModels = [], deliveryNotes = [], invoices = []) {
+    const totalPairs = orderModels.reduce((sum, model) => sum + Number(model.total_pairs || 0), 0);
+    const shippedByModel = {};
+    const documents = [
+      ...deliveryNotes.filter((note) => note.dispatched_date && note.note_type !== 'pending'),
+      ...invoices.filter((invoice) => invoice.dispatched_date)
+    ].sort((left, right) => String(left.dispatched_date || '').localeCompare(String(right.dispatched_date || '')));
+    for (const document of documents) {
+      const quantities = documentItemQuantities(document, orderModels);
+      for (const [modelId, sizes] of Object.entries(quantities)) {
+        shippedByModel[modelId] ||= {};
+        const model = orderModels.find((item) => String(item.id) === String(modelId));
+        for (const [size, qty] of Object.entries(sizes || {})) {
+          const maxQty = Number(model?.sizes?.[size] || 0);
+          const current = Number(shippedByModel[modelId][size] || 0);
+          shippedByModel[modelId][size] = Math.min(maxQty, current + Number(qty || 0));
+        }
+      }
+    }
+    const shippedPairs = Math.min(totalPairs, pairsFromItemQuantities(shippedByModel));
+    return {
+      status: shippedPairs >= totalPairs && totalPairs > 0 ? 'delivered' : shippedPairs > 0 ? 'partial' : 'pending',
+      totalPairs,
+      shippedPairs,
+      pendingPairs: Math.max(0, totalPairs - shippedPairs)
+    };
+  }
+
+  function shipmentDataForOrder(orderId, businessId) {
+    const models = db.prepare(
+      `SELECT * FROM production_order_models
+       WHERE order_id = ? AND establishment_id = ?
+       ORDER BY id ASC`
+    ).all(orderId, businessId);
+    const sizes = db.prepare(
+      `SELECT sizes.* FROM production_model_sizes AS sizes
+       JOIN production_order_models AS models ON models.id = sizes.model_id
+       WHERE models.order_id = ? AND sizes.establishment_id = ?
+       ORDER BY sizes.size`
+    ).all(orderId, businessId);
+    const mappedModels = models.map((model) => ({
+      ...model,
+      sizes: Object.fromEntries(
+        sizes.filter((size) => size.model_id === model.id).map((size) => [size.size, size.quantity])
+      )
+    }));
+    const deliveryNotes = db.prepare(
+      `SELECT * FROM production_delivery_notes
+       WHERE order_id = ? AND establishment_id = ?`
+    ).all(orderId, businessId).map((note) => ({
+      ...note,
+      model_ids: parseJsonValue(note.model_ids_json, []),
+      item_quantities: parseJsonValue(note.item_quantities_json, {})
+    }));
+    const invoices = db.prepare(
+      `SELECT * FROM production_order_invoices
+       WHERE order_id = ? AND establishment_id = ?`
+    ).all(orderId, businessId).map((invoice) => ({
+      ...invoice,
+      model_ids: parseJsonValue(invoice.model_ids_json, []),
+      item_quantities: parseJsonValue(invoice.item_quantities_json, {})
+    }));
+    return { models: mappedModels, deliveryNotes, invoices, summary: shipmentSummaryForModels(mappedModels, deliveryNotes, invoices) };
+  }
+
+  function refreshOrderShipmentStatus(orderId, businessId) {
+    const { summary } = shipmentDataForOrder(orderId, businessId);
+    if (summary.status !== 'delivered') return summary;
+    const latest = db.prepare(
+      `SELECT MAX(dispatched_date) AS dispatched_date
+       FROM (
+         SELECT dispatched_date FROM production_delivery_notes
+         WHERE order_id = ? AND establishment_id = ? AND dispatched_date IS NOT NULL
+         UNION ALL
+         SELECT dispatched_date FROM production_order_invoices
+         WHERE order_id = ? AND establishment_id = ? AND dispatched_date IS NOT NULL
+       )`
+    ).get(orderId, businessId, orderId, businessId);
+    db.prepare(
+      `UPDATE production_order_models
+       SET status = 'delivered',
+           process_cut = 1,
+           process_prepared = 1,
+           process_stitched = 1,
+           process_assembled = 1,
+           process_planted = 1,
+           process_finished = 1,
+           updated_at = datetime('now', 'localtime')
+       WHERE order_id = ? AND establishment_id = ?`
+    ).run(orderId, businessId);
+    db.prepare(
+      `UPDATE production_orders
+       SET status = 'delivered',
+           dispatched_date = ?,
+           updated_at = datetime('now', 'localtime')
+       WHERE id = ? AND establishment_id = ?`
+    ).run(latest?.dispatched_date || new Date().toISOString().slice(0, 10), orderId, businessId);
+    return summary;
+  }
+
   function nextRemissionGuideNumber(businessId, formatType = 'producalza') {
     const normalizedFormat = formatType === 'marjorie' ? 'marjorie' : 'producalza';
     const startFrom = normalizedFormat === 'marjorie' ? 100 : 8201;
@@ -962,13 +1126,13 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     return Math.max(startFrom, Number(row?.next_number || startFrom));
   }
 
-  function createDeliveryNoteRecord({ orderId, businessId, noteType, title, destination = '', modelIds, prices, shippingValue, discountValue, totalValue, userLabel }) {
+  function createDeliveryNoteRecord({ orderId, businessId, noteType, title, destination = '', modelIds, itemQuantities = {}, prices, shippingValue, discountValue, totalValue, userLabel }) {
     const noteNumber = nextDeliveryNoteNumber(orderId, businessId);
     db.prepare(
       `INSERT INTO production_delivery_notes
        (establishment_id, order_id, note_number, note_type, title, destination, model_ids_json,
-        model_prices_json, shipping_value, discount_value, total_value, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        item_quantities_json, model_prices_json, shipping_value, discount_value, total_value, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       businessId,
       orderId,
@@ -977,6 +1141,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       title,
       destination,
       JSON.stringify(modelIds),
+      JSON.stringify(itemQuantities),
       JSON.stringify(prices),
       shippingValue,
       discountValue,
@@ -2916,29 +3081,93 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
        GROUP BY orders.id`
     ).all(business.id, dateFrom, dateTo);
 
-    const liveDispatched = db.prepare(
-      `SELECT 'live-dispatch-' || orders.id AS source_key,
-              substr(date(orders.dispatched_date), 1, 7) AS report_month,
-              orders.order_date AS entry_date,
-              clients.name AS client_name,
-              NULL AS entered_pairs,
-              orders.general_notes AS observations,
-              COALESCE(SUM(models.total_pairs), 0) AS dispatched_pairs,
-              date(orders.dispatched_date) AS dispatched_date,
-              'Sistema Producalza' AS source,
-              'sistema' AS row_source
-       FROM production_orders AS orders
-       JOIN production_clients AS clients ON clients.id = orders.client_id
-       LEFT JOIN production_order_models AS models ON models.order_id = orders.id
-       WHERE orders.establishment_id = ?
+    const liveDispatchDocuments = db.prepare(
+      `SELECT 'note' AS document_type,
+              notes.id AS document_id,
+              notes.order_id,
+              notes.model_ids_json,
+              notes.item_quantities_json,
+              date(notes.dispatched_date) AS dispatched_date
+       FROM production_delivery_notes AS notes
+       JOIN production_orders AS orders ON orders.id = notes.order_id
+       WHERE notes.establishment_id = ?
+         AND notes.note_type <> 'pending'
+         AND notes.dispatched_date IS NOT NULL
+         AND date(notes.dispatched_date) BETWEEN ? AND ?
          AND orders.deleted_at IS NULL
          AND orders.order_type = 'order'
          AND COALESCE(orders.is_sample, 0) = 0
-         AND orders.status = 'delivered'
-         AND orders.dispatched_date IS NOT NULL
-         AND date(orders.dispatched_date) BETWEEN ? AND ?
-       GROUP BY orders.id`
-    ).all(business.id, dateFrom, dateTo);
+       UNION ALL
+       SELECT 'invoice' AS document_type,
+              invoices.id AS document_id,
+              invoices.order_id,
+              invoices.model_ids_json,
+              invoices.item_quantities_json,
+              date(invoices.dispatched_date) AS dispatched_date
+       FROM production_order_invoices AS invoices
+       JOIN production_orders AS orders ON orders.id = invoices.order_id
+       WHERE invoices.establishment_id = ?
+         AND invoices.dispatched_date IS NOT NULL
+         AND date(invoices.dispatched_date) BETWEEN ? AND ?
+         AND orders.deleted_at IS NULL
+         AND orders.order_type = 'order'
+         AND COALESCE(orders.is_sample, 0) = 0`
+    ).all(business.id, dateFrom, dateTo, business.id, dateFrom, dateTo);
+
+    const liveDispatchOrderIds = [...new Set(liveDispatchDocuments.map((document) => Number(document.order_id)).filter(Boolean))];
+    const liveDispatchOrders = liveDispatchOrderIds.length
+      ? db.prepare(
+        `SELECT orders.id, orders.order_date, orders.general_notes, clients.name AS client_name
+         FROM production_orders AS orders
+         JOIN production_clients AS clients ON clients.id = orders.client_id
+         WHERE orders.establishment_id = ?
+           AND orders.id IN (${liveDispatchOrderIds.map(() => '?').join(', ')})`
+      ).all(business.id, ...liveDispatchOrderIds)
+      : [];
+    const orderById = new Map(liveDispatchOrders.map((order) => [Number(order.id), order]));
+    const modelsByOrder = new Map();
+    if (liveDispatchOrderIds.length) {
+      const models = db.prepare(
+        `SELECT models.*, sizes.size, sizes.quantity
+         FROM production_order_models AS models
+         LEFT JOIN production_model_sizes AS sizes ON sizes.model_id = models.id
+         WHERE models.establishment_id = ?
+           AND models.order_id IN (${liveDispatchOrderIds.map(() => '?').join(', ')})
+         ORDER BY models.order_id, models.id, sizes.size`
+      ).all(business.id, ...liveDispatchOrderIds);
+      for (const row of models) {
+        const list = modelsByOrder.get(Number(row.order_id)) || [];
+        let model = list.find((item) => Number(item.id) === Number(row.id));
+        if (!model) {
+          model = { ...row, sizes: {} };
+          list.push(model);
+        }
+        if (row.size) model.sizes[row.size] = row.quantity;
+        modelsByOrder.set(Number(row.order_id), list);
+      }
+    }
+    const liveDispatched = liveDispatchDocuments.map((document) => {
+      const order = orderById.get(Number(document.order_id)) || {};
+      const orderModels = modelsByOrder.get(Number(document.order_id)) || [];
+      const itemQuantities = parseJsonValue(document.item_quantities_json, {});
+      const modelIds = parseJsonValue(document.model_ids_json, []);
+      const pairs = pairsFromItemQuantities(Object.keys(itemQuantities || {}).length
+        ? normalizeItemQuantities(itemQuantities, orderModels)
+        : itemQuantitiesFromModelIds(orderModels, modelIds));
+      return {
+        source_key: `live-dispatch-${document.document_type}-${document.document_id}`,
+        order_id: Number(document.order_id),
+        report_month: String(document.dispatched_date || '').slice(0, 7),
+        entry_date: order.order_date,
+        client_name: order.client_name,
+        entered_pairs: null,
+        observations: '',
+        dispatched_pairs: pairs,
+        dispatched_date: document.dispatched_date,
+        source: 'Sistema Producalza',
+        row_source: 'sistema'
+      };
+    }).filter((row) => Number(row.dispatched_pairs || 0) > 0);
 
     const enteredRows = [
       ...historicalRows.filter((row) => Number(row.entered_pairs || 0) > 0),
@@ -2960,6 +3189,53 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
           left.client_name.localeCompare(right.client_name);
       });
 
+    const printGroups = new Map();
+    for (const row of liveEntered) {
+      printGroups.set(`live-${row.source_key}`, {
+        order_id: Number(String(row.source_key).replace('live-order-', '')),
+        entry: { ...row, observations: '' },
+        dispatches: []
+      });
+    }
+    for (const row of liveDispatched) {
+      const key = `order-${row.order_id}`;
+      const existingKey = [...printGroups.keys()].find((item) => printGroups.get(item).order_id === row.order_id);
+      const groupKey = existingKey || key;
+      const current = printGroups.get(groupKey) || {
+        order_id: row.order_id,
+        entry: {
+          source_key: `live-order-${row.order_id}`,
+          report_month: String(row.entry_date || '').slice(0, 7),
+          entry_date: row.entry_date,
+          client_name: row.client_name,
+          entered_pairs: (modelsByOrder.get(row.order_id) || []).reduce((sum, model) => sum + Number(model.total_pairs || 0), 0),
+          observations: '',
+          dispatched_pairs: null,
+          dispatched_date: null,
+          source: 'Sistema Producalza',
+          row_source: 'sistema'
+        },
+        dispatches: []
+      };
+      current.dispatches.push(row);
+      printGroups.set(groupKey, current);
+    }
+    const printRows = [];
+    for (const group of [...printGroups.values()].sort((left, right) => (
+      String(left.entry?.entry_date || '').localeCompare(String(right.entry?.entry_date || '')) ||
+      String(left.entry?.client_name || '').localeCompare(String(right.entry?.client_name || ''))
+    ))) {
+      const dispatches = group.dispatches.sort((left, right) => String(left.dispatched_date || '').localeCompare(String(right.dispatched_date || '')));
+      if (!dispatches.length) {
+        printRows.push(group.entry);
+      } else {
+        dispatches.forEach((dispatch, index) => {
+          printRows.push(index === 0
+            ? { ...group.entry, dispatched_pairs: dispatch.dispatched_pairs, dispatched_date: dispatch.dispatched_date, source_key: `${group.entry.source_key}-${dispatch.source_key}` }
+            : { ...dispatch, entry_date: null, client_name: '', entered_pairs: null, observations: '' });
+        });
+      }
+    }
     const rows = [...enteredRows, ...dispatchedRows];
     const totalEntered = rows.reduce((sum, row) => sum + Number(row.entered_pairs || 0), 0);
     const totalDispatched = rows.reduce((sum, row) => sum + Number(row.dispatched_pairs || 0), 0);
@@ -2979,6 +3255,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       rows,
       entered_rows: enteredRows,
       dispatched_rows: dispatchedRows,
+      print_rows: [...historicalRows, ...printRows],
       stored_months: storedMonths,
       totals: {
         entered_pairs: totalEntered,
@@ -3539,19 +3816,68 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     if (!business) return;
     const order = getOrder(req.params.id, req);
     if (!order) return res.status(404).json({ message: 'Pedido no encontrado' });
-    db.prepare(
-      `UPDATE production_orders
-       SET invoice_number = ?, invoice_date = ?, invoice_value = ?,
-           updated_at = datetime('now', 'localtime')
-       WHERE id = ? AND establishment_id = ?`
-    ).run(
-      String(req.body.invoice_number || '').trim(),
-      normalizeOptionalDate(req.body.invoice_date),
-      moneyValue(req.body.invoice_value),
-      order.id,
-      business.id
-    );
-    audit(req, 'update', 'order_invoice', order.id, req.body.invoice_number || '');
+    const invoiceNumber = String(req.body.invoice_number || '').trim();
+    const invoiceDate = normalizeOptionalDate(req.body.invoice_date) || new Date().toISOString().slice(0, 10);
+    const invoiceValue = moneyValue(req.body.invoice_value);
+    const itemQuantities = normalizeItemQuantities(req.body.item_quantities || {}, order.models);
+    const modelIds = Object.keys(itemQuantities).map((id) => Number(id)).filter(Boolean);
+    if (!invoiceNumber && invoiceValue <= 0) {
+      return res.status(400).json({ message: 'Ingresa numero o valor de factura.' });
+    }
+    if (!modelIds.length) {
+      return res.status(400).json({ message: 'Selecciona los pares que se estan facturando.' });
+    }
+    const userLabel = req.user?.username || req.user?.role || 'system';
+    let invoiceId;
+    db.transaction(() => {
+      const result = db.prepare(
+        `INSERT INTO production_order_invoices
+         (establishment_id, order_id, invoice_number, invoice_date, invoice_value,
+          model_ids_json, item_quantities_json, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        business.id,
+        order.id,
+        invoiceNumber,
+        invoiceDate,
+        invoiceValue,
+        JSON.stringify(modelIds),
+        JSON.stringify(itemQuantities),
+        userLabel
+      );
+      invoiceId = result.lastInsertRowid;
+      db.prepare(
+        `UPDATE production_orders
+         SET invoice_number = ?, invoice_date = ?, invoice_value = ?,
+             updated_at = datetime('now', 'localtime')
+         WHERE id = ? AND establishment_id = ?`
+      ).run(invoiceNumber, invoiceDate, invoiceValue, order.id, business.id);
+      if (invoiceValue > 0) addPendingBalance(order.id, business.id, invoiceValue, userLabel);
+    })();
+    audit(req, 'create', 'order_invoice', invoiceId, invoiceNumber || order.order_number);
+    res.json(getOrder(order.id, req));
+  });
+
+  app.patch('/api/producalza/orders/:id/invoices/:invoiceId/shipped', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const order = getOrder(req.params.id, req);
+    if (!order) return res.status(404).json({ message: 'Pedido no encontrado' });
+    const invoice = db.prepare(
+      `SELECT * FROM production_order_invoices
+       WHERE id = ? AND order_id = ? AND establishment_id = ?`
+    ).get(req.params.invoiceId, order.id, business.id);
+    if (!invoice) return res.status(404).json({ message: 'Factura no encontrada' });
+    const dispatchedDate = normalizeDateInput(req.body.dispatched_date, new Date().toISOString().slice(0, 10));
+    db.transaction(() => {
+      db.prepare(
+        `UPDATE production_order_invoices
+         SET dispatched_date = ?, updated_at = datetime('now', 'localtime')
+         WHERE id = ? AND order_id = ? AND establishment_id = ?`
+      ).run(dispatchedDate, invoice.id, order.id, business.id);
+      refreshOrderShipmentStatus(order.id, business.id);
+    })();
+    audit(req, 'ship', 'order_invoice', invoice.id, dispatchedDate);
     res.json(getOrder(order.id, req));
   });
 
@@ -3714,6 +4040,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const shippingValue = moneyValue(req.body.shipping_value);
     const discountValue = moneyValue(req.body.discount_value);
     const modelIds = new Set(parseJsonValue(note.model_ids_json, []).map((id) => Number(id)));
+    const itemQuantities = parseJsonValue(note.item_quantities_json, {});
     const currentPricesById = parseJsonValue(note.model_prices_json, {});
     const submittedPrices = Array.isArray(req.body.models) ? req.body.models : [];
     const pricesById = { ...currentPricesById };
@@ -3721,12 +4048,14 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       const modelId = Number(model.id || 0);
       if (modelIds.has(modelId)) pricesById[modelId] = moneyValue(model.unit_price);
     }
-    const noteSubtotal = order.models
-      .filter((model) => modelIds.has(Number(model.id)))
-      .reduce((sum, model) => {
-        const unitPrice = moneyValue(pricesById[Number(model.id)] ?? model.unit_price);
-        return sum + Number(model.total_pairs || 0) * unitPrice;
-      }, 0);
+    const noteSubtotal = order.models.reduce((sum, model) => {
+      if (!modelIds.has(Number(model.id))) return sum;
+      const unitPrice = moneyValue(pricesById[Number(model.id)] ?? model.unit_price);
+      const selectedPairs = Object.keys(itemQuantities || {}).length
+        ? Object.values(itemQuantities[String(model.id)] || {}).reduce((inner, qty) => inner + Number(qty || 0), 0)
+        : Number(model.total_pairs || 0);
+      return sum + selectedPairs * unitPrice;
+    }, 0);
     const newTotal = moneyValue(Math.max(0, noteSubtotal + shippingValue - discountValue));
     const oldTotal = moneyValue(note.total_value);
     const delta = moneyValue(newTotal - oldTotal);
@@ -3743,6 +4072,31 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       if (delta < 0) reducePendingBalance(order.id, business.id, Math.abs(delta));
     })();
     audit(req, 'update', 'delivery_note', note.id, `Nota ${note.note_number}`);
+    res.json(getOrder(order.id, req));
+  });
+
+  app.patch('/api/producalza/orders/:id/delivery-notes/:noteId/shipped', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const order = getOrder(req.params.id, req);
+    if (!order) return res.status(404).json({ message: 'Pedido no encontrado' });
+    const note = db.prepare(
+      `SELECT * FROM production_delivery_notes
+       WHERE id = ? AND order_id = ? AND establishment_id = ?`
+    ).get(req.params.noteId, order.id, business.id);
+    if (!note) return res.status(404).json({ message: 'Nota de entrega no encontrada' });
+    const dispatchedDate = normalizeDateInput(req.body.dispatched_date, new Date().toISOString().slice(0, 10));
+    db.transaction(() => {
+      db.prepare(
+        `UPDATE production_delivery_notes
+         SET note_type = 'sent',
+             dispatched_date = ?,
+             updated_at = datetime('now', 'localtime')
+         WHERE id = ? AND order_id = ? AND establishment_id = ?`
+      ).run(dispatchedDate, note.id, order.id, business.id);
+      refreshOrderShipmentStatus(order.id, business.id);
+    })();
+    audit(req, 'ship', 'delivery_note', note.id, dispatchedDate);
     res.json(getOrder(order.id, req));
   });
 
@@ -3818,6 +4172,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         noteType: 'sent',
         title: isPartialDelivery ? 'Nota de entrega parcial' : 'Nota de entrega',
         modelIds: modelsForNote.map((model) => Number(model.id)),
+        itemQuantities: itemQuantitiesFromModelIds(order.models, modelsForNote.map((model) => Number(model.id))),
         prices: pricesById,
         shippingValue,
         discountValue,
@@ -3838,6 +4193,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
             noteType: 'pending',
             title: 'Nota pendiente por no enviado',
             modelIds: pendingModels.map((model) => Number(model.id)),
+            itemQuantities: itemQuantitiesFromModelIds(order.models, pendingModels.map((model) => Number(model.id))),
             prices: pricesById,
             shippingValue: 0,
             discountValue: 0,

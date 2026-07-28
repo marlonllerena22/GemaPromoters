@@ -23,6 +23,7 @@ import {
   Tags,
   BarChart3,
   Trash2,
+  Truck,
   Upload,
   UserPlus,
   UsersRound,
@@ -355,6 +356,60 @@ function deliveryDiscountAmount(form) {
 
 function deliveryTotal(form) {
   return Math.max(0, deliverySubtotal(form) + Number(form.shipping_value || 0) - deliveryDiscountAmount(form));
+}
+
+function emptyInvoiceFormFromOrder(order) {
+  return {
+    invoice_number: '',
+    invoice_date: new Date().toISOString().slice(0, 10),
+    invoice_value: '',
+    item_quantities: {}
+  };
+}
+
+function sumSelectionPairs(selection = {}) {
+  return Object.values(selection || {}).reduce((sum, sizes) => (
+    sum + Object.values(sizes || {}).reduce((inner, qty) => inner + Number(qty || 0), 0)
+  ), 0);
+}
+
+function invoiceSelectionValue(order, selection = {}) {
+  return (order.models || []).reduce((sum, model) => {
+    const pairs = Object.values(selection[String(model.id)] || {}).reduce((inner, qty) => inner + Number(qty || 0), 0);
+    return sum + pairs * Number(model.unit_price || 0);
+  }, 0);
+}
+
+function remainingInvoiceQuantities(order) {
+  const remaining = {};
+  for (const model of order.models || []) {
+    remaining[String(model.id)] = {};
+    for (const size of SIZES) {
+      remaining[String(model.id)][size] = Number(model.sizes?.[size] || 0);
+    }
+  }
+  for (const invoice of order.invoices || []) {
+    for (const [modelId, sizes] of Object.entries(invoice.item_quantities || {})) {
+      for (const [size, qty] of Object.entries(sizes || {})) {
+        remaining[modelId] ||= {};
+        remaining[modelId][size] = Math.max(0, Number(remaining[modelId][size] || 0) - Number(qty || 0));
+      }
+    }
+  }
+  return remaining;
+}
+
+function cleanSelection(selection = {}) {
+  const cleaned = {};
+  for (const [modelId, sizes] of Object.entries(selection || {})) {
+    const row = {};
+    for (const [size, qty] of Object.entries(sizes || {})) {
+      const value = Math.max(0, Math.floor(Number(qty || 0)));
+      if (value > 0) row[size] = value;
+    }
+    if (Object.keys(row).length) cleaned[modelId] = row;
+  }
+  return cleaned;
 }
 
 function guideTemplateKeyForDestination(destination) {
@@ -1908,11 +1963,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
   const [showReturnForm, setShowReturnForm] = useState(false);
   const [savingReturn, setSavingReturn] = useState(false);
   const [returnAllocations, setReturnAllocations] = useState({});
-  const [invoiceForm, setInvoiceForm] = useState({
-    invoice_number: order.invoice_number || '',
-    invoice_date: order.invoice_date || new Date().toISOString().slice(0, 10),
-    invoice_value: order.invoice_value || ''
-  });
+  const [invoiceForm, setInvoiceForm] = useState(() => emptyInvoiceFormFromOrder(order));
 
   useEffect(() => {
     setModels(order.models);
@@ -1932,11 +1983,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
     setShowInvoiceForm(false);
     setShowReturnForm(false);
     setReturnAllocations({});
-    setInvoiceForm({
-      invoice_number: order.invoice_number || '',
-      invoice_date: order.invoice_date || new Date().toISOString().slice(0, 10),
-      invoice_value: order.invoice_value || ''
-    });
+    setInvoiceForm(emptyInvoiceFormFromOrder(order));
   }, [order]);
 
   useEffect(() => {
@@ -1959,6 +2006,10 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
   const deliveryDiscount = deliveryDiscountAmount(deliveryForm);
   const deliveryFormTotal = deliveryTotal(deliveryForm);
   const deliveryNotes = order.delivery_notes || [];
+  const invoices = order.invoices || [];
+  const invoiceRemaining = remainingInvoiceQuantities(order);
+  const invoicePairs = sumSelectionPairs(invoiceForm.item_quantities);
+  const invoiceEstimatedValue = invoiceSelectionValue(order, invoiceForm.item_quantities);
   const isReturnOrder = order.order_type === 'return';
   const isSampleOrder = Boolean(order.is_sample);
   const returnDestinations = isReturnOrder ? returnDestinationsForOrder(order) : [];
@@ -2244,19 +2295,85 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
     onPrint('guides', null, destinationOrder, guideTemplateKey ? { guideTemplateKey } : {});
   }
 
+  function updateInvoiceQuantity(modelId, size, value) {
+    const max = Number(invoiceRemaining[String(modelId)]?.[size] || 0);
+    const quantity = Math.max(0, Math.min(Math.floor(Number(value || 0)), max));
+    setInvoiceForm((current) => ({
+      ...current,
+      item_quantities: {
+        ...(current.item_quantities || {}),
+        [String(modelId)]: {
+          ...(current.item_quantities?.[String(modelId)] || {}),
+          [size]: quantity
+        }
+      }
+    }));
+  }
+
+  function fillInvoicePendingPairs() {
+    const nextSelection = {};
+    for (const [modelId, sizes] of Object.entries(invoiceRemaining)) {
+      for (const [size, qty] of Object.entries(sizes || {})) {
+        if (Number(qty || 0) > 0) {
+          nextSelection[modelId] ||= {};
+          nextSelection[modelId][size] = Number(qty || 0);
+        }
+      }
+    }
+    setInvoiceForm((current) => ({
+      ...current,
+      item_quantities: nextSelection,
+      invoice_value: current.invoice_value || invoiceSelectionValue(order, nextSelection).toFixed(2)
+    }));
+  }
+
   async function saveInvoice() {
     setSavingInvoice(true);
     try {
+      const payload = {
+        ...invoiceForm,
+        item_quantities: cleanSelection(invoiceForm.item_quantities),
+        invoice_value: invoiceForm.invoice_value || invoiceEstimatedValue
+      };
       await api(scope(`/producalza/orders/${order.id}/invoice`), {
         method: 'PATCH',
-        body: JSON.stringify(invoiceForm)
+        body: JSON.stringify(payload)
       });
       setShowInvoiceForm(false);
+      setInvoiceForm(emptyInvoiceFormFromOrder(order));
       await onUpdated('Factura registrada');
     } catch (err) {
       setError(err.message);
     } finally {
       setSavingInvoice(false);
+    }
+  }
+
+  async function markInvoiceShipped(invoice) {
+    const dispatchedDate = window.prompt('Fecha de envio de esta factura (AAAA-MM-DD)', new Date().toISOString().slice(0, 10));
+    if (!dispatchedDate) return;
+    try {
+      await api(scope(`/producalza/orders/${order.id}/invoices/${invoice.id}/shipped`), {
+        method: 'PATCH',
+        body: JSON.stringify({ dispatched_date: dispatchedDate })
+      });
+      await onUpdated('Factura marcada como enviada');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function markDeliveryNoteShipped(note) {
+    const dispatchedDate = window.prompt('Fecha de envio de esta nota (AAAA-MM-DD)', new Date().toISOString().slice(0, 10));
+    if (!dispatchedDate) return;
+    try {
+      await api(scope(`/producalza/orders/${order.id}/delivery-notes/${note.id}/shipped`), {
+        method: 'PATCH',
+        body: JSON.stringify({ dispatched_date: dispatchedDate })
+      });
+      await onUpdated('Nota marcada como enviada');
+    } catch (err) {
+      setError(err.message);
     }
   }
 
@@ -2607,6 +2724,9 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
                       <button className="prod-secondary-button compact" onClick={() => printGuidesForNote(note)}>
                         <Tags size={16} />Guias
                       </button>
+                      <button className="prod-secondary-button compact" onClick={() => markDeliveryNoteShipped(note)}>
+                        <Truck size={16} />{note.dispatched_date ? `Enviado ${displayDate(note.dispatched_date)}` : 'Marcar enviado'}
+                      </button>
                     </>
                   )}
                   </div>
@@ -2757,6 +2877,14 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
           />
           <Detail label="Forma de pago" value={order.payment_method} />
           <Detail label="Fecha de envio" value={order.dispatched_date ? displayDate(order.dispatched_date) : ''} />
+          <Detail
+            label="Estado de envio"
+            value={order.shipment_status === 'delivered'
+              ? 'Enviado completo'
+              : order.shipment_status === 'partial'
+                ? `Envio parcial (${order.shipped_pairs || 0}/${Number(order.shipped_pairs || 0) + Number(order.pending_shipment_pairs || 0)} pares)`
+                : 'Pendiente de envio'}
+          />
           <Detail label="Subtotal" value={displayMoney(subtotal)} />
           {returnedCredit > 0 && <Detail label="Devoluciones" value={`-${displayMoney(returnedCredit)}`} />}
           <Detail label="Descuento" value={displayMoney(order.discount_value)} />
@@ -2769,10 +2897,65 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
       {showInvoiceForm && (
         <section className="prod-panel prod-invoice-panel">
           <div className="prod-panel-title"><div><span>Registro opcional</span><h2>Factura del pedido</h2></div></div>
+          {!!invoices.length && (
+            <div className="prod-saved-notes">
+              {invoices.map((invoice) => (
+                <article key={invoice.id}>
+                  <div>
+                    <strong>Factura {invoice.invoice_number || invoice.id}</strong>
+                    <span>{displayDate(invoice.invoice_date)} · {sumSelectionPairs(invoice.item_quantities)} pares · {displayMoney(invoice.invoice_value)}</span>
+                    <small>{invoice.dispatched_date ? `Enviado ${displayDate(invoice.dispatched_date)}` : 'Pendiente de envio'}</small>
+                  </div>
+                  <div className="prod-saved-note-actions">
+                    <button className="prod-secondary-button compact" onClick={() => markInvoiceShipped(invoice)}>
+                      <Truck size={16} />{invoice.dispatched_date ? 'Cambiar envio' : 'Marcar enviado'}
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
           <form className="prod-form-grid" onSubmit={(event) => { event.preventDefault(); saveInvoice(); }}>
             <label>Numero de factura<input value={invoiceForm.invoice_number} onChange={(event) => setInvoiceForm({ ...invoiceForm, invoice_number: event.target.value })} /></label>
             <label>Fecha<input type="date" value={invoiceForm.invoice_date} onChange={(event) => setInvoiceForm({ ...invoiceForm, invoice_date: event.target.value })} /></label>
             <label>Valor<input type="number" min="0" step="0.01" value={invoiceForm.invoice_value} onChange={(event) => setInvoiceForm({ ...invoiceForm, invoice_value: event.target.value })} /></label>
+            <div className="span-full prod-invoice-pairs">
+              <div className="prod-panel-title inline">
+                <div><span>Seleccion de pares</span><h3>Pares que se facturan</h3></div>
+                <button type="button" className="prod-secondary-button compact" onClick={fillInvoicePendingPairs}>Seleccionar faltantes</button>
+              </div>
+              {(order.models || []).map((model) => (
+                <article key={model.id} className="prod-invoice-model">
+                  <div>
+                    <strong>{model.model_code}</strong>
+                    <span>{[model.color, model.material].filter(Boolean).join(' · ')}</span>
+                  </div>
+                  <div className="prod-size-grid compact">
+                    {SIZES.map((size) => {
+                      const max = Number(invoiceRemaining[String(model.id)]?.[size] || 0);
+                      if (!max) return null;
+                      return (
+                        <label key={size}>
+                          <span>{size}</span>
+                          <input
+                            type="number"
+                            min="0"
+                            max={max}
+                            value={invoiceForm.item_quantities?.[String(model.id)]?.[size] || ''}
+                            placeholder={`0/${max}`}
+                            onChange={(event) => updateInvoiceQuantity(model.id, size, event.target.value)}
+                          />
+                        </label>
+                      );
+                    })}
+                  </div>
+                </article>
+              ))}
+              <div className="prod-delivery-editor-totals">
+                <div><span>Pares seleccionados</span><strong>{invoicePairs}</strong></div>
+                <div><span>Valor estimado por precios del pedido</span><strong>{displayMoney(invoiceEstimatedValue)}</strong></div>
+              </div>
+            </div>
             <div className="prod-form-actions align-end">
               <button type="button" className="prod-secondary-button" onClick={() => setShowInvoiceForm(false)}>Cancelar</button>
               <button className="prod-primary-button" type="submit" disabled={savingInvoice}><Save size={17} />{savingInvoice ? 'Guardando...' : 'Guardar factura'}</button>
@@ -5634,14 +5817,18 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
   const monthlyRows = monthlyReport?.rows || [];
   const monthlyEnteredRows = monthlyReport?.entered_rows || monthlyRows.filter((row) => Number(row.entered_pairs || 0) > 0);
   const monthlyDispatchedRows = monthlyReport?.dispatched_rows || monthlyRows.filter((row) => Number(row.dispatched_pairs || 0) > 0);
+  const monthlyBackendPrintRows = monthlyReport?.print_rows || [];
   const monthlyClients = [...new Set(monthlyRows.map((row) => row.client_name).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b));
   const visibleMonthlyEnteredRows = monthlyEnteredRows.filter((row) => !excludedClients.includes(row.client_name));
   const visibleMonthlyDispatchedRows = monthlyDispatchedRows.filter((row) => !excludedClients.includes(row.client_name));
-  const monthlyPrintRows = Array.from({ length: Math.max(visibleMonthlyEnteredRows.length, visibleMonthlyDispatchedRows.length, 28) }, (_, index) => ({
-    entered: visibleMonthlyEnteredRows[index],
-    dispatched: visibleMonthlyDispatchedRows[index]
-  }));
+  const visibleBackendPrintRows = monthlyBackendPrintRows.filter((row) => !excludedClients.includes(row.client_name));
+  const monthlyPrintRows = monthlyBackendPrintRows.length
+    ? Array.from({ length: Math.max(visibleBackendPrintRows.length, 28) }, (_, index) => ({ row: visibleBackendPrintRows[index] }))
+    : Array.from({ length: Math.max(visibleMonthlyEnteredRows.length, visibleMonthlyDispatchedRows.length, 28) }, (_, index) => ({
+      entered: visibleMonthlyEnteredRows[index],
+      dispatched: visibleMonthlyDispatchedRows[index]
+    }));
   const dispatchRows = dispatchReport?.rows || [];
   const dispatchClients = [...new Set(dispatchRows.map((row) => row.client_name).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b));
@@ -5806,13 +5993,13 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
                 </thead>
                 <tbody>
                   {monthlyPrintRows.map((pair, index) => (
-                    <tr key={`${pair.entered?.source_key || 'blank-e'}-${pair.dispatched?.source_key || 'blank-d'}-${index}`}>
-                      <td>{pair.entered?.entry_date ? displayShortDate(pair.entered.entry_date) : ''}</td>
-                      <td><strong>{pair.entered?.client_name || ''}</strong></td>
-                      <td>{pair.entered?.entered_pairs || ''}</td>
+                    <tr key={`${pair.row?.source_key || pair.entered?.source_key || 'blank-e'}-${pair.dispatched?.source_key || 'blank-d'}-${index}`}>
+                      <td>{(pair.row || pair.entered)?.entry_date ? displayShortDate((pair.row || pair.entered).entry_date) : ''}</td>
+                      <td><strong>{(pair.row || pair.entered)?.client_name || ''}</strong></td>
+                      <td>{(pair.row || pair.entered)?.entered_pairs || ''}</td>
                       <td></td>
-                      <td>{pair.dispatched?.dispatched_pairs || ''}</td>
-                      <td>{pair.dispatched?.dispatched_date ? displayShortDate(pair.dispatched.dispatched_date) : ''}</td>
+                      <td>{(pair.row || pair.dispatched)?.dispatched_pairs || ''}</td>
+                      <td>{(pair.row || pair.dispatched)?.dispatched_date ? displayShortDate((pair.row || pair.dispatched).dispatched_date) : ''}</td>
                     </tr>
                   ))}
                   <tr className="prod-monthly-total-row">

@@ -168,10 +168,29 @@ export function initProducalzaDb(db) {
       title TEXT,
       destination TEXT,
       model_ids_json TEXT NOT NULL DEFAULT '[]',
+      item_quantities_json TEXT NOT NULL DEFAULT '{}',
       model_prices_json TEXT NOT NULL DEFAULT '{}',
       shipping_value REAL NOT NULL DEFAULT 0,
       discount_value REAL NOT NULL DEFAULT 0,
       total_value REAL NOT NULL DEFAULT 0,
+      dispatched_date TEXT,
+      created_by TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (order_id) REFERENCES production_orders(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS production_order_invoices (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      order_id INTEGER NOT NULL,
+      invoice_number TEXT,
+      invoice_date TEXT,
+      invoice_value REAL NOT NULL DEFAULT 0,
+      model_ids_json TEXT NOT NULL DEFAULT '[]',
+      item_quantities_json TEXT NOT NULL DEFAULT '{}',
+      dispatched_date TEXT,
       created_by TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
@@ -503,6 +522,8 @@ export function initProducalzaDb(db) {
       ON production_order_payments(establishment_id, due_date, status);
     CREATE INDEX IF NOT EXISTS idx_production_delivery_notes_order
       ON production_delivery_notes(establishment_id, order_id, note_number);
+    CREATE INDEX IF NOT EXISTS idx_production_order_invoices_order
+      ON production_order_invoices(establishment_id, order_id, invoice_date);
     CREATE INDEX IF NOT EXISTS idx_production_remission_guides_order
       ON production_remission_guides(establishment_id, order_id, guide_number);
     CREATE INDEX IF NOT EXISTS idx_production_return_allocations_order
@@ -545,6 +566,8 @@ export function initProducalzaDb(db) {
   addColumnIfMissing(db, 'production_orders', 'guide_template_key', 'TEXT');
   addColumnIfMissing(db, 'production_orders', 'sample_destination', 'TEXT');
   addColumnIfMissing(db, 'production_delivery_notes', 'destination', 'TEXT');
+  addColumnIfMissing(db, 'production_delivery_notes', 'item_quantities_json', "TEXT NOT NULL DEFAULT '{}'");
+  addColumnIfMissing(db, 'production_delivery_notes', 'dispatched_date', 'TEXT');
   addColumnIfMissing(db, 'production_delivery_notes', 'updated_at', "TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, 'production_orders', 'delivery_date', 'TEXT');
   addColumnIfMissing(db, 'production_orders', 'origin_label', 'TEXT');
