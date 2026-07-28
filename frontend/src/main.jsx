@@ -135,6 +135,19 @@ const emptyBranch = {
   status: 'active'
 };
 
+const physicalPaymentLabels = {
+  cash: 'Efectivo',
+  transfer: 'Transferencia',
+  card: 'Tarjeta',
+  other: 'Otro'
+};
+
+const emptyPhysicalSaleItem = {
+  location: '',
+  quantity: 1,
+  unit_price: 0
+};
+
 const emptyRegister = {
   establishment_id: '',
   name: '',
@@ -515,6 +528,7 @@ function AdminApp({ user, onLogout }) {
     ranking: [],
     withdrawals: [],
     locations: [],
+    physicalTickets: null,
     levels: emptyLevels,
     banners: []
   });
@@ -547,6 +561,7 @@ function AdminApp({ user, onLogout }) {
         ranking: [],
         withdrawals: [],
         locations: [],
+        physicalTickets: null,
         banners: []
       }));
       setLoading(false);
@@ -574,7 +589,7 @@ function AdminApp({ user, onLogout }) {
       setSelectedEventId(String(eventId));
     }
 
-    const [dashboard, promoters, sales, ranking, withdrawals, locations, levels, banners, branches] = await Promise.all([
+    const [dashboard, promoters, sales, ranking, withdrawals, locations, levels, banners, branches, physicalTickets] = await Promise.all([
       api(withScope('/dashboard', eventId, establishmentId)),
       api(withScope('/promoters', eventId, establishmentId)),
       api(withScope('/sales', eventId, establishmentId)),
@@ -583,9 +598,10 @@ function AdminApp({ user, onLogout }) {
       api(withScope('/locations', eventId, establishmentId)),
       api(withScope('/level-settings', eventId, establishmentId)),
       api(withScope('/event-banners', eventId, establishmentId)),
-      api(withScope('/branches', '', establishmentId))
+      api(withScope('/branches', '', establishmentId)),
+      api(withScope('/physical-tickets/report', eventId, establishmentId))
     ]);
-    setData({ dashboard, establishments, branches, events, promoters, sales, ranking, withdrawals, locations, levels, banners });
+    setData({ dashboard, establishments, branches, events, promoters, sales, ranking, withdrawals, locations, physicalTickets, levels, banners });
     setLoading(false);
   }
 
@@ -615,6 +631,7 @@ function AdminApp({ user, onLogout }) {
     ...(isCommercialBusiness ? [['branches', 'Sucursales', Building2]] : []),
     ['promoters', 'Promotores', UsersRound],
     ['sales', 'Ventas', Ticket],
+    ...(!isCommercialBusiness ? [['physical-tickets', 'Entradas fisicas', WalletCards]] : []),
     ['ranking', 'Ranking', Medal],
     ['withdrawals', 'Retiros', CreditCard],
     ['settings', 'Localidades', Settings],
@@ -707,6 +724,15 @@ function AdminApp({ user, onLogout }) {
             )}
             {view === 'sales' && (
               <Sales promoters={data.promoters} sales={data.sales} locations={data.locations} levels={data.levels} eventId={selectedEventId} establishmentId={selectedEstablishmentId} onRefresh={refresh} />
+            )}
+            {view === 'physical-tickets' && !isCommercialBusiness && (
+              <PhysicalTickets
+                locations={data.locations}
+                initialReport={data.physicalTickets}
+                eventId={selectedEventId}
+                establishmentId={selectedEstablishmentId}
+                onRefresh={refresh}
+              />
             )}
             {view === 'ranking' && <Ranking ranking={data.ranking} />}
             {view === 'withdrawals' && (
@@ -1414,6 +1440,240 @@ function Sales({ promoters, sales, locations, levels, eventId, establishmentId, 
             </div>
           ])}
         />
+      </section>
+    </div>
+  );
+}
+
+function PhysicalTickets({ locations, initialReport, eventId, establishmentId, onRefresh }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [reportDate, setReportDate] = useState(today);
+  const [report, setReport] = useState(initialReport);
+  const [saleForm, setSaleForm] = useState({
+    sale_date: today,
+    payment_method: 'cash',
+    discount_value: '',
+    notes: '',
+    items: [{ ...emptyPhysicalSaleItem }]
+  });
+  const [stockForm, setStockForm] = useState({ entry_date: today, location: '', quantity: '', notes: '' });
+  const [expenseForm, setExpenseForm] = useState({ expense_date: today, description: '', amount: '' });
+  const [error, setError] = useState('');
+  const activeLocations = locations.filter((location) => location.status === 'active');
+  const saleSubtotal = saleForm.items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unit_price || 0), 0);
+  const saleTotal = Math.max(0, saleSubtotal - Number(saleForm.discount_value || 0));
+  const groupUrl = 'https://chat.whatsapp.com/KIp2zRsasGG1BM6e1mBQdA?s=cl&p=a&ilr=0&amv=3';
+
+  useEffect(() => {
+    setReport(initialReport);
+  }, [initialReport]);
+
+  async function loadReport(date = reportDate) {
+    const query = new URLSearchParams({ date_from: date, date_to: date });
+    const nextReport = await api(withScope(`/physical-tickets/report?${query.toString()}`, eventId, establishmentId));
+    setReport(nextReport);
+  }
+
+  function updateSaleItem(index, patch) {
+    setSaleForm((current) => ({
+      ...current,
+      items: current.items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item)
+    }));
+  }
+
+  function selectLocation(index, value) {
+    const selected = activeLocations.find((location) => location.name === value);
+    updateSaleItem(index, { location: value, unit_price: selected ? selected.price : 0 });
+  }
+
+  async function submitSale(event) {
+    event.preventDefault();
+    setError('');
+    try {
+      await api(withScope('/physical-tickets/sales', eventId, establishmentId), {
+        method: 'POST',
+        body: JSON.stringify(saleForm)
+      });
+      setSaleForm({ sale_date: saleForm.sale_date, payment_method: 'cash', discount_value: '', notes: '', items: [{ ...emptyPhysicalSaleItem }] });
+      setReportDate(saleForm.sale_date);
+      await loadReport(saleForm.sale_date);
+      onRefresh('Venta fisica registrada');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function submitStock(event) {
+    event.preventDefault();
+    setError('');
+    try {
+      await api(withScope('/physical-tickets/stock', eventId, establishmentId), {
+        method: 'POST',
+        body: JSON.stringify(stockForm)
+      });
+      setStockForm({ entry_date: stockForm.entry_date, location: '', quantity: '', notes: '' });
+      setReportDate(stockForm.entry_date);
+      await loadReport(stockForm.entry_date);
+      onRefresh('Ingreso de entradas registrado');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function submitExpense(event) {
+    event.preventDefault();
+    setError('');
+    try {
+      await api(withScope('/physical-tickets/expenses', eventId, establishmentId), {
+        method: 'POST',
+        body: JSON.stringify(expenseForm)
+      });
+      setExpenseForm({ expense_date: expenseForm.expense_date, description: '', amount: '' });
+      setReportDate(expenseForm.expense_date);
+      await loadReport(expenseForm.expense_date);
+      onRefresh('Gasto diario registrado');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  function reportText() {
+    const current = report || {};
+    const totals = current.totals || {};
+    const locationLines = (current.by_location || []).map((row) => `- ${row.location}: ${row.quantity} entradas / ${money(row.total)}`).join('\n') || '- Sin ventas';
+    const paymentLines = (current.by_payment || [])
+      .filter((row) => Number(row.quantity || 0) > 0 || Number(row.total || 0) > 0)
+      .map((row) => `- ${physicalPaymentLabels[row.method]}: ${row.quantity} entradas / ${money(row.total)}`)
+      .join('\n') || '- Sin cobros';
+    const expenseLines = (current.expenses || []).map((expense) => `- ${expense.description}: ${money(expense.amount)}`).join('\n') || '- Sin gastos';
+    return [
+      `*Reporte entradas fisicas GEMASHOW*`,
+      `Fecha: ${current.date_from || reportDate}`,
+      '',
+      `*Entradas ingresadas:* ${totals.stockQuantity || 0}`,
+      `*Entradas vendidas:* ${totals.soldQuantity || 0}`,
+      `*Subtotal:* ${money(totals.subtotal)}`,
+      `*Descuentos:* ${money(totals.discounts)}`,
+      `*Venta total:* ${money(totals.total)}`,
+      `*Gastos:* ${money(totals.expenses)}`,
+      `*Neto:* ${money(totals.net)}`,
+      '',
+      '*Ventas por localidad:*',
+      locationLines,
+      '',
+      '*Formas de pago:*',
+      paymentLines,
+      '',
+      '*Gastos del dia:*',
+      expenseLines
+    ].join('\n');
+  }
+
+  async function shareReport() {
+    await navigator.clipboard?.writeText(reportText()).catch(() => {});
+    window.open(groupUrl, '_blank', 'noopener,noreferrer');
+  }
+
+  return (
+    <div className="stacked-layout physical-ticket-admin">
+      {error && <div className="alert error">{error}</div>}
+      <section className="panel">
+        <div className="panel-title">
+          <h3>Reporte entradas fisicas</h3>
+          <div className="row-actions">
+            <Input type="date" label="Fecha reporte" value={reportDate} onChange={(value) => setReportDate(value)} />
+            <button className="ghost-button" onClick={() => loadReport(reportDate)}>Generar</button>
+            <button className="ghost-button" onClick={() => window.print()}>Imprimir</button>
+            <button className="primary-button" onClick={shareReport}>Copiar y abrir WhatsApp</button>
+          </div>
+        </div>
+        <div className="stats-grid">
+          <article><span>Entradas ingresadas</span><strong>{report?.totals?.stockQuantity || 0}</strong></article>
+          <article><span>Entradas vendidas</span><strong>{report?.totals?.soldQuantity || 0}</strong></article>
+          <article><span>Venta total</span><strong>{money(report?.totals?.total)}</strong></article>
+          <article><span>Gastos</span><strong>{money(report?.totals?.expenses)}</strong></article>
+          <article><span>Neto del dia</span><strong>{money(report?.totals?.net)}</strong></article>
+        </div>
+      </section>
+
+      <div className="two-column">
+        <section className="panel">
+          <div className="panel-title"><h3>Registrar venta fisica</h3></div>
+          <form className="form-grid" onSubmit={submitSale}>
+            <Input type="date" label="Fecha" value={saleForm.sale_date} onChange={(sale_date) => setSaleForm({ ...saleForm, sale_date })} />
+            <label>Forma de pago
+              <select value={saleForm.payment_method} onChange={(event) => setSaleForm({ ...saleForm, payment_method: event.target.value })}>
+                {Object.entries(physicalPaymentLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+              </select>
+            </label>
+            <Input type="number" label="Descuento $" value={saleForm.discount_value} onChange={(discount_value) => setSaleForm({ ...saleForm, discount_value })} />
+            <Input label="Observacion" value={saleForm.notes} onChange={(notes) => setSaleForm({ ...saleForm, notes })} />
+            <div className="span-2 physical-items">
+              {saleForm.items.map((item, index) => (
+                <article key={index}>
+                  <label>Localidad
+                    <select value={item.location} onChange={(event) => selectLocation(index, event.target.value)}>
+                      <option value="">Seleccionar</option>
+                      {activeLocations.map((location) => <option value={location.name} key={location.id}>{location.name} - {money(location.price)}</option>)}
+                    </select>
+                  </label>
+                  <Input type="number" label="Cantidad" value={item.quantity} onChange={(quantity) => updateSaleItem(index, { quantity })} />
+                  <Input type="number" label="Precio" value={item.unit_price} onChange={(unit_price) => updateSaleItem(index, { unit_price })} />
+                  <div className="computed"><span>Total linea</span><strong>{money(Number(item.quantity || 0) * Number(item.unit_price || 0))}</strong></div>
+                  {saleForm.items.length > 1 && <button type="button" className="danger-button" onClick={() => setSaleForm({ ...saleForm, items: saleForm.items.filter((_, itemIndex) => itemIndex !== index) })}>Quitar</button>}
+                </article>
+              ))}
+              <button type="button" className="ghost-button" onClick={() => setSaleForm({ ...saleForm, items: [...saleForm.items, { ...emptyPhysicalSaleItem }] })}>
+                <Plus size={16} />Agregar mas entradas
+              </button>
+            </div>
+            <div className="computed span-2"><span>Subtotal {money(saleSubtotal)}</span><strong>Total {money(saleTotal)}</strong></div>
+            <button className="primary-button span-2" type="submit"><Ticket size={18} />Registrar venta fisica</button>
+          </form>
+        </section>
+
+        <section className="panel">
+          <div className="panel-title"><h3>Entradas ingresadas y gastos</h3></div>
+          <form className="form-grid" onSubmit={submitStock}>
+            <Input type="date" label="Fecha ingreso" value={stockForm.entry_date} onChange={(entry_date) => setStockForm({ ...stockForm, entry_date })} />
+            <label>Localidad
+              <select value={stockForm.location} onChange={(event) => setStockForm({ ...stockForm, location: event.target.value })}>
+                <option value="">Seleccionar</option>
+                {locations.map((location) => <option value={location.name} key={location.id}>{location.name}</option>)}
+              </select>
+            </label>
+            <Input type="number" label="Cantidad ingresada" value={stockForm.quantity} onChange={(quantity) => setStockForm({ ...stockForm, quantity })} />
+            <Input label="Nota" value={stockForm.notes} onChange={(notes) => setStockForm({ ...stockForm, notes })} />
+            <button className="ghost-button span-2" type="submit">Registrar ingreso</button>
+          </form>
+          <form className="form-grid expense-form" onSubmit={submitExpense}>
+            <Input type="date" label="Fecha gasto" value={expenseForm.expense_date} onChange={(expense_date) => setExpenseForm({ ...expenseForm, expense_date })} />
+            <Input label="Detalle gasto" value={expenseForm.description} onChange={(description) => setExpenseForm({ ...expenseForm, description })} />
+            <Input type="number" label="Valor gasto" value={expenseForm.amount} onChange={(amount) => setExpenseForm({ ...expenseForm, amount })} />
+            <button className="ghost-button" type="submit">Registrar gasto</button>
+          </form>
+        </section>
+      </div>
+
+      <section className="panel physical-report-print">
+        <div className="panel-title"><h3>Detalle diario</h3></div>
+        <DataTable
+          columns={['Venta', 'Fecha', 'Pago', 'Entradas', 'Subtotal', 'Descuento', 'Total']}
+          rows={(report?.sales || []).map((sale) => [
+            sale.sale_number,
+            sale.sale_date,
+            physicalPaymentLabels[sale.payment_method],
+            sale.items.map((item) => `${item.location} x${item.quantity}`).join(', '),
+            money(sale.subtotal),
+            money(sale.discount_value),
+            money(sale.total)
+          ])}
+        />
+        <div className="report-columns">
+          <DataTable columns={['Localidad', 'Vendido', 'Total']} rows={(report?.by_location || []).map((row) => [row.location, row.quantity, money(row.total)])} />
+          <DataTable columns={['Ingresos', 'Localidad', 'Cantidad']} rows={(report?.stock_entries || []).map((row) => [row.entry_date, row.location, row.quantity])} />
+          <DataTable columns={['Gasto', 'Fecha', 'Valor']} rows={(report?.expenses || []).map((row) => [row.description, row.expense_date, money(row.amount)])} />
+        </div>
       </section>
     </div>
   );

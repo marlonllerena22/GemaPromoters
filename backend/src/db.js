@@ -160,6 +160,64 @@ export function initDb() {
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       FOREIGN KEY (event_id) REFERENCES events(id)
     );
+
+    CREATE TABLE IF NOT EXISTS physical_ticket_sales (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      event_id INTEGER NOT NULL,
+      sale_number TEXT,
+      sale_date TEXT NOT NULL DEFAULT (date('now', 'localtime')),
+      payment_method TEXT NOT NULL DEFAULT 'cash' CHECK (payment_method IN ('cash', 'transfer', 'card', 'other')),
+      discount_value REAL NOT NULL DEFAULT 0 CHECK (discount_value >= 0),
+      subtotal REAL NOT NULL DEFAULT 0 CHECK (subtotal >= 0),
+      total REAL NOT NULL DEFAULT 0 CHECK (total >= 0),
+      notes TEXT,
+      created_by TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (event_id) REFERENCES events(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS physical_ticket_sale_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sale_id INTEGER NOT NULL,
+      establishment_id INTEGER NOT NULL,
+      event_id INTEGER NOT NULL,
+      location TEXT NOT NULL,
+      quantity INTEGER NOT NULL CHECK (quantity > 0),
+      unit_price REAL NOT NULL DEFAULT 0 CHECK (unit_price >= 0),
+      total REAL NOT NULL DEFAULT 0 CHECK (total >= 0),
+      FOREIGN KEY (sale_id) REFERENCES physical_ticket_sales(id),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (event_id) REFERENCES events(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS physical_ticket_stock_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      event_id INTEGER NOT NULL,
+      entry_date TEXT NOT NULL DEFAULT (date('now', 'localtime')),
+      location TEXT NOT NULL,
+      quantity INTEGER NOT NULL CHECK (quantity > 0),
+      notes TEXT,
+      created_by TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (event_id) REFERENCES events(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS physical_ticket_daily_expenses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      event_id INTEGER NOT NULL,
+      expense_date TEXT NOT NULL DEFAULT (date('now', 'localtime')),
+      description TEXT NOT NULL,
+      amount REAL NOT NULL DEFAULT 0 CHECK (amount >= 0),
+      created_by TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (event_id) REFERENCES events(id)
+    );
   `);
 
   migrateEventsForEstablishments();
@@ -195,9 +253,14 @@ export function initDb() {
   addColumnIfMissing('sales', 'deleted_at', 'TEXT');
   addColumnIfMissing('sales', 'deleted_by', 'TEXT');
   addColumnIfMissing('sales', 'deletion_reason', 'TEXT');
+  addColumnIfMissing('physical_ticket_sales', 'notes', 'TEXT');
 
   db.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_promoters_username ON promoters(username);
+    CREATE INDEX IF NOT EXISTS idx_physical_ticket_sales_event_date ON physical_ticket_sales(establishment_id, event_id, sale_date);
+    CREATE INDEX IF NOT EXISTS idx_physical_ticket_items_sale ON physical_ticket_sale_items(sale_id);
+    CREATE INDEX IF NOT EXISTS idx_physical_ticket_stock_event_date ON physical_ticket_stock_entries(establishment_id, event_id, entry_date);
+    CREATE INDEX IF NOT EXISTS idx_physical_ticket_expenses_event_date ON physical_ticket_daily_expenses(establishment_id, event_id, expense_date);
 
     UPDATE establishments
     SET business_type = 'event'

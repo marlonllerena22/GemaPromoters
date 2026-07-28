@@ -667,6 +667,81 @@ input[type="file"] {
   gap: 13px;
 }
 
+.form-grid .span-2 {
+  grid-column: 1 / -1;
+}
+
+.stats-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.stats-grid article {
+  background: #f7faf8;
+  border: 1px solid #dbe7e0;
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.stats-grid span {
+  color: #66746c;
+  display: block;
+  font-size: 12px;
+  font-weight: 800;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.stats-grid strong {
+  color: #14241c;
+  font-size: 22px;
+}
+
+.physical-ticket-admin .panel-title {
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.physical-ticket-admin .panel-title .row-actions {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.physical-ticket-admin .panel-title .row-actions label {
+  min-width: 160px;
+}
+
+.physical-items {
+  display: grid;
+  gap: 10px;
+}
+
+.physical-items article {
+  background: #f7faf8;
+  border: 1px solid #dde7e1;
+  border-radius: 12px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.expense-form {
+  border-top: 1px solid #e4ebe6;
+  margin-top: 16px;
+  padding-top: 16px;
+}
+
+.report-columns {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 16px;
+}
+
 .filter-control {
   display: grid;
   gap: 8px;
@@ -2164,6 +2239,18 @@ td {
   .metric-grid,
   .two-column {
     grid-template-columns: 1fr;
+  }
+
+  .report-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .physical-ticket-admin .panel-title .row-actions {
+    justify-content: stretch;
   }
 
   .person-row,
