@@ -5863,6 +5863,11 @@ td {
     margin: 7mm;
   }
 
+  @page prod-dispatch-page {
+    size: A4 landscape;
+    margin: 6mm;
+  }
+
   body * {
     visibility: hidden !important;
   }
@@ -6188,6 +6193,22 @@ td {
     width: 196mm;
   }
 
+  .prod-monthly-print.print-active,
+  .prod-dispatch-print.print-active {
+    max-width: none !important;
+    overflow: visible !important;
+  }
+
+  .prod-monthly-print.print-active .prod-table,
+  .prod-dispatch-print.print-active .prod-table {
+    min-width: 0 !important;
+  }
+
+  .prod-dispatch-print.print-active {
+    page: prod-dispatch-page;
+    width: 285mm;
+  }
+
   .prod-monthly-print-title {
     display: block;
     text-align: center;
@@ -6195,34 +6216,58 @@ td {
 
   .prod-monthly-print-title h2 {
     color: #ff0000 !important;
-    font-size: 15pt;
-    margin: 0 0 4mm;
+    font-size: 13pt;
+    margin: 0 0 2mm;
     text-decoration: underline;
   }
 
   .prod-monthly-print-title span {
     color: #003b75 !important;
     display: block;
-    font-size: 8.5pt;
+    font-size: 8pt;
     font-weight: 800;
-    margin-bottom: 2mm;
+    margin-bottom: 1.5mm;
     text-align: left;
   }
 
   .prod-monthly-print .prod-table {
     border-collapse: collapse;
     border: 1px solid #000000;
-    font-size: 7.4pt;
+    font-size: 6.8pt;
     line-height: 1.05;
     table-layout: fixed;
     width: 100%;
   }
 
+  .prod-monthly-table .prod-monthly-col-date {
+    width: 12%;
+  }
+
+  .prod-monthly-table .prod-monthly-col-client {
+    width: 33%;
+  }
+
+  .prod-monthly-table .prod-monthly-col-pairs {
+    width: 8%;
+  }
+
+  .prod-monthly-table .prod-monthly-col-notes {
+    width: 24%;
+  }
+
+  .prod-monthly-table .prod-monthly-col-dispatched-pairs {
+    width: 8%;
+  }
+
+  .prod-monthly-table .prod-monthly-col-dispatched-date {
+    width: 15%;
+  }
+
   .prod-monthly-print .prod-table th,
   .prod-monthly-print .prod-table td {
     border: 1px solid #000000 !important;
-    height: 4.8mm;
-    padding: 0.5mm 1mm;
+    height: 4.15mm;
+    padding: 0.25mm 0.7mm;
     text-align: center;
     vertical-align: middle;
   }
@@ -6230,22 +6275,12 @@ td {
   .prod-monthly-print .prod-table th {
     background: #ffffff !important;
     color: #000000;
-    font-size: 7.1pt;
+    font-size: 6.6pt;
     text-transform: uppercase;
   }
 
   .prod-monthly-print .prod-monthly-group-row th {
-    font-size: 9pt;
-  }
-
-  .prod-monthly-print .prod-table td:nth-child(2),
-  .prod-monthly-print .prod-table th:nth-child(2) {
-    width: 34%;
-  }
-
-  .prod-monthly-print .prod-table td:nth-child(4),
-  .prod-monthly-print .prod-table th:nth-child(4) {
-    width: 23%;
+    font-size: 8pt;
   }
 
   .prod-monthly-print .prod-table td:nth-child(2),
@@ -6260,26 +6295,74 @@ td {
     color: #ff0000 !important;
   }
 
+  .prod-monthly-print .prod-table td:nth-child(1),
+  .prod-monthly-print .prod-table td:nth-child(6) {
+    font-size: 6.7pt;
+    white-space: nowrap;
+  }
+
   .prod-monthly-days-row td {
     border: 0 !important;
     color: #000000 !important;
-    font-size: 8pt;
+    font-size: 7pt;
     height: auto;
-    padding-top: 3mm;
+    padding-top: 1.8mm;
   }
 
   .prod-dispatch-print.print-active .prod-table {
     border-collapse: collapse;
-    font-size: 8pt;
+    font-size: 6.5pt;
+    line-height: 1.05;
     table-layout: fixed;
     width: 100%;
+  }
+
+  .prod-dispatch-table .prod-dispatch-col-date {
+    width: 11%;
+  }
+
+  .prod-dispatch-table .prod-dispatch-col-client {
+    width: 25%;
+  }
+
+  .prod-dispatch-table .prod-dispatch-col-payment {
+    width: 17%;
+  }
+
+  .prod-dispatch-table .prod-dispatch-col-money {
+    width: 11%;
+  }
+
+  .prod-dispatch-table .prod-dispatch-col-payments {
+    width: 18%;
+  }
+
+  .prod-dispatch-table .prod-dispatch-col-status {
+    width: 7%;
   }
 
   .prod-dispatch-print.print-active .prod-table th,
   .prod-dispatch-print.print-active .prod-table td {
     border: 1px solid #000000 !important;
-    padding: 1mm;
+    padding: 0.7mm;
     vertical-align: top;
+  }
+
+  .prod-dispatch-print.print-active .prod-table th {
+    font-size: 5.8pt;
+    white-space: normal;
+  }
+
+  .prod-dispatch-print.print-active .prod-table td,
+  .prod-dispatch-print.print-active .prod-table small {
+    overflow-wrap: anywhere;
+  }
+
+  .prod-dispatch-print.print-active .prod-table td:nth-child(1),
+  .prod-dispatch-print.print-active .prod-table td:nth-child(4),
+  .prod-dispatch-print.print-active .prod-table td:nth-child(6),
+  .prod-dispatch-print.print-active .prod-table td:nth-child(7) {
+    white-space: nowrap;
   }
 
   .prod-remission-page {

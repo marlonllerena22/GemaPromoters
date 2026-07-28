@@ -5792,6 +5792,14 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
                 <span>MES : {displayMonthYear(monthlyReport.date_to || monthlyReport.date_from)}</span>
               </div>
               <table className="prod-table prod-monthly-table">
+                <colgroup>
+                  <col className="prod-monthly-col-date" />
+                  <col className="prod-monthly-col-client" />
+                  <col className="prod-monthly-col-pairs" />
+                  <col className="prod-monthly-col-notes" />
+                  <col className="prod-monthly-col-dispatched-pairs" />
+                  <col className="prod-monthly-col-dispatched-date" />
+                </colgroup>
                 <thead>
                   <tr className="prod-monthly-group-row"><th colSpan="4">INGRESO</th><th colSpan="2">DESPACHADO</th></tr>
                   <tr><th>Fecha</th><th>Cliente</th><th>Pares</th><th>Observaciones</th><th>Pares</th><th>Fecha</th></tr>
@@ -5880,6 +5888,15 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
                 <span>{displayDate(dispatchReport.date_from)} - {displayDate(dispatchReport.date_to)}</span>
               </div>
               <table className="prod-table prod-dispatch-table">
+                <colgroup>
+                  <col className="prod-dispatch-col-date" />
+                  <col className="prod-dispatch-col-client" />
+                  <col className="prod-dispatch-col-payment" />
+                  <col className="prod-dispatch-col-money" />
+                  <col className="prod-dispatch-col-payments" />
+                  <col className="prod-dispatch-col-money" />
+                  <col className="prod-dispatch-col-status" />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>Fecha despacho</th><th>Cliente</th><th>Forma de pago</th><th>Valor inicial</th><th>Abonos</th><th>Saldo</th><th>Estado</th>
