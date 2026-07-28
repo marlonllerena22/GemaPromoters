@@ -5858,6 +5858,11 @@ td {
     margin: 5mm;
   }
 
+  @page prod-report-page {
+    size: A4 portrait;
+    margin: 7mm;
+  }
+
   body * {
     visibility: hidden !important;
   }
@@ -5887,8 +5892,10 @@ td {
 
   .prod-print-root,
   .prod-print-root *,
-  .prod-monthly-print,
-  .prod-monthly-print *,
+  .prod-monthly-print.print-active,
+  .prod-monthly-print.print-active *,
+  .prod-dispatch-print.print-active,
+  .prod-dispatch-print.print-active *,
   .physical-print-root,
   .physical-print-root * {
     visibility: visible !important;
@@ -6168,15 +6175,17 @@ td {
     display: none !important;
   }
 
-  .prod-monthly-print {
+  .prod-monthly-print.print-active,
+  .prod-dispatch-print.print-active {
     background: #ffffff;
     color: #000000;
     font-family: Arial, sans-serif;
     left: 0;
-    padding: 8mm 12mm;
+    page: prod-report-page;
+    padding: 0;
     position: absolute;
     top: 0;
-    width: 273mm;
+    width: 196mm;
   }
 
   .prod-monthly-print-title {
@@ -6186,37 +6195,62 @@ td {
 
   .prod-monthly-print-title h2 {
     color: #ff0000 !important;
-    font-size: 19pt;
-    margin: 0 0 3mm;
+    font-size: 15pt;
+    margin: 0 0 4mm;
+    text-decoration: underline;
   }
 
   .prod-monthly-print-title span {
-    color: #0000ff !important;
+    color: #003b75 !important;
     display: block;
-    font-size: 11pt;
+    font-size: 8.5pt;
     font-weight: 800;
-    margin-bottom: 5mm;
+    margin-bottom: 2mm;
     text-align: left;
   }
 
   .prod-monthly-print .prod-table {
     border-collapse: collapse;
     border: 1px solid #000000;
-    font-size: 11pt;
+    font-size: 7.4pt;
+    line-height: 1.05;
+    table-layout: fixed;
     width: 100%;
   }
 
   .prod-monthly-print .prod-table th,
   .prod-monthly-print .prod-table td {
     border: 1px solid #000000 !important;
-    padding: 1.2mm 2mm;
+    height: 4.8mm;
+    padding: 0.5mm 1mm;
+    text-align: center;
+    vertical-align: middle;
   }
 
   .prod-monthly-print .prod-table th {
-    background: #f0f0f0 !important;
+    background: #ffffff !important;
     color: #000000;
-    font-size: 11pt;
+    font-size: 7.1pt;
     text-transform: uppercase;
+  }
+
+  .prod-monthly-print .prod-monthly-group-row th {
+    font-size: 9pt;
+  }
+
+  .prod-monthly-print .prod-table td:nth-child(2),
+  .prod-monthly-print .prod-table th:nth-child(2) {
+    width: 34%;
+  }
+
+  .prod-monthly-print .prod-table td:nth-child(4),
+  .prod-monthly-print .prod-table th:nth-child(4) {
+    width: 23%;
+  }
+
+  .prod-monthly-print .prod-table td:nth-child(2),
+  .prod-monthly-print .prod-table td:nth-child(4) {
+    overflow-wrap: anywhere;
   }
 
   .prod-monthly-print .prod-table th:nth-child(5),
@@ -6226,9 +6260,26 @@ td {
     color: #ff0000 !important;
   }
 
-  .prod-monthly-print .prod-table th:nth-child(7),
-  .prod-monthly-print .prod-table td:nth-child(7) {
-    display: none;
+  .prod-monthly-days-row td {
+    border: 0 !important;
+    color: #000000 !important;
+    font-size: 8pt;
+    height: auto;
+    padding-top: 3mm;
+  }
+
+  .prod-dispatch-print.print-active .prod-table {
+    border-collapse: collapse;
+    font-size: 8pt;
+    table-layout: fixed;
+    width: 100%;
+  }
+
+  .prod-dispatch-print.print-active .prod-table th,
+  .prod-dispatch-print.print-active .prod-table td {
+    border: 1px solid #000000 !important;
+    padding: 1mm;
+    vertical-align: top;
   }
 
   .prod-remission-page {

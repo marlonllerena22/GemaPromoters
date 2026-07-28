@@ -574,6 +574,20 @@ function displayDate(value) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('es-EC');
 }
 
+function displayShortDate(value) {
+  if (!value) return '';
+  const date = new Date(`${value}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString('es-EC', { day: 'numeric', month: 'short' }).replace('.', '');
+}
+
+function displayMonthYear(value) {
+  if (!value) return '';
+  const date = new Date(`${value}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString('es-EC', { month: 'long', year: 'numeric' }).toUpperCase();
+}
+
 function displayNumber(value, decimals = 0) {
   return Number(value || 0).toLocaleString('es-EC', {
     minimumFractionDigits: decimals,
@@ -1890,6 +1904,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
   const [savingUpcomingPayment, setSavingUpcomingPayment] = useState(false);
   const [savingPaymentSummary, setSavingPaymentSummary] = useState(false);
   const [showInvoiceForm, setShowInvoiceForm] = useState(false);
+  const [savingInvoice, setSavingInvoice] = useState(false);
   const [showReturnForm, setShowReturnForm] = useState(false);
   const [savingReturn, setSavingReturn] = useState(false);
   const [returnAllocations, setReturnAllocations] = useState({});
@@ -2230,6 +2245,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
   }
 
   async function saveInvoice() {
+    setSavingInvoice(true);
     try {
       await api(scope(`/producalza/orders/${order.id}/invoice`), {
         method: 'PATCH',
@@ -2239,6 +2255,8 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
       await onUpdated('Factura registrada');
     } catch (err) {
       setError(err.message);
+    } finally {
+      setSavingInvoice(false);
     }
   }
 
@@ -2751,15 +2769,15 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
       {showInvoiceForm && (
         <section className="prod-panel prod-invoice-panel">
           <div className="prod-panel-title"><div><span>Registro opcional</span><h2>Factura del pedido</h2></div></div>
-          <div className="prod-form-grid">
+          <form className="prod-form-grid" onSubmit={(event) => { event.preventDefault(); saveInvoice(); }}>
             <label>Numero de factura<input value={invoiceForm.invoice_number} onChange={(event) => setInvoiceForm({ ...invoiceForm, invoice_number: event.target.value })} /></label>
             <label>Fecha<input type="date" value={invoiceForm.invoice_date} onChange={(event) => setInvoiceForm({ ...invoiceForm, invoice_date: event.target.value })} /></label>
             <label>Valor<input type="number" min="0" step="0.01" value={invoiceForm.invoice_value} onChange={(event) => setInvoiceForm({ ...invoiceForm, invoice_value: event.target.value })} /></label>
             <div className="prod-form-actions align-end">
-              <button className="prod-secondary-button" onClick={() => setShowInvoiceForm(false)}>Cancelar</button>
-              <button className="prod-primary-button" onClick={saveInvoice}><Save size={17} />Guardar factura</button>
+              <button type="button" className="prod-secondary-button" onClick={() => setShowInvoiceForm(false)}>Cancelar</button>
+              <button className="prod-primary-button" type="submit" disabled={savingInvoice}><Save size={17} />{savingInvoice ? 'Guardando...' : 'Guardar factura'}</button>
             </div>
-          </div>
+          </form>
         </section>
       )}
       <section className="prod-panel prod-payment-panel">
@@ -5571,6 +5589,7 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
   });
   const [dispatchReport, setDispatchReport] = useState(null);
   const [dispatchLoading, setDispatchLoading] = useState(false);
+  const [reportPrintMode, setReportPrintMode] = useState('');
   const [returnsFilters, setReturnsFilters] = useState({
     date_from: `${today.slice(0, 8)}01`,
     date_to: today
@@ -5613,9 +5632,16 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
     .sort((a, b) => a.localeCompare(b));
   const filteredClients = baseFilteredClients.filter((client) => !excludedActivityClients.includes(client.name));
   const monthlyRows = monthlyReport?.rows || [];
+  const monthlyEnteredRows = monthlyReport?.entered_rows || monthlyRows.filter((row) => Number(row.entered_pairs || 0) > 0);
+  const monthlyDispatchedRows = monthlyReport?.dispatched_rows || monthlyRows.filter((row) => Number(row.dispatched_pairs || 0) > 0);
   const monthlyClients = [...new Set(monthlyRows.map((row) => row.client_name).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b));
-  const visibleMonthlyRows = monthlyRows.filter((row) => !excludedClients.includes(row.client_name));
+  const visibleMonthlyEnteredRows = monthlyEnteredRows.filter((row) => !excludedClients.includes(row.client_name));
+  const visibleMonthlyDispatchedRows = monthlyDispatchedRows.filter((row) => !excludedClients.includes(row.client_name));
+  const monthlyPrintRows = Array.from({ length: Math.max(visibleMonthlyEnteredRows.length, visibleMonthlyDispatchedRows.length, 28) }, (_, index) => ({
+    entered: visibleMonthlyEnteredRows[index],
+    dispatched: visibleMonthlyDispatchedRows[index]
+  }));
   const dispatchRows = dispatchReport?.rows || [];
   const dispatchClients = [...new Set(dispatchRows.map((row) => row.client_name).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b));
@@ -5626,8 +5652,8 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
     balance: visibleDispatchRows.reduce((sum, row) => sum + Number(row.balance || 0), 0)
   };
   const monthlyDays = Math.max(1, Number(monthlyFilters.days || 1) || 1);
-  const monthlyEntered = visibleMonthlyRows.reduce((sum, row) => sum + Number(row.entered_pairs || 0), 0);
-  const monthlyDispatched = visibleMonthlyRows.reduce((sum, row) => sum + Number(row.dispatched_pairs || 0), 0);
+  const monthlyEntered = visibleMonthlyEnteredRows.reduce((sum, row) => sum + Number(row.entered_pairs || 0), 0);
+  const monthlyDispatched = visibleMonthlyDispatchedRows.reduce((sum, row) => sum + Number(row.dispatched_pairs || 0), 0);
   const updateReportFilter = (key, value) => setReportFilters((current) => ({ ...current, [key]: value }));
   const updateMonthlyFilter = (key, value) => setMonthlyFilters((current) => ({ ...current, [key]: value }));
   const updateDispatchFilter = (key, value) => setDispatchFilters((current) => ({ ...current, [key]: value }));
@@ -5704,6 +5730,12 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
     );
   }
 
+  function printReport(mode) {
+    setReportPrintMode(mode);
+    window.setTimeout(() => window.print(), 120);
+    window.setTimeout(() => setReportPrintMode(''), 700);
+  }
+
   return (
     <div className="prod-stack">
       <section className="prod-metrics">
@@ -5725,7 +5757,7 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
           <label>Hasta<input type="date" value={monthlyFilters.date_to} onChange={(event) => updateMonthlyFilter('date_to', event.target.value)} /></label>
           <label>Dias de trabajo<input type="number" min="1" value={monthlyFilters.days} onChange={(event) => updateMonthlyFilter('days', event.target.value)} /></label>
           {monthlyReport && (
-            <button className="prod-secondary-button" onClick={() => window.print()}>
+            <button className="prod-secondary-button" onClick={() => printReport('monthly')}>
               <Printer size={17} />
               Imprimir reporte
             </button>
@@ -5754,39 +5786,42 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
                 ))}
               </div>
             </div>
-            <div className="prod-table-wrap prod-monthly-print">
+            <div className={`prod-table-wrap prod-monthly-print ${reportPrintMode === 'monthly' ? 'print-active' : ''}`}>
               <div className="prod-monthly-print-title">
                 <h2>INFORME MENSUAL DE PEDIDOS</h2>
-                <span>{displayDate(monthlyReport.date_from)} - {displayDate(monthlyReport.date_to)}</span>
+                <span>MES : {displayMonthYear(monthlyReport.date_to || monthlyReport.date_from)}</span>
               </div>
               <table className="prod-table prod-monthly-table">
                 <thead>
-                  <tr>
-                    <th>Fecha</th><th>Cliente</th><th>Pares</th><th>Observaciones</th><th>Despachado</th><th>Fecha</th><th>Origen</th>
-                  </tr>
+                  <tr className="prod-monthly-group-row"><th colSpan="4">INGRESO</th><th colSpan="2">DESPACHADO</th></tr>
+                  <tr><th>Fecha</th><th>Cliente</th><th>Pares</th><th>Observaciones</th><th>Pares</th><th>Fecha</th></tr>
                 </thead>
                 <tbody>
-                  {visibleMonthlyRows.map((row) => (
-                    <tr key={row.source_key} className={row.row_source === 'devolucion' ? 'prod-return-report-row' : ''}>
-                      <td>{row.entry_date ? displayDate(row.entry_date) : ''}</td>
-                      <td><strong>{row.client_name}</strong></td>
-                      <td>{row.entered_pairs || ''}</td>
-                      <td>{row.row_source === 'devolucion' ? <strong>{row.observations || 'DEVOLUCION'}</strong> : row.observations || ''}</td>
-                      <td>{row.dispatched_pairs || ''}</td>
-                      <td>{row.dispatched_date ? displayDate(row.dispatched_date) : ''}</td>
-                      <td>{row.row_source === 'historico' ? 'Historico' : 'Sistema'}</td>
+                  {monthlyPrintRows.map((pair, index) => (
+                    <tr key={`${pair.entered?.source_key || 'blank-e'}-${pair.dispatched?.source_key || 'blank-d'}-${index}`}>
+                      <td>{pair.entered?.entry_date ? displayShortDate(pair.entered.entry_date) : ''}</td>
+                      <td><strong>{pair.entered?.client_name || ''}</strong></td>
+                      <td>{pair.entered?.entered_pairs || ''}</td>
+                      <td>{pair.entered?.observations || ''}</td>
+                      <td>{pair.dispatched?.dispatched_pairs || ''}</td>
+                      <td>{pair.dispatched?.dispatched_date ? displayShortDate(pair.dispatched.dispatched_date) : ''}</td>
                     </tr>
                   ))}
                   <tr className="prod-monthly-total-row">
-                    <td colSpan="2"><strong>TOTALES</strong></td>
+                    <td colSpan="2"><strong></strong></td>
                     <td><strong>{displayNumber(monthlyEntered)}</strong></td>
-                    <td><strong>Dias: {monthlyDays}</strong></td>
+                    <td></td>
                     <td><strong>{displayNumber(monthlyDispatched)}</strong></td>
-                    <td colSpan="2"><strong>Promedios: {displayNumber(monthlyEntered / monthlyDays, 1)} / {displayNumber(monthlyDispatched / monthlyDays, 1)}</strong></td>
+                    <td></td>
+                  </tr>
+                  <tr className="prod-monthly-days-row">
+                    <td colSpan="3"></td>
+                    <td>÷ {monthlyDays} dias laborables<br />{displayNumber(monthlyEntered / monthlyDays, 0)} p.</td>
+                    <td colSpan="2">÷ {monthlyDays} dias laborables<br />{displayNumber(monthlyDispatched / monthlyDays, 0)} p.</td>
                   </tr>
                 </tbody>
               </table>
-              {!visibleMonthlyRows.length && <div className="prod-empty">No hay filas para este rango o todos los clientes estan excluidos.</div>}
+              {!visibleMonthlyEnteredRows.length && !visibleMonthlyDispatchedRows.length && <div className="prod-empty">No hay filas para este rango o todos los clientes estan excluidos.</div>}
             </div>
           </>
         )}
@@ -5809,6 +5844,12 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
               <option value="paid">Pagados</option>
             </select>
           </label>
+          {dispatchReport && (
+            <button className="prod-secondary-button" onClick={() => printReport('dispatch')}>
+              <Printer size={17} />
+              Imprimir cobros
+            </button>
+          )}
         </div>
         {dispatchReport && (
           <>
@@ -5833,7 +5874,11 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
                 ))}
               </div>
             </div>
-            <div className="prod-table-wrap">
+            <div className={`prod-table-wrap prod-dispatch-print ${reportPrintMode === 'dispatch' ? 'print-active' : ''}`}>
+              <div className="prod-monthly-print-title">
+                <h2>REPORTE DE DESPACHOS Y COBROS</h2>
+                <span>{displayDate(dispatchReport.date_from)} - {displayDate(dispatchReport.date_to)}</span>
+              </div>
               <table className="prod-table prod-dispatch-table">
                 <thead>
                   <tr>

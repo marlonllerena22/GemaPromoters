@@ -2888,60 +2888,51 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
        GROUP BY orders.id`
     ).all(business.id, dateFrom, dateTo);
 
-    const liveReturnObservations = db.prepare(
-      `SELECT 'live-return-' || returns.id AS source_key,
-              substr(returns.order_date, 1, 7) AS report_month,
-              returns.order_date AS entry_date,
-              clients.name AS client_name,
-              NULL AS entered_pairs,
-              'DEVOLUCION: ' || COALESCE(SUM(allocations.quantity), 0) || ' pares'
-                || CASE
-                     WHEN GROUP_CONCAT(DISTINCT allocations.destination) IS NULL THEN ''
-                     ELSE ' / ' || GROUP_CONCAT(DISTINCT allocations.destination)
-                   END AS observations,
-              NULL AS dispatched_pairs,
-              NULL AS dispatched_date,
-              'Sistema Producalza' AS source,
-              'devolucion' AS row_source
-       FROM production_orders AS returns
-       JOIN production_clients AS clients ON clients.id = returns.client_id
-       LEFT JOIN production_return_allocations AS allocations ON allocations.return_order_id = returns.id
-       WHERE returns.establishment_id = ?
-         AND returns.deleted_at IS NULL
-         AND returns.order_type = 'return'
-         AND returns.order_date BETWEEN ? AND ?
-       GROUP BY returns.id`
-    ).all(business.id, dateFrom, dateTo);
-
     const liveDispatched = db.prepare(
-      `SELECT 'live-dispatch-' || models.id AS source_key,
-              substr(date(COALESCE(orders.dispatched_date, models.updated_at)), 1, 7) AS report_month,
+      `SELECT 'live-dispatch-' || orders.id AS source_key,
+              substr(date(orders.dispatched_date), 1, 7) AS report_month,
               orders.order_date AS entry_date,
               clients.name AS client_name,
               NULL AS entered_pairs,
-              models.notes AS observations,
-              models.total_pairs AS dispatched_pairs,
-              date(COALESCE(orders.dispatched_date, models.updated_at)) AS dispatched_date,
+              orders.general_notes AS observations,
+              COALESCE(SUM(models.total_pairs), 0) AS dispatched_pairs,
+              date(orders.dispatched_date) AS dispatched_date,
               'Sistema Producalza' AS source,
               'sistema' AS row_source
-       FROM production_order_models AS models
-       JOIN production_orders AS orders ON orders.id = models.order_id
+       FROM production_orders AS orders
        JOIN production_clients AS clients ON clients.id = orders.client_id
+       LEFT JOIN production_order_models AS models ON models.order_id = orders.id
        WHERE orders.establishment_id = ?
          AND orders.deleted_at IS NULL
          AND orders.order_type = 'order'
          AND COALESCE(orders.is_sample, 0) = 0
-         AND models.status IN ('finished', 'delivered')
-         AND date(COALESCE(orders.dispatched_date, models.updated_at)) BETWEEN ? AND ?`
+         AND orders.status = 'delivered'
+         AND orders.dispatched_date IS NOT NULL
+         AND date(orders.dispatched_date) BETWEEN ? AND ?
+       GROUP BY orders.id`
     ).all(business.id, dateFrom, dateTo);
 
-    const rows = [...historicalRows, ...liveEntered, ...liveReturnObservations, ...liveDispatched]
+    const enteredRows = [
+      ...historicalRows.filter((row) => Number(row.entered_pairs || 0) > 0),
+      ...liveEntered
+    ]
       .filter((row) => row.client_name)
       .sort((left, right) => {
-        const leftDate = left.entry_date || left.dispatched_date || '';
-        const rightDate = right.entry_date || right.dispatched_date || '';
-        return leftDate.localeCompare(rightDate) || left.client_name.localeCompare(right.client_name);
+        return String(left.entry_date || '').localeCompare(String(right.entry_date || '')) ||
+          left.client_name.localeCompare(right.client_name);
       });
+
+    const dispatchedRows = [
+      ...historicalRows.filter((row) => Number(row.dispatched_pairs || 0) > 0),
+      ...liveDispatched
+    ]
+      .filter((row) => row.client_name)
+      .sort((left, right) => {
+        return String(left.dispatched_date || '').localeCompare(String(right.dispatched_date || '')) ||
+          left.client_name.localeCompare(right.client_name);
+      });
+
+    const rows = [...enteredRows, ...dispatchedRows];
     const totalEntered = rows.reduce((sum, row) => sum + Number(row.entered_pairs || 0), 0);
     const totalDispatched = rows.reduce((sum, row) => sum + Number(row.dispatched_pairs || 0), 0);
     const storedMonths = db.prepare(
@@ -2958,6 +2949,8 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       date_to: dateTo,
       days,
       rows,
+      entered_rows: enteredRows,
+      dispatched_rows: dispatchedRows,
       stored_months: storedMonths,
       totals: {
         entered_pairs: totalEntered,
