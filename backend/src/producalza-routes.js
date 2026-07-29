@@ -3176,8 +3176,42 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
          AND date(invoices.dispatched_date) BETWEEN ? AND ?
          AND orders.deleted_at IS NULL
          AND orders.order_type = 'order'
-         AND COALESCE(orders.is_sample, 0) = 0`
-    ).all(business.id, dateFrom, dateTo, business.id, dateFrom, dateTo);
+         AND COALESCE(orders.is_sample, 0) = 0
+       UNION ALL
+       SELECT 'order' AS document_type,
+              orders.id AS document_id,
+              orders.id AS order_id,
+              '[]' AS model_ids_json,
+              '{}' AS item_quantities_json,
+              date(orders.dispatched_date) AS dispatched_date
+       FROM production_orders AS orders
+       WHERE orders.establishment_id = ?
+         AND orders.status = 'delivered'
+         AND orders.dispatched_date IS NOT NULL
+         AND date(orders.dispatched_date) BETWEEN ? AND ?
+         AND orders.deleted_at IS NULL
+         AND orders.order_type = 'order'
+         AND COALESCE(orders.is_sample, 0) = 0
+         AND NOT EXISTS (
+           SELECT 1
+           FROM production_delivery_notes AS existing_notes
+           WHERE existing_notes.order_id = orders.id
+             AND existing_notes.establishment_id = orders.establishment_id
+             AND existing_notes.note_type <> 'pending'
+             AND existing_notes.dispatched_date IS NOT NULL
+         )
+         AND NOT EXISTS (
+           SELECT 1
+           FROM production_order_invoices AS existing_invoices
+           WHERE existing_invoices.order_id = orders.id
+             AND existing_invoices.establishment_id = orders.establishment_id
+             AND existing_invoices.dispatched_date IS NOT NULL
+         )`
+    ).all(
+      business.id, dateFrom, dateTo,
+      business.id, dateFrom, dateTo,
+      business.id, dateFrom, dateTo
+    );
 
     const liveDispatchOrderIds = [...new Set(liveDispatchDocuments.map((document) => Number(document.order_id)).filter(Boolean))];
     const liveDispatchOrders = liveDispatchOrderIds.length
@@ -3216,7 +3250,9 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       const orderModels = modelsByOrder.get(Number(document.order_id)) || [];
       const itemQuantities = parseJsonValue(document.item_quantities_json, {});
       const modelIds = parseJsonValue(document.model_ids_json, []);
-      const pairs = pairsFromItemQuantities(Object.keys(itemQuantities || {}).length
+      const pairs = document.document_type === 'order'
+        ? orderModels.reduce((sum, model) => sum + Number(model.total_pairs || 0), 0)
+        : pairsFromItemQuantities(Object.keys(itemQuantities || {}).length
         ? normalizeItemQuantities(itemQuantities, orderModels)
         : itemQuantitiesFromModelIds(orderModels, modelIds));
       return {
