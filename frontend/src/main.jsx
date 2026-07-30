@@ -1964,7 +1964,7 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
           <article><span>Venta total</span><strong>{money(summaryTotals.total)}</strong></article>
           <article><span>Gastos</span><strong>{money(summaryTotals.expenses)}</strong></article>
           <article><span>Retiros</span><strong>{money(summaryTotals.withdrawals)}</strong></article>
-          <article><span>Valor total ingresado</span><strong>{money(summaryTotals.total)}</strong></article>
+          <article><span>Valor ingresado a caja</span><strong>{money(summaryTotals.cashIncome)}</strong></article>
           <article><span>Caja actual</span><strong>{money(summaryTotals.cashBox)}</strong></article>
         </div>
       </section>

@@ -1581,22 +1581,24 @@ function physicalTicketsReport(eventId, establishmentId, dateFrom, dateTo) {
     subtotal: toMoney(sales.reduce((sum, sale) => sum + Number(sale.subtotal || 0), 0)),
     discounts: toMoney(sales.reduce((sum, sale) => sum + Number(sale.discount_value || 0), 0)),
     total: toMoney(sales.reduce((sum, sale) => sum + Number(sale.total || 0), 0)),
+    cashIncome: toMoney(sales.filter((sale) => ['cash', 'transfer'].includes(sale.payment_method)).reduce((sum, sale) => sum + Number(sale.total || 0), 0)),
     expenses: toMoney(expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0)),
     withdrawals: toMoney(withdrawals.reduce((sum, withdrawal) => sum + Number(withdrawal.total || 0), 0))
   };
   totals.net = toMoney(totals.total - totals.expenses);
-  totals.cashBox = toMoney(totals.total - totals.expenses - totals.withdrawals);
+  totals.cashBox = toMoney(totals.cashIncome - totals.expenses - totals.withdrawals);
   const allTotals = {
     soldQuantity: allItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0),
     stockQuantity: allStockEntries.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0),
     subtotal: toMoney(allSales.reduce((sum, sale) => sum + Number(sale.subtotal || 0), 0)),
     discounts: toMoney(allSales.reduce((sum, sale) => sum + Number(sale.discount_value || 0), 0)),
     total: toMoney(allSales.reduce((sum, sale) => sum + Number(sale.total || 0), 0)),
+    cashIncome: toMoney(allSales.filter((sale) => ['cash', 'transfer'].includes(sale.payment_method)).reduce((sum, sale) => sum + Number(sale.total || 0), 0)),
     expenses: toMoney(allExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0)),
     withdrawals: toMoney(allWithdrawals.reduce((sum, withdrawal) => sum + Number(withdrawal.total || 0), 0))
   };
   allTotals.net = toMoney(allTotals.total - allTotals.expenses);
-  allTotals.cashBox = toMoney(allTotals.total - allTotals.expenses - allTotals.withdrawals);
+  allTotals.cashBox = toMoney(allTotals.cashIncome - allTotals.expenses - allTotals.withdrawals);
   return {
     date_from: from,
     date_to: to,
