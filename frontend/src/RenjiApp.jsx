@@ -212,10 +212,17 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
 
   async function generateGuides() {
     setError('');
+    const paidIds = selectedGuideIds.filter((id) => (
+      overview.orders.some((order) => order.id === id && order.payment_status === 'paid')
+    ));
+    if (!paidIds.length) {
+      setError('Selecciona al menos un pedido pagado para generar guia');
+      return;
+    }
     try {
       const response = await api(scoped('/renji/guides', establishmentId), {
         method: 'POST',
-        body: JSON.stringify({ order_ids: selectedGuideIds })
+        body: JSON.stringify({ order_ids: paidIds })
       });
       setGuideOrders(response.guides || []);
       setOverview(response.overview || overview);
@@ -293,6 +300,10 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
       return 'paid';
     }
     return Number(order.deposit_amount || 0) > 0 ? 'collect' : 'pending';
+  }
+
+  function canGenerateGuide(order) {
+    return order.payment_status === 'paid';
   }
 
   function logout() {
@@ -528,14 +539,17 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
             </div>
             <div className="renji-guide-list">
               {guideSelectableOrders.length ? guideSelectableOrders.map((order) => (
-                <label key={order.id}>
+                <label key={order.id} className={!canGenerateGuide(order) ? 'disabled' : ''}>
                   <input
                     type="checkbox"
+                    disabled={!canGenerateGuide(order)}
                     checked={selectedGuideIds.includes(order.id)}
                     onChange={(e) => setSelectedGuideIds(e.target.checked ? [...selectedGuideIds, order.id] : selectedGuideIds.filter((id) => id !== order.id))}
                   />
                   <span>{order.customer_name}</span>
                   <small>{order.customer_city} - {selectionLabels[order.selection_type]} {order.size}</small>
+                  <b className={`renji-guide-pay-status ${paymentClass(order)}`}>{paymentLabel(order)}</b>
+                  {!canGenerateGuide(order) && <small className="renji-guide-lock">Primero marcar como pagado</small>}
                   <b className={`renji-guide-status ${order.shipping_status}`}>{order.shipping_status === 'sent' ? 'Enviado' : 'No enviado'}</b>
                 </label>
               )) : <div className="empty-state">No hay pedidos para guias.</div>}

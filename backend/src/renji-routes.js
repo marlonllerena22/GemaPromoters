@@ -609,9 +609,14 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
       const orders = db.prepare(
         `SELECT *
          FROM renji_orders
-         WHERE establishment_id = ? AND id IN (${placeholders})
+         WHERE establishment_id = ?
+           AND payment_status = 'paid'
+           AND id IN (${placeholders})
          ORDER BY customer_name COLLATE NOCASE ASC, id ASC`
       ).all(establishmentId, ...ids).map(formatOrder);
+      if (orders.length !== ids.length) {
+        return res.status(400).json({ message: 'Solo los pedidos pagados pueden generar guia' });
+      }
 
       const transaction = db.transaction(() => {
         db.prepare(
@@ -619,7 +624,9 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
            SET shipping_status = 'sent',
                sent_at = COALESCE(sent_at, datetime('now', 'localtime')),
                updated_at = datetime('now', 'localtime')
-           WHERE establishment_id = ? AND id IN (${placeholders})`
+           WHERE establishment_id = ?
+             AND payment_status = 'paid'
+             AND id IN (${placeholders})`
         ).run(establishmentId, ...ids);
       });
       transaction();

@@ -1150,8 +1150,18 @@ input[type="file"] {
   padding: 11px;
 }
 
+.renji-guide-list label.disabled {
+  background: #f4f1ea;
+  color: #8a8174;
+  opacity: 0.72;
+}
+
 .renji-guide-list input {
   grid-row: span 2;
+}
+
+.renji-guide-list input:disabled {
+  cursor: not-allowed;
 }
 
 .renji-guide-status {
@@ -1171,6 +1181,31 @@ input[type="file"] {
 .renji-guide-status.not_sent {
   background: #fee2e2;
   color: #991b1b;
+}
+
+.renji-guide-pay-status {
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 900;
+  justify-self: start;
+  padding: 4px 8px;
+  text-transform: uppercase;
+}
+
+.renji-guide-pay-status.paid {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.renji-guide-pay-status.collect,
+.renji-guide-pay-status.pending {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.renji-guide-lock {
+  color: #b91c1c;
+  font-weight: 800;
 }
 
 .renji-print-root {
