@@ -571,6 +571,10 @@ function App() {
     return <RenjiPublicRegistration />;
   }
 
+  if (window.location.pathname === '/renji-separar') {
+    return <RenjiPublicRegistration mode="separation" />;
+  }
+
   if (window.location.pathname === '/asistencia-locales' || window.location.pathname === '/asistencia') {
     return <LocalAttendancePage />;
   }

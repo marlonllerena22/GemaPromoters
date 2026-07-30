@@ -798,6 +798,7 @@ function initRenjiDb() {
       size TEXT NOT NULL CHECK (size IN ('S', 'M', 'L', 'XL')),
       color TEXT NOT NULL DEFAULT 'Negro',
       quantity INTEGER NOT NULL DEFAULT 1 CHECK (quantity >= 1),
+      deposit_amount REAL NOT NULL DEFAULT 0 CHECK (deposit_amount >= 0),
       pending_amount REAL NOT NULL DEFAULT 0 CHECK (pending_amount >= 0),
       payment_status TEXT NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid')),
       shipping_status TEXT NOT NULL DEFAULT 'not_sent' CHECK (shipping_status IN ('not_sent', 'sent')),
@@ -824,6 +825,8 @@ function initRenjiDb() {
       selection_type TEXT NOT NULL CHECK (selection_type IN ('set', 'hoodie', 'pants')),
       size TEXT NOT NULL CHECK (size IN ('S', 'M', 'L', 'XL')),
       quantity INTEGER NOT NULL DEFAULT 1 CHECK (quantity >= 1),
+      registration_type TEXT NOT NULL DEFAULT 'paid' CHECK (registration_type IN ('paid', 'separation')),
+      deposit_amount REAL NOT NULL DEFAULT 0 CHECK (deposit_amount >= 0),
       status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'deleted')),
       order_id INTEGER,
       notes TEXT,
@@ -837,6 +840,9 @@ function initRenjiDb() {
 
   addColumnIfMissing('renji_orders', 'customer_instagram', 'TEXT');
   addColumnIfMissing('renji_orders', 'purchase_channel', "TEXT NOT NULL DEFAULT 'other'");
+  addColumnIfMissing('renji_orders', 'deposit_amount', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing('renji_registrations', 'registration_type', "TEXT NOT NULL DEFAULT 'paid'");
+  addColumnIfMissing('renji_registrations', 'deposit_amount', 'REAL NOT NULL DEFAULT 0');
 }
 
 function seedRenjiStock(establishmentId) {

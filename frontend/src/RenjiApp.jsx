@@ -35,6 +35,8 @@ const emptyOrder = {
   selection_type: 'set',
   size: 'M',
   quantity: 1,
+  registration_type: 'paid',
+  deposit_amount: '',
   pending_amount: '',
   notes: ''
 };
@@ -59,6 +61,7 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const publicLink = `${window.location.origin}/renji-registro`;
+  const separationLink = `${window.location.origin}/renji-separar`;
 
   async function loadOverview(message = '') {
     setError('');
@@ -110,6 +113,8 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
       selection_type: record.selection_type || 'set',
       size: record.size || 'M',
       quantity: record.quantity || 1,
+      registration_type: record.registration_type || (Number(record.deposit_amount || 0) > 0 ? 'separation' : 'paid'),
+      deposit_amount: record.deposit_amount || '',
       pending_amount: record.pending_amount || '',
       payment_status: record.payment_status || 'pending',
       notes: record.notes || ''
@@ -266,6 +271,30 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
     }
   }
 
+  async function copySeparationLink() {
+    try {
+      await navigator.clipboard?.writeText(separationLink);
+      setNotice('Enlace de separacion copiado para enviar al cliente');
+      setTimeout(() => setNotice(''), 2400);
+    } catch {
+      setNotice(separationLink);
+    }
+  }
+
+  function paymentLabel(order) {
+    if (order.payment_status === 'paid') {
+      return 'Pagado';
+    }
+    return Number(order.deposit_amount || 0) > 0 ? 'COBRAR' : 'Pendiente';
+  }
+
+  function paymentClass(order) {
+    if (order.payment_status === 'paid') {
+      return 'paid';
+    }
+    return Number(order.deposit_amount || 0) > 0 ? 'collect' : 'pending';
+  }
+
   function logout() {
     clearToken();
     onLogout?.();
@@ -299,10 +328,17 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
 
           <section className="renji-panel renji-link-card">
             <div>
-              <strong>Enlace para clientes</strong>
+              <strong>Enlace para clientes cancelados</strong>
               <span>{publicLink}</span>
             </div>
             <button className="renji-secondary" onClick={copyPublicLink}><Copy size={16} />Copiar enlace</button>
+          </section>
+          <section className="renji-panel renji-link-card">
+            <div>
+              <strong>Enlace para clientes que separaron</strong>
+              <span>{separationLink}</span>
+            </div>
+            <button className="renji-secondary" onClick={copySeparationLink}><Copy size={16} />Copiar enlace</button>
           </section>
 
           <section className="renji-grid">
@@ -334,6 +370,17 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                   </select>
                 </label>
                 <label>Cantidad<input type="number" min="1" value={orderForm.quantity} onChange={(e) => setOrderForm({ ...orderForm, quantity: e.target.value })} /></label>
+                {editingRegistrationId && (
+                  <label>Tipo de registro
+                    <select value={orderForm.registration_type} onChange={(e) => setOrderForm({ ...orderForm, registration_type: e.target.value })}>
+                      <option value="paid">Cancelado</option>
+                      <option value="separation">Separado</option>
+                    </select>
+                  </label>
+                )}
+                {(orderForm.registration_type === 'separation' || Number(orderForm.deposit_amount || 0) > 0) && (
+                  <label>Valor depositado<input type="number" min="0" step="0.01" value={orderForm.deposit_amount} onChange={(e) => setOrderForm({ ...orderForm, deposit_amount: e.target.value })} /></label>
+                )}
                 {!editingRegistrationId && <label>Valor faltante<input type="number" min="0" step="0.01" value={orderForm.pending_amount} onChange={(e) => setOrderForm({ ...orderForm, pending_amount: e.target.value })} /></label>}
                 <label className="span-2">Observacion<input value={orderForm.notes} onChange={(e) => setOrderForm({ ...orderForm, notes: e.target.value })} /></label>
                 <button className="renji-primary span-2" type="submit">{editingRegistrationId ? 'Guardar registro pendiente' : editingOrderId ? 'Guardar cambios del pedido' : 'Guardar venta pendiente'}</button>
@@ -411,7 +458,7 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                       <td><strong>{registration.customer_name}</strong><small>{registration.customer_city} - {registration.customer_address}</small></td>
                       <td>{registration.customer_phone}<small>{registration.customer_instagram ? `@${registration.customer_instagram}` : 'Sin Instagram'}</small></td>
                       <td>{selectionLabels[registration.selection_type]} - {registration.size} - Negro x{registration.quantity}</td>
-                      <td>{registration.created_at}</td>
+                      <td>{registration.created_at}<small>{registration.registration_type === 'separation' ? `Separado: ${money(registration.deposit_amount)}` : 'Cancelado'}</small></td>
                       <td>
                         <div className="renji-actions">
                           <button onClick={() => { setEditingRegistrationId(registration.id); setEditingOrderId(null); setOrderForm(formFromRecord(registration)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><Edit3 size={15} />Editar</button>
@@ -449,7 +496,8 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                       <td><strong>{order.customer_name}</strong><small>{order.customer_city} - {order.customer_phone}{order.customer_instagram ? ` - @${order.customer_instagram}` : ''}</small></td>
                       <td>{selectionLabels[order.selection_type]} - {order.size} - Negro x{order.quantity}</td>
                       <td>
-                        <span className={`renji-pill ${order.payment_status}`}>{order.payment_status === 'paid' ? 'Pagado' : 'Pendiente'}</span>
+                        <span className={`renji-pill ${paymentClass(order)}`}>{paymentLabel(order)}</span>
+                        {Number(order.deposit_amount || 0) > 0 && <small>Deposito: {money(order.deposit_amount)}</small>}
                         {order.payment_status !== 'paid' && (
                           <div className="renji-inline-edit">
                             <input type="number" min="0" step="0.01" value={paymentEdits[order.id] ?? order.pending_amount} onChange={(e) => setPaymentEdits({ ...paymentEdits, [order.id]: e.target.value })} />
@@ -541,8 +589,9 @@ function RenjiGuidesPrint({ orders }) {
   );
 }
 
-export function RenjiPublicRegistration() {
-  const [form, setForm] = useState({ ...emptyOrder, pending_amount: 0 });
+export function RenjiPublicRegistration({ mode = 'paid' }) {
+  const isSeparation = mode === 'separation';
+  const [form, setForm] = useState({ ...emptyOrder, pending_amount: 0, registration_type: isSeparation ? 'separation' : 'paid' });
   const [sent, setSent] = useState(false);
   const [error, setError] = useState('');
 
@@ -550,12 +599,12 @@ export function RenjiPublicRegistration() {
     event.preventDefault();
     setError('');
     try {
-      await api('/renji/public-registrations', {
+      await api(isSeparation ? '/renji/public-separations' : '/renji/public-registrations', {
         method: 'POST',
         body: JSON.stringify(form)
       });
       setSent(true);
-      setForm({ ...emptyOrder, pending_amount: 0 });
+      setForm({ ...emptyOrder, pending_amount: 0, registration_type: isSeparation ? 'separation' : 'paid' });
     } catch (err) {
       setError(err.message);
     }
@@ -565,8 +614,8 @@ export function RenjiPublicRegistration() {
     <main className="renji-public-page">
       <section className="renji-public-card">
         <span>PROMOTERS / RENJI</span>
-        <h1>Datos para envio</h1>
-        <p>Completa tus datos exactamente como deben aparecer en la guia de envio.</p>
+        <h1>{isSeparation ? 'Datos de separacion' : 'Datos para envio'}</h1>
+        <p>{isSeparation ? 'Completa tus datos y el valor que transferiste para separar tu pedido.' : 'Completa tus datos exactamente como deben aparecer en la guia de envio.'}</p>
         {sent && <div className="alert success">Datos enviados correctamente. Revisaremos tu informacion antes de generar el envio.</div>}
         {error && <div className="alert error">{error}</div>}
         <form className="renji-form" onSubmit={submit}>
@@ -595,6 +644,7 @@ export function RenjiPublicRegistration() {
             </select>
           </label>
           <label>Cantidad<input type="number" min="1" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} /></label>
+          {isSeparation && <label>Valor transferido<input type="number" min="0.01" step="0.01" value={form.deposit_amount} onChange={(e) => setForm({ ...form, deposit_amount: e.target.value })} required /></label>}
           <button className="renji-primary span-2" type="submit">Enviar mis datos</button>
         </form>
       </section>

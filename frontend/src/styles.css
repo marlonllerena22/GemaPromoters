@@ -1115,6 +1115,11 @@ input[type="file"] {
   color: #991b1b;
 }
 
+.renji-pill.collect {
+  background: #b91c1c;
+  color: #ffffff;
+}
+
 .renji-inline-edit {
   display: grid;
   gap: 6px;
