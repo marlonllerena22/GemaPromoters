@@ -6008,6 +6008,15 @@ td {
     margin-top: 0.5mm;
   }
 
+  .physical-print-note {
+    border: 1px solid #111111;
+    font-size: 7pt;
+    font-weight: 700;
+    line-height: 1.15;
+    margin: 0 0 2mm;
+    padding: 1.2mm;
+  }
+
   .physical-print-grid {
     display: grid;
     gap: 3mm;

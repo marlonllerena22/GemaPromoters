@@ -214,7 +214,7 @@ function longSpanishDate(value) {
   return formatted.charAt(0).toUpperCase() + formatted.slice(1);
 }
 
-async function createPhysicalDailyReportImage(report, reportDate) {
+async function createPhysicalDailyReportImage(report, reportDate, reportNote = '') {
   const current = report || {};
   const totals = current.totals || {};
   const sales = current.sales || [];
@@ -274,6 +274,10 @@ async function createPhysicalDailyReportImage(report, reportDate) {
   const expenseTotal = expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
   const withdrawalTotal = (current.withdrawals || []).reduce((sum, withdrawal) => sum + Number(withdrawal.total || 0), 0);
   const currentCashBox = current.all_totals?.cashBox ?? totals.cashBox;
+  const cardBalanceTotal = (current.all_sales || current.sales || [])
+    .filter((sale) => sale.payment_method === 'card')
+    .reduce((sum, sale) => sum + Number(sale.total || 0), 0);
+  const cashAndCardTotal = roundMoney(Number(currentCashBox || 0) + cardBalanceTotal);
   const canvas = document.createElement('canvas');
   canvas.width = 1240;
   canvas.height = 1754;
@@ -389,26 +393,42 @@ async function createPhysicalDailyReportImage(report, reportDate) {
     ['TOTAL VENTA', money(totals.total)],
     ['GASTOS', money(expenseTotal)],
     ['RETIROS', money(withdrawalTotal)],
-    ['CAJA ACTUAL', money(currentCashBox)]
+    ['CAJA ACTUAL', money(currentCashBox)],
+    ['EFECTIVO TOTAL (TARJETA + CAJA)', money(cashAndCardTotal)]
   ];
   totalBoxes.forEach(([label, value], index) => {
-    const boxX = 70 + index * 275;
-    ctx.fillStyle = index === 3 ? '#ecfdf5' : '#f8fafc';
-    ctx.fillRect(boxX, tableY, 250, 110);
-    ctx.strokeStyle = index === 3 ? '#059669' : '#111827';
+    const boxWidth = 204;
+    const boxGap = 20;
+    const boxX = 70 + index * (boxWidth + boxGap);
+    const isMainBalance = index >= 3;
+    ctx.fillStyle = isMainBalance ? '#ecfdf5' : '#f8fafc';
+    ctx.fillRect(boxX, tableY, boxWidth, 118);
+    ctx.strokeStyle = isMainBalance ? '#059669' : '#111827';
     ctx.lineWidth = 3;
-    ctx.strokeRect(boxX, tableY, 250, 110);
-    ctx.fillStyle = index === 3 ? '#047857' : '#374151';
-    ctx.font = '900 22px Arial';
-    ctx.fillText(label, boxX + 18, tableY + 36);
+    ctx.strokeRect(boxX, tableY, boxWidth, 118);
+    ctx.fillStyle = isMainBalance ? '#047857' : '#374151';
+    ctx.font = '900 17px Arial';
+    drawWrappedCanvasText(ctx, label, boxX + 14, tableY + 31, boxWidth - 24, 18, 2);
     ctx.fillStyle = '#111827';
-    ctx.font = '900 34px Arial';
-    ctx.fillText(value, boxX + 18, tableY + 82);
+    ctx.font = '900 29px Arial';
+    ctx.fillText(value, boxX + 14, tableY + 94);
   });
+
+  const cleanReportNote = String(reportNote || '').trim();
+  let noteY = tableY + 158;
+  if (cleanReportNote) {
+    ctx.fillStyle = '#111827';
+    ctx.font = '900 24px Arial';
+    ctx.fillText('Observacion del reporte', 70, noteY);
+    noteY += 34;
+    ctx.fillStyle = '#374151';
+    ctx.font = '700 20px Arial';
+    drawWrappedCanvasText(ctx, cleanReportNote, 70, noteY, 1060, 24, 3);
+    noteY += 86;
+  }
 
   const withdrawalNotes = (current.withdrawals || []).filter((withdrawal) => withdrawal.notes);
   if (withdrawalNotes.length) {
-    let noteY = tableY + 150;
     ctx.fillStyle = '#111827';
     ctx.font = '900 24px Arial';
     ctx.fillText('Retiros registrados', 70, noteY);
@@ -1736,6 +1756,8 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
   const [statusMessage, setStatusMessage] = useState('');
   const [printMode, setPrintMode] = useState('');
   const [printReportData, setPrintReportData] = useState(null);
+  const [printReportNote, setPrintReportNote] = useState('');
+  const [reportNote, setReportNote] = useState('');
   const [editingSaleId, setEditingSaleId] = useState(null);
   const [editingStockId, setEditingStockId] = useState(null);
   const [reportOptionsOpen, setReportOptionsOpen] = useState(false);
@@ -1744,6 +1766,10 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
   const saleTotal = Math.max(0, saleSubtotal - Number(saleForm.discount_value || 0));
   const remainingTotal = (report?.inventory_by_location || []).reduce((sum, row) => sum + Number(row.remaining_quantity || 0), 0);
   const summaryTotals = report?.all_totals || report?.totals || {};
+  const accumulatedCardTotal = (report?.all_sales || report?.sales || [])
+    .filter((sale) => sale.payment_method === 'card')
+    .reduce((sum, sale) => sum + Number(sale.total || 0), 0);
+  const cashAndCardTotal = Number(summaryTotals.cashBox || 0) + accumulatedCardTotal;
   const groupUrl = 'https://chat.whatsapp.com/KIp2zRsasGG1BM6e1mBQdA?s=cl&p=a&ilr=0&amv=3';
 
   useEffect(() => {
@@ -1924,7 +1950,7 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
   async function shareReport() {
     const dailyReport = await fetchReportForDate(reportDate);
     setReport(dailyReport);
-    const blob = await createPhysicalDailyReportImage(dailyReport, reportDate);
+    const blob = await createPhysicalDailyReportImage(dailyReport, reportDate, reportNote);
     const filename = `Reporte entradas fisicas ${dailyReport?.date_from || reportDate}.png`;
     let copied = false;
     try {
@@ -1945,11 +1971,13 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
     const dailyReport = await fetchReportForDate(reportDate);
     setReport(dailyReport);
     setPrintReportData(dailyReport);
+    setPrintReportNote(mode === 'daily' ? reportNote : '');
     setPrintMode(mode);
     window.setTimeout(() => window.print(), 80);
     window.setTimeout(() => {
       setPrintMode('');
       setPrintReportData(null);
+      setPrintReportNote('');
     }, 700);
   }
 
@@ -1966,6 +1994,7 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
           </button>
           <div className={`row-actions physical-report-toolbar ${reportOptionsOpen ? 'open' : ''}`}>
             <Input type="date" label="Fecha reporte" value={reportDate} onChange={(value) => setReportDate(value)} />
+            <Input label="Observacion del reporte" value={reportNote} onChange={setReportNote} />
             <button className="ghost-button" onClick={() => loadReport(reportDate)}>Generar</button>
             <button className="ghost-button" onClick={() => printReport('daily')}>Imprimir diario</button>
             <button className="ghost-button" onClick={() => printReport('stock')}>Reporte ingreso de entradas</button>
@@ -1985,6 +2014,7 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
           <article><span>Retiros</span><strong>{money(summaryTotals.withdrawals)}</strong></article>
           <article><span>Valor ingresado a caja</span><strong>{money(summaryTotals.cashIncome)}</strong></article>
           <article><span>Caja actual</span><strong>{money(summaryTotals.cashBox)}</strong></article>
+          <article><span>Efectivo total (tarjeta + caja)</span><strong>{money(cashAndCardTotal)}</strong></article>
         </div>
       </section>
 
@@ -2129,7 +2159,7 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
       {printMode && (
         <section className="physical-print-root">
           {printMode === 'daily' ? (
-            <PhysicalDailyPrint report={printReportData || report} reportDate={reportDate} />
+            <PhysicalDailyPrint report={printReportData || report} reportDate={reportDate} reportNote={printReportNote} />
           ) : (
             <PhysicalStockPrint report={printReportData || report} reportDate={reportDate} />
           )}
@@ -2139,7 +2169,7 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
   );
 }
 
-function PhysicalDailyPrint({ report, reportDate }) {
+function PhysicalDailyPrint({ report, reportDate, reportNote = '' }) {
   const current = report || {};
   const totals = current.totals || {};
   const sales = current.sales || [];
@@ -2148,6 +2178,11 @@ function PhysicalDailyPrint({ report, reportDate }) {
   const expenses = current.expenses || [];
   const withdrawals = current.withdrawals || [];
   const currentCashBox = current.all_totals?.cashBox ?? totals.cashBox;
+  const cardBalanceTotal = (current.all_sales || current.sales || [])
+    .filter((sale) => sale.payment_method === 'card')
+    .reduce((sum, sale) => sum + Number(sale.total || 0), 0);
+  const cashAndCardTotal = Number(currentCashBox || 0) + cardBalanceTotal;
+  const cleanReportNote = String(reportNote || '').trim();
   return (
     <article className="physical-print-page">
       <header>
@@ -2165,7 +2200,13 @@ function PhysicalDailyPrint({ report, reportDate }) {
         <div><span>Gastos</span><strong>{money(totals.expenses)}</strong></div>
         <div><span>Retiros</span><strong>{money(totals.withdrawals)}</strong></div>
         <div><span>Caja actual</span><strong>{money(currentCashBox)}</strong></div>
+        <div><span>Efectivo total (tarjeta + caja)</span><strong>{money(cashAndCardTotal)}</strong></div>
       </section>
+      {cleanReportNote && (
+        <section className="physical-print-note">
+          <strong>Observacion del reporte:</strong> {cleanReportNote}
+        </section>
+      )}
       <div className="physical-print-grid">
         <section>
           <h2>Ventas</h2>
