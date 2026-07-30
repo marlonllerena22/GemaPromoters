@@ -224,6 +224,7 @@ async function createPhysicalDailyReportImage(report, reportDate) {
   const discountRowsByLocation = new Map();
   const paymentTotals = { cash: 0, transfer: 0, card: 0 };
   const quantityTotals = { cash: 0, transfer: 0, card: 0 };
+  const standardPrices = current.standard_prices_by_location || {};
 
   for (const sale of sales) {
     const method = paymentKeys.includes(sale.payment_method) ? sale.payment_method : 'cash';
@@ -237,10 +238,12 @@ async function createPhysicalDailyReportImage(report, reportDate) {
       const effectiveUnitPrice = hasDiscount
         ? Math.max(0, Number(item.unit_price || 0) * (saleTotal / saleSubtotal))
         : Number(item.unit_price || 0);
-      const rowLabel = hasDiscount ? `${location} (${money(effectiveUnitPrice)})` : location;
-      const rowKey = hasDiscount ? `${location}-${effectiveUnitPrice.toFixed(2)}` : location;
-      const targetMap = hasDiscount ? discountRowsByLocation : rowsByLocation;
-      const row = targetMap.get(rowKey) || { location: rowLabel, cash: 0, transfer: 0, card: 0, total: 0, discounted: hasDiscount };
+      const standardPrice = Number(standardPrices[location] || 0);
+      const hasSpecialPrice = hasDiscount || (standardPrice > 0 && Math.abs(effectiveUnitPrice - standardPrice) >= 0.01);
+      const rowLabel = hasSpecialPrice ? `${location} (${money(effectiveUnitPrice)})` : location;
+      const rowKey = hasSpecialPrice ? `${location}-${effectiveUnitPrice.toFixed(2)}` : location;
+      const targetMap = hasSpecialPrice ? discountRowsByLocation : rowsByLocation;
+      const row = targetMap.get(rowKey) || { location: rowLabel, cash: 0, transfer: 0, card: 0, total: 0, discounted: hasSpecialPrice };
       row[method] += quantity;
       row.total += quantity;
       quantityTotals[method] += quantity;
@@ -254,6 +257,7 @@ async function createPhysicalDailyReportImage(report, reportDate) {
   ];
   const totalQuantity = paymentKeys.reduce((sum, key) => sum + quantityTotals[key], 0);
   const expenseTotal = expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+  const withdrawalTotal = (current.withdrawals || []).reduce((sum, withdrawal) => sum + Number(withdrawal.total || 0), 0);
   const canvas = document.createElement('canvas');
   canvas.width = 1240;
   canvas.height = 1754;
@@ -364,20 +368,21 @@ async function createPhysicalDailyReportImage(report, reportDate) {
   const totalBoxes = [
     ['TOTAL VENTA', money(totals.total)],
     ['GASTOS', money(expenseTotal)],
-    ['TOTAL NETO', money(totals.net)]
+    ['RETIROS', money(withdrawalTotal)],
+    ['CAJA', money(totals.cashBox)]
   ];
   totalBoxes.forEach(([label, value], index) => {
-    const boxX = 70 + index * 365;
-    ctx.fillStyle = index === 2 ? '#ecfdf5' : '#f8fafc';
-    ctx.fillRect(boxX, tableY, 330, 110);
-    ctx.strokeStyle = index === 2 ? '#059669' : '#111827';
+    const boxX = 70 + index * 275;
+    ctx.fillStyle = index === 3 ? '#ecfdf5' : '#f8fafc';
+    ctx.fillRect(boxX, tableY, 250, 110);
+    ctx.strokeStyle = index === 3 ? '#059669' : '#111827';
     ctx.lineWidth = 3;
-    ctx.strokeRect(boxX, tableY, 330, 110);
-    ctx.fillStyle = index === 2 ? '#047857' : '#374151';
+    ctx.strokeRect(boxX, tableY, 250, 110);
+    ctx.fillStyle = index === 3 ? '#047857' : '#374151';
     ctx.font = '900 22px Arial';
     ctx.fillText(label, boxX + 18, tableY + 36);
     ctx.fillStyle = '#111827';
-    ctx.font = '900 40px Arial';
+    ctx.font = '900 34px Arial';
     ctx.fillText(value, boxX + 18, tableY + 82);
   });
 
@@ -1690,6 +1695,7 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
   });
   const [stockForm, setStockForm] = useState({ entry_date: today, items: [{ ...emptyPhysicalStockItem }] });
   const [expenseForm, setExpenseForm] = useState({ expense_date: today, description: '', amount: '' });
+  const [withdrawalForm, setWithdrawalForm] = useState({ withdrawal_date: today, quantity: 1, amount: '', notes: '' });
   const [error, setError] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
   const [printMode, setPrintMode] = useState('');
@@ -1701,6 +1707,7 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
   const saleSubtotal = saleForm.items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unit_price || 0), 0);
   const saleTotal = Math.max(0, saleSubtotal - Number(saleForm.discount_value || 0));
   const remainingTotal = (report?.inventory_by_location || []).reduce((sum, row) => sum + Number(row.remaining_quantity || 0), 0);
+  const summaryTotals = report?.all_totals || report?.totals || {};
   const groupUrl = 'https://chat.whatsapp.com/KIp2zRsasGG1BM6e1mBQdA?s=cl&p=a&ilr=0&amv=3';
 
   useEffect(() => {
@@ -1861,6 +1868,23 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
     }
   }
 
+  async function submitWithdrawal(event) {
+    event.preventDefault();
+    setError('');
+    try {
+      await api(withScope('/physical-tickets/withdrawals', eventId, establishmentId), {
+        method: 'POST',
+        body: JSON.stringify(withdrawalForm)
+      });
+      setWithdrawalForm({ withdrawal_date: withdrawalForm.withdrawal_date, quantity: 1, amount: '', notes: '' });
+      setReportDate(withdrawalForm.withdrawal_date);
+      await loadReport(withdrawalForm.withdrawal_date);
+      onRefresh('Retiro de caja registrado');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   async function shareReport() {
     const dailyReport = await fetchReportForDate(reportDate);
     setReport(dailyReport);
@@ -1916,13 +1940,15 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
           </div>
         </div>
         <div className="stats-grid">
-          <article><span>Entradas vendidas</span><strong>{report?.totals?.soldQuantity || 0}</strong></article>
+          <article><span>Entradas vendidas</span><strong>{summaryTotals.soldQuantity || 0}</strong></article>
           <article><span>Entradas faltantes</span><strong>{remainingTotal}</strong></article>
-          <article><span>Subtotal</span><strong>{money(report?.totals?.subtotal)}</strong></article>
-          <article><span>Descuentos</span><strong>{money(report?.totals?.discounts)}</strong></article>
-          <article><span>Venta total</span><strong>{money(report?.totals?.total)}</strong></article>
-          <article><span>Gastos</span><strong>{money(report?.totals?.expenses)}</strong></article>
-          <article><span>Neto del dia</span><strong>{money(report?.totals?.net)}</strong></article>
+          <article><span>Subtotal</span><strong>{money(summaryTotals.subtotal)}</strong></article>
+          <article><span>Descuentos</span><strong>{money(summaryTotals.discounts)}</strong></article>
+          <article><span>Venta total</span><strong>{money(summaryTotals.total)}</strong></article>
+          <article><span>Gastos</span><strong>{money(summaryTotals.expenses)}</strong></article>
+          <article><span>Retiros</span><strong>{money(summaryTotals.withdrawals)}</strong></article>
+          <article><span>Valor total ingresado</span><strong>{money(summaryTotals.total)}</strong></article>
+          <article><span>Caja actual</span><strong>{money(summaryTotals.cashBox)}</strong></article>
         </div>
       </section>
 
@@ -1981,7 +2007,7 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
 
         <section className="panel" id="physical-stock-form">
           <div className="panel-title">
-            <h3>{editingStockId ? 'Editar ingreso de entradas' : 'Entradas ingresadas y gastos'}</h3>
+            <h3>{editingStockId ? 'Editar ingreso de entradas' : 'Entradas ingresadas, gastos y retiros'}</h3>
             {editingStockId && <button type="button" className="ghost-button" onClick={() => resetStockForm()}>Cancelar edicion</button>}
           </div>
           <form className="form-grid" onSubmit={submitStock}>
@@ -2014,6 +2040,13 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
             <Input type="number" label="Valor gasto" value={expenseForm.amount} onChange={(amount) => setExpenseForm({ ...expenseForm, amount })} />
             <button className="ghost-button" type="submit">Registrar gasto</button>
           </form>
+          <form className="form-grid expense-form" onSubmit={submitWithdrawal}>
+            <Input type="date" label="Fecha retiro" value={withdrawalForm.withdrawal_date} onChange={(withdrawal_date) => setWithdrawalForm({ ...withdrawalForm, withdrawal_date })} />
+            <Input type="number" label="Cantidad" value={withdrawalForm.quantity} onChange={(quantity) => setWithdrawalForm({ ...withdrawalForm, quantity })} />
+            <Input type="number" label="Valor" value={withdrawalForm.amount} onChange={(amount) => setWithdrawalForm({ ...withdrawalForm, amount })} />
+            <Input label="Observacion retiro" value={withdrawalForm.notes} onChange={(notes) => setWithdrawalForm({ ...withdrawalForm, notes })} />
+            <button className="ghost-button span-2" type="submit">Registrar retiro de caja</button>
+          </form>
         </section>
       </div>
 
@@ -2037,7 +2070,8 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
         />
         <div className="report-columns">
           <DataTable columns={['Localidad', 'Vendido', 'Total']} rows={(report?.by_location || []).map((row) => [row.location, row.quantity, money(row.total)])} />
-          <DataTable columns={['Gasto', 'Fecha', 'Valor']} rows={(report?.expenses || []).map((row) => [row.description, row.expense_date, money(row.amount)])} />
+          <DataTable columns={['Gasto', 'Fecha', 'Valor']} rows={(report?.all_expenses || report?.expenses || []).map((row) => [row.description, row.expense_date, money(row.amount)])} />
+          <DataTable columns={['Retiro', 'Fecha', 'Cantidad', 'Valor', 'Total']} rows={(report?.all_withdrawals || report?.withdrawals || []).map((row) => [row.notes || 'Retiro de caja', row.withdrawal_date, row.quantity, money(row.amount), money(row.total)])} />
         </div>
       </section>
       <section className="panel">
@@ -2076,6 +2110,7 @@ function PhysicalDailyPrint({ report, reportDate }) {
   const byLocation = current.by_location || [];
   const byPayment = (current.by_payment || []).filter((row) => Number(row.quantity || 0) > 0 || Number(row.total || 0) > 0);
   const expenses = current.expenses || [];
+  const withdrawals = current.withdrawals || [];
   return (
     <article className="physical-print-page">
       <header>
@@ -2091,7 +2126,8 @@ function PhysicalDailyPrint({ report, reportDate }) {
         <div><span>Descuentos</span><strong>{money(totals.discounts)}</strong></div>
         <div><span>Venta total</span><strong>{money(totals.total)}</strong></div>
         <div><span>Gastos</span><strong>{money(totals.expenses)}</strong></div>
-        <div><span>Neto</span><strong>{money(totals.net)}</strong></div>
+        <div><span>Retiros</span><strong>{money(totals.withdrawals)}</strong></div>
+        <div><span>Caja</span><strong>{money(totals.cashBox)}</strong></div>
       </section>
       <div className="physical-print-grid">
         <section>
@@ -2128,6 +2164,12 @@ function PhysicalDailyPrint({ report, reportDate }) {
           <table>
             <tbody>
               {expenses.length ? expenses.map((expense) => <tr key={expense.id}><td>{expense.description}</td><td>{money(expense.amount)}</td></tr>) : <tr><td colSpan="2">Sin gastos.</td></tr>}
+            </tbody>
+          </table>
+          <h2>Retiros de caja</h2>
+          <table>
+            <tbody>
+              {withdrawals.length ? withdrawals.map((withdrawal) => <tr key={withdrawal.id}><td>{withdrawal.notes || 'Retiro'}</td><td>{withdrawal.quantity} x {money(withdrawal.amount)}</td><td>{money(withdrawal.total)}</td></tr>) : <tr><td colSpan="3">Sin retiros.</td></tr>}
             </tbody>
           </table>
         </section>

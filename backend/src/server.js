@@ -1505,6 +1505,29 @@ function physicalTicketsReport(eventId, establishmentId, dateFrom, dateTo) {
      WHERE establishment_id = ? AND event_id = ? AND expense_date BETWEEN ? AND ?
      ORDER BY expense_date DESC, id DESC`
   ).all(establishmentId, eventId, from, to);
+  const allExpenses = db.prepare(
+    `SELECT *
+     FROM physical_ticket_daily_expenses
+     WHERE establishment_id = ? AND event_id = ?
+     ORDER BY expense_date DESC, id DESC`
+  ).all(establishmentId, eventId);
+  const withdrawals = db.prepare(
+    `SELECT *
+     FROM physical_ticket_cash_withdrawals
+     WHERE establishment_id = ? AND event_id = ? AND withdrawal_date BETWEEN ? AND ?
+     ORDER BY withdrawal_date DESC, id DESC`
+  ).all(establishmentId, eventId, from, to);
+  const allWithdrawals = db.prepare(
+    `SELECT *
+     FROM physical_ticket_cash_withdrawals
+     WHERE establishment_id = ? AND event_id = ?
+     ORDER BY withdrawal_date DESC, id DESC`
+  ).all(establishmentId, eventId);
+  const locationPrices = db.prepare(
+    `SELECT name, price
+     FROM event_locations
+     WHERE event_id = ?`
+  ).all(eventId);
   const inventoryRows = db.prepare(
     `SELECT locations.name AS location,
             COALESCE(stock.quantity, 0) AS stock_quantity,
@@ -1558,9 +1581,22 @@ function physicalTicketsReport(eventId, establishmentId, dateFrom, dateTo) {
     subtotal: toMoney(sales.reduce((sum, sale) => sum + Number(sale.subtotal || 0), 0)),
     discounts: toMoney(sales.reduce((sum, sale) => sum + Number(sale.discount_value || 0), 0)),
     total: toMoney(sales.reduce((sum, sale) => sum + Number(sale.total || 0), 0)),
-    expenses: toMoney(expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0))
+    expenses: toMoney(expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0)),
+    withdrawals: toMoney(withdrawals.reduce((sum, withdrawal) => sum + Number(withdrawal.total || 0), 0))
   };
   totals.net = toMoney(totals.total - totals.expenses);
+  totals.cashBox = toMoney(totals.total - totals.expenses - totals.withdrawals);
+  const allTotals = {
+    soldQuantity: allItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0),
+    stockQuantity: allStockEntries.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0),
+    subtotal: toMoney(allSales.reduce((sum, sale) => sum + Number(sale.subtotal || 0), 0)),
+    discounts: toMoney(allSales.reduce((sum, sale) => sum + Number(sale.discount_value || 0), 0)),
+    total: toMoney(allSales.reduce((sum, sale) => sum + Number(sale.total || 0), 0)),
+    expenses: toMoney(allExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0)),
+    withdrawals: toMoney(allWithdrawals.reduce((sum, withdrawal) => sum + Number(withdrawal.total || 0), 0))
+  };
+  allTotals.net = toMoney(allTotals.total - allTotals.expenses);
+  allTotals.cashBox = toMoney(allTotals.total - allTotals.expenses - allTotals.withdrawals);
   return {
     date_from: from,
     date_to: to,
@@ -1569,9 +1605,14 @@ function physicalTicketsReport(eventId, establishmentId, dateFrom, dateTo) {
     stock_entries: stockEntries,
     all_stock_entries: allStockEntries,
     expenses,
+    all_expenses: allExpenses,
+    withdrawals,
+    all_withdrawals: allWithdrawals,
     by_location: [...byLocation.values()],
     by_payment: byPayment,
     inventory_by_location: inventoryRows,
+    standard_prices_by_location: Object.fromEntries(locationPrices.map((location) => [location.name, Number(location.price || 0)])),
+    all_totals: allTotals,
     totals
   };
 }
@@ -1739,6 +1780,25 @@ app.post('/api/physical-tickets/expenses', requireAdmin, (req, res) => {
      VALUES (?, ?, ?, ?, ?, ?)`
   ).run(establishmentId, eventId, expenseDate, description, toMoney(amount), req.user?.username || req.user?.role || 'admin');
   res.status(201).json(physicalTicketsReport(eventId, establishmentId, expenseDate, expenseDate));
+});
+
+app.post('/api/physical-tickets/withdrawals', requireAdmin, (req, res) => {
+  const eventId = getRequestEventId(req);
+  const establishmentId = getRequestEstablishmentId(req);
+  const withdrawalDate = String(req.body.withdrawal_date || new Date().toISOString().slice(0, 10)).trim();
+  const quantity = Math.max(1, Math.floor(Number(req.body.quantity || 1)));
+  const amount = Math.max(0, Number(req.body.amount || 0));
+  const total = toMoney(quantity * amount);
+  const notes = String(req.body.notes || '').trim();
+  if (total <= 0) {
+    return res.status(400).json({ message: 'Escribe cantidad y valor del retiro.' });
+  }
+  db.prepare(
+    `INSERT INTO physical_ticket_cash_withdrawals
+     (establishment_id, event_id, withdrawal_date, quantity, amount, total, notes, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(establishmentId, eventId, withdrawalDate, quantity, toMoney(amount), total, notes, req.user?.username || req.user?.role || 'admin');
+  res.status(201).json(physicalTicketsReport(eventId, establishmentId, withdrawalDate, withdrawalDate));
 });
 
 app.get('/api/promoter/me', requirePromoter, (req, res) => {
