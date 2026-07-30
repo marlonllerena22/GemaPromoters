@@ -38,6 +38,62 @@ function formatOrder(row) {
   };
 }
 
+function formatRegistration(row) {
+  return {
+    ...row,
+    quantity: Number(row.quantity || 0)
+  };
+}
+
+function getRenjiEstablishment(db) {
+  return db.prepare("SELECT * FROM establishments WHERE name = 'RENJI' AND status = 'active'").get()
+    || db.prepare("SELECT * FROM establishments WHERE module_type = 'clothing' AND status = 'active' ORDER BY id ASC").get();
+}
+
+function readOrderPayload(body, { paidByDefault = false } = {}) {
+  const customerName = cleanText(body.customer_name);
+  const city = cleanText(body.customer_city);
+  const address = cleanText(body.customer_address);
+  const phone = cleanText(body.customer_phone);
+  const cedula = cleanText(body.customer_cedula);
+  const instagram = cleanText(body.customer_instagram).replace(/^@+/, '');
+  const purchaseChannel = body.purchase_channel === 'instagram' ? 'instagram' : 'other';
+  const selectionType = ['set', 'hoodie', 'pants'].includes(body.selection_type) ? body.selection_type : '';
+  const size = normalizeSize(body.size);
+  const quantity = Math.max(1, Number(body.quantity || 1));
+  const pendingAmount = paidByDefault ? 0 : toMoney(body.pending_amount);
+  const paymentStatus = paidByDefault ? 'paid' : (body.payment_status === 'paid' ? 'paid' : 'pending');
+  const notes = cleanText(body.notes);
+
+  if (!customerName || !city || !address || !phone || !selectionType || !size) {
+    const error = new Error('Cliente, ciudad, direccion, celular, prenda y talla son obligatorios');
+    error.status = 400;
+    throw error;
+  }
+
+  if (purchaseChannel === 'instagram' && !instagram) {
+    const error = new Error('El usuario de Instagram es obligatorio si la compra fue por Instagram');
+    error.status = 400;
+    throw error;
+  }
+
+  return {
+    customerName,
+    cedula,
+    city,
+    address,
+    phone,
+    instagram,
+    purchaseChannel,
+    selectionType,
+    size,
+    quantity,
+    pendingAmount: paymentStatus === 'paid' ? 0 : pendingAmount,
+    paymentStatus,
+    notes
+  };
+}
+
 function getRenjiOverview(db, establishmentId) {
   const stock = db
     .prepare(
@@ -58,6 +114,15 @@ function getRenjiOverview(db, establishmentId) {
     )
     .all(establishmentId)
     .map(formatOrder);
+  const registrations = db
+    .prepare(
+      `SELECT *
+       FROM renji_registrations
+       WHERE establishment_id = ? AND status = 'pending'
+       ORDER BY created_at DESC, id DESC`
+    )
+    .all(establishmentId)
+    .map(formatRegistration);
 
   const soldGarments = orders.reduce((sum, order) => sum + order.garments, 0);
   const pendingPayments = orders
@@ -67,12 +132,14 @@ function getRenjiOverview(db, establishmentId) {
   return {
     stock,
     orders,
+    registrations,
     summary: {
       sold_orders: orders.length,
       sold_garments: soldGarments,
       pending_shipping: orders.filter((order) => order.shipping_status !== 'sent').length,
       paid_orders: orders.filter((order) => order.payment_status === 'paid').length,
-      pending_amount: toMoney(pendingPayments)
+      pending_amount: toMoney(pendingPayments),
+      pending_registrations: registrations.length
     }
   };
 }
@@ -120,7 +187,93 @@ function applyStockMovement(db, { establishmentId, orderId = null, itemType, siz
   ).run(establishmentId, orderId, movementDate || new Date().toISOString().slice(0, 10), itemType, size, Number(quantity || 0), movementType, notes);
 }
 
+function insertRenjiOrder(db, establishmentId, payload) {
+  const result = db.prepare(
+    `INSERT INTO renji_orders
+     (establishment_id, customer_name, customer_cedula, customer_city, customer_address, customer_phone, customer_instagram, purchase_channel, selection_type, size, quantity, pending_amount, payment_status, shipping_status, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'not_sent', ?)`
+  ).run(
+    establishmentId,
+    payload.customerName,
+    payload.cedula,
+    payload.city,
+    payload.address,
+    payload.phone,
+    payload.instagram,
+    payload.purchaseChannel,
+    payload.selectionType,
+    payload.size,
+    payload.quantity,
+    payload.pendingAmount,
+    payload.paymentStatus,
+    payload.notes
+  );
+
+  const orderId = result.lastInsertRowid;
+  const orderNumber = `RENJI-${String(orderId).padStart(5, '0')}`;
+  db.prepare('UPDATE renji_orders SET order_number = ? WHERE id = ?').run(orderNumber, orderId);
+
+  for (const item of orderItemsForSelection(payload.selectionType, payload.quantity)) {
+    applyStockMovement(db, {
+      establishmentId,
+      orderId,
+      itemType: item.item_type,
+      size: payload.size,
+      quantity: -item.quantity,
+      movementType: 'sale',
+      notes: orderNumber
+    });
+  }
+
+  return orderId;
+}
+
+function restoreOrderStock(db, order) {
+  for (const item of orderItemsForSelection(order.selection_type, order.quantity)) {
+    applyStockMovement(db, {
+      establishmentId: order.establishment_id,
+      orderId: order.id,
+      itemType: item.item_type,
+      size: order.size,
+      quantity: item.quantity,
+      movementType: 'return',
+      notes: `Reversa ${order.order_number || order.id}`
+    });
+  }
+}
+
 export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
+  app.post('/api/renji/public-registrations', (req, res) => {
+    try {
+      const establishment = getRenjiEstablishment(db);
+      if (!establishment) {
+        return res.status(404).json({ message: 'RENJI no esta disponible' });
+      }
+      const payload = readOrderPayload(req.body, { paidByDefault: true });
+      const result = db.prepare(
+        `INSERT INTO renji_registrations
+         (establishment_id, customer_name, customer_cedula, customer_city, customer_address, customer_phone, customer_instagram, purchase_channel, selection_type, size, quantity, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        establishment.id,
+        payload.customerName,
+        payload.cedula,
+        payload.city,
+        payload.address,
+        payload.phone,
+        payload.instagram,
+        payload.purchaseChannel,
+        payload.selectionType,
+        payload.size,
+        payload.quantity,
+        payload.notes
+      );
+      res.status(201).json({ ok: true, registration_id: result.lastInsertRowid });
+    } catch (error) {
+      res.status(error.status || 500).json({ message: error.message || 'No se pudo registrar tus datos' });
+    }
+  });
+
   app.get('/api/renji/overview', requireAdmin, (req, res) => {
     try {
       const establishmentId = getRequestEstablishmentId(req);
@@ -172,49 +325,164 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
     try {
       const establishmentId = getRequestEstablishmentId(req);
       assertRenjiBusiness(db, establishmentId);
-      const customerName = cleanText(req.body.customer_name);
-      const city = cleanText(req.body.customer_city);
-      const address = cleanText(req.body.customer_address);
-      const phone = cleanText(req.body.customer_phone);
-      const cedula = cleanText(req.body.customer_cedula);
-      const selectionType = ['set', 'hoodie', 'pants'].includes(req.body.selection_type) ? req.body.selection_type : '';
-      const size = normalizeSize(req.body.size);
-      const quantity = Math.max(1, Number(req.body.quantity || 1));
-      const pendingAmount = toMoney(req.body.pending_amount);
-      const notes = cleanText(req.body.notes);
-
-      if (!customerName || !city || !address || !phone || !selectionType || !size) {
-        return res.status(400).json({ message: 'Cliente, ciudad, direccion, celular, prenda y talla son obligatorios' });
-      }
+      const payload = readOrderPayload(req.body);
 
       const transaction = db.transaction(() => {
-        const result = db.prepare(
-          `INSERT INTO renji_orders
-           (establishment_id, customer_name, customer_cedula, customer_city, customer_address, customer_phone, selection_type, size, quantity, pending_amount, payment_status, shipping_status, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'not_sent', ?)`
-        ).run(establishmentId, customerName, cedula, city, address, phone, selectionType, size, quantity, pendingAmount, notes);
-
-        const orderId = result.lastInsertRowid;
-        const orderNumber = `RENJI-${String(orderId).padStart(5, '0')}`;
-        db.prepare('UPDATE renji_orders SET order_number = ? WHERE id = ?').run(orderNumber, orderId);
-
-        for (const item of orderItemsForSelection(selectionType, quantity)) {
-          applyStockMovement(db, {
-            establishmentId,
-            orderId,
-            itemType: item.item_type,
-            size,
-            quantity: -item.quantity,
-            movementType: 'sale',
-            notes: orderNumber
-          });
-        }
+        insertRenjiOrder(db, establishmentId, payload);
       });
 
       transaction();
       res.status(201).json(getRenjiOverview(db, establishmentId));
     } catch (error) {
       res.status(error.status || 500).json({ message: error.message || 'No se pudo registrar la venta' });
+    }
+  });
+
+  app.put('/api/renji/orders/:id', requireAdmin, (req, res) => {
+    try {
+      const establishmentId = getRequestEstablishmentId(req);
+      assertRenjiBusiness(db, establishmentId);
+      const order = db.prepare('SELECT * FROM renji_orders WHERE id = ? AND establishment_id = ?').get(req.params.id, establishmentId);
+      if (!order) {
+        return res.status(404).json({ message: 'Pedido no encontrado' });
+      }
+      const payload = readOrderPayload(req.body);
+      const transaction = db.transaction(() => {
+        restoreOrderStock(db, order);
+        db.prepare(
+          `UPDATE renji_orders
+           SET customer_name = ?, customer_cedula = ?, customer_city = ?, customer_address = ?, customer_phone = ?,
+               customer_instagram = ?, purchase_channel = ?, selection_type = ?, size = ?, quantity = ?,
+               pending_amount = ?, payment_status = ?, notes = ?, updated_at = datetime('now', 'localtime')
+           WHERE id = ? AND establishment_id = ?`
+        ).run(
+          payload.customerName,
+          payload.cedula,
+          payload.city,
+          payload.address,
+          payload.phone,
+          payload.instagram,
+          payload.purchaseChannel,
+          payload.selectionType,
+          payload.size,
+          payload.quantity,
+          payload.pendingAmount,
+          payload.paymentStatus,
+          payload.notes,
+          order.id,
+          establishmentId
+        );
+        for (const item of orderItemsForSelection(payload.selectionType, payload.quantity)) {
+          applyStockMovement(db, {
+            establishmentId,
+            orderId: order.id,
+            itemType: item.item_type,
+            size: payload.size,
+            quantity: -item.quantity,
+            movementType: 'sale',
+            notes: `Edicion ${order.order_number || order.id}`
+          });
+        }
+      });
+      transaction();
+      res.json(getRenjiOverview(db, establishmentId));
+    } catch (error) {
+      res.status(error.status || 500).json({ message: error.message || 'No se pudo editar el pedido' });
+    }
+  });
+
+  app.delete('/api/renji/orders/:id', requireAdmin, (req, res) => {
+    try {
+      const establishmentId = getRequestEstablishmentId(req);
+      assertRenjiBusiness(db, establishmentId);
+      const order = db.prepare('SELECT * FROM renji_orders WHERE id = ? AND establishment_id = ?').get(req.params.id, establishmentId);
+      if (!order) {
+        return res.status(404).json({ message: 'Pedido no encontrado' });
+      }
+      const transaction = db.transaction(() => {
+        restoreOrderStock(db, order);
+        db.prepare('DELETE FROM renji_orders WHERE id = ? AND establishment_id = ?').run(order.id, establishmentId);
+      });
+      transaction();
+      res.json(getRenjiOverview(db, establishmentId));
+    } catch (error) {
+      res.status(error.status || 500).json({ message: error.message || 'No se pudo eliminar el pedido' });
+    }
+  });
+
+  app.put('/api/renji/registrations/:id', requireAdmin, (req, res) => {
+    try {
+      const establishmentId = getRequestEstablishmentId(req);
+      assertRenjiBusiness(db, establishmentId);
+      const payload = readOrderPayload(req.body, { paidByDefault: true });
+      const result = db.prepare(
+        `UPDATE renji_registrations
+         SET customer_name = ?, customer_cedula = ?, customer_city = ?, customer_address = ?, customer_phone = ?,
+             customer_instagram = ?, purchase_channel = ?, selection_type = ?, size = ?, quantity = ?, notes = ?
+         WHERE id = ? AND establishment_id = ? AND status = 'pending'`
+      ).run(
+        payload.customerName,
+        payload.cedula,
+        payload.city,
+        payload.address,
+        payload.phone,
+        payload.instagram,
+        payload.purchaseChannel,
+        payload.selectionType,
+        payload.size,
+        payload.quantity,
+        payload.notes,
+        req.params.id,
+        establishmentId
+      );
+      if (!result.changes) {
+        return res.status(404).json({ message: 'Registro no encontrado o ya confirmado' });
+      }
+      res.json(getRenjiOverview(db, establishmentId));
+    } catch (error) {
+      res.status(error.status || 500).json({ message: error.message || 'No se pudo editar el registro' });
+    }
+  });
+
+  app.delete('/api/renji/registrations/:id', requireAdmin, (req, res) => {
+    try {
+      const establishmentId = getRequestEstablishmentId(req);
+      assertRenjiBusiness(db, establishmentId);
+      const result = db.prepare(
+        "UPDATE renji_registrations SET status = 'deleted' WHERE id = ? AND establishment_id = ? AND status = 'pending'"
+      ).run(req.params.id, establishmentId);
+      if (!result.changes) {
+        return res.status(404).json({ message: 'Registro no encontrado o ya procesado' });
+      }
+      res.json(getRenjiOverview(db, establishmentId));
+    } catch (error) {
+      res.status(error.status || 500).json({ message: error.message || 'No se pudo eliminar el registro' });
+    }
+  });
+
+  app.post('/api/renji/registrations/:id/confirm', requireAdmin, (req, res) => {
+    try {
+      const establishmentId = getRequestEstablishmentId(req);
+      assertRenjiBusiness(db, establishmentId);
+      const registration = db
+        .prepare("SELECT * FROM renji_registrations WHERE id = ? AND establishment_id = ? AND status = 'pending'")
+        .get(req.params.id, establishmentId);
+      if (!registration) {
+        return res.status(404).json({ message: 'Registro no encontrado o ya procesado' });
+      }
+      const payload = readOrderPayload(registration, { paidByDefault: true });
+      const transaction = db.transaction(() => {
+        const orderId = insertRenjiOrder(db, establishmentId, payload);
+        db.prepare(
+          `UPDATE renji_registrations
+           SET status = 'confirmed', order_id = ?, confirmed_at = datetime('now', 'localtime')
+           WHERE id = ? AND establishment_id = ?`
+        ).run(orderId, registration.id, establishmentId);
+      });
+      transaction();
+      res.json(getRenjiOverview(db, establishmentId));
+    } catch (error) {
+      res.status(error.status || 500).json({ message: error.message || 'No se pudo confirmar el registro' });
     }
   });
 

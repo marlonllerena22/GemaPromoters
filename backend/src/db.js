@@ -791,6 +791,8 @@ function initRenjiDb() {
       customer_city TEXT NOT NULL,
       customer_address TEXT NOT NULL,
       customer_phone TEXT NOT NULL,
+      customer_instagram TEXT,
+      purchase_channel TEXT NOT NULL DEFAULT 'other' CHECK (purchase_channel IN ('instagram', 'other')),
       product_name TEXT NOT NULL DEFAULT 'Conjunto Sukuna',
       selection_type TEXT NOT NULL CHECK (selection_type IN ('set', 'hoodie', 'pants')),
       size TEXT NOT NULL CHECK (size IN ('S', 'M', 'L', 'XL')),
@@ -808,7 +810,33 @@ function initRenjiDb() {
 
     CREATE INDEX IF NOT EXISTS idx_renji_orders_establishment_status ON renji_orders(establishment_id, payment_status, shipping_status);
     CREATE INDEX IF NOT EXISTS idx_renji_stock_establishment_item ON renji_stock(establishment_id, item_type, size);
+
+    CREATE TABLE IF NOT EXISTS renji_registrations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      customer_name TEXT NOT NULL,
+      customer_cedula TEXT,
+      customer_city TEXT NOT NULL,
+      customer_address TEXT NOT NULL,
+      customer_phone TEXT NOT NULL,
+      customer_instagram TEXT,
+      purchase_channel TEXT NOT NULL DEFAULT 'other' CHECK (purchase_channel IN ('instagram', 'other')),
+      selection_type TEXT NOT NULL CHECK (selection_type IN ('set', 'hoodie', 'pants')),
+      size TEXT NOT NULL CHECK (size IN ('S', 'M', 'L', 'XL')),
+      quantity INTEGER NOT NULL DEFAULT 1 CHECK (quantity >= 1),
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'deleted')),
+      order_id INTEGER,
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      confirmed_at TEXT,
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_renji_registrations_establishment_status ON renji_registrations(establishment_id, status, created_at);
   `);
+
+  addColumnIfMissing('renji_orders', 'customer_instagram', 'TEXT');
+  addColumnIfMissing('renji_orders', 'purchase_channel', "TEXT NOT NULL DEFAULT 'other'");
 }
 
 function seedRenjiStock(establishmentId) {

@@ -32,7 +32,7 @@ import {
 } from 'lucide-react';
 import { api, clearToken, getToken, getUser, setToken, setUser } from './api.js';
 import ProducalzaApp from './ProducalzaApp.jsx';
-import RenjiApp from './RenjiApp.jsx';
+import RenjiApp, { RenjiPublicRegistration } from './RenjiApp.jsx';
 import LocalAttendancePage from './LocalAttendancePage.jsx';
 import './styles.css';
 
@@ -565,6 +565,10 @@ function App() {
 
   if (window.location.pathname === '/registro') {
     return <RegisterPage />;
+  }
+
+  if (window.location.pathname === '/renji-registro') {
+    return <RenjiPublicRegistration />;
   }
 
   if (window.location.pathname === '/asistencia-locales' || window.location.pathname === '/asistencia') {

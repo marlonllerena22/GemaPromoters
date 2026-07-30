@@ -932,6 +932,67 @@ input[type="file"] {
   padding: 18px;
 }
 
+.renji-link-card {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+}
+
+.renji-link-card div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.renji-link-card strong {
+  font-size: 16px;
+}
+
+.renji-link-card span {
+  color: #706b63;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.renji-public-page {
+  align-items: center;
+  background:
+    radial-gradient(circle at top left, rgba(153, 27, 27, 0.2), transparent 34%),
+    linear-gradient(135deg, #111111, #2f2a24 48%, #f5f5f2 48%);
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 20px;
+}
+
+.renji-public-card {
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #ddd8cf;
+  border-radius: 18px;
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.22);
+  max-width: 760px;
+  padding: 24px;
+  width: 100%;
+}
+
+.renji-public-card > span {
+  color: #991b1b;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.renji-public-card h1 {
+  font-size: 34px;
+  margin: 8px 0;
+}
+
+.renji-public-card p {
+  color: #615b52;
+  margin: 0 0 18px;
+}
+
 .renji-form {
   display: grid;
   gap: 12px;
@@ -1104,6 +1165,11 @@ input[type="file"] {
   .renji-stock-grid,
   .renji-guide-list {
     grid-template-columns: 1fr;
+  }
+
+  .renji-link-card {
+    align-items: stretch;
+    display: grid;
   }
 
   .renji-hero {
