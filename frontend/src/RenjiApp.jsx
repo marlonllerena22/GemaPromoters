@@ -247,8 +247,10 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
     if (!window.confirm('Seguro quieres eliminar este pedido? Se devolvera el stock de esa prenda.')) return;
     setError('');
     try {
-      await api(scoped(`/renji/orders/${order.id}`, establishmentId), { method: 'DELETE' });
-      await loadOverview('Pedido eliminado y stock devuelto');
+      const data = await api(scoped(`/renji/orders/${order.id}`, establishmentId), { method: 'DELETE' });
+      setOverview(data);
+      setNotice('Pedido eliminado y stock devuelto');
+      setTimeout(() => setNotice(''), 2600);
     } catch (err) {
       setError(err.message);
     }

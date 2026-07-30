@@ -228,7 +228,8 @@ function insertRenjiOrder(db, establishmentId, payload) {
   return orderId;
 }
 
-function restoreOrderStock(db, order) {
+function restoreOrderStock(db, order, reason = 'Reversa') {
+  const restoredItems = [];
   for (const item of orderItemsForSelection(order.selection_type, order.quantity)) {
     applyStockMovement(db, {
       establishmentId: order.establishment_id,
@@ -237,9 +238,11 @@ function restoreOrderStock(db, order) {
       size: order.size,
       quantity: item.quantity,
       movementType: 'return',
-      notes: `Reversa ${order.order_number || order.id}`
+      notes: `${reason} ${order.order_number || order.id}`
     });
+    restoredItems.push({ item_type: item.item_type, size: order.size, quantity: item.quantity });
   }
+  return restoredItems;
 }
 
 export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
@@ -399,12 +402,13 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
       if (!order) {
         return res.status(404).json({ message: 'Pedido no encontrado' });
       }
+      let restoredStock = [];
       const transaction = db.transaction(() => {
-        restoreOrderStock(db, order);
+        restoredStock = restoreOrderStock(db, order, 'Reversa por eliminacion');
         db.prepare('DELETE FROM renji_orders WHERE id = ? AND establishment_id = ?').run(order.id, establishmentId);
       });
       transaction();
-      res.json(getRenjiOverview(db, establishmentId));
+      res.json({ ...getRenjiOverview(db, establishmentId), restored_stock: restoredStock });
     } catch (error) {
       res.status(error.status || 500).json({ message: error.message || 'No se pudo eliminar el pedido' });
     }
