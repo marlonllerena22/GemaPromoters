@@ -503,6 +503,16 @@ function RenjiGuidesPrint({ orders }) {
     pages.push(orders.slice(index, index + 6));
   }
 
+  function guideDetail(order) {
+    if (order.selection_type === 'set') {
+      return `Hoodie ${order.size} + Pantalon ${order.size}`;
+    }
+    if (order.selection_type === 'hoodie') {
+      return `Hoodie ${order.size}`;
+    }
+    return `Pantalon ${order.size}`;
+  }
+
   return (
     <>
       {pages.map((pageOrders, pageIndex) => (
@@ -514,6 +524,7 @@ function RenjiGuidesPrint({ orders }) {
               <span>{order.customer_address}</span>
               <b>{order.customer_phone}</b>
               <small>Cedula: {order.customer_cedula || 'Sin cedula'}</small>
+              <em>Detalle: {guideDetail(order)}</em>
             </section>
           ))}
         </article>

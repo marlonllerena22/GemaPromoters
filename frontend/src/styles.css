@@ -6396,7 +6396,8 @@ td {
 
   .renji-guide-label span,
   .renji-guide-label b,
-  .renji-guide-label small {
+  .renji-guide-label small,
+  .renji-guide-label em {
     color: #000000;
     display: block;
     font-size: 14pt;
@@ -6405,6 +6406,15 @@ td {
 
   .renji-guide-label b {
     font-size: 17pt;
+  }
+
+  .renji-guide-label em {
+    border-top: 1px solid #111111;
+    font-size: 10pt;
+    font-style: normal;
+    font-weight: 800;
+    margin-top: 1mm;
+    padding-top: 2mm;
   }
 
   .physical-print-page {
