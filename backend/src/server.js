@@ -1474,12 +1474,31 @@ function physicalTicketsReport(eventId, establishmentId, dateFrom, dateTo) {
        AND sales.sale_date BETWEEN ? AND ?
      ORDER BY sales.sale_date DESC, sales.id DESC, items.id ASC`
   ).all(establishmentId, eventId, from, to);
+  const allSales = db.prepare(
+    `SELECT *
+     FROM physical_ticket_sales
+     WHERE establishment_id = ? AND event_id = ?
+     ORDER BY sale_date DESC, id DESC`
+  ).all(establishmentId, eventId);
+  const allItems = db.prepare(
+    `SELECT items.*
+     FROM physical_ticket_sale_items AS items
+     JOIN physical_ticket_sales AS sales ON sales.id = items.sale_id
+     WHERE items.establishment_id = ? AND items.event_id = ?
+     ORDER BY sales.sale_date DESC, sales.id DESC, items.id ASC`
+  ).all(establishmentId, eventId);
   const stockEntries = db.prepare(
     `SELECT *
      FROM physical_ticket_stock_entries
      WHERE establishment_id = ? AND event_id = ? AND entry_date BETWEEN ? AND ?
      ORDER BY entry_date DESC, id DESC`
   ).all(establishmentId, eventId, from, to);
+  const allStockEntries = db.prepare(
+    `SELECT *
+     FROM physical_ticket_stock_entries
+     WHERE establishment_id = ? AND event_id = ?
+     ORDER BY entry_date DESC, id DESC`
+  ).all(establishmentId, eventId);
   const expenses = db.prepare(
     `SELECT *
      FROM physical_ticket_daily_expenses
@@ -1515,6 +1534,10 @@ function physicalTicketsReport(eventId, establishmentId, dateFrom, dateTo) {
     ...sale,
     items: items.filter((item) => Number(item.sale_id) === Number(sale.id))
   }));
+  const allSalesWithItems = allSales.map((sale) => ({
+    ...sale,
+    items: allItems.filter((item) => Number(item.sale_id) === Number(sale.id))
+  }));
   const byLocation = new Map();
   for (const item of items) {
     const current = byLocation.get(item.location) || { location: item.location, quantity: 0, total: 0 };
@@ -1538,7 +1561,19 @@ function physicalTicketsReport(eventId, establishmentId, dateFrom, dateTo) {
     expenses: toMoney(expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0))
   };
   totals.net = toMoney(totals.total - totals.expenses);
-  return { date_from: from, date_to: to, sales: salesWithItems, stock_entries: stockEntries, expenses, by_location: [...byLocation.values()], by_payment: byPayment, inventory_by_location: inventoryRows, totals };
+  return {
+    date_from: from,
+    date_to: to,
+    sales: salesWithItems,
+    all_sales: allSalesWithItems,
+    stock_entries: stockEntries,
+    all_stock_entries: allStockEntries,
+    expenses,
+    by_location: [...byLocation.values()],
+    by_payment: byPayment,
+    inventory_by_location: inventoryRows,
+    totals
+  };
 }
 
 app.get('/api/physical-tickets/report', requireAdmin, (req, res) => {

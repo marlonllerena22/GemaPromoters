@@ -1680,6 +1680,7 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
   const [error, setError] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
   const [printMode, setPrintMode] = useState('');
+  const [printReportData, setPrintReportData] = useState(null);
   const [editingSaleId, setEditingSaleId] = useState(null);
   const [editingStockId, setEditingStockId] = useState(null);
   const [reportOptionsOpen, setReportOptionsOpen] = useState(false);
@@ -1693,11 +1694,15 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
     setReport(initialReport);
   }, [initialReport]);
 
+  async function fetchReportForDate(date = reportDate) {
+    const query = new URLSearchParams({ date_from: date, date_to: date });
+    return api(withScope(`/physical-tickets/report?${query.toString()}`, eventId, establishmentId));
+  }
+
   async function loadReport(date = reportDate) {
     setError('');
     try {
-      const query = new URLSearchParams({ date_from: date, date_to: date });
-      const nextReport = await api(withScope(`/physical-tickets/report?${query.toString()}`, eventId, establishmentId));
+      const nextReport = await fetchReportForDate(date);
       setReport(nextReport);
       setStatusMessage(`Reporte generado para ${date}`);
       setTimeout(() => setStatusMessage(''), 2400);
@@ -1844,8 +1849,10 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
   }
 
   async function shareReport() {
-    const blob = await createPhysicalDailyReportImage(report, reportDate);
-    const filename = `Reporte entradas fisicas ${report?.date_from || reportDate}.png`;
+    const dailyReport = await fetchReportForDate(reportDate);
+    setReport(dailyReport);
+    const blob = await createPhysicalDailyReportImage(dailyReport, reportDate);
+    const filename = `Reporte entradas fisicas ${dailyReport?.date_from || reportDate}.png`;
     let copied = false;
     try {
       if (navigator.clipboard && window.ClipboardItem) {
@@ -1861,10 +1868,16 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
     window.open(groupUrl, '_blank', 'noopener,noreferrer');
   }
 
-  function printReport(mode) {
+  async function printReport(mode) {
+    const dailyReport = await fetchReportForDate(reportDate);
+    setReport(dailyReport);
+    setPrintReportData(dailyReport);
     setPrintMode(mode);
     window.setTimeout(() => window.print(), 80);
-    window.setTimeout(() => setPrintMode(''), 700);
+    window.setTimeout(() => {
+      setPrintMode('');
+      setPrintReportData(null);
+    }, 700);
   }
 
   return (
@@ -1992,10 +2005,10 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
       </div>
 
       <section className="panel physical-report-print" id="physical-daily-detail">
-        <div className="panel-title"><h3>Detalle diario</h3></div>
+        <div className="panel-title"><h3>Detalle de ventas</h3></div>
         <DataTable
           columns={['Venta', 'Fecha', 'Pago', 'Entradas', 'Subtotal', 'Descuento', 'Total', 'Acciones']}
-          rows={(report?.sales || []).map((sale) => [
+          rows={(report?.all_sales || report?.sales || []).map((sale) => [
             sale.sale_number,
             sale.sale_date,
             physicalPaymentLabels[sale.payment_method],
@@ -2018,7 +2031,7 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
         <div className="panel-title"><h3>Ingresos de entradas</h3></div>
         <DataTable
           columns={['Fecha', 'Localidad', 'Cantidad', 'Nota', 'Acciones']}
-          rows={(report?.stock_entries || []).map((row) => [
+          rows={(report?.all_stock_entries || report?.stock_entries || []).map((row) => [
             row.entry_date,
             row.location,
             row.quantity,
@@ -2033,9 +2046,9 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
       {printMode && (
         <section className="physical-print-root">
           {printMode === 'daily' ? (
-            <PhysicalDailyPrint report={report} reportDate={reportDate} />
+            <PhysicalDailyPrint report={printReportData || report} reportDate={reportDate} />
           ) : (
-            <PhysicalStockPrint report={report} reportDate={reportDate} />
+            <PhysicalStockPrint report={printReportData || report} reportDate={reportDate} />
           )}
         </section>
       )}
