@@ -225,6 +225,7 @@ async function createPhysicalDailyReportImage(report, reportDate) {
   const paymentTotals = { cash: 0, transfer: 0, card: 0 };
   const quantityTotals = { cash: 0, transfer: 0, card: 0 };
   const standardPrices = current.standard_prices_by_location || {};
+  const roundMoney = (value) => Math.round(Number(value || 0) * 100) / 100;
 
   for (const sale of sales) {
     const method = paymentKeys.includes(sale.payment_method) ? sale.payment_method : 'cash';
@@ -243,9 +244,23 @@ async function createPhysicalDailyReportImage(report, reportDate) {
       const rowLabel = hasSpecialPrice ? `${location} (${money(effectiveUnitPrice)})` : location;
       const rowKey = hasSpecialPrice ? `${location}-${effectiveUnitPrice.toFixed(2)}` : location;
       const targetMap = hasSpecialPrice ? discountRowsByLocation : rowsByLocation;
-      const row = targetMap.get(rowKey) || { location: rowLabel, cash: 0, transfer: 0, card: 0, total: 0, discounted: hasSpecialPrice };
+      const row = targetMap.get(rowKey) || {
+        location: rowLabel,
+        cash: 0,
+        transfer: 0,
+        card: 0,
+        total: 0,
+        cashAmount: 0,
+        transferAmount: 0,
+        cardAmount: 0,
+        totalAmount: 0,
+        discounted: hasSpecialPrice
+      };
+      const itemAmount = roundMoney(quantity * effectiveUnitPrice);
       row[method] += quantity;
+      row[`${method}Amount`] = roundMoney(row[`${method}Amount`] + itemAmount);
       row.total += quantity;
+      row.totalAmount = roundMoney(row.totalAmount + itemAmount);
       quantityTotals[method] += quantity;
       targetMap.set(rowKey, row);
     }
@@ -343,27 +358,31 @@ async function createPhysicalDailyReportImage(report, reportDate) {
   });
   tableY += 58;
 
-  const displayRows = tableRows.length ? tableRows : [{ location: 'Sin ventas registradas', cash: 0, transfer: 0, card: 0, total: 0 }];
+  const displayRows = tableRows.length ? tableRows : [{ location: 'Sin ventas registradas', cash: 0, transfer: 0, card: 0, total: 0, cashAmount: 0, transferAmount: 0, cardAmount: 0, totalAmount: 0 }];
   displayRows.forEach((row, rowIndex) => {
     const fill = rowIndex % 2 === 0 ? '#ffffff' : '#f8fafc';
     let cellX = tableX;
     drawCell(row.location, cellX, tableY, colWidths[0], rowHeight, { fill, font: '800 24px Arial', align: 'left', wrap: true });
     cellX += colWidths[0];
     paymentKeys.forEach((key, keyIndex) => {
-      drawCell(row[key] || 0, cellX, tableY, colWidths[keyIndex + 1], rowHeight, { fill, font: '900 30px Arial' });
+      const quantity = row[key] || 0;
+      const amount = row[`${key}Amount`] || 0;
+      const value = quantity ? `${quantity} (${money(amount)})` : '0';
+      drawCell(value, cellX, tableY, colWidths[keyIndex + 1], rowHeight, { fill, font: '900 24px Arial' });
       cellX += colWidths[keyIndex + 1];
     });
-    drawCell(row.total || 0, cellX, tableY, colWidths[4], rowHeight, { fill: '#f5f3ff', font: '900 32px Arial' });
+    const totalValue = row.total ? `${row.total} (${money(row.totalAmount)})` : '0';
+    drawCell(totalValue, cellX, tableY, colWidths[4], rowHeight, { fill: '#f5f3ff', font: '900 24px Arial' });
     tableY += rowHeight;
   });
   x = tableX;
   drawCell('TOTAL', x, tableY, colWidths[0], 62, { fill: '#111827', color: '#ffffff', font: '900 26px Arial', align: 'left' });
   x += colWidths[0];
   paymentKeys.forEach((key, index) => {
-    drawCell(quantityTotals[key], x, tableY, colWidths[index + 1], 62, { fill: '#111827', color: '#ffffff', font: '900 32px Arial' });
+    drawCell(`${quantityTotals[key]} (${money(paymentTotals[key])})`, x, tableY, colWidths[index + 1], 62, { fill: '#111827', color: '#ffffff', font: '900 24px Arial' });
     x += colWidths[index + 1];
   });
-  drawCell(totalQuantity, x, tableY, colWidths[4], 62, { fill: '#6d28d9', color: '#ffffff', font: '900 34px Arial' });
+  drawCell(`${totalQuantity} (${money(totals.total)})`, x, tableY, colWidths[4], 62, { fill: '#6d28d9', color: '#ffffff', font: '900 24px Arial' });
   tableY += 104;
 
   const totalBoxes = [
