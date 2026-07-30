@@ -5772,6 +5772,7 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
   });
   const [monthlyReport, setMonthlyReport] = useState(null);
   const [excludedClients, setExcludedClients] = useState([]);
+  const [monthlyPairEdits, setMonthlyPairEdits] = useState({});
   const [excludedDispatchClients, setExcludedDispatchClients] = useState([]);
   const [excludedActivityClients, setExcludedActivityClients] = useState([]);
   const [monthlyLoading, setMonthlyLoading] = useState(false);
@@ -5839,6 +5840,14 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
       entered: visibleMonthlyEnteredRows[index],
       dispatched: visibleMonthlyDispatchedRows[index]
     }));
+  const monthlyEntryKey = (pair, index) => (pair.row || pair.entered)?.source_key || `monthly-entry-${index}`;
+  const monthlyEntryPairsValue = (pair, index) => {
+    const key = monthlyEntryKey(pair, index);
+    if (Object.prototype.hasOwnProperty.call(monthlyPairEdits, key)) {
+      return monthlyPairEdits[key];
+    }
+    return (pair.row || pair.entered)?.entered_pairs ?? '';
+  };
   const dispatchRows = dispatchReport?.rows || [];
   const dispatchClients = [...new Set(dispatchRows.map((row) => row.client_name).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b));
@@ -5853,7 +5862,7 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
     collected: visibleDispatchRows.reduce((sum, row) => sum + Number(row.collected_total || 0), 0)
   };
   const monthlyDays = Math.max(1, Number(monthlyFilters.days || 1) || 1);
-  const monthlyEntered = visibleMonthlyEnteredRows.reduce((sum, row) => sum + Number(row.entered_pairs || 0), 0);
+  const monthlyEntered = monthlyPrintRows.reduce((sum, pair, index) => sum + Number(monthlyEntryPairsValue(pair, index) || 0), 0);
   const monthlyDispatched = visibleMonthlyDispatchedRows.reduce((sum, row) => sum + Number(row.dispatched_pairs || 0), 0);
   const updateReportFilter = (key, value) => setReportFilters((current) => ({ ...current, [key]: value }));
   const updateMonthlyFilter = (key, value) => setMonthlyFilters((current) => ({ ...current, [key]: value }));
@@ -5870,6 +5879,7 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
       const report = await api(scope(`/producalza/monthly-report?${query.toString()}`));
       setMonthlyReport(report);
       setExcludedClients([]);
+      setMonthlyPairEdits({});
     } catch (err) {
       setError(err.message);
     } finally {
@@ -6010,7 +6020,20 @@ function ProductionReports({ dashboard, orders, clientActivity, scope, setError 
                     <tr key={`${pair.row?.source_key || pair.entered?.source_key || 'blank-e'}-${pair.dispatched?.source_key || 'blank-d'}-${index}`}>
                       <td>{(pair.row || pair.entered)?.entry_date ? displayShortDate((pair.row || pair.entered).entry_date) : ''}</td>
                       <td><strong>{(pair.row || pair.entered)?.client_name || ''}</strong></td>
-                      <td>{(pair.row || pair.entered)?.entered_pairs || ''}</td>
+                      <td>
+                        {((pair.row || pair.entered)?.entered_pairs ?? '') !== '' ? (
+                          <input
+                            className="prod-monthly-pairs-input"
+                            type="number"
+                            min="0"
+                            value={monthlyEntryPairsValue(pair, index)}
+                            onChange={(event) => {
+                              const key = monthlyEntryKey(pair, index);
+                              setMonthlyPairEdits((current) => ({ ...current, [key]: event.target.value }));
+                            }}
+                          />
+                        ) : ''}
+                      </td>
                       <td></td>
                       <td>{(pair.row || pair.dispatched)?.dispatched_pairs || ''}</td>
                       <td>{(pair.row || pair.dispatched)?.dispatched_date ? displayShortDate((pair.row || pair.dispatched).dispatched_date) : ''}</td>

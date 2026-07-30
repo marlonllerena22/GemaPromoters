@@ -5657,6 +5657,19 @@ td {
   color: #d00000;
 }
 
+.prod-monthly-pairs-input {
+  background: #fffdf5;
+  border: 1px solid #f0d98d;
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  font-weight: 800;
+  max-width: 72px;
+  padding: 4px 5px;
+  text-align: center;
+  width: 100%;
+}
+
 .prod-return-report-row td {
   background: #fff7ed;
   color: #7c2d12;
@@ -6822,6 +6835,18 @@ td {
     padding: 0.25mm 0.7mm;
     text-align: center;
     vertical-align: middle;
+  }
+
+  .prod-monthly-print .prod-monthly-pairs-input {
+    appearance: textfield;
+    background: transparent !important;
+    border: 0 !important;
+    color: #000000 !important;
+    font: inherit;
+    font-weight: 800;
+    padding: 0;
+    text-align: center;
+    width: 100%;
   }
 
   .prod-monthly-print .prod-table th {
