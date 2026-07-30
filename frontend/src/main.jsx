@@ -387,6 +387,22 @@ async function createPhysicalDailyReportImage(report, reportDate) {
     ctx.fillText(value, boxX + 18, tableY + 82);
   });
 
+  const withdrawalNotes = (current.withdrawals || []).filter((withdrawal) => withdrawal.notes);
+  if (withdrawalNotes.length) {
+    let noteY = tableY + 150;
+    ctx.fillStyle = '#111827';
+    ctx.font = '900 24px Arial';
+    ctx.fillText('Retiros registrados', 70, noteY);
+    noteY += 36;
+    ctx.fillStyle = '#374151';
+    ctx.font = '700 20px Arial';
+    withdrawalNotes.slice(0, 4).forEach((withdrawal) => {
+      const line = `${money(withdrawal.total)} - ${withdrawal.notes}`;
+      drawWrappedCanvasText(ctx, line, 70, noteY, 1060, 24, 1);
+      noteY += 30;
+    });
+  }
+
   ctx.fillStyle = '#6b7280';
   ctx.font = '16px Arial';
   ctx.fillText('Reporte generado por PROMOTERS', 70, 1685);
@@ -2072,7 +2088,7 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
         <div className="report-columns">
           <DataTable columns={['Localidad', 'Vendido', 'Total']} rows={(report?.by_location || []).map((row) => [row.location, row.quantity, money(row.total)])} />
           <DataTable columns={['Gasto', 'Fecha', 'Valor']} rows={(report?.all_expenses || report?.expenses || []).map((row) => [row.description, row.expense_date, money(row.amount)])} />
-          <DataTable columns={['Retiro', 'Fecha', 'Cantidad', 'Valor', 'Total']} rows={(report?.all_withdrawals || report?.withdrawals || []).map((row) => [row.notes || 'Retiro de caja', row.withdrawal_date, row.quantity, money(row.amount), money(row.total)])} />
+          <DataTable columns={['Fecha', 'Cantidad', 'Valor', 'Total', 'Observacion']} rows={(report?.all_withdrawals || report?.withdrawals || []).map((row) => [row.withdrawal_date, row.quantity, money(row.amount), money(row.total), row.notes || '-'])} />
         </div>
       </section>
       <section className="panel">
@@ -2170,8 +2186,9 @@ function PhysicalDailyPrint({ report, reportDate }) {
           </table>
           <h2>Retiros de caja</h2>
           <table>
+            <thead><tr><th>Cantidad</th><th>Total</th><th>Observacion</th></tr></thead>
             <tbody>
-              {withdrawals.length ? withdrawals.map((withdrawal) => <tr key={withdrawal.id}><td>{withdrawal.notes || 'Retiro'}</td><td>{withdrawal.quantity} x {money(withdrawal.amount)}</td><td>{money(withdrawal.total)}</td></tr>) : <tr><td colSpan="3">Sin retiros.</td></tr>}
+              {withdrawals.length ? withdrawals.map((withdrawal) => <tr key={withdrawal.id}><td>{withdrawal.quantity} x {money(withdrawal.amount)}</td><td>{money(withdrawal.total)}</td><td>{withdrawal.notes || '-'}</td></tr>) : <tr><td colSpan="3">Sin retiros.</td></tr>}
             </tbody>
           </table>
         </section>
