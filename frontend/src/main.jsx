@@ -221,24 +221,37 @@ async function createPhysicalDailyReportImage(report, reportDate) {
   const expenses = current.expenses || [];
   const paymentKeys = ['cash', 'transfer', 'card'];
   const rowsByLocation = new Map();
+  const discountRowsByLocation = new Map();
   const paymentTotals = { cash: 0, transfer: 0, card: 0 };
   const quantityTotals = { cash: 0, transfer: 0, card: 0 };
 
   for (const sale of sales) {
     const method = paymentKeys.includes(sale.payment_method) ? sale.payment_method : 'cash';
     paymentTotals[method] += Number(sale.total || 0);
+    const saleSubtotal = Number(sale.subtotal || 0);
+    const saleTotal = Number(sale.total || 0);
+    const hasDiscount = Number(sale.discount_value || 0) > 0 && saleSubtotal > 0;
     for (const item of sale.items || []) {
       const location = item.location || 'Sin localidad';
-      const row = rowsByLocation.get(location) || { location, cash: 0, transfer: 0, card: 0, total: 0 };
       const quantity = Number(item.quantity || 0);
+      const effectiveUnitPrice = hasDiscount
+        ? Math.max(0, Number(item.unit_price || 0) * (saleTotal / saleSubtotal))
+        : Number(item.unit_price || 0);
+      const rowLabel = hasDiscount ? `${location} (${money(effectiveUnitPrice)})` : location;
+      const rowKey = hasDiscount ? `${location}-${effectiveUnitPrice.toFixed(2)}` : location;
+      const targetMap = hasDiscount ? discountRowsByLocation : rowsByLocation;
+      const row = targetMap.get(rowKey) || { location: rowLabel, cash: 0, transfer: 0, card: 0, total: 0, discounted: hasDiscount };
       row[method] += quantity;
       row.total += quantity;
       quantityTotals[method] += quantity;
-      rowsByLocation.set(location, row);
+      targetMap.set(rowKey, row);
     }
   }
 
-  const tableRows = [...rowsByLocation.values()].sort((a, b) => a.location.localeCompare(b.location));
+  const tableRows = [
+    ...[...rowsByLocation.values()].sort((a, b) => a.location.localeCompare(b.location)),
+    ...[...discountRowsByLocation.values()].sort((a, b) => a.location.localeCompare(b.location))
+  ];
   const totalQuantity = paymentKeys.reduce((sum, key) => sum + quantityTotals[key], 0);
   const expenseTotal = expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
   const canvas = document.createElement('canvas');
