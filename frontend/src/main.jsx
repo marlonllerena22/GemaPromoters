@@ -258,6 +258,7 @@ async function createPhysicalDailyReportImage(report, reportDate) {
   const totalQuantity = paymentKeys.reduce((sum, key) => sum + quantityTotals[key], 0);
   const expenseTotal = expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
   const withdrawalTotal = (current.withdrawals || []).reduce((sum, withdrawal) => sum + Number(withdrawal.total || 0), 0);
+  const currentCashBox = current.all_totals?.cashBox ?? totals.cashBox;
   const canvas = document.createElement('canvas');
   canvas.width = 1240;
   canvas.height = 1754;
@@ -369,7 +370,7 @@ async function createPhysicalDailyReportImage(report, reportDate) {
     ['TOTAL VENTA', money(totals.total)],
     ['GASTOS', money(expenseTotal)],
     ['RETIROS', money(withdrawalTotal)],
-    ['CAJA', money(totals.cashBox)]
+    ['CAJA ACTUAL', money(currentCashBox)]
   ];
   totalBoxes.forEach(([label, value], index) => {
     const boxX = 70 + index * 275;
@@ -2111,6 +2112,7 @@ function PhysicalDailyPrint({ report, reportDate }) {
   const byPayment = (current.by_payment || []).filter((row) => Number(row.quantity || 0) > 0 || Number(row.total || 0) > 0);
   const expenses = current.expenses || [];
   const withdrawals = current.withdrawals || [];
+  const currentCashBox = current.all_totals?.cashBox ?? totals.cashBox;
   return (
     <article className="physical-print-page">
       <header>
@@ -2127,7 +2129,7 @@ function PhysicalDailyPrint({ report, reportDate }) {
         <div><span>Venta total</span><strong>{money(totals.total)}</strong></div>
         <div><span>Gastos</span><strong>{money(totals.expenses)}</strong></div>
         <div><span>Retiros</span><strong>{money(totals.withdrawals)}</strong></div>
-        <div><span>Caja</span><strong>{money(totals.cashBox)}</strong></div>
+        <div><span>Caja actual</span><strong>{money(currentCashBox)}</strong></div>
       </section>
       <div className="physical-print-grid">
         <section>
