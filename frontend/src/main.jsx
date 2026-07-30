@@ -20,6 +20,7 @@ import {
   Plus,
   Search,
   Share2,
+  Shirt,
   Sparkles,
   Settings,
   Ticket,
@@ -31,6 +32,7 @@ import {
 } from 'lucide-react';
 import { api, clearToken, getToken, getUser, setToken, setUser } from './api.js';
 import ProducalzaApp from './ProducalzaApp.jsx';
+import RenjiApp from './RenjiApp.jsx';
 import LocalAttendancePage from './LocalAttendancePage.jsx';
 import './styles.css';
 
@@ -597,6 +599,18 @@ function App() {
     }} />;
   }
 
+  const isRenjiSession =
+    user?.establishment_module_type === 'clothing' ||
+    String(user?.establishment_name || '').toUpperCase() === 'RENJI';
+
+  if (isRenjiSession) {
+    return <RenjiApp user={user} onLogout={() => {
+      clearToken();
+      saveToken(null);
+      saveUser(null);
+    }} />;
+  }
+
   return <AdminApp user={user} onLogout={() => {
     clearToken();
     saveToken(null);
@@ -830,9 +844,9 @@ function AdminApp({ user, onLogout }) {
     const defaultEstablishment = establishments.find((item) => item.name === 'GEMASHOW') || establishments[0];
     const establishmentId = nextEstablishmentId || defaultEstablishment?.id || '';
     const nextEstablishment = establishments.find((item) => String(item.id) === String(establishmentId));
-    if (nextEstablishment?.module_type === 'production') {
+    if (['production', 'clothing'].includes(nextEstablishment?.module_type)) {
       if (view !== 'establishments') {
-        setView('production');
+        setView(nextEstablishment.module_type === 'production' ? 'production' : 'renji');
       }
       if (establishmentId && String(establishmentId) !== String(selectedEstablishmentId)) {
         setSelectedEstablishmentId(String(establishmentId));
@@ -854,7 +868,7 @@ function AdminApp({ user, onLogout }) {
       setLoading(false);
       return;
     }
-    if (view === 'production') {
+    if (['production', 'renji'].includes(view)) {
       setView('dashboard');
     }
     if (nextEstablishment?.business_type === 'commercial' && view === 'events') {
@@ -907,10 +921,14 @@ function AdminApp({ user, onLogout }) {
   const currentEstablishment = data.establishments.find((item) => String(item.id) === String(selectedEstablishmentId));
   const isCommercialBusiness = currentEstablishment?.business_type === 'commercial';
   const isProductionBusiness = currentEstablishment?.module_type === 'production';
+  const isClothingBusiness = currentEstablishment?.module_type === 'clothing';
   const canSwitchBusiness = user?.role === 'supreme' && data.establishments.length > 1;
   const nav = isProductionBusiness ? [
     ...(user?.role === 'supreme' ? [['establishments', 'Negocios', Building2]] : []),
     ['production', 'Producalza', Settings]
+  ] : isClothingBusiness ? [
+    ...(user?.role === 'supreme' ? [['establishments', 'Negocios', Building2]] : []),
+    ['renji', 'Renji', Shirt]
   ] : [
     ...(user?.role === 'supreme' ? [['establishments', 'Negocios', Building2]] : []),
     ['dashboard', 'Panel', BarChart3],
@@ -978,7 +996,7 @@ function AdminApp({ user, onLogout }) {
               </select>
             </label>
           )}
-          {!isCommercialBusiness && !isProductionBusiness && (
+          {!isCommercialBusiness && !isProductionBusiness && !isClothingBusiness && (
             <label className="event-selector">
               Evento
               <select value={selectedEventId} onChange={(e) => loadAll(e.target.value)}>
@@ -1005,7 +1023,14 @@ function AdminApp({ user, onLogout }) {
                 user={{ ...user, establishment_id: Number(selectedEstablishmentId), role: user.role === 'supreme' ? 'supreme' : 'admin' }}
               />
             )}
-            {view === 'dashboard' && !isProductionBusiness && <Dashboard stats={data.dashboard} sales={data.sales} />}
+            {view === 'renji' && isClothingBusiness && (
+              <RenjiApp
+                embedded
+                establishmentId={selectedEstablishmentId}
+                user={{ ...user, establishment_id: Number(selectedEstablishmentId), role: user.role === 'supreme' ? 'supreme' : 'admin' }}
+              />
+            )}
+            {view === 'dashboard' && !isProductionBusiness && !isClothingBusiness && <Dashboard stats={data.dashboard} sales={data.sales} />}
             {view === 'branches' && isCommercialBusiness && (
               <Branches branches={data.branches} establishmentId={selectedEstablishmentId} onRefresh={refresh} />
             )}

@@ -368,6 +368,7 @@ export function initDb() {
       ('level_diamond_benefits', 'Beneficios VIP de promotor top\nPrioridad maxima en cupos\nReconocimiento Gold GEMASHOW');
   `);
 
+  initRenjiDb();
   db.prepare("UPDATE app_settings SET value = REPLACE(REPLACE(REPLACE(value, 'Diamante', 'Gold'), 'Bronce', 'Bronze'), 'Plata', 'Silver') WHERE key LIKE 'level_%_benefits'").run();
   db.prepare("UPDATE event_settings SET value = REPLACE(REPLACE(REPLACE(value, 'Diamante', 'Gold'), 'Bronce', 'Bronze'), 'Plata', 'Silver') WHERE key LIKE 'level_%_benefits'").run();
 
@@ -375,6 +376,7 @@ export function initDb() {
   ensureMarjorieEstablishment();
   ensureDigitalesClubEstablishment();
   ensureSacuGroupEstablishment();
+  ensureRenjiEstablishment();
   initProducalzaDb(db);
 }
 
@@ -723,6 +725,102 @@ function ensureSacuGroupEstablishment() {
   }
 
   return establishment;
+}
+
+function ensureRenjiEstablishment() {
+  let establishment = db.prepare('SELECT * FROM establishments WHERE name = ?').get('RENJI');
+  if (!establishment) {
+    const result = db
+      .prepare('INSERT INTO establishments (name, display_name, business_type, module_type, code_prefix, theme, logo_url, admin_username, admin_password, status, promoter_sales_enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run('RENJI', 'RENJI', 'commercial', 'clothing', 'RENJI', 'renji', '', 'renji', 'renji123', 'active', 0);
+    establishment = db.prepare('SELECT * FROM establishments WHERE id = ?').get(result.lastInsertRowid);
+  } else {
+    db.prepare(
+      `UPDATE establishments
+       SET business_type = 'commercial',
+           module_type = 'clothing',
+           promoter_sales_enabled = 0,
+           code_prefix = 'RENJI',
+           theme = 'renji',
+           admin_username = COALESCE(NULLIF(admin_username, ''), 'renji'),
+           admin_password = COALESCE(NULLIF(admin_password, ''), 'renji123')
+       WHERE id = ?`
+    ).run(establishment.id);
+    establishment = db.prepare('SELECT * FROM establishments WHERE id = ?').get(establishment.id);
+  }
+
+  seedRenjiStock(establishment.id);
+  return establishment;
+}
+
+function initRenjiDb() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS renji_stock (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      item_type TEXT NOT NULL CHECK (item_type IN ('hoodie', 'pants')),
+      size TEXT NOT NULL CHECK (size IN ('S', 'M', 'L', 'XL')),
+      color TEXT NOT NULL DEFAULT 'Negro',
+      quantity INTEGER NOT NULL DEFAULT 0 CHECK (quantity >= 0),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      UNIQUE(establishment_id, item_type, size, color)
+    );
+
+    CREATE TABLE IF NOT EXISTS renji_stock_movements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      order_id INTEGER,
+      movement_date TEXT NOT NULL DEFAULT (date('now', 'localtime')),
+      item_type TEXT NOT NULL CHECK (item_type IN ('hoodie', 'pants')),
+      size TEXT NOT NULL CHECK (size IN ('S', 'M', 'L', 'XL')),
+      color TEXT NOT NULL DEFAULT 'Negro',
+      quantity INTEGER NOT NULL,
+      movement_type TEXT NOT NULL CHECK (movement_type IN ('entry', 'sale', 'adjustment', 'return')),
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS renji_orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      order_number TEXT UNIQUE,
+      customer_name TEXT NOT NULL,
+      customer_cedula TEXT,
+      customer_city TEXT NOT NULL,
+      customer_address TEXT NOT NULL,
+      customer_phone TEXT NOT NULL,
+      product_name TEXT NOT NULL DEFAULT 'Conjunto Sukuna',
+      selection_type TEXT NOT NULL CHECK (selection_type IN ('set', 'hoodie', 'pants')),
+      size TEXT NOT NULL CHECK (size IN ('S', 'M', 'L', 'XL')),
+      color TEXT NOT NULL DEFAULT 'Negro',
+      quantity INTEGER NOT NULL DEFAULT 1 CHECK (quantity >= 1),
+      pending_amount REAL NOT NULL DEFAULT 0 CHECK (pending_amount >= 0),
+      payment_status TEXT NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid')),
+      shipping_status TEXT NOT NULL DEFAULT 'not_sent' CHECK (shipping_status IN ('not_sent', 'sent')),
+      notes TEXT,
+      sent_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT,
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_renji_orders_establishment_status ON renji_orders(establishment_id, payment_status, shipping_status);
+    CREATE INDEX IF NOT EXISTS idx_renji_stock_establishment_item ON renji_stock(establishment_id, item_type, size);
+  `);
+}
+
+function seedRenjiStock(establishmentId) {
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO renji_stock (establishment_id, item_type, size, color, quantity)
+     VALUES (?, ?, ?, 'Negro', 0)`
+  );
+  for (const itemType of ['hoodie', 'pants']) {
+    for (const size of ['S', 'M', 'L', 'XL']) {
+      insert.run(establishmentId, itemType, size);
+    }
+  }
 }
 
 function ensureDefaultEvent(establishmentId) {

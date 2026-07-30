@@ -11,6 +11,7 @@ import {
   productionLoginResponse,
   registerProducalzaRoutes
 } from './producalza-routes.js';
+import { registerRenjiRoutes } from './renji-routes.js';
 
 dotenv.config();
 initDb();
@@ -2129,6 +2130,7 @@ app.post('/api/verify', (req, res) => {
 });
 
 registerProducalzaRoutes(app, db, getRequestEstablishmentId);
+registerRenjiRoutes(app, db, getRequestEstablishmentId);
 
 recalculateAllCommissions();
 

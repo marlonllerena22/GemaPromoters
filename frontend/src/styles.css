@@ -812,6 +812,336 @@ input[type="file"] {
   display: none;
 }
 
+.renji-app {
+  background: #f5f5f2;
+  color: #171717;
+  min-height: 100vh;
+  padding: 28px;
+}
+
+.renji-app.embedded {
+  background: transparent;
+  min-height: auto;
+  padding: 0;
+}
+
+.renji-hero {
+  align-items: center;
+  background: #101010;
+  border-radius: 18px;
+  color: #ffffff;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 18px;
+  padding: 26px;
+}
+
+.renji-hero span,
+.renji-summary span {
+  color: #767676;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.renji-hero h1 {
+  font-size: 42px;
+  line-height: 1;
+  margin: 4px 0;
+}
+
+.renji-hero p {
+  color: #d4d4d4;
+  margin: 0;
+}
+
+.renji-hero button,
+.renji-primary,
+.renji-secondary,
+.renji-actions button,
+.renji-inline-edit button {
+  align-items: center;
+  border: 0;
+  border-radius: 9px;
+  cursor: pointer;
+  display: inline-flex;
+  font-weight: 900;
+  gap: 8px;
+  justify-content: center;
+  min-height: 42px;
+  padding: 10px 14px;
+}
+
+.renji-hero button,
+.renji-primary {
+  background: #111111;
+  color: #ffffff;
+}
+
+.renji-secondary,
+.renji-actions button,
+.renji-inline-edit button {
+  background: #eceae4;
+  color: #111111;
+}
+
+.renji-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.renji-summary {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 18px;
+}
+
+.renji-summary article,
+.renji-panel {
+  background: #ffffff;
+  border: 1px solid #ddd8cf;
+  border-radius: 14px;
+  box-shadow: 0 18px 40px rgba(17, 17, 17, 0.06);
+}
+
+.renji-summary article {
+  display: grid;
+  gap: 7px;
+  padding: 16px;
+}
+
+.renji-summary svg {
+  color: #991b1b;
+}
+
+.renji-summary strong {
+  font-size: 26px;
+}
+
+.renji-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  margin-bottom: 18px;
+}
+
+.renji-panel {
+  margin-bottom: 18px;
+  padding: 18px;
+}
+
+.renji-form {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.renji-form label {
+  color: #555047;
+  display: grid;
+  font-size: 12px;
+  font-weight: 900;
+  gap: 6px;
+  text-transform: uppercase;
+}
+
+.renji-form input,
+.renji-form select,
+.renji-inline-edit input {
+  background: #fbfaf7;
+  border: 1px solid #d8d3ca;
+  border-radius: 9px;
+  color: #171717;
+  font: inherit;
+  min-height: 42px;
+  padding: 9px 11px;
+}
+
+.renji-form .span-2 {
+  grid-column: 1 / -1;
+}
+
+.renji-stock-line {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr 90px 1fr;
+}
+
+.renji-stock-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.renji-stock-grid article {
+  background: #faf8f3;
+  border: 1px solid #ded8cc;
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.renji-stock-grid strong {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.renji-stock-grid div {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.renji-stock-grid span {
+  background: #ffffff;
+  border: 1px solid #e7e2d9;
+  border-radius: 8px;
+  font-weight: 800;
+  padding: 8px;
+}
+
+.renji-table-wrap {
+  overflow-x: auto;
+}
+
+.renji-table {
+  border-collapse: collapse;
+  min-width: 920px;
+  width: 100%;
+}
+
+.renji-table th,
+.renji-table td {
+  border-bottom: 1px solid #ebe6dc;
+  padding: 11px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.renji-table th {
+  color: #5f574e;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.renji-table small,
+.renji-guide-list small {
+  color: #706b63;
+  display: block;
+  margin-top: 4px;
+}
+
+.renji-pill {
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 900;
+  padding: 5px 9px;
+  text-transform: uppercase;
+}
+
+.renji-pill.paid,
+.renji-pill.sent {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.renji-pill.pending,
+.renji-pill.not_sent {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.renji-inline-edit {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: minmax(90px, 1fr) auto;
+  margin-top: 8px;
+}
+
+.renji-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.renji-guide-list {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.renji-guide-list label {
+  align-items: center;
+  background: #faf8f3;
+  border: 1px solid #ded8cc;
+  border-radius: 10px;
+  display: grid;
+  gap: 2px 10px;
+  grid-template-columns: auto 1fr;
+  padding: 11px;
+}
+
+.renji-guide-list input {
+  grid-row: span 2;
+}
+
+.renji-print-root {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .renji-app {
+    padding: 14px;
+  }
+
+  .renji-hero,
+  .renji-grid,
+  .renji-summary,
+  .renji-form,
+  .renji-stock-grid,
+  .renji-guide-list {
+    grid-template-columns: 1fr;
+  }
+
+  .renji-hero {
+    align-items: flex-start;
+    display: grid;
+    gap: 16px;
+  }
+
+  .renji-hero h1 {
+    font-size: 34px;
+  }
+
+  .renji-stock-line {
+    grid-template-columns: 1fr;
+  }
+
+  .renji-table {
+    min-width: 0;
+  }
+
+  .renji-table thead {
+    display: none;
+  }
+
+  .renji-table tr {
+    border: 1px solid #e4ded4;
+    border-radius: 12px;
+    display: grid;
+    margin-bottom: 12px;
+    padding: 8px;
+  }
+
+  .renji-table td {
+    border: 0;
+    padding: 7px;
+  }
+}
+
 .filter-control {
   display: grid;
   gap: 8px;
@@ -5858,6 +6188,11 @@ td {
     margin: 5mm;
   }
 
+  @page renji-guides {
+    size: A4 portrait;
+    margin: 7mm;
+  }
+
   @page prod-report-page {
     size: A4 portrait;
     margin: 7mm;
@@ -5881,14 +6216,28 @@ td {
     display: block !important;
   }
 
+  body:has(.renji-print-root) {
+    background: #ffffff !important;
+    margin: 0 !important;
+  }
+
+  body:has(.renji-print-root) .app-shell {
+    display: block !important;
+  }
+
   body:has(.physical-print-root) .sidebar,
   body:has(.physical-print-root) .topbar,
-  body:has(.physical-print-root) .physical-ticket-admin > :not(.physical-print-root) {
+  body:has(.physical-print-root) .physical-ticket-admin > :not(.physical-print-root),
+  body:has(.renji-print-root) .sidebar,
+  body:has(.renji-print-root) .topbar,
+  body:has(.renji-print-root) .renji-app > :not(.renji-print-root) {
     display: none !important;
   }
 
   body:has(.physical-print-root) .content,
-  body:has(.physical-print-root) .physical-ticket-admin {
+  body:has(.physical-print-root) .physical-ticket-admin,
+  body:has(.renji-print-root) .content,
+  body:has(.renji-print-root) .renji-app {
     display: block !important;
     margin: 0 !important;
     padding: 0 !important;
@@ -5902,7 +6251,9 @@ td {
   .prod-dispatch-print.print-active,
   .prod-dispatch-print.print-active *,
   .physical-print-root,
-  .physical-print-root * {
+  .physical-print-root *,
+  .renji-print-root,
+  .renji-print-root * {
     visibility: visible !important;
   }
 
@@ -5931,6 +6282,63 @@ td {
     position: absolute;
     top: 0;
     width: 100%;
+  }
+
+  .renji-print-root {
+    background: #ffffff;
+    color: #000000;
+    display: block;
+    font-family: Arial, sans-serif;
+    left: 0;
+    page: renji-guides;
+    position: absolute;
+    top: 0;
+    width: 100%;
+  }
+
+  .renji-guide-sheet {
+    box-sizing: border-box;
+    display: grid;
+    gap: 5mm;
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    min-height: 283mm;
+    page-break-after: always;
+    width: 196mm;
+  }
+
+  .renji-guide-sheet:last-child {
+    page-break-after: auto;
+  }
+
+  .renji-guide-label {
+    align-content: center;
+    border: 1.7px solid #111111;
+    box-sizing: border-box;
+    display: grid;
+    gap: 3mm;
+    min-height: 86mm;
+    padding: 8mm;
+    page-break-inside: avoid;
+  }
+
+  .renji-guide-label strong {
+    font-size: 18pt;
+    line-height: 1.05;
+    text-transform: uppercase;
+  }
+
+  .renji-guide-label span,
+  .renji-guide-label b,
+  .renji-guide-label small {
+    color: #000000;
+    display: block;
+    font-size: 14pt;
+    line-height: 1.1;
+  }
+
+  .renji-guide-label b {
+    font-size: 17pt;
   }
 
   .physical-print-page {
