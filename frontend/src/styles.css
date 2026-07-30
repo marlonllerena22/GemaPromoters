@@ -1149,6 +1149,25 @@ input[type="file"] {
   grid-row: span 2;
 }
 
+.renji-guide-status {
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 900;
+  justify-self: start;
+  padding: 4px 8px;
+  text-transform: uppercase;
+}
+
+.renji-guide-status.sent {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.renji-guide-status.not_sent {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 .renji-print-root {
   display: none;
 }

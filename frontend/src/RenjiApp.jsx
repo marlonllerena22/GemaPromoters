@@ -80,8 +80,13 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
     loadOverview();
   }, [establishmentId]);
 
-  const pendingGuideOrders = useMemo(
-    () => overview.orders.filter((order) => order.shipping_status !== 'sent'),
+  const guideSelectableOrders = useMemo(
+    () => [...overview.orders].sort((a, b) => {
+      if (a.shipping_status !== b.shipping_status) {
+        return a.shipping_status === 'sent' ? 1 : -1;
+      }
+      return String(a.customer_name || '').localeCompare(String(b.customer_name || ''));
+    }),
     [overview.orders]
   );
 
@@ -472,7 +477,7 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
               <button className="renji-primary" onClick={generateGuides}><Printer size={16} />Generar guias seleccionadas</button>
             </div>
             <div className="renji-guide-list">
-              {pendingGuideOrders.length ? pendingGuideOrders.map((order) => (
+              {guideSelectableOrders.length ? guideSelectableOrders.map((order) => (
                 <label key={order.id}>
                   <input
                     type="checkbox"
@@ -481,8 +486,9 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                   />
                   <span>{order.customer_name}</span>
                   <small>{order.customer_city} - {selectionLabels[order.selection_type]} {order.size}</small>
+                  <b className={`renji-guide-status ${order.shipping_status}`}>{order.shipping_status === 'sent' ? 'Enviado' : 'No enviado'}</b>
                 </label>
-              )) : <div className="empty-state">No hay guias pendientes.</div>}
+              )) : <div className="empty-state">No hay pedidos para guias.</div>}
             </div>
           </section>
         </>
