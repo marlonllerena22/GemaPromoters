@@ -795,6 +795,26 @@ input[type="file"] {
   color: #b91c1c;
 }
 
+.complimentary-report-panel,
+.complimentary-inventory-panel {
+  background: linear-gradient(180deg, #f4f7ff 0%, #ffffff 100%);
+  border-color: #bfdbfe;
+}
+
+.complimentary-ticket-admin .panel-title h3 {
+  color: #173b84;
+}
+
+.complimentary-stats article {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.complimentary-stats article strong,
+.complimentary-inventory-panel .physical-inventory-grid b {
+  color: #1d4ed8;
+}
+
 .expense-form {
   border-top: 1px solid #e4ebe6;
   margin-top: 16px;
@@ -6600,6 +6620,25 @@ td {
     background: #eeeeee;
     font-weight: 800;
     text-transform: uppercase;
+  }
+
+  .complimentary-print-page {
+    border-color: #1d4ed8;
+  }
+
+  .complimentary-print-page header {
+    border-bottom-color: #1d4ed8;
+  }
+
+  .complimentary-print-page h1,
+  .complimentary-print-page h2 {
+    color: #1d4ed8 !important;
+  }
+
+  .complimentary-print-page th,
+  .complimentary-print-summary div {
+    background: #eff6ff !important;
+    border-color: #1d4ed8 !important;
   }
 
   .prod-payroll-report-page {

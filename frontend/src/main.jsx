@@ -157,6 +157,21 @@ const emptyPhysicalStockItem = {
   notes: ''
 };
 
+const emptyComplimentaryStockItem = {
+  location: '',
+  quantity: '',
+  notes: ''
+};
+
+const emptyComplimentaryRedemption = {
+  redemption_date: new Date().toISOString().slice(0, 10),
+  promoter_id: '',
+  recipient_name: '',
+  recipient_cedula: '',
+  location: '',
+  quantity: 1
+};
+
 const emptyRegister = {
   establishment_id: '',
   name: '',
@@ -838,6 +853,7 @@ function AdminApp({ user, onLogout }) {
     withdrawals: [],
     locations: [],
     physicalTickets: null,
+    complimentaryTickets: null,
     levels: emptyLevels,
     banners: []
   });
@@ -898,7 +914,7 @@ function AdminApp({ user, onLogout }) {
       setSelectedEventId(String(eventId));
     }
 
-    const [dashboard, promoters, sales, ranking, withdrawals, locations, levels, banners, branches, physicalTickets] = await Promise.all([
+    const [dashboard, promoters, sales, ranking, withdrawals, locations, levels, banners, branches, physicalTickets, complimentaryTickets] = await Promise.all([
       api(withScope('/dashboard', eventId, establishmentId)),
       api(withScope('/promoters', eventId, establishmentId)),
       api(withScope('/sales', eventId, establishmentId)),
@@ -908,9 +924,10 @@ function AdminApp({ user, onLogout }) {
       api(withScope('/level-settings', eventId, establishmentId)),
       api(withScope('/event-banners', eventId, establishmentId)),
       api(withScope('/branches', '', establishmentId)),
-      api(withScope('/physical-tickets/report', eventId, establishmentId))
+      api(withScope('/physical-tickets/report', eventId, establishmentId)),
+      api(withScope('/complimentary-tickets/report', eventId, establishmentId))
     ]);
-    setData({ dashboard, establishments, branches, events, promoters, sales, ranking, withdrawals, locations, physicalTickets, levels, banners });
+    setData({ dashboard, establishments, branches, events, promoters, sales, ranking, withdrawals, locations, physicalTickets, complimentaryTickets, levels, banners });
     setLoading(false);
   }
 
@@ -945,6 +962,7 @@ function AdminApp({ user, onLogout }) {
     ['promoters', 'Promotores', UsersRound],
     ['sales', 'Ventas', Ticket],
     ...(!isCommercialBusiness ? [['physical-tickets', 'Entradas fisicas', WalletCards]] : []),
+    ...(!isCommercialBusiness ? [['complimentary-tickets', 'Canje entradas', CheckCircle2]] : []),
     ['ranking', 'Ranking', Medal],
     ['withdrawals', 'Retiros', CreditCard],
     ['settings', 'Localidades', Settings],
@@ -1055,6 +1073,16 @@ function AdminApp({ user, onLogout }) {
               <PhysicalTickets
                 locations={data.locations}
                 initialReport={data.physicalTickets}
+                eventId={selectedEventId}
+                establishmentId={selectedEstablishmentId}
+                onRefresh={refresh}
+              />
+            )}
+            {view === 'complimentary-tickets' && !isCommercialBusiness && (
+              <ComplimentaryTickets
+                locations={data.locations}
+                promoters={data.promoters}
+                initialReport={data.complimentaryTickets}
                 eventId={selectedEventId}
                 establishmentId={selectedEstablishmentId}
                 onRefresh={refresh}
@@ -2199,6 +2227,275 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
         </section>
       )}
     </div>
+  );
+}
+
+function ComplimentaryTickets({ locations, promoters, initialReport, eventId, establishmentId, onRefresh }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [reportDate, setReportDate] = useState(today);
+  const [report, setReport] = useState(initialReport);
+  const [stockForm, setStockForm] = useState({ entry_date: today, items: [{ ...emptyComplimentaryStockItem }] });
+  const [redemptionForm, setRedemptionForm] = useState({ ...emptyComplimentaryRedemption, redemption_date: today });
+  const [error, setError] = useState('');
+  const [statusMessage, setStatusMessage] = useState('');
+  const [printReport, setPrintReport] = useState(null);
+  const activeLocations = locations.filter((location) => location.status === 'active');
+  const activePromoters = promoters.filter((promoter) => promoter.status === 'active');
+  const summaryTotals = report?.all_totals || report?.totals || {};
+  const remainingTotal = (report?.inventory_by_location || []).reduce((sum, row) => sum + Number(row.remaining_quantity || 0), 0);
+
+  useEffect(() => {
+    setReport(initialReport);
+  }, [initialReport]);
+
+  async function fetchReportForDate(date = reportDate) {
+    const query = new URLSearchParams({ date_from: date, date_to: date });
+    return api(withScope(`/complimentary-tickets/report?${query.toString()}`, eventId, establishmentId));
+  }
+
+  async function loadReport(date = reportDate) {
+    setError('');
+    try {
+      const nextReport = await fetchReportForDate(date);
+      setReport(nextReport);
+      setStatusMessage(`Reporte de canje generado para ${date}`);
+      setTimeout(() => setStatusMessage(''), 2400);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  function updateStockItem(index, patch) {
+    setStockForm((current) => ({
+      ...current,
+      items: current.items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item)
+    }));
+  }
+
+  async function submitStock(event) {
+    event.preventDefault();
+    setError('');
+    try {
+      await api(withScope('/complimentary-tickets/stock', eventId, establishmentId), {
+        method: 'POST',
+        body: JSON.stringify(stockForm)
+      });
+      setStockForm({ entry_date: stockForm.entry_date, items: [{ ...emptyComplimentaryStockItem }] });
+      setReportDate(stockForm.entry_date);
+      await loadReport(stockForm.entry_date);
+      onRefresh('Entradas de cortesia ingresadas');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function submitRedemption(event) {
+    event.preventDefault();
+    setError('');
+    try {
+      await api(withScope('/complimentary-tickets/redemptions', eventId, establishmentId), {
+        method: 'POST',
+        body: JSON.stringify(redemptionForm)
+      });
+      setRedemptionForm({ ...emptyComplimentaryRedemption, redemption_date: redemptionForm.redemption_date });
+      setReportDate(redemptionForm.redemption_date);
+      await loadReport(redemptionForm.redemption_date);
+      onRefresh('Canje de entradas registrado');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function printCanjeReport() {
+    const nextReport = await fetchReportForDate(reportDate);
+    setReport(nextReport);
+    setPrintReport(nextReport);
+    window.setTimeout(() => window.print(), 80);
+    window.setTimeout(() => setPrintReport(null), 700);
+  }
+
+  return (
+    <div className="stacked-layout physical-ticket-admin complimentary-ticket-admin">
+      {error && <div className="alert error">{error}</div>}
+      {statusMessage && <div className="alert success">{statusMessage}</div>}
+
+      <section className="panel complimentary-report-panel">
+        <div className="panel-title physical-report-header">
+          <h3>Reporte de canje de entradas</h3>
+          <div className="row-actions physical-report-toolbar open">
+            <Input type="date" label="Fecha reporte" value={reportDate} onChange={(value) => setReportDate(value)} />
+            <button className="ghost-button" onClick={() => loadReport(reportDate)}>Generar</button>
+            <button className="primary-button" onClick={printCanjeReport}>Imprimir reporte</button>
+          </div>
+        </div>
+        <div className="stats-grid complimentary-stats">
+          <article><span>Cortesias ingresadas</span><strong>{summaryTotals.stockQuantity || 0}</strong></article>
+          <article><span>Cortesias canjeadas</span><strong>{summaryTotals.redeemedQuantity || 0}</strong></article>
+          <article><span>Cortesias disponibles</span><strong>{remainingTotal}</strong></article>
+        </div>
+      </section>
+
+      <section className="panel physical-inventory-panel complimentary-inventory-panel">
+        <div className="panel-title"><h3>Entradas de cortesia disponibles por localidad</h3></div>
+        <div className="physical-inventory-grid">
+          {(report?.inventory_by_location || []).map((row) => (
+            <article key={row.location} className={Number(row.remaining_quantity || 0) <= 0 ? 'empty' : ''}>
+              <strong>{row.location}</strong>
+              <span>Ingresadas: {row.stock_quantity}</span>
+              <span>Canjeadas: {row.redeemed_quantity}</span>
+              <b>Disponibles: {row.remaining_quantity}</b>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <div className="two-column">
+        <section className="panel">
+          <div className="panel-title"><h3>Ingresar entradas de cortesia</h3></div>
+          <form className="form-grid" onSubmit={submitStock}>
+            <Input type="date" label="Fecha ingreso" value={stockForm.entry_date} onChange={(entry_date) => setStockForm({ ...stockForm, entry_date })} />
+            <div className="span-2 physical-items">
+              {stockForm.items.map((item, index) => (
+                <article key={index}>
+                  <label>Localidad
+                    <select value={item.location} onChange={(event) => updateStockItem(index, { location: event.target.value })}>
+                      <option value="">Seleccionar</option>
+                      {locations.map((location) => <option value={location.name} key={location.id}>{location.name}</option>)}
+                    </select>
+                  </label>
+                  <Input type="number" label="Cantidad" value={item.quantity} onChange={(quantity) => updateStockItem(index, { quantity })} />
+                  <Input label="Nota" value={item.notes} onChange={(notes) => updateStockItem(index, { notes })} />
+                  {stockForm.items.length > 1 && <button type="button" className="danger-button" onClick={() => setStockForm({ ...stockForm, items: stockForm.items.filter((_, itemIndex) => itemIndex !== index) })}>Quitar</button>}
+                </article>
+              ))}
+              <button type="button" className="ghost-button" onClick={() => setStockForm({ ...stockForm, items: [...stockForm.items, { ...emptyComplimentaryStockItem }] })}>
+                <Plus size={16} />Agregar otra localidad
+              </button>
+            </div>
+            <button className="primary-button span-2" type="submit">Registrar cortesias</button>
+          </form>
+        </section>
+
+        <section className="panel">
+          <div className="panel-title"><h3>Despacho / canje de entradas</h3></div>
+          <form className="form-grid" onSubmit={submitRedemption}>
+            <Input type="date" label="Fecha" value={redemptionForm.redemption_date} onChange={(redemption_date) => setRedemptionForm({ ...redemptionForm, redemption_date })} />
+            <label>Promotor
+              <select value={redemptionForm.promoter_id} onChange={(event) => setRedemptionForm({ ...redemptionForm, promoter_id: event.target.value })} required>
+                <option value="">Seleccionar</option>
+                {activePromoters.map((promoter) => <option value={promoter.id} key={promoter.id}>{promoter.name} - {promoter.code}</option>)}
+              </select>
+            </label>
+            <Input label="Nombre" value={redemptionForm.recipient_name} onChange={(recipient_name) => setRedemptionForm({ ...redemptionForm, recipient_name })} />
+            <Input label="Cedula" value={redemptionForm.recipient_cedula} onChange={(recipient_cedula) => setRedemptionForm({ ...redemptionForm, recipient_cedula })} />
+            <label>Localidad
+              <select value={redemptionForm.location} onChange={(event) => setRedemptionForm({ ...redemptionForm, location: event.target.value })} required>
+                <option value="">Seleccionar</option>
+                {activeLocations.map((location) => <option value={location.name} key={location.id}>{location.name}</option>)}
+              </select>
+            </label>
+            <Input type="number" label="Cantidad" value={redemptionForm.quantity} onChange={(quantity) => setRedemptionForm({ ...redemptionForm, quantity })} />
+            <button className="primary-button span-2" type="submit">Registrar canje</button>
+          </form>
+        </section>
+      </div>
+
+      <section className="panel complimentary-report-print">
+        <div className="panel-title"><h3>Canjes registrados</h3></div>
+        <DataTable
+          columns={['Canje', 'Fecha', 'Promotor', 'Nombre', 'Cedula', 'Localidad', 'Cantidad']}
+          rows={(report?.all_redemptions || report?.redemptions || []).map((row) => [
+            row.redemption_number || `CAN-${row.id}`,
+            row.redemption_date,
+            row.promoter_name || '-',
+            row.recipient_name,
+            row.recipient_cedula,
+            row.location,
+            row.quantity
+          ])}
+        />
+      </section>
+
+      <section className="panel">
+        <div className="panel-title"><h3>Ingresos de cortesias</h3></div>
+        <DataTable
+          columns={['Fecha', 'Localidad', 'Cantidad', 'Nota']}
+          rows={(report?.all_entries || report?.entries || []).map((row) => [
+            row.entry_date,
+            row.location,
+            row.quantity,
+            row.notes || '-'
+          ])}
+        />
+      </section>
+
+      {printReport && (
+        <section className="physical-print-root complimentary-print-root">
+          <ComplimentaryTicketPrint report={printReport} reportDate={reportDate} />
+        </section>
+      )}
+    </div>
+  );
+}
+
+function ComplimentaryTicketPrint({ report, reportDate }) {
+  const current = report || {};
+  const totals = current.totals || {};
+  const redemptions = current.redemptions || [];
+  const byLocation = current.by_location || [];
+  return (
+    <article className="physical-print-page complimentary-print-page">
+      <header>
+        <div>
+          <span>PROMOTERS / GEMASHOW</span>
+          <h1>Reporte de canje de entradas</h1>
+        </div>
+        <strong>{current.date_from || reportDate}</strong>
+      </header>
+      <section className="physical-print-summary complimentary-print-summary">
+        <div><span>Cortesias ingresadas</span><strong>{totals.stockQuantity || 0}</strong></div>
+        <div><span>Cortesias canjeadas</span><strong>{totals.redeemedQuantity || 0}</strong></div>
+        <div><span>Cortesias disponibles</span><strong>{totals.remainingQuantity || 0}</strong></div>
+      </section>
+      <div className="physical-print-grid">
+        <section>
+          <h2>Canjes del dia</h2>
+          <table>
+            <thead><tr><th>Canje</th><th>Promotor</th><th>Nombre</th><th>Cedula</th><th>Localidad</th><th>Cant.</th></tr></thead>
+            <tbody>
+              {redemptions.length ? redemptions.map((row) => (
+                <tr key={row.id}>
+                  <td>{row.redemption_number || `CAN-${row.id}`}</td>
+                  <td>{row.promoter_name || '-'}</td>
+                  <td>{row.recipient_name}</td>
+                  <td>{row.recipient_cedula}</td>
+                  <td>{row.location}</td>
+                  <td>{row.quantity}</td>
+                </tr>
+              )) : <tr><td colSpan="6">Sin canjes registrados.</td></tr>}
+            </tbody>
+          </table>
+        </section>
+        <section>
+          <h2>Resumen por localidad</h2>
+          <table>
+            <thead><tr><th>Localidad</th><th>Canjeadas</th></tr></thead>
+            <tbody>
+              {byLocation.length ? byLocation.map((row) => <tr key={row.location}><td>{row.location}</td><td>{row.quantity}</td></tr>) : <tr><td colSpan="2">Sin canjes.</td></tr>}
+            </tbody>
+          </table>
+          <h2>Disponibles actuales</h2>
+          <table>
+            <thead><tr><th>Localidad</th><th>Ingresadas</th><th>Canjeadas</th><th>Disponibles</th></tr></thead>
+            <tbody>
+              {(current.inventory_by_location || []).map((row) => (
+                <tr key={row.location}><td>{row.location}</td><td>{row.stock_quantity}</td><td>{row.redeemed_quantity}</td><td>{row.remaining_quantity}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      </div>
+    </article>
   );
 }
 

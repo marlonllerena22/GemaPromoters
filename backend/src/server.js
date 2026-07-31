@@ -1804,6 +1804,180 @@ app.post('/api/physical-tickets/withdrawals', requireAdmin, (req, res) => {
   res.status(201).json(physicalTicketsReport(eventId, establishmentId, withdrawalDate, withdrawalDate));
 });
 
+function normalizeComplimentaryStockItems(items, fallbackNotes = '') {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => ({
+      location: String(item.location || '').trim(),
+      quantity: Math.floor(Number(item.quantity || 0)),
+      notes: String(item.notes || fallbackNotes || '').trim()
+    }))
+    .filter((item) => item.location && item.quantity > 0);
+}
+
+function validateTicketLocations(eventId, locations, activeOnly = false) {
+  const query = activeOnly
+    ? "SELECT name FROM event_locations WHERE event_id = ? AND status = 'active'"
+    : 'SELECT name FROM event_locations WHERE event_id = ?';
+  const validLocations = new Set(db.prepare(query).all(eventId).map((item) => item.name));
+  return locations.every((location) => validLocations.has(location));
+}
+
+function complimentaryTicketsReport(eventId, establishmentId, dateFrom, dateTo) {
+  const from = dateFrom || new Date().toISOString().slice(0, 10);
+  const to = dateTo || from;
+  const entries = db.prepare(
+    `SELECT *
+     FROM complimentary_ticket_stock_entries
+     WHERE establishment_id = ? AND event_id = ? AND entry_date BETWEEN ? AND ?
+     ORDER BY entry_date DESC, id DESC`
+  ).all(establishmentId, eventId, from, to);
+  const allEntries = db.prepare(
+    `SELECT *
+     FROM complimentary_ticket_stock_entries
+     WHERE establishment_id = ? AND event_id = ?
+     ORDER BY entry_date DESC, id DESC`
+  ).all(establishmentId, eventId);
+  const redemptions = db.prepare(
+    `SELECT *
+     FROM complimentary_ticket_redemptions
+     WHERE establishment_id = ? AND event_id = ? AND redemption_date BETWEEN ? AND ?
+     ORDER BY redemption_date DESC, id DESC`
+  ).all(establishmentId, eventId, from, to);
+  const allRedemptions = db.prepare(
+    `SELECT *
+     FROM complimentary_ticket_redemptions
+     WHERE establishment_id = ? AND event_id = ?
+     ORDER BY redemption_date DESC, id DESC`
+  ).all(establishmentId, eventId);
+  const inventoryRows = db.prepare(
+    `SELECT locations.name AS location,
+            COALESCE(stock.quantity, 0) AS stock_quantity,
+            COALESCE(redemptions.quantity, 0) AS redeemed_quantity
+     FROM event_locations AS locations
+     LEFT JOIN (
+       SELECT location, SUM(quantity) AS quantity
+       FROM complimentary_ticket_stock_entries
+       WHERE establishment_id = ? AND event_id = ?
+       GROUP BY location
+     ) AS stock ON stock.location = locations.name
+     LEFT JOIN (
+       SELECT location, SUM(quantity) AS quantity
+       FROM complimentary_ticket_redemptions
+       WHERE establishment_id = ? AND event_id = ?
+       GROUP BY location
+     ) AS redemptions ON redemptions.location = locations.name
+     WHERE locations.event_id = ?
+     ORDER BY locations.name COLLATE NOCASE`
+  ).all(establishmentId, eventId, establishmentId, eventId, eventId).map((row) => ({
+    location: row.location,
+    stock_quantity: Number(row.stock_quantity || 0),
+    redeemed_quantity: Number(row.redeemed_quantity || 0),
+    remaining_quantity: Number(row.stock_quantity || 0) - Number(row.redeemed_quantity || 0)
+  }));
+  const byLocationMap = new Map();
+  for (const row of redemptions) {
+    const current = byLocationMap.get(row.location) || { location: row.location, quantity: 0 };
+    current.quantity += Number(row.quantity || 0);
+    byLocationMap.set(row.location, current);
+  }
+  const totals = {
+    stockQuantity: entries.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0),
+    redeemedQuantity: redemptions.reduce((sum, redemption) => sum + Number(redemption.quantity || 0), 0)
+  };
+  totals.remainingQuantity = inventoryRows.reduce((sum, row) => sum + Number(row.remaining_quantity || 0), 0);
+  const allTotals = {
+    stockQuantity: allEntries.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0),
+    redeemedQuantity: allRedemptions.reduce((sum, redemption) => sum + Number(redemption.quantity || 0), 0)
+  };
+  allTotals.remainingQuantity = inventoryRows.reduce((sum, row) => sum + Number(row.remaining_quantity || 0), 0);
+  return {
+    date_from: from,
+    date_to: to,
+    entries,
+    all_entries: allEntries,
+    redemptions,
+    all_redemptions: allRedemptions,
+    by_location: [...byLocationMap.values()],
+    inventory_by_location: inventoryRows,
+    totals,
+    all_totals: allTotals
+  };
+}
+
+app.get('/api/complimentary-tickets/report', requireAdmin, (req, res) => {
+  const eventId = getRequestEventId(req);
+  const establishmentId = getRequestEstablishmentId(req);
+  const dateFrom = String(req.query.date_from || req.query.date || '').trim();
+  const dateTo = String(req.query.date_to || dateFrom || '').trim();
+  res.json(complimentaryTicketsReport(eventId, establishmentId, dateFrom, dateTo));
+});
+
+app.post('/api/complimentary-tickets/stock', requireAdmin, (req, res) => {
+  const eventId = getRequestEventId(req);
+  const establishmentId = getRequestEstablishmentId(req);
+  const entryDate = String(req.body.entry_date || new Date().toISOString().slice(0, 10)).trim();
+  const requestedItems = Array.isArray(req.body.items) ? req.body.items : [{ location: req.body.location, quantity: req.body.quantity, notes: req.body.notes }];
+  const normalizedItems = normalizeComplimentaryStockItems(requestedItems, req.body.notes);
+  if (!normalizedItems.length) {
+    return res.status(400).json({ message: 'Agrega al menos una localidad y cantidad de cortesia.' });
+  }
+  if (!validateTicketLocations(eventId, normalizedItems.map((item) => item.location))) {
+    return res.status(400).json({ message: 'Localidad no encontrada.' });
+  }
+  const createdBy = req.user?.username || req.user?.role || 'admin';
+  db.transaction(() => {
+    const insertEntry = db.prepare(
+      `INSERT INTO complimentary_ticket_stock_entries
+       (establishment_id, event_id, entry_date, location, quantity, notes, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const item of normalizedItems) {
+      insertEntry.run(establishmentId, eventId, entryDate, item.location, item.quantity, item.notes, createdBy);
+    }
+  })();
+  res.status(201).json(complimentaryTicketsReport(eventId, establishmentId, entryDate, entryDate));
+});
+
+app.post('/api/complimentary-tickets/redemptions', requireAdmin, (req, res) => {
+  const eventId = getRequestEventId(req);
+  const establishmentId = getRequestEstablishmentId(req);
+  const redemptionDate = String(req.body.redemption_date || new Date().toISOString().slice(0, 10)).trim();
+  const promoterId = Number(req.body.promoter_id || 0);
+  const recipientName = String(req.body.recipient_name || '').trim();
+  const recipientCedula = String(req.body.recipient_cedula || '').trim();
+  const location = String(req.body.location || '').trim();
+  const quantity = Math.floor(Number(req.body.quantity || 0));
+  if (!redemptionDate || !promoterId || !recipientName || !recipientCedula || !location || quantity <= 0) {
+    return res.status(400).json({ message: 'Fecha, promotor, nombre, cedula, localidad y cantidad son obligatorios.' });
+  }
+  if (!validateTicketLocations(eventId, [location], true)) {
+    return res.status(400).json({ message: 'Selecciona una localidad activa.' });
+  }
+  const promoter = db.prepare(
+    `SELECT id, name
+     FROM promoters
+     WHERE id = ? AND establishment_id = ? AND deleted_at IS NULL`
+  ).get(promoterId, establishmentId);
+  if (!promoter) {
+    return res.status(400).json({ message: 'Promotor no encontrado.' });
+  }
+  const inventory = complimentaryTicketsReport(eventId, establishmentId, redemptionDate, redemptionDate)
+    .inventory_by_location
+    .find((row) => row.location === location);
+  if (!inventory || Number(inventory.remaining_quantity || 0) < quantity) {
+    return res.status(400).json({ message: 'No hay suficientes entradas de cortesia disponibles para esa localidad.' });
+  }
+  const createdBy = req.user?.username || req.user?.role || 'admin';
+  const result = db.prepare(
+    `INSERT INTO complimentary_ticket_redemptions
+     (establishment_id, event_id, redemption_date, promoter_id, promoter_name, recipient_name, recipient_cedula, location, quantity, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(establishmentId, eventId, redemptionDate, promoter.id, promoter.name, recipientName, recipientCedula, location, quantity, createdBy);
+  const redemptionNumber = `CAN-${String(result.lastInsertRowid).padStart(6, '0')}`;
+  db.prepare('UPDATE complimentary_ticket_redemptions SET redemption_number = ? WHERE id = ?').run(redemptionNumber, result.lastInsertRowid);
+  res.status(201).json({ ok: true, redemption_id: result.lastInsertRowid, report: complimentaryTicketsReport(eventId, establishmentId, redemptionDate, redemptionDate) });
+});
+
 app.get('/api/promoter/me', requirePromoter, (req, res) => {
   const establishment = db.prepare('SELECT * FROM establishments WHERE id = ?').get(req.user.establishmentId);
   const activeEvent = getActiveEvent(req.user.establishmentId);
