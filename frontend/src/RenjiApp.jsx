@@ -18,6 +18,18 @@ function money(value) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
 
+function renjiItemDetail(order) {
+  const hoodieSize = order.hoodie_size || order.size || 'M';
+  const pantsSize = order.pants_size || order.size || 'M';
+  if (order.selection_type === 'set') {
+    return `Hoodie ${hoodieSize} + Pantalon ${pantsSize}`;
+  }
+  if (order.selection_type === 'hoodie') {
+    return `Hoodie ${hoodieSize}`;
+  }
+  return `Pantalon ${pantsSize}`;
+}
+
 function scoped(path, establishmentId) {
   if (!establishmentId) return path;
   const separator = path.includes('?') ? '&' : '?';
@@ -34,6 +46,8 @@ const emptyOrder = {
   purchase_channel: 'other',
   selection_type: 'set',
   size: 'M',
+  hoodie_size: 'M',
+  pants_size: 'M',
   quantity: 1,
   registration_type: 'paid',
   deposit_amount: '',
@@ -112,6 +126,8 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
       purchase_channel: record.purchase_channel || 'other',
       selection_type: record.selection_type || 'set',
       size: record.size || 'M',
+      hoodie_size: record.hoodie_size || record.size || 'M',
+      pants_size: record.pants_size || record.size || 'M',
       quantity: record.quantity || 1,
       registration_type: record.registration_type || (Number(record.deposit_amount || 0) > 0 ? 'separation' : 'paid'),
       deposit_amount: record.deposit_amount || '',
@@ -369,17 +385,33 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                 </label>
                 <label>Instagram<input value={orderForm.customer_instagram} onChange={(e) => setOrderForm({ ...orderForm, customer_instagram: e.target.value })} required={orderForm.purchase_channel === 'instagram'} placeholder="@usuario" /></label>
                 <label>Prenda
-                  <select value={orderForm.selection_type} onChange={(e) => setOrderForm({ ...orderForm, selection_type: e.target.value })}>
+                  <select value={orderForm.selection_type} onChange={(e) => {
+                    const selectionType = e.target.value;
+                    setOrderForm({
+                      ...orderForm,
+                      selection_type: selectionType,
+                      size: selectionType === 'pants' ? orderForm.pants_size : orderForm.hoodie_size
+                    });
+                  }}>
                     <option value="set">Conjunto Sukuna</option>
                     <option value="hoodie">Solo hoodie Sukuna</option>
                     <option value="pants">Solo pantalon Sukuna</option>
                   </select>
                 </label>
-                <label>Talla
-                  <select value={orderForm.size} onChange={(e) => setOrderForm({ ...orderForm, size: e.target.value })}>
-                    {sizes.map((size) => <option key={size} value={size}>{size}</option>)}
-                  </select>
-                </label>
+                {orderForm.selection_type !== 'pants' && (
+                  <label>Talla hoodie
+                    <select value={orderForm.hoodie_size} onChange={(e) => setOrderForm({ ...orderForm, hoodie_size: e.target.value, size: e.target.value })}>
+                      {sizes.map((size) => <option key={size} value={size}>{size}</option>)}
+                    </select>
+                  </label>
+                )}
+                {orderForm.selection_type !== 'hoodie' && (
+                  <label>Talla pantalon
+                    <select value={orderForm.pants_size} onChange={(e) => setOrderForm({ ...orderForm, pants_size: e.target.value, size: orderForm.selection_type === 'pants' ? e.target.value : orderForm.size })}>
+                      {sizes.map((size) => <option key={size} value={size}>{size}</option>)}
+                    </select>
+                  </label>
+                )}
                 <label>Cantidad<input type="number" min="1" value={orderForm.quantity} onChange={(e) => setOrderForm({ ...orderForm, quantity: e.target.value })} /></label>
                 {editingRegistrationId && (
                   <label>Tipo de registro
@@ -468,7 +500,7 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                     <tr key={registration.id}>
                       <td><strong>{registration.customer_name}</strong><small>{registration.customer_city} - {registration.customer_address}</small></td>
                       <td>{registration.customer_phone}<small>{registration.customer_instagram ? `@${registration.customer_instagram}` : 'Sin Instagram'}</small></td>
-                      <td>{selectionLabels[registration.selection_type]} - {registration.size} - Negro x{registration.quantity}</td>
+                      <td>{renjiItemDetail(registration)} - Negro x{registration.quantity}</td>
                       <td>{registration.created_at}<small>{registration.registration_type === 'separation' ? `Separado: ${money(registration.deposit_amount)}` : 'Cancelado'}</small></td>
                       <td>
                         <div className="renji-actions">
@@ -505,7 +537,7 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                     <tr key={order.id}>
                       <td>{order.order_number}</td>
                       <td><strong>{order.customer_name}</strong><small>{order.customer_city} - {order.customer_phone}{order.customer_instagram ? ` - @${order.customer_instagram}` : ''}</small></td>
-                      <td>{selectionLabels[order.selection_type]} - {order.size} - Negro x{order.quantity}</td>
+                      <td>{renjiItemDetail(order)} - Negro x{order.quantity}</td>
                       <td>
                         <span className={`renji-pill ${paymentClass(order)}`}>{paymentLabel(order)}</span>
                         {Number(order.deposit_amount || 0) > 0 && <small>Deposito: {money(order.deposit_amount)}</small>}
@@ -547,7 +579,7 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                     onChange={(e) => setSelectedGuideIds(e.target.checked ? [...selectedGuideIds, order.id] : selectedGuideIds.filter((id) => id !== order.id))}
                   />
                   <span>{order.customer_name}</span>
-                  <small>{order.customer_city} - {selectionLabels[order.selection_type]} {order.size}</small>
+                  <small>{order.customer_city} - {renjiItemDetail(order)}</small>
                   <b className={`renji-guide-pay-status ${paymentClass(order)}`}>{paymentLabel(order)}</b>
                   {!canGenerateGuide(order) && <small className="renji-guide-lock">Primero marcar como pagado</small>}
                   <b className={`renji-guide-status ${order.shipping_status}`}>{order.shipping_status === 'sent' ? 'Enviado' : 'No enviado'}</b>
@@ -573,16 +605,6 @@ function RenjiGuidesPrint({ orders }) {
     pages.push(orders.slice(index, index + 6));
   }
 
-  function guideDetail(order) {
-    if (order.selection_type === 'set') {
-      return `Hoodie ${order.size} + Pantalon ${order.size}`;
-    }
-    if (order.selection_type === 'hoodie') {
-      return `Hoodie ${order.size}`;
-    }
-    return `Pantalon ${order.size}`;
-  }
-
   return (
     <>
       {pages.map((pageOrders, pageIndex) => (
@@ -594,7 +616,7 @@ function RenjiGuidesPrint({ orders }) {
               <span>{order.customer_address}</span>
               <b>{order.customer_phone}</b>
               <small>Cedula: {order.customer_cedula || 'Sin cedula'}</small>
-              <em>Detalle: {guideDetail(order)}</em>
+              <em>Detalle: {renjiItemDetail(order)}</em>
             </section>
           ))}
         </article>
@@ -646,17 +668,33 @@ export function RenjiPublicRegistration({ mode = 'paid' }) {
           </label>
           <label>Usuario de Instagram<input value={form.customer_instagram} onChange={(e) => setForm({ ...form, customer_instagram: e.target.value })} required={form.purchase_channel === 'instagram'} placeholder="@usuario" /></label>
           <label>Prenda
-            <select value={form.selection_type} onChange={(e) => setForm({ ...form, selection_type: e.target.value })}>
+            <select value={form.selection_type} onChange={(e) => {
+              const selectionType = e.target.value;
+              setForm({
+                ...form,
+                selection_type: selectionType,
+                size: selectionType === 'pants' ? form.pants_size : form.hoodie_size
+              });
+            }}>
               <option value="set">Conjunto Sukuna</option>
               <option value="hoodie">Solo hoodie Sukuna</option>
               <option value="pants">Solo pantalon Sukuna</option>
             </select>
           </label>
-          <label>Talla
-            <select value={form.size} onChange={(e) => setForm({ ...form, size: e.target.value })}>
-              {sizes.map((size) => <option key={size} value={size}>{size}</option>)}
-            </select>
-          </label>
+          {form.selection_type !== 'pants' && (
+            <label>Talla hoodie
+              <select value={form.hoodie_size} onChange={(e) => setForm({ ...form, hoodie_size: e.target.value, size: e.target.value })}>
+                {sizes.map((size) => <option key={size} value={size}>{size}</option>)}
+              </select>
+            </label>
+          )}
+          {form.selection_type !== 'hoodie' && (
+            <label>Talla pantalon
+              <select value={form.pants_size} onChange={(e) => setForm({ ...form, pants_size: e.target.value, size: form.selection_type === 'pants' ? e.target.value : form.size })}>
+                {sizes.map((size) => <option key={size} value={size}>{size}</option>)}
+              </select>
+            </label>
+          )}
           <label>Cantidad<input type="number" min="1" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} /></label>
           {isSeparation && <label>Valor transferido<input type="number" min="0.01" step="0.01" value={form.deposit_amount} onChange={(e) => setForm({ ...form, deposit_amount: e.target.value })} required /></label>}
           <button className="renji-primary span-2" type="submit">Enviar mis datos</button>

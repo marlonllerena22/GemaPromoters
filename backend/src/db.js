@@ -841,8 +841,12 @@ function initRenjiDb() {
   addColumnIfMissing('renji_orders', 'customer_instagram', 'TEXT');
   addColumnIfMissing('renji_orders', 'purchase_channel', "TEXT NOT NULL DEFAULT 'other'");
   addColumnIfMissing('renji_orders', 'deposit_amount', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing('renji_orders', 'hoodie_size', 'TEXT');
+  addColumnIfMissing('renji_orders', 'pants_size', 'TEXT');
   addColumnIfMissing('renji_registrations', 'registration_type', "TEXT NOT NULL DEFAULT 'paid'");
   addColumnIfMissing('renji_registrations', 'deposit_amount', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing('renji_registrations', 'hoodie_size', 'TEXT');
+  addColumnIfMissing('renji_registrations', 'pants_size', 'TEXT');
 }
 
 function seedRenjiStock(establishmentId) {

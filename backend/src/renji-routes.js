@@ -17,21 +17,27 @@ function normalizeSize(value) {
   return sizes.includes(size) ? size : '';
 }
 
-function orderItemsForSelection(selectionType, quantity) {
+function orderItemsForSelection(selectionType, quantity, sizesByType = {}) {
   const qty = Math.max(1, Number(quantity || 1));
+  const hoodieSize = sizesByType.hoodie_size || sizesByType.hoodieSize || sizesByType.size;
+  const pantsSize = sizesByType.pants_size || sizesByType.pantsSize || sizesByType.size;
   if (selectionType === 'set') {
     return [
-      { item_type: 'hoodie', quantity: qty },
-      { item_type: 'pants', quantity: qty }
+      { item_type: 'hoodie', size: hoodieSize, quantity: qty },
+      { item_type: 'pants', size: pantsSize, quantity: qty }
     ];
   }
-  return [{ item_type: selectionType, quantity: qty }];
+  return [{ item_type: selectionType, size: selectionType === 'pants' ? pantsSize : hoodieSize, quantity: qty }];
 }
 
 function formatOrder(row) {
   const garments = row.selection_type === 'set' ? Number(row.quantity || 0) * 2 : Number(row.quantity || 0);
+  const hoodieSize = row.hoodie_size || row.size;
+  const pantsSize = row.pants_size || row.size;
   return {
     ...row,
+    hoodie_size: hoodieSize,
+    pants_size: pantsSize,
     quantity: Number(row.quantity || 0),
     garments,
     deposit_amount: toMoney(row.deposit_amount),
@@ -40,8 +46,12 @@ function formatOrder(row) {
 }
 
 function formatRegistration(row) {
+  const hoodieSize = row.hoodie_size || row.size;
+  const pantsSize = row.pants_size || row.size;
   return {
     ...row,
+    hoodie_size: hoodieSize,
+    pants_size: pantsSize,
     quantity: Number(row.quantity || 0),
     deposit_amount: toMoney(row.deposit_amount)
   };
@@ -61,7 +71,10 @@ function readOrderPayload(body, { paidByDefault = false, registrationType = null
   const instagram = cleanText(body.customer_instagram).replace(/^@+/, '');
   const purchaseChannel = body.purchase_channel === 'instagram' ? 'instagram' : 'other';
   const selectionType = ['set', 'hoodie', 'pants'].includes(body.selection_type) ? body.selection_type : '';
-  const size = normalizeSize(body.size);
+  const baseSize = normalizeSize(body.size);
+  const hoodieSize = normalizeSize(body.hoodie_size) || baseSize;
+  const pantsSize = normalizeSize(body.pants_size) || baseSize;
+  const size = selectionType === 'pants' ? pantsSize : hoodieSize;
   const quantity = Math.max(1, Number(body.quantity || 1));
   const depositAmount = toMoney(body.deposit_amount);
   const pendingAmount = paidByDefault ? 0 : toMoney(body.pending_amount);
@@ -71,6 +84,12 @@ function readOrderPayload(body, { paidByDefault = false, registrationType = null
 
   if (!customerName || !city || !address || !phone || !selectionType || !size) {
     const error = new Error('Cliente, ciudad, direccion, celular, prenda y talla son obligatorios');
+    error.status = 400;
+    throw error;
+  }
+
+  if (selectionType === 'set' && (!hoodieSize || !pantsSize)) {
+    const error = new Error('Selecciona talla de hoodie y talla de pantalon para el conjunto');
     error.status = 400;
     throw error;
   }
@@ -97,6 +116,8 @@ function readOrderPayload(body, { paidByDefault = false, registrationType = null
     purchaseChannel,
     selectionType,
     size,
+    hoodieSize,
+    pantsSize,
     quantity,
     depositAmount,
     pendingAmount: paymentStatus === 'paid' ? 0 : pendingAmount,
@@ -202,8 +223,8 @@ function applyStockMovement(db, { establishmentId, orderId = null, itemType, siz
 function insertRenjiOrder(db, establishmentId, payload) {
   const result = db.prepare(
     `INSERT INTO renji_orders
-     (establishment_id, customer_name, customer_cedula, customer_city, customer_address, customer_phone, customer_instagram, purchase_channel, selection_type, size, quantity, deposit_amount, pending_amount, payment_status, shipping_status, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'not_sent', ?)`
+     (establishment_id, customer_name, customer_cedula, customer_city, customer_address, customer_phone, customer_instagram, purchase_channel, selection_type, size, hoodie_size, pants_size, quantity, deposit_amount, pending_amount, payment_status, shipping_status, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'not_sent', ?)`
   ).run(
     establishmentId,
     payload.customerName,
@@ -215,6 +236,8 @@ function insertRenjiOrder(db, establishmentId, payload) {
     payload.purchaseChannel,
     payload.selectionType,
     payload.size,
+    payload.hoodieSize,
+    payload.pantsSize,
     payload.quantity,
     payload.depositAmount,
     payload.pendingAmount,
@@ -226,12 +249,12 @@ function insertRenjiOrder(db, establishmentId, payload) {
   const orderNumber = `RENJI-${String(orderId).padStart(5, '0')}`;
   db.prepare('UPDATE renji_orders SET order_number = ? WHERE id = ?').run(orderNumber, orderId);
 
-  for (const item of orderItemsForSelection(payload.selectionType, payload.quantity)) {
+  for (const item of orderItemsForSelection(payload.selectionType, payload.quantity, payload)) {
     applyStockMovement(db, {
       establishmentId,
       orderId,
       itemType: item.item_type,
-      size: payload.size,
+      size: item.size,
       quantity: -item.quantity,
       movementType: 'sale',
       notes: orderNumber
@@ -243,17 +266,17 @@ function insertRenjiOrder(db, establishmentId, payload) {
 
 function restoreOrderStock(db, order, reason = 'Reversa') {
   const restoredItems = [];
-  for (const item of orderItemsForSelection(order.selection_type, order.quantity)) {
+  for (const item of orderItemsForSelection(order.selection_type, order.quantity, order)) {
     applyStockMovement(db, {
       establishmentId: order.establishment_id,
       orderId: order.id,
       itemType: item.item_type,
-      size: order.size,
+      size: item.size,
       quantity: item.quantity,
       movementType: 'return',
       notes: `${reason} ${order.order_number || order.id}`
     });
-    restoredItems.push({ item_type: item.item_type, size: order.size, quantity: item.quantity });
+    restoredItems.push({ item_type: item.item_type, size: item.size, quantity: item.quantity });
   }
   return restoredItems;
 }
@@ -268,8 +291,8 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
       const payload = readOrderPayload(req.body, { paidByDefault: true, registrationType: 'paid' });
       const result = db.prepare(
         `INSERT INTO renji_registrations
-         (establishment_id, customer_name, customer_cedula, customer_city, customer_address, customer_phone, customer_instagram, purchase_channel, selection_type, size, quantity, registration_type, deposit_amount, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (establishment_id, customer_name, customer_cedula, customer_city, customer_address, customer_phone, customer_instagram, purchase_channel, selection_type, size, hoodie_size, pants_size, quantity, registration_type, deposit_amount, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         establishment.id,
         payload.customerName,
@@ -281,6 +304,8 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
         payload.purchaseChannel,
         payload.selectionType,
         payload.size,
+        payload.hoodieSize,
+        payload.pantsSize,
         payload.quantity,
         payload.registrationType,
         payload.depositAmount,
@@ -301,8 +326,8 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
       const payload = readOrderPayload(req.body, { registrationType: 'separation', requireDeposit: true });
       const result = db.prepare(
         `INSERT INTO renji_registrations
-         (establishment_id, customer_name, customer_cedula, customer_city, customer_address, customer_phone, customer_instagram, purchase_channel, selection_type, size, quantity, registration_type, deposit_amount, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (establishment_id, customer_name, customer_cedula, customer_city, customer_address, customer_phone, customer_instagram, purchase_channel, selection_type, size, hoodie_size, pants_size, quantity, registration_type, deposit_amount, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         establishment.id,
         payload.customerName,
@@ -314,6 +339,8 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
         payload.purchaseChannel,
         payload.selectionType,
         payload.size,
+        payload.hoodieSize,
+        payload.pantsSize,
         payload.quantity,
         payload.registrationType,
         payload.depositAmount,
@@ -403,7 +430,7 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
         db.prepare(
           `UPDATE renji_orders
            SET customer_name = ?, customer_cedula = ?, customer_city = ?, customer_address = ?, customer_phone = ?,
-               customer_instagram = ?, purchase_channel = ?, selection_type = ?, size = ?, quantity = ?,
+               customer_instagram = ?, purchase_channel = ?, selection_type = ?, size = ?, hoodie_size = ?, pants_size = ?, quantity = ?,
                deposit_amount = ?, pending_amount = ?, payment_status = ?, notes = ?, updated_at = datetime('now', 'localtime')
            WHERE id = ? AND establishment_id = ?`
         ).run(
@@ -416,6 +443,8 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
           payload.purchaseChannel,
           payload.selectionType,
           payload.size,
+          payload.hoodieSize,
+          payload.pantsSize,
           payload.quantity,
           payload.depositAmount,
           payload.pendingAmount,
@@ -424,12 +453,12 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
           order.id,
           establishmentId
         );
-        for (const item of orderItemsForSelection(payload.selectionType, payload.quantity)) {
+        for (const item of orderItemsForSelection(payload.selectionType, payload.quantity, payload)) {
           applyStockMovement(db, {
             establishmentId,
             orderId: order.id,
             itemType: item.item_type,
-            size: payload.size,
+            size: item.size,
             quantity: -item.quantity,
             movementType: 'sale',
             notes: `Edicion ${order.order_number || order.id}`
@@ -476,7 +505,7 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
       const result = db.prepare(
         `UPDATE renji_registrations
          SET customer_name = ?, customer_cedula = ?, customer_city = ?, customer_address = ?, customer_phone = ?,
-             customer_instagram = ?, purchase_channel = ?, selection_type = ?, size = ?, quantity = ?,
+             customer_instagram = ?, purchase_channel = ?, selection_type = ?, size = ?, hoodie_size = ?, pants_size = ?, quantity = ?,
              registration_type = ?, deposit_amount = ?, notes = ?
          WHERE id = ? AND establishment_id = ? AND status = 'pending'`
       ).run(
@@ -489,6 +518,8 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
         payload.purchaseChannel,
         payload.selectionType,
         payload.size,
+        payload.hoodieSize,
+        payload.pantsSize,
         payload.quantity,
         payload.registrationType,
         payload.depositAmount,
