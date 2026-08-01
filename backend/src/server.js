@@ -1941,7 +1941,10 @@ app.post('/api/event-box-office/sales', requireAdmin, (req, res) => {
   if (!inventory || Number(inventory.remaining_quantity || 0) < quantity) {
     return res.status(400).json({ message: 'No hay suficientes entradas disponibles en esa localidad.' });
   }
-  const unitPrice = eventBoxOfficePrice(location);
+  const requestedUnitPrice = req.body.unit_price === undefined || req.body.unit_price === ''
+    ? eventBoxOfficePrice(location)
+    : Math.max(0, Number(req.body.unit_price || 0));
+  const unitPrice = toMoney(requestedUnitPrice);
   const total = toMoney(unitPrice * quantity);
   const result = db.prepare(
     `INSERT INTO event_box_office_ticket_sales

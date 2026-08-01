@@ -10,6 +10,7 @@ import {
   CircleDollarSign,
   Copy,
   CreditCard,
+  Edit3,
   Eye,
   EyeOff,
   KeyRound,
@@ -161,7 +162,8 @@ const emptyPhysicalStockItem = {
 const emptyEventBoxOfficeSale = {
   sale_date: new Date().toISOString().slice(0, 10),
   location: '',
-  quantity: 1
+  quantity: 1,
+  unit_price: ''
 };
 
 const emptyComplimentaryStockItem = {
@@ -2278,7 +2280,7 @@ function EventBoxOffice({ locations, eventId, establishmentId, onRefresh }) {
   const inventory = report?.inventory_by_location || [];
   const totals = report?.all_totals || report?.totals || {};
   const selectedInventory = inventory.find((row) => row.location === saleForm.location);
-  const selectedPrice = selectedInventory?.unit_price || 0;
+  const selectedPrice = saleForm.unit_price === '' ? (selectedInventory?.unit_price || 0) : Number(saleForm.unit_price || 0);
   const saleTotal = Number(saleForm.quantity || 0) * Number(selectedPrice || 0);
 
   useEffect(() => {
@@ -2375,7 +2377,11 @@ function EventBoxOffice({ locations, eventId, establishmentId, onRefresh }) {
         <form className="form-grid event-box-office-form" onSubmit={submitSale}>
           <Input type="date" label="Fecha" value={saleForm.sale_date} onChange={(sale_date) => setSaleForm({ ...saleForm, sale_date })} />
           <label>Localidad
-            <select value={saleForm.location} onChange={(event) => setSaleForm({ ...saleForm, location: event.target.value })} required>
+            <select value={saleForm.location} onChange={(event) => {
+              const nextLocation = event.target.value;
+              const row = inventory.find((item) => item.location === nextLocation);
+              setSaleForm({ ...saleForm, location: nextLocation, unit_price: row?.unit_price || '' });
+            }} required>
               <option value="">Seleccionar</option>
               {activeLocations.map((location) => {
                 const row = inventory.find((item) => item.location === location.name);
@@ -2384,7 +2390,7 @@ function EventBoxOffice({ locations, eventId, establishmentId, onRefresh }) {
             </select>
           </label>
           <Input type="number" label="Cantidad" value={saleForm.quantity} onChange={(quantity) => setSaleForm({ ...saleForm, quantity })} />
-          <div className="computed"><span>Precio automatico</span><strong>{money(selectedPrice)}</strong></div>
+          <Input type="number" label="Precio" value={saleForm.unit_price} onChange={(unit_price) => setSaleForm({ ...saleForm, unit_price })} />
           <div className="computed span-2"><span>Total venta</span><strong>{money(saleTotal)}</strong></div>
           <button className="primary-button span-2" type="submit"><Ticket size={18} />Registrar venta</button>
         </form>
