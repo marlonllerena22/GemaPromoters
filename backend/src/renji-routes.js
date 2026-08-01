@@ -1,11 +1,103 @@
 import { requireAdmin } from './auth.js';
 import { toMoney } from './db.js';
+import nodemailer from 'nodemailer';
 
 const sizes = ['S', 'M', 'L', 'XL'];
 const itemTypes = ['hoodie', 'pants'];
 
 function cleanText(value) {
   return String(value || '').trim();
+}
+
+function emailTransportConfigured() {
+  return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function renjiItemDetailText(payload) {
+  const hoodieSize = payload.hoodieSize || payload.hoodie_size || payload.size || 'M';
+  const pantsSize = payload.pantsSize || payload.pants_size || payload.size || 'M';
+  if (payload.selectionType === 'set' || payload.selection_type === 'set') {
+    return `Hoodie ${hoodieSize} + Pantalon ${pantsSize}`;
+  }
+  if (payload.selectionType === 'hoodie' || payload.selection_type === 'hoodie') {
+    return `Hoodie ${hoodieSize}`;
+  }
+  return `Pantalon ${pantsSize}`;
+}
+
+async function sendRenjiOrderConfirmationEmail(payload) {
+  if (!emailTransportConfigured() || !payload.email) {
+    return { sent: false, reason: 'SMTP no configurado o cliente sin correo' };
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: String(process.env.SMTP_SECURE || '').toLowerCase() === 'true',
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS
+    }
+  });
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER;
+  const detail = renjiItemDetailText(payload);
+  const quantity = Number(payload.quantity || 1);
+
+  await transporter.sendMail({
+    from,
+    to: payload.email,
+    subject: 'Confirmacion de datos RENJI',
+    text: `Hola ${payload.customerName},
+
+Recibimos tus datos para RENJI.
+
+Pedido: ${detail}
+Cantidad: ${quantity}
+Color: Negro
+
+Datos de envio:
+Nombre: ${payload.customerName}
+Cedula: ${payload.cedula}
+Ciudad: ${payload.city}
+Direccion: ${payload.address}
+Celular: ${payload.phone}
+Instagram: ${payload.instagram ? '@' + payload.instagram : 'No registrado'}
+Correo: ${payload.email}
+
+Por favor revisa que todo este correcto. Si necesitas corregir algun dato, contactanos por el mismo medio donde realizaste tu compra.`,
+    html: `
+      <div style="font-family:Arial,sans-serif;background:#09090b;color:#f8fafc;padding:24px;border-radius:14px">
+        <h2 style="margin-top:0;color:#ffffff">Confirmacion de datos RENJI</h2>
+        <p>Hola <strong>${escapeHtml(payload.customerName)}</strong>, recibimos tus datos correctamente.</p>
+        <div style="background:#151518;border:1px solid #2f2f35;padding:16px;border-radius:12px;margin:16px 0">
+          <p><strong>Pedido:</strong> ${escapeHtml(detail)}</p>
+          <p><strong>Cantidad:</strong> ${quantity}</p>
+          <p><strong>Color:</strong> Negro</p>
+        </div>
+        <div style="background:#111827;border:1px solid #273449;padding:16px;border-radius:12px">
+          <p><strong>Nombre:</strong> ${escapeHtml(payload.customerName)}</p>
+          <p><strong>Cedula:</strong> ${escapeHtml(payload.cedula)}</p>
+          <p><strong>Ciudad:</strong> ${escapeHtml(payload.city)}</p>
+          <p><strong>Direccion:</strong> ${escapeHtml(payload.address)}</p>
+          <p><strong>Celular:</strong> ${escapeHtml(payload.phone)}</p>
+          <p><strong>Instagram:</strong> ${payload.instagram ? '@' + escapeHtml(payload.instagram) : 'No registrado'}</p>
+          <p><strong>Correo:</strong> ${escapeHtml(payload.email)}</p>
+        </div>
+        <p style="color:#cbd5e1;font-size:13px">Revisa que tus datos esten correctos. Si necesitas corregir algo, contactanos por el mismo medio donde realizaste tu compra.</p>
+      </div>
+    `
+  });
+
+  return { sent: true };
 }
 
 function normalizeItemType(value) {
@@ -15,6 +107,15 @@ function normalizeItemType(value) {
 function normalizeSize(value) {
   const size = cleanText(value).toUpperCase();
   return sizes.includes(size) ? size : '';
+}
+
+function parseJsonArray(value) {
+  try {
+    const parsed = JSON.parse(value || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 function orderItemsForSelection(selectionType, quantity, sizesByType = {}) {
@@ -34,10 +135,16 @@ function formatOrder(row) {
   const garments = row.selection_type === 'set' ? Number(row.quantity || 0) * 2 : Number(row.quantity || 0);
   const hoodieSize = row.hoodie_size || row.size;
   const pantsSize = row.pants_size || row.size;
+  const stockItems = parseJsonArray(row.stock_items_json);
+  const productionItems = parseJsonArray(row.production_items_json);
   return {
     ...row,
+    customer_email: row.customer_email || '',
     hoodie_size: hoodieSize,
     pants_size: pantsSize,
+    stock_items: stockItems,
+    production_items: productionItems,
+    production_status: row.production_status || 'ready',
     quantity: Number(row.quantity || 0),
     garments,
     deposit_amount: toMoney(row.deposit_amount),
@@ -62,12 +169,13 @@ function getRenjiEstablishment(db) {
     || db.prepare("SELECT * FROM establishments WHERE module_type = 'clothing' AND status = 'active' ORDER BY id ASC").get();
 }
 
-function readOrderPayload(body, { paidByDefault = false, registrationType = null, requireDeposit = false } = {}) {
+function readOrderPayload(body, { paidByDefault = false, registrationType = null, requireDeposit = false, requireEmail = false } = {}) {
   const customerName = cleanText(body.customer_name);
   const city = cleanText(body.customer_city);
   const address = cleanText(body.customer_address);
   const phone = cleanText(body.customer_phone);
   const cedula = cleanText(body.customer_cedula);
+  const email = cleanText(body.customer_email).toLowerCase();
   const instagram = cleanText(body.customer_instagram).replace(/^@+/, '');
   const purchaseChannel = body.purchase_channel === 'instagram' ? 'instagram' : 'other';
   const selectionType = ['set', 'hoodie', 'pants'].includes(body.selection_type) ? body.selection_type : '';
@@ -106,9 +214,16 @@ function readOrderPayload(body, { paidByDefault = false, registrationType = null
     throw error;
   }
 
+  if (requireEmail && !email) {
+    const error = new Error('El correo electronico es obligatorio para confirmar tu pedido');
+    error.status = 400;
+    throw error;
+  }
+
   return {
     customerName,
     cedula,
+    email,
     city,
     address,
     phone,
@@ -161,6 +276,10 @@ function getRenjiOverview(db, establishmentId) {
   const pendingPayments = orders
     .filter((order) => order.payment_status === 'pending')
     .reduce((sum, order) => sum + Number(order.pending_amount || 0), 0);
+  const productionOrders = orders.filter((order) => (order.production_status || 'ready') !== 'ready');
+  const productionItems = productionOrders.reduce((sum, order) => (
+    sum + (order.production_items || []).reduce((itemSum, item) => itemSum + Number(item.quantity || 0), 0)
+  ), 0);
 
   return {
     stock,
@@ -172,7 +291,9 @@ function getRenjiOverview(db, establishmentId) {
       pending_shipping: orders.filter((order) => order.shipping_status !== 'sent').length,
       paid_orders: orders.filter((order) => order.payment_status === 'paid').length,
       pending_amount: toMoney(pendingPayments),
-      pending_registrations: registrations.length
+      pending_registrations: registrations.length,
+      production_orders: productionOrders.length,
+      production_items: productionItems
     }
   };
 }
@@ -220,15 +341,62 @@ function applyStockMovement(db, { establishmentId, orderId = null, itemType, siz
   ).run(establishmentId, orderId, movementDate || new Date().toISOString().slice(0, 10), itemType, size, Number(quantity || 0), movementType, notes);
 }
 
+function currentStockQuantity(db, establishmentId, itemType, size) {
+  const current = db
+    .prepare('SELECT quantity FROM renji_stock WHERE establishment_id = ? AND item_type = ? AND size = ? AND color = ?')
+    .get(establishmentId, itemType, size, 'Negro');
+  return Number(current?.quantity || 0);
+}
+
+function reserveRenjiStockForOrder(db, { establishmentId, orderId, orderNumber, items, notesPrefix = '' }) {
+  const stockItems = [];
+  const productionItems = [];
+
+  for (const item of items) {
+    const requested = Math.max(0, Number(item.quantity || 0));
+    const available = currentStockQuantity(db, establishmentId, item.item_type, item.size);
+    const reserved = Math.min(available, requested);
+    const pending = requested - reserved;
+
+    if (reserved > 0) {
+      applyStockMovement(db, {
+        establishmentId,
+        orderId,
+        itemType: item.item_type,
+        size: item.size,
+        quantity: -reserved,
+        movementType: 'sale',
+        notes: `${notesPrefix}${orderNumber}`.trim()
+      });
+      stockItems.push({ item_type: item.item_type, size: item.size, quantity: reserved });
+    }
+
+    if (pending > 0) {
+      productionItems.push({ item_type: item.item_type, size: item.size, quantity: pending });
+    }
+  }
+
+  const requestedTotal = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+  const productionTotal = productionItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+  const productionStatus = productionTotal <= 0
+    ? 'ready'
+    : productionTotal >= requestedTotal
+      ? 'in_production'
+      : 'partial_production';
+
+  return { stockItems, productionItems, productionStatus };
+}
+
 function insertRenjiOrder(db, establishmentId, payload) {
   const result = db.prepare(
     `INSERT INTO renji_orders
-     (establishment_id, customer_name, customer_cedula, customer_city, customer_address, customer_phone, customer_instagram, purchase_channel, selection_type, size, hoodie_size, pants_size, quantity, deposit_amount, pending_amount, payment_status, shipping_status, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'not_sent', ?)`
+     (establishment_id, customer_name, customer_cedula, customer_email, customer_city, customer_address, customer_phone, customer_instagram, purchase_channel, selection_type, size, hoodie_size, pants_size, quantity, deposit_amount, pending_amount, payment_status, shipping_status, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'not_sent', ?)`
   ).run(
     establishmentId,
     payload.customerName,
     payload.cedula,
+    payload.email,
     payload.city,
     payload.address,
     payload.phone,
@@ -249,24 +417,27 @@ function insertRenjiOrder(db, establishmentId, payload) {
   const orderNumber = `RENJI-${String(orderId).padStart(5, '0')}`;
   db.prepare('UPDATE renji_orders SET order_number = ? WHERE id = ?').run(orderNumber, orderId);
 
-  for (const item of orderItemsForSelection(payload.selectionType, payload.quantity, payload)) {
-    applyStockMovement(db, {
-      establishmentId,
-      orderId,
-      itemType: item.item_type,
-      size: item.size,
-      quantity: -item.quantity,
-      movementType: 'sale',
-      notes: orderNumber
-    });
-  }
+  const items = orderItemsForSelection(payload.selectionType, payload.quantity, payload);
+  const reservation = reserveRenjiStockForOrder(db, { establishmentId, orderId, orderNumber, items });
+  db.prepare(
+    `UPDATE renji_orders
+     SET stock_items_json = ?, production_items_json = ?, production_status = ?
+     WHERE id = ?`
+  ).run(
+    JSON.stringify(reservation.stockItems),
+    JSON.stringify(reservation.productionItems),
+    reservation.productionStatus,
+    orderId
+  );
 
   return orderId;
 }
 
 function restoreOrderStock(db, order, reason = 'Reversa') {
   const restoredItems = [];
-  for (const item of orderItemsForSelection(order.selection_type, order.quantity, order)) {
+  const stockItems = parseJsonArray(order.stock_items_json);
+  const itemsToRestore = stockItems.length ? stockItems : orderItemsForSelection(order.selection_type, order.quantity, order);
+  for (const item of itemsToRestore) {
     applyStockMovement(db, {
       establishmentId: order.establishment_id,
       orderId: order.id,
@@ -282,21 +453,22 @@ function restoreOrderStock(db, order, reason = 'Reversa') {
 }
 
 export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
-  app.post('/api/renji/public-registrations', (req, res) => {
+  app.post('/api/renji/public-registrations', async (req, res) => {
     try {
       const establishment = getRenjiEstablishment(db);
       if (!establishment) {
         return res.status(404).json({ message: 'RENJI no esta disponible' });
       }
-      const payload = readOrderPayload(req.body, { paidByDefault: true, registrationType: 'paid' });
+      const payload = readOrderPayload(req.body, { paidByDefault: true, registrationType: 'paid', requireEmail: true });
       const result = db.prepare(
         `INSERT INTO renji_registrations
-         (establishment_id, customer_name, customer_cedula, customer_city, customer_address, customer_phone, customer_instagram, purchase_channel, selection_type, size, hoodie_size, pants_size, quantity, registration_type, deposit_amount, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (establishment_id, customer_name, customer_cedula, customer_email, customer_city, customer_address, customer_phone, customer_instagram, purchase_channel, selection_type, size, hoodie_size, pants_size, quantity, registration_type, deposit_amount, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         establishment.id,
         payload.customerName,
         payload.cedula,
+        payload.email,
         payload.city,
         payload.address,
         payload.phone,
@@ -311,27 +483,29 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
         payload.depositAmount,
         payload.notes
       );
-      res.status(201).json({ ok: true, registration_id: result.lastInsertRowid });
+      const emailResult = await sendRenjiOrderConfirmationEmail(payload).catch((error) => ({ sent: false, reason: error.message }));
+      res.status(201).json({ ok: true, registration_id: result.lastInsertRowid, email: emailResult });
     } catch (error) {
       res.status(error.status || 500).json({ message: error.message || 'No se pudo registrar tus datos' });
     }
   });
 
-  app.post('/api/renji/public-separations', (req, res) => {
+  app.post('/api/renji/public-separations', async (req, res) => {
     try {
       const establishment = getRenjiEstablishment(db);
       if (!establishment) {
         return res.status(404).json({ message: 'RENJI no esta disponible' });
       }
-      const payload = readOrderPayload(req.body, { registrationType: 'separation', requireDeposit: true });
+      const payload = readOrderPayload(req.body, { registrationType: 'separation', requireDeposit: true, requireEmail: true });
       const result = db.prepare(
         `INSERT INTO renji_registrations
-         (establishment_id, customer_name, customer_cedula, customer_city, customer_address, customer_phone, customer_instagram, purchase_channel, selection_type, size, hoodie_size, pants_size, quantity, registration_type, deposit_amount, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (establishment_id, customer_name, customer_cedula, customer_email, customer_city, customer_address, customer_phone, customer_instagram, purchase_channel, selection_type, size, hoodie_size, pants_size, quantity, registration_type, deposit_amount, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         establishment.id,
         payload.customerName,
         payload.cedula,
+        payload.email,
         payload.city,
         payload.address,
         payload.phone,
@@ -346,7 +520,8 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
         payload.depositAmount,
         payload.notes
       );
-      res.status(201).json({ ok: true, registration_id: result.lastInsertRowid });
+      const emailResult = await sendRenjiOrderConfirmationEmail(payload).catch((error) => ({ sent: false, reason: error.message }));
+      res.status(201).json({ ok: true, registration_id: result.lastInsertRowid, email: emailResult });
     } catch (error) {
       res.status(error.status || 500).json({ message: error.message || 'No se pudo registrar tu separacion' });
     }
@@ -427,18 +602,29 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
       const payload = readOrderPayload(req.body);
       const transaction = db.transaction(() => {
         restoreOrderStock(db, order);
-        db.prepare(
+        const updateOrder = db.prepare(
           `UPDATE renji_orders
            SET customer_name = ?, customer_cedula = ?, customer_city = ?, customer_address = ?, customer_phone = ?,
-               customer_instagram = ?, purchase_channel = ?, selection_type = ?, size = ?, hoodie_size = ?, pants_size = ?, quantity = ?,
-               deposit_amount = ?, pending_amount = ?, payment_status = ?, notes = ?, updated_at = datetime('now', 'localtime')
+               customer_email = ?, customer_instagram = ?, purchase_channel = ?, selection_type = ?, size = ?, hoodie_size = ?, pants_size = ?, quantity = ?,
+               deposit_amount = ?, pending_amount = ?, payment_status = ?, notes = ?,
+               stock_items_json = ?, production_items_json = ?, production_status = ?, updated_at = datetime('now', 'localtime')
            WHERE id = ? AND establishment_id = ?`
-        ).run(
+        );
+        const items = orderItemsForSelection(payload.selectionType, payload.quantity, payload);
+        const reservation = reserveRenjiStockForOrder(db, {
+          establishmentId,
+          orderId: order.id,
+          orderNumber: order.order_number || String(order.id),
+          items,
+          notesPrefix: 'Edicion '
+        });
+        updateOrder.run(
           payload.customerName,
           payload.cedula,
           payload.city,
           payload.address,
           payload.phone,
+          payload.email,
           payload.instagram,
           payload.purchaseChannel,
           payload.selectionType,
@@ -450,20 +636,12 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
           payload.pendingAmount,
           payload.paymentStatus,
           payload.notes,
+          JSON.stringify(reservation.stockItems),
+          JSON.stringify(reservation.productionItems),
+          reservation.productionStatus,
           order.id,
           establishmentId
         );
-        for (const item of orderItemsForSelection(payload.selectionType, payload.quantity, payload)) {
-          applyStockMovement(db, {
-            establishmentId,
-            orderId: order.id,
-            itemType: item.item_type,
-            size: item.size,
-            quantity: -item.quantity,
-            movementType: 'sale',
-            notes: `Edicion ${order.order_number || order.id}`
-          });
-        }
       });
       transaction();
       res.json(getRenjiOverview(db, establishmentId));
@@ -505,7 +683,7 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
       const result = db.prepare(
         `UPDATE renji_registrations
          SET customer_name = ?, customer_cedula = ?, customer_city = ?, customer_address = ?, customer_phone = ?,
-             customer_instagram = ?, purchase_channel = ?, selection_type = ?, size = ?, hoodie_size = ?, pants_size = ?, quantity = ?,
+             customer_email = ?, customer_instagram = ?, purchase_channel = ?, selection_type = ?, size = ?, hoodie_size = ?, pants_size = ?, quantity = ?,
              registration_type = ?, deposit_amount = ?, notes = ?
          WHERE id = ? AND establishment_id = ? AND status = 'pending'`
       ).run(
@@ -514,6 +692,7 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
         payload.city,
         payload.address,
         payload.phone,
+        payload.email,
         payload.instagram,
         payload.purchaseChannel,
         payload.selectionType,
@@ -609,6 +788,13 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
       const establishmentId = getRequestEstablishmentId(req);
       assertRenjiBusiness(db, establishmentId);
       const shippingStatus = req.body.shipping_status === 'sent' ? 'sent' : 'not_sent';
+      const order = db.prepare('SELECT * FROM renji_orders WHERE id = ? AND establishment_id = ?').get(req.params.id, establishmentId);
+      if (!order) {
+        return res.status(404).json({ message: 'Pedido no encontrado' });
+      }
+      if (shippingStatus === 'sent' && (order.production_status || 'ready') !== 'ready') {
+        return res.status(400).json({ message: 'No puedes marcar enviado mientras hay prendas en produccion.' });
+      }
       const result = db.prepare(
         `UPDATE renji_orders
          SET shipping_status = ?,
@@ -622,6 +808,33 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
       res.json(getRenjiOverview(db, establishmentId));
     } catch (error) {
       res.status(error.status || 500).json({ message: error.message || 'No se pudo actualizar el envio' });
+    }
+  });
+
+  app.patch('/api/renji/orders/:id/production-ready', requireAdmin, (req, res) => {
+    try {
+      const establishmentId = getRequestEstablishmentId(req);
+      assertRenjiBusiness(db, establishmentId);
+      const order = db.prepare('SELECT * FROM renji_orders WHERE id = ? AND establishment_id = ?').get(req.params.id, establishmentId);
+      if (!order) {
+        return res.status(404).json({ message: 'Pedido no encontrado' });
+      }
+      const stockItems = parseJsonArray(order.stock_items_json);
+      const productionItems = parseJsonArray(order.production_items_json);
+      if (!productionItems.length) {
+        return res.json(getRenjiOverview(db, establishmentId));
+      }
+      db.prepare(
+        `UPDATE renji_orders
+         SET stock_items_json = ?,
+             production_items_json = '[]',
+             production_status = 'ready',
+             updated_at = datetime('now', 'localtime')
+         WHERE id = ? AND establishment_id = ?`
+      ).run(JSON.stringify([...stockItems, ...productionItems]), order.id, establishmentId);
+      res.json(getRenjiOverview(db, establishmentId));
+    } catch (error) {
+      res.status(error.status || 500).json({ message: error.message || 'No se pudo marcar como listo' });
     }
   });
 
@@ -642,11 +855,12 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
          FROM renji_orders
          WHERE establishment_id = ?
            AND payment_status = 'paid'
+           AND COALESCE(production_status, 'ready') = 'ready'
            AND id IN (${placeholders})
          ORDER BY customer_name COLLATE NOCASE ASC, id ASC`
       ).all(establishmentId, ...ids).map(formatOrder);
       if (orders.length !== ids.length) {
-        return res.status(400).json({ message: 'Solo los pedidos pagados pueden generar guia' });
+        return res.status(400).json({ message: 'Solo los pedidos pagados y sin produccion pendiente pueden generar guia' });
       }
 
       const transaction = db.transaction(() => {
@@ -657,6 +871,7 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
                updated_at = datetime('now', 'localtime')
            WHERE establishment_id = ?
              AND payment_status = 'paid'
+             AND COALESCE(production_status, 'ready') = 'ready'
              AND id IN (${placeholders})`
         ).run(establishmentId, ...ids);
       });

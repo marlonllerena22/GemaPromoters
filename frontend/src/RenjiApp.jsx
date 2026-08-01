@@ -39,6 +39,7 @@ function scoped(path, establishmentId) {
 const emptyOrder = {
   customer_name: '',
   customer_cedula: '',
+  customer_email: '',
   customer_city: '',
   customer_address: '',
   customer_phone: '',
@@ -119,6 +120,7 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
     return {
       customer_name: record.customer_name || '',
       customer_cedula: record.customer_cedula || '',
+      customer_email: record.customer_email || '',
       customer_city: record.customer_city || '',
       customer_address: record.customer_address || '',
       customer_phone: record.customer_phone || '',
@@ -226,10 +228,20 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
     }
   }
 
+  async function markProductionReady(order) {
+    setError('');
+    try {
+      await api(scoped(`/renji/orders/${order.id}/production-ready`, establishmentId), { method: 'PATCH' });
+      await loadOverview('Pedido marcado como listo para guia');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   async function generateGuides() {
     setError('');
     const paidIds = selectedGuideIds.filter((id) => (
-      overview.orders.some((order) => order.id === id && order.payment_status === 'paid')
+      overview.orders.some((order) => order.id === id && canGenerateGuide(order))
     ));
     if (!paidIds.length) {
       setError('Selecciona al menos un pedido pagado para generar guia');
@@ -319,7 +331,21 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
   }
 
   function canGenerateGuide(order) {
-    return order.payment_status === 'paid';
+    return order.payment_status === 'paid' && (order.production_status || 'ready') === 'ready';
+  }
+
+  function productionLabel(order) {
+    const status = order.production_status || 'ready';
+    if (status === 'in_production') return 'EN PRODUCCION';
+    if (status === 'partial_production') return 'PARTE EN PRODUCCION';
+    return 'LISTO';
+  }
+
+  function productionItemsText(order) {
+    const items = order.production_items || [];
+    return items.length
+      ? items.map((item) => `${item.item_type === 'hoodie' ? 'Hoodie' : 'Pantalon'} ${item.size} x${item.quantity}`).join(', ')
+      : 'Sin prendas pendientes';
   }
 
   function logout() {
@@ -351,6 +377,7 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
             <article><WalletCards size={22} /><span>Pedidos pagados</span><strong>{overview.summary.paid_orders || 0}</strong></article>
             <article><Truck size={22} /><span>Pendientes de envio</span><strong>{overview.summary.pending_shipping || 0}</strong></article>
             <article><PackagePlus size={22} /><span>Registros por confirmar</span><strong>{overview.summary.pending_registrations || 0}</strong></article>
+            <article><Shirt size={22} /><span>En produccion</span><strong>{overview.summary.production_items || 0}</strong></article>
           </section>
 
           <section className="renji-panel renji-link-card">
@@ -374,6 +401,7 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
               <form className="renji-form" onSubmit={submitOrder}>
                 <label>Nombres completos<input value={orderForm.customer_name} onChange={(e) => setOrderForm({ ...orderForm, customer_name: e.target.value })} required /></label>
                 <label>Cedula<input value={orderForm.customer_cedula} onChange={(e) => setOrderForm({ ...orderForm, customer_cedula: e.target.value })} /></label>
+                <label>Correo<input type="email" value={orderForm.customer_email} onChange={(e) => setOrderForm({ ...orderForm, customer_email: e.target.value })} /></label>
                 <label>Ciudad<input value={orderForm.customer_city} onChange={(e) => setOrderForm({ ...orderForm, customer_city: e.target.value })} required /></label>
                 <label>Direccion<input value={orderForm.customer_address} onChange={(e) => setOrderForm({ ...orderForm, customer_address: e.target.value })} required /></label>
                 <label>Celular<input value={orderForm.customer_phone} onChange={(e) => setOrderForm({ ...orderForm, customer_phone: e.target.value })} required /></label>
@@ -527,9 +555,10 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                     <th>Pedido</th>
                     <th>Cliente</th>
                     <th>Prenda</th>
-                    <th>Pago</th>
-                    <th>Envio</th>
-                    <th>Acciones</th>
+                      <th>Pago</th>
+                      <th>Produccion</th>
+                      <th>Envio</th>
+                      <th>Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -548,17 +577,54 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                           </div>
                         )}
                       </td>
+                      <td>
+                        <span className={`renji-pill production-${order.production_status || 'ready'}`}>{productionLabel(order)}</span>
+                        {(order.production_status || 'ready') !== 'ready' && <small>{productionItemsText(order)}</small>}
+                      </td>
                       <td><span className={`renji-pill ${order.shipping_status}`}>{order.shipping_status === 'sent' ? 'Enviado' : 'No enviado'}</span></td>
                       <td>
                         <div className="renji-actions">
                           <button onClick={() => { setEditingOrderId(order.id); setEditingRegistrationId(null); setOrderForm(formFromRecord(order)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><Edit3 size={15} />Editar</button>
                           <button onClick={() => markPaid(order)} disabled={order.payment_status === 'paid'}><CheckCircle2 size={15} />Pagado</button>
+                          {(order.production_status || 'ready') !== 'ready' && <button onClick={() => markProductionReady(order)}><CheckCircle2 size={15} />Listo</button>}
                           <button onClick={() => toggleShipping(order)}><Truck size={15} />{order.shipping_status === 'sent' ? 'No enviado' : 'Enviado'}</button>
                           <button onClick={() => deleteOrder(order)}><Trash2 size={15} />Eliminar</button>
                         </div>
                       </td>
                     </tr>
-                  )) : <tr><td colSpan="6">Aun no hay ventas registradas.</td></tr>}
+                  )) : <tr><td colSpan="7">Aun no hay ventas registradas.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="renji-panel">
+            <div className="panel-title">
+              <h3>Produccion</h3>
+            </div>
+            <div className="renji-table-wrap">
+              <table className="renji-table">
+                <thead>
+                  <tr>
+                    <th>Pedido</th>
+                    <th>Cliente</th>
+                    <th>Prendas pendientes</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {overview.orders.filter((order) => (order.production_status || 'ready') !== 'ready').length ? overview.orders
+                    .filter((order) => (order.production_status || 'ready') !== 'ready')
+                    .map((order) => (
+                      <tr key={order.id}>
+                        <td>{order.order_number}</td>
+                        <td><strong>{order.customer_name}</strong><small>{order.customer_phone}</small></td>
+                        <td>{productionItemsText(order)}</td>
+                        <td><span className={`renji-pill production-${order.production_status}`}>{productionLabel(order)}</span></td>
+                        <td><button className="renji-primary" onClick={() => markProductionReady(order)}><CheckCircle2 size={15} />Marcar listo</button></td>
+                      </tr>
+                    )) : <tr><td colSpan="5">No hay prendas pendientes de produccion.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -581,7 +647,7 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                   <span>{order.customer_name}</span>
                   <small>{order.customer_city} - {renjiItemDetail(order)}</small>
                   <b className={`renji-guide-pay-status ${paymentClass(order)}`}>{paymentLabel(order)}</b>
-                  {!canGenerateGuide(order) && <small className="renji-guide-lock">Primero marcar como pagado</small>}
+                  {!canGenerateGuide(order) && <small className="renji-guide-lock">{order.payment_status !== 'paid' ? 'Primero marcar como pagado' : 'Pendiente de produccion'}</small>}
                   <b className={`renji-guide-status ${order.shipping_status}`}>{order.shipping_status === 'sent' ? 'Enviado' : 'No enviado'}</b>
                 </label>
               )) : <div className="empty-state">No hay pedidos para guias.</div>}
@@ -652,11 +718,12 @@ export function RenjiPublicRegistration({ mode = 'paid' }) {
         <span>PROMOTERS / RENJI</span>
         <h1>{isSeparation ? 'Datos de separacion' : 'Datos para envio'}</h1>
         <p>{isSeparation ? 'Completa tus datos y el valor que transferiste para separar tu pedido.' : 'Completa tus datos exactamente como deben aparecer en la guia de envio.'}</p>
-        {sent && <div className="alert success">Datos enviados correctamente. Revisaremos tu informacion antes de generar el envio.</div>}
+        {sent && <div className="alert success">Datos enviados correctamente. Te enviamos una confirmacion al correo registrado.</div>}
         {error && <div className="alert error">{error}</div>}
         <form className="renji-form" onSubmit={submit}>
           <label>Nombres completos<input value={form.customer_name} onChange={(e) => setForm({ ...form, customer_name: e.target.value })} required /></label>
           <label>Cedula<input value={form.customer_cedula} onChange={(e) => setForm({ ...form, customer_cedula: e.target.value })} required /></label>
+          <label>Correo electronico<input type="email" value={form.customer_email} onChange={(e) => setForm({ ...form, customer_email: e.target.value })} required /></label>
           <label>Ciudad<input value={form.customer_city} onChange={(e) => setForm({ ...form, customer_city: e.target.value })} required /></label>
           <label>Direccion<input value={form.customer_address} onChange={(e) => setForm({ ...form, customer_address: e.target.value })} required /></label>
           <label>Celular<input value={form.customer_phone} onChange={(e) => setForm({ ...form, customer_phone: e.target.value })} required /></label>

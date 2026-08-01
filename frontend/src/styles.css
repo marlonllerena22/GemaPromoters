@@ -1140,6 +1140,21 @@ input[type="file"] {
   color: #ffffff;
 }
 
+.renji-pill.production-ready {
+  background: #e0f2fe;
+  color: #075985;
+}
+
+.renji-pill.production-in_production {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.renji-pill.production-partial_production {
+  background: #fef3c7;
+  color: #92400e;
+}
+
 .renji-inline-edit {
   display: grid;
   gap: 6px;
