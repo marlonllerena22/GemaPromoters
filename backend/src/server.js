@@ -2056,6 +2056,20 @@ app.post('/api/box-office-ticket-exchanges', requireAdmin, (req, res) => {
     return res.status(400).json({ message: 'Selecciona una localidad activa.' });
   }
   const createdBy = req.user?.username || req.user?.role || 'admin';
+  const matchingPending = db.prepare(
+    `SELECT id, recipient_name
+     FROM box_office_ticket_exchanges
+     WHERE establishment_id = ? AND event_id = ? AND recipient_cedula = ? AND location = ? AND status = 'pending'`
+  ).all(establishmentId, eventId, recipientCedula, location)
+    .find((row) => normalizeLookup(row.recipient_name) === normalizeLookup(recipientName));
+  if (matchingPending) {
+    db.prepare(
+      `UPDATE box_office_ticket_exchanges
+       SET quantity = quantity + ?, notes = CASE WHEN ? != '' THEN ? ELSE notes END
+       WHERE id = ? AND establishment_id = ? AND event_id = ?`
+    ).run(quantity, notes, notes, matchingPending.id, establishmentId, eventId);
+    return res.status(200).json({ ok: true, exchange_id: matchingPending.id, merged: true, report: boxOfficeTicketExchangeReport(eventId, establishmentId) });
+  }
   const result = db.prepare(
     `INSERT INTO box_office_ticket_exchanges
      (establishment_id, event_id, registered_date, recipient_name, recipient_cedula, location, quantity, notes, created_by)

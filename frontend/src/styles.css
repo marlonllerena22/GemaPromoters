@@ -823,6 +823,40 @@ input[type="file"] {
   border-color: #fde68a;
 }
 
+.box-office-form-panel {
+  padding: 0;
+}
+
+.box-office-form-panel.open {
+  padding-bottom: 18px;
+}
+
+.box-office-form-toggle {
+  align-items: center;
+  background: linear-gradient(135deg, #451a03, #92400e);
+  border: 0;
+  color: #ffffff;
+  cursor: pointer;
+  display: flex;
+  font-weight: 900;
+  justify-content: space-between;
+  min-height: 58px;
+  padding: 16px 18px;
+  width: 100%;
+}
+
+.box-office-form-toggle svg {
+  transition: transform 0.18s ease;
+}
+
+.box-office-form-toggle svg.rotated {
+  transform: rotate(180deg);
+}
+
+.box-office-fast-form {
+  padding: 18px 18px 0;
+}
+
 .box-office-ticket-admin .panel-title h3 {
   color: #78350f;
 }
@@ -857,6 +891,11 @@ input[type="file"] {
   display: block;
   font-size: 12px;
   margin-top: 4px;
+}
+
+.box-office-list-panel .primary-button {
+  background: #16a34a;
+  color: #ffffff;
 }
 
 .box-office-row-done {

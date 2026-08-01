@@ -6,6 +6,7 @@ import {
   Building2,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
   CircleDollarSign,
   Copy,
   CreditCard,
@@ -925,7 +926,7 @@ function AdminApp({ user, onLogout }) {
       setSelectedEventId(String(eventId));
     }
 
-    const [dashboard, promoters, sales, ranking, withdrawals, locations, levels, banners, branches, physicalTickets, complimentaryTickets, boxOfficeTickets] = await Promise.all([
+    const [dashboard, promoters, sales, ranking, withdrawals, locations, levels, banners, branches, physicalTickets, complimentaryTickets] = await Promise.all([
       api(withScope('/dashboard', eventId, establishmentId)),
       api(withScope('/promoters', eventId, establishmentId)),
       api(withScope('/sales', eventId, establishmentId)),
@@ -936,10 +937,9 @@ function AdminApp({ user, onLogout }) {
       api(withScope('/event-banners', eventId, establishmentId)),
       api(withScope('/branches', '', establishmentId)),
       api(withScope('/physical-tickets/report', eventId, establishmentId)),
-      api(withScope('/complimentary-tickets/report', eventId, establishmentId)),
-      api(withScope('/box-office-ticket-exchanges', eventId, establishmentId))
+      api(withScope('/complimentary-tickets/report', eventId, establishmentId))
     ]);
-    setData({ dashboard, establishments, branches, events, promoters, sales, ranking, withdrawals, locations, physicalTickets, complimentaryTickets, boxOfficeTickets, levels, banners });
+    setData({ dashboard, establishments, branches, events, promoters, sales, ranking, withdrawals, locations, physicalTickets, complimentaryTickets, boxOfficeTickets: null, levels, banners });
     setLoading(false);
   }
 
@@ -2257,17 +2257,28 @@ function BoxOfficeTicketExchange({ locations, initialReport, eventId, establishm
   const [form, setForm] = useState(emptyBoxOfficeExchange);
   const [editingId, setEditingId] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [formOpen, setFormOpen] = useState(false);
+  const [loadingList, setLoadingList] = useState(false);
   const [error, setError] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
   const activeLocations = locations.filter((location) => location.status === 'active');
   const totals = report?.totals || {};
 
   useEffect(() => {
-    setReport(initialReport);
+    if (initialReport) {
+      setReport(initialReport);
+    }
   }, [initialReport]);
+
+  useEffect(() => {
+    if (eventId && establishmentId) {
+      loadExchangeList('');
+    }
+  }, [eventId, establishmentId]);
 
   async function loadExchangeList(search = searchTerm, message = '') {
     setError('');
+    setLoadingList(true);
     try {
       const query = new URLSearchParams();
       if (search.trim()) {
@@ -2281,6 +2292,8 @@ function BoxOfficeTicketExchange({ locations, initialReport, eventId, establishm
       }
     } catch (err) {
       setError(err.message);
+    } finally {
+      setLoadingList(false);
     }
   }
 
@@ -2296,6 +2309,7 @@ function BoxOfficeTicketExchange({ locations, initialReport, eventId, establishm
       });
       setForm({ ...emptyBoxOfficeExchange, registered_date: form.registered_date });
       setEditingId(null);
+      setFormOpen(false);
       setSearchTerm('');
       await loadExchangeList('', wasEditing ? 'Registro actualizado' : 'Registro agregado a canje de boleteria');
       onRefresh(wasEditing ? 'Registro de boleteria actualizado' : 'Registro de boleteria creado');
@@ -2306,6 +2320,7 @@ function BoxOfficeTicketExchange({ locations, initialReport, eventId, establishm
 
   function editExchange(row) {
     setEditingId(row.id);
+    setFormOpen(true);
     setForm({
       registered_date: row.registered_date || new Date().toISOString().slice(0, 10),
       recipient_name: row.recipient_name || '',
@@ -2335,6 +2350,7 @@ function BoxOfficeTicketExchange({ locations, initialReport, eventId, establishm
   function clearForm() {
     setEditingId(null);
     setForm(emptyBoxOfficeExchange);
+    setFormOpen(false);
   }
 
   return (
@@ -2353,6 +2369,9 @@ function BoxOfficeTicketExchange({ locations, initialReport, eventId, establishm
             <Input label="Buscar nombre, cedula o localidad" value={searchTerm} onChange={setSearchTerm} />
             <button className="ghost-button" type="button" onClick={() => loadExchangeList(searchTerm)}>Buscar</button>
             <button className="ghost-button" type="button" onClick={() => { setSearchTerm(''); loadExchangeList(''); }}>Ver todos</button>
+            <button className="primary-button" type="button" onClick={() => { clearForm(); setFormOpen(true); document.getElementById('box-office-exchange-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}>
+              <Plus size={16} />Agregar registro
+            </button>
           </div>
         </div>
         <div className="stats-grid box-office-stats">
@@ -2361,27 +2380,6 @@ function BoxOfficeTicketExchange({ locations, initialReport, eventId, establishm
           <article><span>Canjeadas</span><strong>{totals.exchanged || 0}</strong></article>
           <article><span>Personas registradas</span><strong>{totals.records || 0}</strong></article>
         </div>
-      </section>
-
-      <section className="panel box-office-form-panel" id="box-office-exchange-form">
-        <div className="panel-title">
-          <h3>{editingId ? 'Editar registro de boleteria' : 'Agregar persona a la lista'}</h3>
-          {editingId && <button className="ghost-button" type="button" onClick={clearForm}>Cancelar edicion</button>}
-        </div>
-        <form className="form-grid" onSubmit={submitExchange}>
-          <Input type="date" label="Fecha registro" value={form.registered_date} onChange={(registered_date) => setForm({ ...form, registered_date })} />
-          <Input label="Nombre" value={form.recipient_name} onChange={(recipient_name) => setForm({ ...form, recipient_name })} />
-          <Input label="Cedula" value={form.recipient_cedula} onChange={(recipient_cedula) => setForm({ ...form, recipient_cedula })} />
-          <label>Localidad
-            <select value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} required>
-              <option value="">Seleccionar</option>
-              {activeLocations.map((location) => <option value={location.name} key={location.id}>{location.name}</option>)}
-            </select>
-          </label>
-          <Input type="number" label="Cantidad" value={form.quantity} onChange={(quantity) => setForm({ ...form, quantity })} />
-          <Input label="Observacion" value={form.notes} onChange={(notes) => setForm({ ...form, notes })} />
-          <button className="primary-button span-2" type="submit">{editingId ? 'Guardar cambios' : 'Guardar en lista de canje'}</button>
-        </form>
       </section>
 
       <section className="panel">
@@ -2399,7 +2397,10 @@ function BoxOfficeTicketExchange({ locations, initialReport, eventId, establishm
       </section>
 
       <section className="panel box-office-list-panel">
-        <div className="panel-title"><h3>Lista de canje</h3></div>
+        <div className="panel-title">
+          <h3>Lista de canje</h3>
+          {loadingList && <span className="section-eyebrow">Cargando...</span>}
+        </div>
         <div className="table-wrap">
           <table>
             <thead>
@@ -2442,6 +2443,30 @@ function BoxOfficeTicketExchange({ locations, initialReport, eventId, establishm
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section className={`panel box-office-form-panel ${formOpen ? 'open' : ''}`} id="box-office-exchange-form">
+        <button className="box-office-form-toggle" type="button" onClick={() => setFormOpen((open) => !open)}>
+          <span>{editingId ? 'Editar registro de boleteria' : 'Agregar persona a la lista'}</span>
+          <ChevronDown className={formOpen ? 'rotated' : ''} size={18} />
+        </button>
+        {formOpen && (
+          <form className="form-grid box-office-fast-form" onSubmit={submitExchange}>
+            <Input type="date" label="Fecha registro" value={form.registered_date} onChange={(registered_date) => setForm({ ...form, registered_date })} />
+            <Input label="Nombre" value={form.recipient_name} onChange={(recipient_name) => setForm({ ...form, recipient_name })} />
+            <Input label="Cedula" value={form.recipient_cedula} onChange={(recipient_cedula) => setForm({ ...form, recipient_cedula })} />
+            <label>Localidad
+              <select value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} required>
+                <option value="">Seleccionar</option>
+                {activeLocations.map((location) => <option value={location.name} key={location.id}>{location.name}</option>)}
+              </select>
+            </label>
+            <Input type="number" label="Cantidad" value={form.quantity} onChange={(quantity) => setForm({ ...form, quantity })} />
+            <Input label="Observacion" value={form.notes} onChange={(notes) => setForm({ ...form, notes })} />
+            <button className="primary-button span-2" type="submit">{editingId ? 'Guardar cambios' : 'Guardar en lista de canje'}</button>
+            {editingId && <button className="ghost-button span-2" type="button" onClick={clearForm}>Cancelar edicion</button>}
+          </form>
+        )}
       </section>
     </div>
   );
