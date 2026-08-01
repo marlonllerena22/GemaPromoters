@@ -489,6 +489,239 @@ async function createPhysicalDailyReportImage(report, reportDate, reportNote = '
   return canvasToBlob(canvas);
 }
 
+async function createEventBoxOfficeReportImage(report, reportDate) {
+  const current = report || {};
+  const totals = current.totals || {};
+  const allTotals = current.all_totals || {};
+  const sales = current.sales || [];
+  const expenses = current.expenses || [];
+  const byLocation = current.by_location || [];
+  const inventory = current.inventory_by_location || [];
+  const currentCashBox = allTotals.cashBox ?? totals.cashBox;
+  const canvas = document.createElement('canvas');
+  canvas.width = 1240;
+  canvas.height = 1754;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = '#15803d';
+  ctx.lineWidth = 5;
+  ctx.strokeRect(34, 34, canvas.width - 68, canvas.height - 68);
+
+  ctx.fillStyle = '#14532d';
+  ctx.font = '800 30px Arial';
+  ctx.fillText('PROMOTERS / GEMASHOW', 70, 96);
+  ctx.font = '900 50px Arial';
+  ctx.fillText('Reporte boleteria evento', 70, 154);
+  ctx.fillStyle = '#15803d';
+  ctx.font = '800 28px Arial';
+  ctx.fillText(`Fecha: ${longSpanishDate(current.date_from || reportDate)}`, 70, 205);
+
+  const summary = [
+    ['Stock total', totals.stockQuantity || 0],
+    ['Vendidas', totals.soldQuantity || 0],
+    ['Canjeadas online', totals.exchangedQuantity || 0],
+    ['Faltantes', totals.remainingQuantity || 0],
+    ['Total vendido', money(totals.total)],
+    ['Gastos', money(totals.expenses)],
+    ['Caja inicial', money(totals.cashStart)],
+    ['Caja actual', money(currentCashBox)]
+  ];
+  summary.forEach(([label, value], index) => {
+    const col = index % 4;
+    const row = Math.floor(index / 4);
+    const x = 70 + col * 275;
+    const y = 250 + row * 106;
+    ctx.fillStyle = index === 7 ? '#dcfce7' : '#f0fdf4';
+    ctx.fillRect(x, y, 246, 78);
+    ctx.strokeStyle = index === 7 ? '#16a34a' : '#bbf7d0';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, 246, 78);
+    ctx.fillStyle = '#166534';
+    ctx.font = '800 17px Arial';
+    drawWrappedCanvasText(ctx, label.toUpperCase(), x + 14, y + 26, 220, 18, 2);
+    ctx.fillStyle = '#052e16';
+    ctx.font = '900 29px Arial';
+    ctx.fillText(String(value), x + 14, y + 63);
+  });
+
+  function drawTable(title, headers, rows, startY, options = {}) {
+    const x = 70;
+    const width = 1100;
+    const colWidths = options.colWidths || headers.map(() => width / headers.length);
+    let y = startY;
+    ctx.fillStyle = '#14532d';
+    ctx.font = '900 29px Arial';
+    ctx.fillText(title, x, y);
+    y += 22;
+    let cellX = x;
+    headers.forEach((header, index) => {
+      ctx.fillStyle = '#166534';
+      ctx.fillRect(cellX, y, colWidths[index], 42);
+      ctx.strokeStyle = '#052e16';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(cellX, y, colWidths[index], 42);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '900 18px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(header, cellX + colWidths[index] / 2, y + 22);
+      cellX += colWidths[index];
+    });
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    y += 42;
+    const visibleRows = rows.length ? rows : [headers.map((_, index) => index === 0 ? 'Sin registros' : '-')];
+    visibleRows.slice(0, options.maxRows || 12).forEach((row, rowIndex) => {
+      const height = options.rowHeight || 50;
+      let rowX = x;
+      row.forEach((value, index) => {
+        ctx.fillStyle = rowIndex % 2 === 0 ? '#ffffff' : '#f8fafc';
+        ctx.fillRect(rowX, y, colWidths[index], height);
+        ctx.strokeStyle = '#111827';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(rowX, y, colWidths[index], height);
+        ctx.fillStyle = '#111827';
+        ctx.font = index === 0 ? '800 20px Arial' : '700 20px Arial';
+        if (String(value).length > 22) {
+          drawWrappedCanvasText(ctx, value, rowX + 12, y + 24, colWidths[index] - 20, 20, 2);
+        } else {
+          ctx.fillText(String(value), rowX + 12, y + 32);
+        }
+        rowX += colWidths[index];
+      });
+      y += height;
+    });
+    return y + 48;
+  }
+
+  const locationRows = byLocation.map((row) => [row.location, row.quantity, money(row.total)]);
+  let y = drawTable('Ventas por localidad', ['Localidad', 'Cantidad', 'Total'], locationRows, 480, { colWidths: [560, 220, 320], rowHeight: 50, maxRows: 8 });
+  const expenseRows = expenses.map((row) => [row.description, money(row.amount)]);
+  y = drawTable('Gastos del dia', ['Detalle', 'Valor'], expenseRows, y, { colWidths: [760, 340], rowHeight: 48, maxRows: 7 });
+  const inventoryRows = inventory.map((row) => [row.location, row.stock_quantity, row.sold_quantity, row.exchanged_quantity, row.remaining_quantity]);
+  drawTable('Stock actual por localidad', ['Localidad', 'Stock', 'Vendidas', 'Online', 'Faltantes'], inventoryRows, y, { colWidths: [380, 170, 180, 170, 200], rowHeight: 45, maxRows: 9 });
+
+  ctx.fillStyle = '#6b7280';
+  ctx.font = '16px Arial';
+  ctx.fillText(`Ventas registradas en el dia: ${sales.length}`, 70, 1685);
+  ctx.fillText('Reporte generado por PROMOTERS', 860, 1685);
+  return canvasToBlob(canvas);
+}
+
+async function createBoxOfficeTicketExchangeReportImage(report) {
+  const current = report || {};
+  const exchanges = current.exchanges || [];
+  const groups = [
+    { key: 'courtesy', title: 'CORTESIAS', color: '#92400e', fill: '#fffbeb' },
+    { key: 'ticketmas', title: 'TICKETMAS', color: '#1d4ed8', fill: '#eff6ff' }
+  ];
+  const canvas = document.createElement('canvas');
+  canvas.width = 1240;
+  canvas.height = 1754;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = '#111827';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(34, 34, canvas.width - 68, canvas.height - 68);
+
+  ctx.fillStyle = '#111827';
+  ctx.font = '800 30px Arial';
+  ctx.fillText('PROMOTERS / GEMASHOW', 70, 96);
+  ctx.font = '900 48px Arial';
+  ctx.fillText('Reporte canje boleteria', 70, 154);
+  ctx.fillStyle = '#6b7280';
+  ctx.font = '700 22px Arial';
+  ctx.fillText(`Generado: ${longSpanishDate(new Date().toISOString().slice(0, 10))}`, 70, 202);
+
+  function drawGroup(group, startY) {
+    const rows = exchanges.filter((row) => (row.source_type || 'courtesy') === group.key);
+    const exchanged = rows.filter((row) => row.status === 'exchanged');
+    const pending = rows.filter((row) => row.status !== 'exchanged');
+    const exchangedQty = exchanged.reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+    const pendingQty = pending.reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+    let y = startY;
+    ctx.fillStyle = group.fill;
+    ctx.fillRect(70, y, 1100, 78);
+    ctx.strokeStyle = group.color;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(70, y, 1100, 78);
+    ctx.fillStyle = group.color;
+    ctx.font = '900 30px Arial';
+    ctx.fillText(group.title, 94, y + 50);
+    ctx.fillStyle = '#111827';
+    ctx.font = '900 24px Arial';
+    ctx.fillText(`Canjeadas: ${exchangedQty}`, 530, y + 34);
+    ctx.fillText(`No canjeadas: ${pendingQty}`, 530, y + 63);
+    ctx.fillText(`Total: ${exchangedQty + pendingQty}`, 875, y + 50);
+    y += 112;
+
+    function drawStatus(title, list, statusColor) {
+      ctx.fillStyle = statusColor;
+      ctx.font = '900 25px Arial';
+      ctx.fillText(title, 70, y);
+      y += 20;
+      const byLocation = new Map();
+      for (const row of list) {
+        const currentRow = byLocation.get(row.location) || { location: row.location, quantity: 0, people: 0 };
+        currentRow.quantity += Number(row.quantity || 0);
+        currentRow.people += 1;
+        byLocation.set(row.location, currentRow);
+      }
+      const rowsToDraw = [...byLocation.values()].sort((a, b) => a.location.localeCompare(b.location));
+      const tableRows = rowsToDraw.length ? rowsToDraw : [{ location: 'Sin registros', quantity: 0, people: 0 }];
+      const colWidths = [560, 250, 290];
+      const headers = ['Localidad', 'Entradas', 'Personas'];
+      let x = 70;
+      headers.forEach((header, index) => {
+        ctx.fillStyle = '#111827';
+        ctx.fillRect(x, y, colWidths[index], 38);
+        ctx.strokeStyle = '#111827';
+        ctx.strokeRect(x, y, colWidths[index], 38);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '900 17px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(header, x + colWidths[index] / 2, y + 20);
+        x += colWidths[index];
+      });
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      y += 38;
+      tableRows.slice(0, 8).forEach((row, index) => {
+        x = 70;
+        const values = [row.location, row.quantity, row.people];
+        values.forEach((value, valueIndex) => {
+          ctx.fillStyle = index % 2 === 0 ? '#ffffff' : '#f8fafc';
+          ctx.fillRect(x, y, colWidths[valueIndex], 36);
+          ctx.strokeStyle = '#d1d5db';
+          ctx.strokeRect(x, y, colWidths[valueIndex], 36);
+          ctx.fillStyle = '#111827';
+          ctx.font = valueIndex === 0 ? '800 18px Arial' : '900 18px Arial';
+          ctx.fillText(String(value), x + 12, y + 24);
+          x += colWidths[valueIndex];
+        });
+        y += 36;
+      });
+      return y + 34;
+    }
+
+    y = drawStatus('Canjeadas', exchanged, '#15803d');
+    y = drawStatus('No canjeadas', pending, '#b91c1c');
+    return y + 18;
+  }
+
+  let y = 260;
+  groups.forEach((group) => {
+    y = drawGroup(group, y);
+  });
+  ctx.fillStyle = '#6b7280';
+  ctx.font = '16px Arial';
+  ctx.fillText('Reporte generado por PROMOTERS', 70, 1685);
+  return canvasToBlob(canvas);
+}
+
 function benefitsText(items) {
   return Array.isArray(items) ? items.join('\n') : String(items || '');
 }
@@ -2308,6 +2541,21 @@ function EventBoxOffice({ locations, eventId, establishmentId, onRefresh }) {
     }
   }
 
+  async function generateReportImage() {
+    setError('');
+    try {
+      const query = new URLSearchParams({ date_from: reportDate, date_to: reportDate });
+      const nextReport = await api(withScope(`/event-box-office/report?${query.toString()}`, eventId, establishmentId));
+      setReport(nextReport);
+      const blob = await createEventBoxOfficeReportImage(nextReport, reportDate);
+      downloadBlob(blob, `Reporte boleteria evento ${nextReport?.date_from || reportDate}.png`);
+      setStatusMessage('Imagen del reporte descargada');
+      setTimeout(() => setStatusMessage(''), 3200);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   async function submitSale(event) {
     event.preventDefault();
     setError('');
@@ -2383,7 +2631,8 @@ function EventBoxOffice({ locations, eventId, establishmentId, onRefresh }) {
           </div>
           <div className="row-actions physical-report-toolbar open">
             <Input type="date" label="Fecha reporte" value={reportDate} onChange={setReportDate} />
-            <button className="ghost-button" type="button" onClick={() => loadReport(reportDate)}>Generar</button>
+            <button className="ghost-button" type="button" onClick={() => loadReport(reportDate)}>Actualizar</button>
+            <button className="primary-button" type="button" onClick={generateReportImage}>Generar reporte</button>
           </div>
         </div>
         <div className="stats-grid event-box-office-stats">
@@ -2609,6 +2858,21 @@ function BoxOfficeTicketExchange({ locations, initialReport, eventId, establishm
     }
   }
 
+  async function generateExchangeReportImage() {
+    setError('');
+    try {
+      const nextReport = await api(withScope('/box-office-ticket-exchanges', eventId, establishmentId));
+      setReport(nextReport);
+      setSearchTerm('');
+      const blob = await createBoxOfficeTicketExchangeReportImage(nextReport);
+      downloadBlob(blob, `Reporte canje boleteria ${new Date().toISOString().slice(0, 10)}.png`);
+      setStatusMessage('Imagen del reporte de canje descargada');
+      setTimeout(() => setStatusMessage(''), 3200);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   function clearForm() {
     setEditingId(null);
     setForm(emptyBoxOfficeExchange);
@@ -2631,6 +2895,7 @@ function BoxOfficeTicketExchange({ locations, initialReport, eventId, establishm
             <Input label="Buscar nombre, cedula o localidad" value={searchTerm} onChange={setSearchTerm} />
             <button className="ghost-button" type="button" onClick={() => loadExchangeList(searchTerm)}>Buscar</button>
             <button className="ghost-button" type="button" onClick={() => { setSearchTerm(''); loadExchangeList(''); }}>Ver todos</button>
+            <button className="ghost-button" type="button" onClick={generateExchangeReportImage}>Reporte canjes</button>
             <button className="primary-button" type="button" onClick={() => { clearForm(); setFormOpen(true); document.getElementById('box-office-exchange-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}>
               <Plus size={16} />Agregar registro
             </button>
@@ -2661,6 +2926,26 @@ function BoxOfficeTicketExchange({ locations, initialReport, eventId, establishm
               <b>Pendientes: {row.pending}</b>
             </article>
           )) : <article className="empty"><strong>Sin registros</strong><span>Aun no hay entradas para canje de boleteria.</span></article>}
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-title"><h3>Cortesias y Ticketmas</h3></div>
+        <div className="box-office-source-grid">
+          {['courtesy', 'ticketmas'].map((sourceType) => {
+            const label = sourceType === 'ticketmas' ? 'TICKETMAS' : 'CORTESIA';
+            const rows = (report?.exchanges || []).filter((row) => (row.source_type || 'courtesy') === sourceType);
+            const exchanged = rows.filter((row) => row.status === 'exchanged').reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+            const pending = rows.filter((row) => row.status !== 'exchanged').reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+            return (
+              <article key={sourceType} className={sourceType === 'ticketmas' ? 'ticketmas' : 'courtesy'}>
+                <strong>{label}</strong>
+                <span>Canjeadas: {exchanged}</span>
+                <span>No canjeadas: {pending}</span>
+                <b>Total: {exchanged + pending}</b>
+              </article>
+            );
+          })}
         </div>
       </section>
 
