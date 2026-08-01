@@ -1978,6 +1978,138 @@ app.post('/api/complimentary-tickets/redemptions', requireAdmin, (req, res) => {
   res.status(201).json({ ok: true, redemption_id: result.lastInsertRowid, report: complimentaryTicketsReport(eventId, establishmentId, redemptionDate, redemptionDate) });
 });
 
+function boxOfficeTicketExchangeReport(eventId, establishmentId, search = '') {
+  const cleanSearch = String(search || '').trim();
+  const searchLike = `%${cleanSearch}%`;
+  const rows = cleanSearch
+    ? db.prepare(
+      `SELECT *
+       FROM box_office_ticket_exchanges
+       WHERE establishment_id = ? AND event_id = ?
+         AND (recipient_name LIKE ? OR recipient_cedula LIKE ? OR location LIKE ? OR exchange_number LIKE ?)
+       ORDER BY CASE status WHEN 'pending' THEN 0 ELSE 1 END, recipient_name COLLATE NOCASE, id DESC`
+    ).all(establishmentId, eventId, searchLike, searchLike, searchLike, searchLike)
+    : db.prepare(
+      `SELECT *
+       FROM box_office_ticket_exchanges
+       WHERE establishment_id = ? AND event_id = ?
+       ORDER BY CASE status WHEN 'pending' THEN 0 ELSE 1 END, recipient_name COLLATE NOCASE, id DESC`
+    ).all(establishmentId, eventId);
+  const allRows = db.prepare(
+    `SELECT *
+     FROM box_office_ticket_exchanges
+     WHERE establishment_id = ? AND event_id = ?`
+  ).all(establishmentId, eventId);
+  const byLocationMap = new Map();
+  for (const row of allRows) {
+    const current = byLocationMap.get(row.location) || { location: row.location, quantity: 0, pending: 0, exchanged: 0 };
+    const quantity = Number(row.quantity || 0);
+    current.quantity += quantity;
+    if (row.status === 'exchanged') {
+      current.exchanged += quantity;
+    } else {
+      current.pending += quantity;
+    }
+    byLocationMap.set(row.location, current);
+  }
+  const totals = allRows.reduce((current, row) => {
+    const quantity = Number(row.quantity || 0);
+    current.quantity += quantity;
+    if (row.status === 'exchanged') {
+      current.exchanged += quantity;
+      current.exchanged_records += 1;
+    } else {
+      current.pending += quantity;
+      current.pending_records += 1;
+    }
+    current.records += 1;
+    return current;
+  }, { records: 0, quantity: 0, pending: 0, exchanged: 0, pending_records: 0, exchanged_records: 0 });
+  return {
+    search: cleanSearch,
+    exchanges: rows,
+    all_exchanges: allRows,
+    by_location: [...byLocationMap.values()].sort((a, b) => a.location.localeCompare(b.location)),
+    totals
+  };
+}
+
+app.get('/api/box-office-ticket-exchanges', requireAdmin, (req, res) => {
+  const eventId = getRequestEventId(req);
+  const establishmentId = getRequestEstablishmentId(req);
+  res.json(boxOfficeTicketExchangeReport(eventId, establishmentId, req.query.search));
+});
+
+app.post('/api/box-office-ticket-exchanges', requireAdmin, (req, res) => {
+  const eventId = getRequestEventId(req);
+  const establishmentId = getRequestEstablishmentId(req);
+  const registeredDate = String(req.body.registered_date || new Date().toISOString().slice(0, 10)).trim();
+  const recipientName = String(req.body.recipient_name || '').trim();
+  const recipientCedula = String(req.body.recipient_cedula || '').trim();
+  const location = String(req.body.location || '').trim();
+  const quantity = Math.floor(Number(req.body.quantity || 0));
+  const notes = String(req.body.notes || '').trim();
+  if (!registeredDate || !recipientName || !recipientCedula || !location || quantity <= 0) {
+    return res.status(400).json({ message: 'Fecha, nombre, cedula, localidad y cantidad son obligatorios.' });
+  }
+  if (!validateTicketLocations(eventId, [location], true)) {
+    return res.status(400).json({ message: 'Selecciona una localidad activa.' });
+  }
+  const createdBy = req.user?.username || req.user?.role || 'admin';
+  const result = db.prepare(
+    `INSERT INTO box_office_ticket_exchanges
+     (establishment_id, event_id, registered_date, recipient_name, recipient_cedula, location, quantity, notes, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(establishmentId, eventId, registeredDate, recipientName, recipientCedula, location, quantity, notes, createdBy);
+  const exchangeNumber = `BOL-${String(result.lastInsertRowid).padStart(6, '0')}`;
+  db.prepare('UPDATE box_office_ticket_exchanges SET exchange_number = ? WHERE id = ?').run(exchangeNumber, result.lastInsertRowid);
+  res.status(201).json({ ok: true, exchange_id: result.lastInsertRowid, report: boxOfficeTicketExchangeReport(eventId, establishmentId) });
+});
+
+app.put('/api/box-office-ticket-exchanges/:id', requireAdmin, (req, res) => {
+  const eventId = getRequestEventId(req);
+  const establishmentId = getRequestEstablishmentId(req);
+  const current = db.prepare('SELECT id FROM box_office_ticket_exchanges WHERE id = ? AND establishment_id = ? AND event_id = ?').get(req.params.id, establishmentId, eventId);
+  if (!current) {
+    return res.status(404).json({ message: 'Registro no encontrado.' });
+  }
+  const registeredDate = String(req.body.registered_date || new Date().toISOString().slice(0, 10)).trim();
+  const recipientName = String(req.body.recipient_name || '').trim();
+  const recipientCedula = String(req.body.recipient_cedula || '').trim();
+  const location = String(req.body.location || '').trim();
+  const quantity = Math.floor(Number(req.body.quantity || 0));
+  const notes = String(req.body.notes || '').trim();
+  if (!registeredDate || !recipientName || !recipientCedula || !location || quantity <= 0) {
+    return res.status(400).json({ message: 'Fecha, nombre, cedula, localidad y cantidad son obligatorios.' });
+  }
+  if (!validateTicketLocations(eventId, [location], true)) {
+    return res.status(400).json({ message: 'Selecciona una localidad activa.' });
+  }
+  db.prepare(
+    `UPDATE box_office_ticket_exchanges
+     SET registered_date = ?, recipient_name = ?, recipient_cedula = ?, location = ?, quantity = ?, notes = ?
+     WHERE id = ? AND establishment_id = ? AND event_id = ?`
+  ).run(registeredDate, recipientName, recipientCedula, location, quantity, notes, req.params.id, establishmentId, eventId);
+  res.json({ ok: true, report: boxOfficeTicketExchangeReport(eventId, establishmentId) });
+});
+
+app.patch('/api/box-office-ticket-exchanges/:id/status', requireAdmin, (req, res) => {
+  const eventId = getRequestEventId(req);
+  const establishmentId = getRequestEstablishmentId(req);
+  const status = String(req.body.status || '').trim() === 'exchanged' ? 'exchanged' : 'pending';
+  const current = db.prepare('SELECT id FROM box_office_ticket_exchanges WHERE id = ? AND establishment_id = ? AND event_id = ?').get(req.params.id, establishmentId, eventId);
+  if (!current) {
+    return res.status(404).json({ message: 'Registro no encontrado.' });
+  }
+  db.prepare(
+    `UPDATE box_office_ticket_exchanges
+     SET status = ?, exchanged_at = CASE WHEN ? = 'exchanged' THEN datetime('now', 'localtime') ELSE NULL END,
+         checked_by = CASE WHEN ? = 'exchanged' THEN ? ELSE NULL END
+     WHERE id = ? AND establishment_id = ? AND event_id = ?`
+  ).run(status, status, status, req.user?.username || req.user?.role || 'admin', req.params.id, establishmentId, eventId);
+  res.json({ ok: true, report: boxOfficeTicketExchangeReport(eventId, establishmentId) });
+});
+
 app.get('/api/promoter/me', requirePromoter, (req, res) => {
   const establishment = db.prepare('SELECT * FROM establishments WHERE id = ?').get(req.user.establishmentId);
   const activeEvent = getActiveEvent(req.user.establishmentId);

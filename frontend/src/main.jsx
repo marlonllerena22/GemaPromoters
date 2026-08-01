@@ -172,6 +172,15 @@ const emptyComplimentaryRedemption = {
   quantity: 1
 };
 
+const emptyBoxOfficeExchange = {
+  registered_date: new Date().toISOString().slice(0, 10),
+  recipient_name: '',
+  recipient_cedula: '',
+  location: '',
+  quantity: 1,
+  notes: ''
+};
+
 const emptyRegister = {
   establishment_id: '',
   name: '',
@@ -854,6 +863,7 @@ function AdminApp({ user, onLogout }) {
     locations: [],
     physicalTickets: null,
     complimentaryTickets: null,
+    boxOfficeTickets: null,
     levels: emptyLevels,
     banners: []
   });
@@ -887,6 +897,7 @@ function AdminApp({ user, onLogout }) {
         withdrawals: [],
         locations: [],
         physicalTickets: null,
+        boxOfficeTickets: null,
         banners: []
       }));
       setLoading(false);
@@ -914,7 +925,7 @@ function AdminApp({ user, onLogout }) {
       setSelectedEventId(String(eventId));
     }
 
-    const [dashboard, promoters, sales, ranking, withdrawals, locations, levels, banners, branches, physicalTickets, complimentaryTickets] = await Promise.all([
+    const [dashboard, promoters, sales, ranking, withdrawals, locations, levels, banners, branches, physicalTickets, complimentaryTickets, boxOfficeTickets] = await Promise.all([
       api(withScope('/dashboard', eventId, establishmentId)),
       api(withScope('/promoters', eventId, establishmentId)),
       api(withScope('/sales', eventId, establishmentId)),
@@ -925,9 +936,10 @@ function AdminApp({ user, onLogout }) {
       api(withScope('/event-banners', eventId, establishmentId)),
       api(withScope('/branches', '', establishmentId)),
       api(withScope('/physical-tickets/report', eventId, establishmentId)),
-      api(withScope('/complimentary-tickets/report', eventId, establishmentId))
+      api(withScope('/complimentary-tickets/report', eventId, establishmentId)),
+      api(withScope('/box-office-ticket-exchanges', eventId, establishmentId))
     ]);
-    setData({ dashboard, establishments, branches, events, promoters, sales, ranking, withdrawals, locations, physicalTickets, complimentaryTickets, levels, banners });
+    setData({ dashboard, establishments, branches, events, promoters, sales, ranking, withdrawals, locations, physicalTickets, complimentaryTickets, boxOfficeTickets, levels, banners });
     setLoading(false);
   }
 
@@ -963,6 +975,7 @@ function AdminApp({ user, onLogout }) {
     ['sales', 'Ventas', Ticket],
     ...(!isCommercialBusiness ? [['physical-tickets', 'Entradas fisicas', WalletCards]] : []),
     ...(!isCommercialBusiness ? [['complimentary-tickets', 'Canje entradas', CheckCircle2]] : []),
+    ...(!isCommercialBusiness ? [['box-office-tickets', 'Canje boleteria', Ticket]] : []),
     ['ranking', 'Ranking', Medal],
     ['withdrawals', 'Retiros', CreditCard],
     ['settings', 'Localidades', Settings],
@@ -1083,6 +1096,15 @@ function AdminApp({ user, onLogout }) {
                 locations={data.locations}
                 promoters={data.promoters}
                 initialReport={data.complimentaryTickets}
+                eventId={selectedEventId}
+                establishmentId={selectedEstablishmentId}
+                onRefresh={refresh}
+              />
+            )}
+            {view === 'box-office-tickets' && !isCommercialBusiness && (
+              <BoxOfficeTicketExchange
+                locations={data.locations}
+                initialReport={data.boxOfficeTickets}
                 eventId={selectedEventId}
                 establishmentId={selectedEstablishmentId}
                 onRefresh={refresh}
@@ -2226,6 +2248,201 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
           )}
         </section>
       )}
+    </div>
+  );
+}
+
+function BoxOfficeTicketExchange({ locations, initialReport, eventId, establishmentId, onRefresh }) {
+  const [report, setReport] = useState(initialReport);
+  const [form, setForm] = useState(emptyBoxOfficeExchange);
+  const [editingId, setEditingId] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [error, setError] = useState('');
+  const [statusMessage, setStatusMessage] = useState('');
+  const activeLocations = locations.filter((location) => location.status === 'active');
+  const totals = report?.totals || {};
+
+  useEffect(() => {
+    setReport(initialReport);
+  }, [initialReport]);
+
+  async function loadExchangeList(search = searchTerm, message = '') {
+    setError('');
+    try {
+      const query = new URLSearchParams();
+      if (search.trim()) {
+        query.set('search', search.trim());
+      }
+      const nextReport = await api(withScope(`/box-office-ticket-exchanges${query.toString() ? `?${query.toString()}` : ''}`, eventId, establishmentId));
+      setReport(nextReport);
+      if (message) {
+        setStatusMessage(message);
+        setTimeout(() => setStatusMessage(''), 2400);
+      }
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function submitExchange(event) {
+    event.preventDefault();
+    setError('');
+    try {
+      const endpoint = editingId ? `/box-office-ticket-exchanges/${editingId}` : '/box-office-ticket-exchanges';
+      const wasEditing = Boolean(editingId);
+      await api(withScope(endpoint, eventId, establishmentId), {
+        method: editingId ? 'PUT' : 'POST',
+        body: JSON.stringify(form)
+      });
+      setForm({ ...emptyBoxOfficeExchange, registered_date: form.registered_date });
+      setEditingId(null);
+      setSearchTerm('');
+      await loadExchangeList('', wasEditing ? 'Registro actualizado' : 'Registro agregado a canje de boleteria');
+      onRefresh(wasEditing ? 'Registro de boleteria actualizado' : 'Registro de boleteria creado');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  function editExchange(row) {
+    setEditingId(row.id);
+    setForm({
+      registered_date: row.registered_date || new Date().toISOString().slice(0, 10),
+      recipient_name: row.recipient_name || '',
+      recipient_cedula: row.recipient_cedula || '',
+      location: row.location || '',
+      quantity: row.quantity || 1,
+      notes: row.notes || ''
+    });
+    document.getElementById('box-office-exchange-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  async function toggleExchangeStatus(row) {
+    setError('');
+    try {
+      const nextStatus = row.status === 'exchanged' ? 'pending' : 'exchanged';
+      await api(withScope(`/box-office-ticket-exchanges/${row.id}/status`, eventId, establishmentId), {
+        method: 'PATCH',
+        body: JSON.stringify({ status: nextStatus })
+      });
+      await loadExchangeList(searchTerm, nextStatus === 'exchanged' ? 'Entrada marcada como canjeada' : 'Entrada regresada a pendiente');
+      onRefresh(nextStatus === 'exchanged' ? 'Canje boleteria marcado' : 'Canje boleteria pendiente');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  function clearForm() {
+    setEditingId(null);
+    setForm(emptyBoxOfficeExchange);
+  }
+
+  return (
+    <div className="stacked-layout physical-ticket-admin box-office-ticket-admin">
+      {error && <div className="alert error">{error}</div>}
+      {statusMessage && <div className="alert success">{statusMessage}</div>}
+
+      <section className="panel box-office-hero">
+        <div className="panel-title physical-report-header">
+          <div>
+            <span className="section-eyebrow">GEMASHOW</span>
+            <h3>Canje de entradas boleteria</h3>
+            <p>Controla las personas que compraron online y vienen a retirar sus entradas.</p>
+          </div>
+          <div className="row-actions physical-report-toolbar open">
+            <Input label="Buscar nombre, cedula o localidad" value={searchTerm} onChange={setSearchTerm} />
+            <button className="ghost-button" type="button" onClick={() => loadExchangeList(searchTerm)}>Buscar</button>
+            <button className="ghost-button" type="button" onClick={() => { setSearchTerm(''); loadExchangeList(''); }}>Ver todos</button>
+          </div>
+        </div>
+        <div className="stats-grid box-office-stats">
+          <article><span>Entradas en lista</span><strong>{totals.quantity || 0}</strong></article>
+          <article><span>Pendientes</span><strong>{totals.pending || 0}</strong></article>
+          <article><span>Canjeadas</span><strong>{totals.exchanged || 0}</strong></article>
+          <article><span>Personas registradas</span><strong>{totals.records || 0}</strong></article>
+        </div>
+      </section>
+
+      <section className="panel box-office-form-panel" id="box-office-exchange-form">
+        <div className="panel-title">
+          <h3>{editingId ? 'Editar registro de boleteria' : 'Agregar persona a la lista'}</h3>
+          {editingId && <button className="ghost-button" type="button" onClick={clearForm}>Cancelar edicion</button>}
+        </div>
+        <form className="form-grid" onSubmit={submitExchange}>
+          <Input type="date" label="Fecha registro" value={form.registered_date} onChange={(registered_date) => setForm({ ...form, registered_date })} />
+          <Input label="Nombre" value={form.recipient_name} onChange={(recipient_name) => setForm({ ...form, recipient_name })} />
+          <Input label="Cedula" value={form.recipient_cedula} onChange={(recipient_cedula) => setForm({ ...form, recipient_cedula })} />
+          <label>Localidad
+            <select value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} required>
+              <option value="">Seleccionar</option>
+              {activeLocations.map((location) => <option value={location.name} key={location.id}>{location.name}</option>)}
+            </select>
+          </label>
+          <Input type="number" label="Cantidad" value={form.quantity} onChange={(quantity) => setForm({ ...form, quantity })} />
+          <Input label="Observacion" value={form.notes} onChange={(notes) => setForm({ ...form, notes })} />
+          <button className="primary-button span-2" type="submit">{editingId ? 'Guardar cambios' : 'Guardar en lista de canje'}</button>
+        </form>
+      </section>
+
+      <section className="panel">
+        <div className="panel-title"><h3>Resumen por localidad</h3></div>
+        <div className="physical-inventory-grid box-office-location-grid">
+          {(report?.by_location || []).length ? report.by_location.map((row) => (
+            <article key={row.location} className={Number(row.pending || 0) <= 0 ? 'empty' : ''}>
+              <strong>{row.location}</strong>
+              <span>Total lista: {row.quantity}</span>
+              <span>Canjeadas: {row.exchanged}</span>
+              <b>Pendientes: {row.pending}</b>
+            </article>
+          )) : <article className="empty"><strong>Sin registros</strong><span>Aun no hay entradas para canje de boleteria.</span></article>}
+        </div>
+      </section>
+
+      <section className="panel box-office-list-panel">
+        <div className="panel-title"><h3>Lista de canje</h3></div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Codigo</th>
+                <th>Nombre</th>
+                <th>Cedula</th>
+                <th>Localidad</th>
+                <th>Cantidad</th>
+                <th>Estado</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(report?.exchanges || []).length ? report.exchanges.map((row) => (
+                <tr key={row.id} className={row.status === 'exchanged' ? 'box-office-row-done' : ''}>
+                  <td>{row.exchange_number || `BOL-${row.id}`}</td>
+                  <td><strong>{row.recipient_name}</strong><small>{row.notes || 'Sin observacion'}</small></td>
+                  <td>{row.recipient_cedula}</td>
+                  <td>{row.location}</td>
+                  <td>{row.quantity}</td>
+                  <td>
+                    <span className={`status-pill ${row.status === 'exchanged' ? 'paid' : 'pending'}`}>
+                      {row.status === 'exchanged' ? 'Canjeado' : 'Pendiente'}
+                    </span>
+                    {row.exchanged_at && <small>{row.exchanged_at}</small>}
+                  </td>
+                  <td>
+                    <div className="row-actions">
+                      <button className={row.status === 'exchanged' ? 'ghost-button' : 'primary-button'} type="button" onClick={() => toggleExchangeStatus(row)}>
+                        <CheckCircle2 size={15} />{row.status === 'exchanged' ? 'Marcar pendiente' : 'Ya llego'}
+                      </button>
+                      <button className="ghost-button" type="button" onClick={() => editExchange(row)}>
+                        <Edit3 size={15} />Editar
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )) : <tr><td colSpan="7">No hay registros con esa busqueda.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   );
 }

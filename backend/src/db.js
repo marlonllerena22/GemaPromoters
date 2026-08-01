@@ -266,6 +266,26 @@ export function initDb() {
       FOREIGN KEY (event_id) REFERENCES events(id),
       FOREIGN KEY (promoter_id) REFERENCES promoters(id)
     );
+
+    CREATE TABLE IF NOT EXISTS box_office_ticket_exchanges (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      event_id INTEGER NOT NULL,
+      exchange_number TEXT,
+      registered_date TEXT NOT NULL DEFAULT (date('now', 'localtime')),
+      recipient_name TEXT NOT NULL,
+      recipient_cedula TEXT NOT NULL,
+      location TEXT NOT NULL,
+      quantity INTEGER NOT NULL CHECK (quantity > 0),
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'exchanged')),
+      exchanged_at TEXT,
+      checked_by TEXT,
+      notes TEXT,
+      created_by TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (event_id) REFERENCES events(id)
+    );
   `);
 
   migrateEventsForEstablishments();
@@ -312,6 +332,7 @@ export function initDb() {
     CREATE INDEX IF NOT EXISTS idx_physical_ticket_withdrawals_event_date ON physical_ticket_cash_withdrawals(establishment_id, event_id, withdrawal_date);
     CREATE INDEX IF NOT EXISTS idx_complimentary_ticket_stock_event_date ON complimentary_ticket_stock_entries(establishment_id, event_id, entry_date);
     CREATE INDEX IF NOT EXISTS idx_complimentary_ticket_redemptions_event_date ON complimentary_ticket_redemptions(establishment_id, event_id, redemption_date);
+    CREATE INDEX IF NOT EXISTS idx_box_office_ticket_exchanges_scope ON box_office_ticket_exchanges(establishment_id, event_id, status, recipient_name, recipient_cedula);
 
     UPDATE establishments
     SET business_type = 'event'
