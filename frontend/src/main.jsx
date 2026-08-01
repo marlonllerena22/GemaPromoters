@@ -2848,7 +2848,7 @@ function BoxOfficeTicketExchange({ locations, initialReport, eventId, establishm
       });
       setReport(result.report);
       setSearchTerm('');
-      setStatusMessage(`PDF importado: ${result.inserted} nuevos, ${result.updated} actualizados`);
+      setStatusMessage(`PDF importado: ${result.inserted} nuevos, ${result.skipped || 0} repetidos omitidos`);
       setTimeout(() => setStatusMessage(''), 4200);
       onRefresh('Lista de boleteria importada');
     } catch (err) {

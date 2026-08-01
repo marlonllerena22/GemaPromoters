@@ -2306,11 +2306,15 @@ function parseBoxOfficeTicketRowsFromText(text, eventId, sourceFile) {
       ...row,
       quantity: 0,
       tokens: new Set(),
+      tokenCounts: new Map(),
       emails: new Set(),
       prices: new Set()
     };
     current.quantity += 1;
-    if (row.ticket_token) current.tokens.add(row.ticket_token);
+    if (row.ticket_token) {
+      current.tokens.add(row.ticket_token);
+      current.tokenCounts.set(row.ticket_token, (current.tokenCounts.get(row.ticket_token) || 0) + 1);
+    }
     if (row.buyer_email) current.emails.add(row.buyer_email);
     if (row.source_price) current.prices.add(String(row.source_price));
     grouped.set(key, current);
@@ -2323,10 +2327,18 @@ function parseBoxOfficeTicketRowsFromText(text, eventId, sourceFile) {
     ticket_token: [...row.tokens].join(', '),
     location: row.location,
     quantity: row.quantity,
+    token_counts: Object.fromEntries(row.tokenCounts.entries()),
     source_price: row.prices.size === 1 ? Number([...row.prices][0]) : 0,
     source_file: row.source_file,
     notes: `Importado desde ${row.source_file}${row.tokens.size ? ` | Tokens: ${[...row.tokens].join(', ')}` : ''}`
   }));
+}
+
+function splitTicketTokens(value) {
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 async function extractPdfTextFromBase64(fileData) {
@@ -2405,22 +2417,12 @@ app.post('/api/box-office-ticket-exchanges/import', requireAdmin, async (req, re
     }
     const createdBy = req.user?.username || req.user?.role || 'admin';
     let inserted = 0;
-    let updated = 0;
+    let skipped = 0;
     db.transaction(() => {
-      const findPending = db.prepare(
-        `SELECT id, recipient_name, quantity, notes
+      const findExisting = db.prepare(
+        `SELECT id, recipient_name, quantity, ticket_token
          FROM box_office_ticket_exchanges
-         WHERE establishment_id = ? AND event_id = ? AND location = ? AND status = 'pending' AND source_type = 'ticketmas'`
-      );
-      const updateExisting = db.prepare(
-        `UPDATE box_office_ticket_exchanges
-         SET quantity = quantity + ?, buyer_email = COALESCE(NULLIF(buyer_email, ''), ?),
-             ticket_token = COALESCE(NULLIF(ticket_token, ''), ?),
-             source_type = 'ticketmas',
-             source_price = CASE WHEN source_price > 0 THEN source_price ELSE ? END,
-             source_file = COALESCE(NULLIF(source_file, ''), ?),
-             notes = ?
-         WHERE id = ?`
+         WHERE establishment_id = ? AND event_id = ? AND location = ? AND source_type = 'ticketmas'`
       );
       const insertExchange = db.prepare(
         `INSERT INTO box_office_ticket_exchanges
@@ -2429,34 +2431,43 @@ app.post('/api/box-office-ticket-exchanges/import', requireAdmin, async (req, re
       );
       const updateNumber = db.prepare('UPDATE box_office_ticket_exchanges SET exchange_number = ? WHERE id = ?');
       for (const row of rows) {
-        const existing = findPending.all(establishmentId, eventId, row.location)
-          .find((item) => normalizeLookup(item.recipient_name) === normalizeLookup(row.recipient_name));
-        if (existing) {
-          const nextNotes = `${existing.notes || ''}${existing.notes ? ' | ' : ''}${row.notes}`.slice(0, 900);
-          updateExisting.run(row.quantity, row.buyer_email, row.ticket_token, row.source_price, row.source_file, nextNotes, existing.id);
-          updated += 1;
-        } else {
-          const result = insertExchange.run(
-            establishmentId,
-            eventId,
-            row.registered_date,
-            row.recipient_name,
-            row.recipient_cedula,
-            row.buyer_email,
-            row.ticket_token,
-            row.location,
-            row.quantity,
-            row.source_price,
-            row.notes,
-            row.source_file,
-            createdBy
-          );
-          updateNumber.run(`BOL-${String(result.lastInsertRowid).padStart(6, '0')}`, result.lastInsertRowid);
-          inserted += 1;
+        const matchingRows = findExisting.all(establishmentId, eventId, row.location)
+          .filter((item) => normalizeLookup(item.recipient_name) === normalizeLookup(row.recipient_name));
+        const existingQuantity = matchingRows.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+        const existingTokens = new Set(matchingRows.flatMap((item) => splitTicketTokens(item.ticket_token)));
+        const rowTokens = splitTicketTokens(row.ticket_token);
+        const newTokens = rowTokens.filter((token) => !existingTokens.has(token));
+        let quantityToInsert = 0;
+        if (newTokens.length) {
+          quantityToInsert = newTokens.reduce((sum, token) => sum + Number(row.token_counts?.[token] || 1), 0);
+        } else if (!rowTokens.length || row.quantity > existingQuantity) {
+          quantityToInsert = Math.max(0, Number(row.quantity || 0) - existingQuantity);
         }
+        if (quantityToInsert <= 0) {
+          skipped += 1;
+          continue;
+        }
+        const tokensToStore = newTokens.length ? newTokens.join(', ') : row.ticket_token;
+        const result = insertExchange.run(
+          establishmentId,
+          eventId,
+          row.registered_date,
+          row.recipient_name,
+          row.recipient_cedula,
+          row.buyer_email,
+          tokensToStore,
+          row.location,
+          quantityToInsert,
+          row.source_price,
+          `Importado desde ${row.source_file}${tokensToStore ? ` | Tokens: ${tokensToStore}` : ''}`,
+          row.source_file,
+          createdBy
+        );
+        updateNumber.run(`BOL-${String(result.lastInsertRowid).padStart(6, '0')}`, result.lastInsertRowid);
+        inserted += 1;
       }
     })();
-    res.status(201).json({ ok: true, inserted, updated, rows: rows.length, report: boxOfficeTicketExchangeReport(eventId, establishmentId) });
+    res.status(201).json({ ok: true, inserted, skipped, rows: rows.length, report: boxOfficeTicketExchangeReport(eventId, establishmentId) });
   } catch (err) {
     res.status(400).json({ message: err.message || 'No se pudo importar el PDF.' });
   }
