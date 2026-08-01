@@ -833,7 +833,9 @@ input[type="file"] {
 }
 
 .renji-app {
-  background: #f5f5f2;
+  background:
+    linear-gradient(180deg, rgba(17, 17, 17, 0.05), transparent 180px),
+    #f5f5f2;
   color: #171717;
   min-height: 100vh;
   padding: 28px;
@@ -952,6 +954,65 @@ input[type="file"] {
   padding: 18px;
 }
 
+.renji-collapsible {
+  overflow: hidden;
+  padding: 0;
+}
+
+.renji-collapsible.open {
+  border-color: rgba(153, 27, 27, 0.32);
+  box-shadow: 0 22px 54px rgba(17, 17, 17, 0.1);
+}
+
+.renji-collapsible-trigger {
+  align-items: center;
+  background:
+    linear-gradient(135deg, #121212, #261f1f 64%, #4b1010);
+  border: 0;
+  color: #ffffff;
+  cursor: pointer;
+  display: grid;
+  gap: 7px 14px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 20px;
+  text-align: left;
+  width: 100%;
+}
+
+.renji-collapsible-trigger.stock {
+  background:
+    linear-gradient(135deg, #191512, #342817 62%, #6f3d12);
+}
+
+.renji-collapsible-trigger span {
+  align-items: center;
+  display: inline-flex;
+  font-size: 18px;
+  font-weight: 950;
+  gap: 10px;
+}
+
+.renji-collapsible-trigger small {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+  font-weight: 800;
+  grid-column: 1 / 2;
+}
+
+.renji-chevron {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  transition: transform 0.18s ease;
+}
+
+.renji-chevron.rotated {
+  transform: rotate(180deg);
+}
+
+.renji-collapsible-body {
+  padding: 18px;
+}
+
 .renji-link-card {
   align-items: center;
   display: flex;
@@ -1011,6 +1072,53 @@ input[type="file"] {
 .renji-public-card p {
   color: #615b52;
   margin: 0 0 18px;
+}
+
+.renji-push-overlay {
+  align-items: center;
+  background: rgba(17, 17, 17, 0.62);
+  backdrop-filter: blur(8px);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 22px;
+  position: fixed;
+  z-index: 80;
+}
+
+.renji-push-card {
+  background: #ffffff;
+  border: 1px solid #e5ded1;
+  border-radius: 22px;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.3);
+  max-width: 430px;
+  padding: 26px;
+  text-align: center;
+  width: 100%;
+}
+
+.renji-push-card svg {
+  background: #ecfdf3;
+  border-radius: 999px;
+  color: #16a34a;
+  margin-bottom: 12px;
+  padding: 8px;
+}
+
+.renji-push-card strong {
+  display: block;
+  font-size: 23px;
+  margin-bottom: 8px;
+}
+
+.renji-push-card p {
+  color: #514b42;
+  line-height: 1.5;
+  margin: 0 0 18px;
+}
+
+.renji-push-card button {
+  width: 100%;
 }
 
 .renji-form {

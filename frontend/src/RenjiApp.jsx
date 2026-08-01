@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Copy, Edit3, PackagePlus, Printer, Shirt, Trash2, Truck, WalletCards } from 'lucide-react';
+import { CheckCircle2, ChevronDown, Copy, Edit3, PackagePlus, Printer, Shirt, Trash2, Truck, WalletCards } from 'lucide-react';
 import { api, clearToken } from './api.js';
 
 const today = new Date().toISOString().slice(0, 10);
@@ -72,6 +72,8 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
   const [paymentEdits, setPaymentEdits] = useState({});
   const [editingOrderId, setEditingOrderId] = useState(null);
   const [editingRegistrationId, setEditingRegistrationId] = useState(null);
+  const [salePanelOpen, setSalePanelOpen] = useState(false);
+  const [stockPanelOpen, setStockPanelOpen] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -164,6 +166,7 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
           ? 'Pedido actualizado y stock corregido'
           : 'Venta registrada y stock actualizado';
       resetOrderForm();
+      setSalePanelOpen(false);
       await loadOverview(message);
     } catch (err) {
       setError(err.message);
@@ -179,6 +182,7 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
         body: JSON.stringify(stockForm)
       });
       setStockForm({ movement_date: stockForm.movement_date, notes: '', items: [{ ...emptyStockItem }] });
+      setStockPanelOpen(false);
       await loadOverview('Stock ingresado correctamente');
     } catch (err) {
       setError(err.message);
@@ -396,9 +400,14 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
           </section>
 
           <section className="renji-grid">
-            <article className="renji-panel">
-              <div className="panel-title"><h3>Registrar venta</h3></div>
-              <form className="renji-form" onSubmit={submitOrder}>
+            <article className={`renji-panel renji-collapsible ${salePanelOpen ? 'open' : ''}`}>
+              <button className="renji-collapsible-trigger" type="button" onClick={() => setSalePanelOpen(!salePanelOpen)}>
+                <span><Edit3 size={18} />{editingRegistrationId ? 'Editar registro por confirmar' : editingOrderId ? 'Editar venta' : 'Registrar venta'}</span>
+                <small>Datos del cliente, prenda, pago y estado de produccion.</small>
+                <ChevronDown className={`renji-chevron ${salePanelOpen ? 'rotated' : ''}`} size={20} />
+              </button>
+              {salePanelOpen && (
+              <form className="renji-form renji-collapsible-body" onSubmit={submitOrder}>
                 <label>Nombres completos<input value={orderForm.customer_name} onChange={(e) => setOrderForm({ ...orderForm, customer_name: e.target.value })} required /></label>
                 <label>Cedula<input value={orderForm.customer_cedula} onChange={(e) => setOrderForm({ ...orderForm, customer_cedula: e.target.value })} /></label>
                 <label>Correo<input type="email" value={orderForm.customer_email} onChange={(e) => setOrderForm({ ...orderForm, customer_email: e.target.value })} /></label>
@@ -455,13 +464,19 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                 {!editingRegistrationId && <label>Valor faltante<input type="number" min="0" step="0.01" value={orderForm.pending_amount} onChange={(e) => setOrderForm({ ...orderForm, pending_amount: e.target.value })} /></label>}
                 <label className="span-2">Observacion<input value={orderForm.notes} onChange={(e) => setOrderForm({ ...orderForm, notes: e.target.value })} /></label>
                 <button className="renji-primary span-2" type="submit">{editingRegistrationId ? 'Guardar registro pendiente' : editingOrderId ? 'Guardar cambios del pedido' : 'Guardar venta pendiente'}</button>
-                {(editingOrderId || editingRegistrationId) && <button className="renji-secondary span-2" type="button" onClick={resetOrderForm}>Cancelar edicion</button>}
+                {(editingOrderId || editingRegistrationId) && <button className="renji-secondary span-2" type="button" onClick={() => { resetOrderForm(); setSalePanelOpen(false); }}>Cancelar edicion</button>}
               </form>
+              )}
             </article>
 
-            <article className="renji-panel">
-              <div className="panel-title"><h3>Ingresar stock</h3></div>
-              <form className="renji-form" onSubmit={submitStock}>
+            <article className={`renji-panel renji-collapsible ${stockPanelOpen ? 'open' : ''}`}>
+              <button className="renji-collapsible-trigger stock" type="button" onClick={() => setStockPanelOpen(!stockPanelOpen)}>
+                <span><PackagePlus size={18} />Ingresar stock</span>
+                <small>Agrega prendas por tipo, talla y cantidad en un solo movimiento.</small>
+                <ChevronDown className={`renji-chevron ${stockPanelOpen ? 'rotated' : ''}`} size={20} />
+              </button>
+              {stockPanelOpen && (
+              <form className="renji-form renji-collapsible-body" onSubmit={submitStock}>
                 <label>Fecha<input type="date" value={stockForm.movement_date} onChange={(e) => setStockForm({ ...stockForm, movement_date: e.target.value })} /></label>
                 <label>Nota<input value={stockForm.notes} onChange={(e) => setStockForm({ ...stockForm, notes: e.target.value })} /></label>
                 {stockForm.items.map((item, index) => (
@@ -491,6 +506,7 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                 <button className="renji-secondary span-2" type="button" onClick={() => setStockForm({ ...stockForm, items: [...stockForm.items, { ...emptyStockItem }] })}>Agregar otra prenda</button>
                 <button className="renji-primary span-2" type="submit">Guardar stock</button>
               </form>
+              )}
             </article>
           </section>
 
@@ -532,7 +548,7 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                       <td>{registration.created_at}<small>{registration.registration_type === 'separation' ? `Separado: ${money(registration.deposit_amount)}` : 'Cancelado'}</small></td>
                       <td>
                         <div className="renji-actions">
-                          <button onClick={() => { setEditingRegistrationId(registration.id); setEditingOrderId(null); setOrderForm(formFromRecord(registration)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><Edit3 size={15} />Editar</button>
+                          <button onClick={() => { setEditingRegistrationId(registration.id); setEditingOrderId(null); setOrderForm(formFromRecord(registration)); setSalePanelOpen(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><Edit3 size={15} />Editar</button>
                           <button onClick={() => confirmRegistration(registration)}><CheckCircle2 size={15} />Confirmar</button>
                           <button onClick={() => deleteRegistration(registration)}><Trash2 size={15} />Eliminar</button>
                         </div>
@@ -584,7 +600,7 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                       <td><span className={`renji-pill ${order.shipping_status}`}>{order.shipping_status === 'sent' ? 'Enviado' : 'No enviado'}</span></td>
                       <td>
                         <div className="renji-actions">
-                          <button onClick={() => { setEditingOrderId(order.id); setEditingRegistrationId(null); setOrderForm(formFromRecord(order)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><Edit3 size={15} />Editar</button>
+                          <button onClick={() => { setEditingOrderId(order.id); setEditingRegistrationId(null); setOrderForm(formFromRecord(order)); setSalePanelOpen(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><Edit3 size={15} />Editar</button>
                           <button onClick={() => markPaid(order)} disabled={order.payment_status === 'paid'}><CheckCircle2 size={15} />Pagado</button>
                           {(order.production_status || 'ready') !== 'ready' && <button onClick={() => markProductionReady(order)}><CheckCircle2 size={15} />Listo</button>}
                           <button onClick={() => toggleShipping(order)}><Truck size={15} />{order.shipping_status === 'sent' ? 'No enviado' : 'Enviado'}</button>
@@ -718,7 +734,16 @@ export function RenjiPublicRegistration({ mode = 'paid' }) {
         <span>PROMOTERS / RENJI</span>
         <h1>{isSeparation ? 'Datos de separacion' : 'Datos para envio'}</h1>
         <p>{isSeparation ? 'Completa tus datos y el valor que transferiste para separar tu pedido.' : 'Completa tus datos exactamente como deben aparecer en la guia de envio.'}</p>
-        {sent && <div className="alert success">Datos enviados correctamente. Te enviamos una confirmacion al correo registrado.</div>}
+        {sent && (
+          <div className="renji-push-overlay" role="status" aria-live="polite">
+            <div className="renji-push-card">
+              <CheckCircle2 size={36} />
+              <strong>Pedido confirmado</strong>
+              <p>Tu pedido fue confirmado y creado con éxito 🙌🏻, en tu correo electrónico puedes verificarlo si no lo ves en la bandeja principal revisa el apartado de no deseados 🫡</p>
+              <button className="renji-primary" type="button" onClick={() => setSent(false)}>Entendido</button>
+            </div>
+          </div>
+        )}
         {error && <div className="alert error">{error}</div>}
         <form className="renji-form" onSubmit={submit}>
           <label>Nombres completos<input value={form.customer_name} onChange={(e) => setForm({ ...form, customer_name: e.target.value })} required /></label>
