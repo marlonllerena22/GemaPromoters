@@ -915,6 +915,32 @@ input[type="file"] {
   color: #166534;
 }
 
+.event-box-office-hero,
+.event-box-office-sale {
+  background:
+    radial-gradient(circle at top right, rgba(34, 197, 94, 0.16), transparent 30%),
+    linear-gradient(180deg, #f0fdf4 0%, #ffffff 100%);
+  border-color: #bbf7d0;
+}
+
+.event-box-office-admin .panel-title h3 {
+  color: #14532d;
+}
+
+.event-box-office-stats article {
+  background: #ecfdf5;
+  border-color: #bbf7d0;
+}
+
+.event-box-office-stats article strong,
+.event-box-office-inventory .physical-inventory-grid b {
+  color: #15803d;
+}
+
+.event-box-office-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .expense-form {
   border-top: 1px solid #e4ebe6;
   margin-top: 16px;

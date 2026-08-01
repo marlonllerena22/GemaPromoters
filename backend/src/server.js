@@ -1804,6 +1804,166 @@ app.post('/api/physical-tickets/withdrawals', requireAdmin, (req, res) => {
   res.status(201).json(physicalTicketsReport(eventId, establishmentId, withdrawalDate, withdrawalDate));
 });
 
+const eventBoxOfficeDefaults = [
+  { match: 'FAN', quantity: 200, unit_price: 20 },
+  { match: 'VIP', quantity: 200, unit_price: 30 },
+  { match: 'BOX', quantity: 100, unit_price: 40 }
+];
+
+function eventBoxOfficePrice(location) {
+  const lookup = normalizeLookup(location);
+  const defaultRow = eventBoxOfficeDefaults.find((item) => lookup.includes(normalizeLookup(item.match)));
+  return defaultRow ? defaultRow.unit_price : 0;
+}
+
+function ensureEventBoxOfficeStock(eventId, establishmentId) {
+  const existing = db.prepare(
+    'SELECT COUNT(*) AS total FROM event_box_office_ticket_stock_entries WHERE establishment_id = ? AND event_id = ?'
+  ).get(establishmentId, eventId).total;
+  if (existing > 0) return;
+  const locations = db.prepare('SELECT name FROM event_locations WHERE event_id = ?').all(eventId);
+  const createdBy = 'sistema';
+  db.transaction(() => {
+    const insertEntry = db.prepare(
+      `INSERT INTO event_box_office_ticket_stock_entries
+       (establishment_id, event_id, entry_date, location, quantity, unit_price, notes, created_by)
+       VALUES (?, ?, date('now', 'localtime'), ?, ?, ?, ?, ?)`
+    );
+    for (const defaultRow of eventBoxOfficeDefaults) {
+      const location = locations.find((item) => normalizeLookup(item.name).includes(normalizeLookup(defaultRow.match)));
+      if (location) {
+        insertEntry.run(establishmentId, eventId, location.name, defaultRow.quantity, defaultRow.unit_price, 'Stock inicial boleteria evento', createdBy);
+      }
+    }
+  })();
+}
+
+function eventBoxOfficeReport(eventId, establishmentId, dateFrom, dateTo) {
+  ensureEventBoxOfficeStock(eventId, establishmentId);
+  const from = dateFrom || new Date().toISOString().slice(0, 10);
+  const to = dateTo || from;
+  const sales = db.prepare(
+    `SELECT *
+     FROM event_box_office_ticket_sales
+     WHERE establishment_id = ? AND event_id = ? AND sale_date BETWEEN ? AND ?
+     ORDER BY sale_date DESC, id DESC`
+  ).all(establishmentId, eventId, from, to);
+  const allSales = db.prepare(
+    `SELECT *
+     FROM event_box_office_ticket_sales
+     WHERE establishment_id = ? AND event_id = ?
+     ORDER BY sale_date DESC, id DESC`
+  ).all(establishmentId, eventId);
+  const stockEntries = db.prepare(
+    `SELECT *
+     FROM event_box_office_ticket_stock_entries
+     WHERE establishment_id = ? AND event_id = ?
+     ORDER BY entry_date DESC, id DESC`
+  ).all(establishmentId, eventId);
+  const inventoryRows = db.prepare(
+    `SELECT locations.name AS location,
+            COALESCE(stock.quantity, 0) AS stock_quantity,
+            COALESCE(sold.quantity, 0) AS sold_quantity
+     FROM event_locations AS locations
+     LEFT JOIN (
+       SELECT location, SUM(quantity) AS quantity
+       FROM event_box_office_ticket_stock_entries
+       WHERE establishment_id = ? AND event_id = ?
+       GROUP BY location
+     ) AS stock ON stock.location = locations.name
+     LEFT JOIN (
+       SELECT location, SUM(quantity) AS quantity
+       FROM event_box_office_ticket_sales
+       WHERE establishment_id = ? AND event_id = ?
+       GROUP BY location
+     ) AS sold ON sold.location = locations.name
+     WHERE locations.event_id = ?
+     ORDER BY locations.name COLLATE NOCASE`
+  ).all(establishmentId, eventId, establishmentId, eventId, eventId).map((row) => ({
+    location: row.location,
+    unit_price: eventBoxOfficePrice(row.location),
+    stock_quantity: Number(row.stock_quantity || 0),
+    sold_quantity: Number(row.sold_quantity || 0),
+    remaining_quantity: Number(row.stock_quantity || 0) - Number(row.sold_quantity || 0)
+  }));
+  const byLocationMap = new Map();
+  for (const sale of sales) {
+    const current = byLocationMap.get(sale.location) || { location: sale.location, quantity: 0, total: 0 };
+    current.quantity += Number(sale.quantity || 0);
+    current.total = toMoney(current.total + Number(sale.total || 0));
+    byLocationMap.set(sale.location, current);
+  }
+  const totals = {
+    soldQuantity: sales.reduce((sum, sale) => sum + Number(sale.quantity || 0), 0),
+    total: toMoney(sales.reduce((sum, sale) => sum + Number(sale.total || 0), 0)),
+    stockQuantity: stockEntries.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0),
+    remainingQuantity: inventoryRows.reduce((sum, row) => sum + Number(row.remaining_quantity || 0), 0)
+  };
+  const allTotals = {
+    soldQuantity: allSales.reduce((sum, sale) => sum + Number(sale.quantity || 0), 0),
+    total: toMoney(allSales.reduce((sum, sale) => sum + Number(sale.total || 0), 0)),
+    stockQuantity: stockEntries.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0),
+    remainingQuantity: inventoryRows.reduce((sum, row) => sum + Number(row.remaining_quantity || 0), 0)
+  };
+  return {
+    date_from: from,
+    date_to: to,
+    sales,
+    all_sales: allSales,
+    stock_entries: stockEntries,
+    inventory_by_location: inventoryRows,
+    by_location: [...byLocationMap.values()],
+    totals,
+    all_totals: allTotals
+  };
+}
+
+app.get('/api/event-box-office/report', requireAdmin, (req, res) => {
+  const eventId = getRequestEventId(req);
+  const establishmentId = getRequestEstablishmentId(req);
+  const dateFrom = String(req.query.date_from || req.query.date || '').trim();
+  const dateTo = String(req.query.date_to || dateFrom || '').trim();
+  res.json(eventBoxOfficeReport(eventId, establishmentId, dateFrom, dateTo));
+});
+
+app.post('/api/event-box-office/sales', requireAdmin, (req, res) => {
+  const eventId = getRequestEventId(req);
+  const establishmentId = getRequestEstablishmentId(req);
+  ensureEventBoxOfficeStock(eventId, establishmentId);
+  const saleDate = String(req.body.sale_date || new Date().toISOString().slice(0, 10)).trim();
+  const location = String(req.body.location || '').trim();
+  const quantity = Math.floor(Number(req.body.quantity || 0));
+  const validLocation = db.prepare("SELECT id, name FROM event_locations WHERE event_id = ? AND name = ? AND status = 'active'").get(eventId, location);
+  if (!saleDate || !validLocation || quantity <= 0) {
+    return res.status(400).json({ message: 'Fecha, localidad y cantidad son obligatorios.' });
+  }
+  const inventory = eventBoxOfficeReport(eventId, establishmentId, saleDate, saleDate).inventory_by_location.find((row) => row.location === location);
+  if (!inventory || Number(inventory.remaining_quantity || 0) < quantity) {
+    return res.status(400).json({ message: 'No hay suficientes entradas disponibles en esa localidad.' });
+  }
+  const unitPrice = eventBoxOfficePrice(location);
+  const total = toMoney(unitPrice * quantity);
+  const result = db.prepare(
+    `INSERT INTO event_box_office_ticket_sales
+     (establishment_id, event_id, sale_date, location, quantity, unit_price, total, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(establishmentId, eventId, saleDate, location, quantity, unitPrice, total, req.user?.username || req.user?.role || 'admin');
+  const saleNumber = `BEV-${String(result.lastInsertRowid).padStart(6, '0')}`;
+  db.prepare('UPDATE event_box_office_ticket_sales SET sale_number = ? WHERE id = ?').run(saleNumber, result.lastInsertRowid);
+  res.status(201).json({ ok: true, sale_id: result.lastInsertRowid, report: eventBoxOfficeReport(eventId, establishmentId, saleDate, saleDate) });
+});
+
+app.delete('/api/event-box-office/sales/:id', requireAdmin, (req, res) => {
+  const eventId = getRequestEventId(req);
+  const establishmentId = getRequestEstablishmentId(req);
+  const currentSale = db.prepare('SELECT id, sale_date FROM event_box_office_ticket_sales WHERE id = ? AND establishment_id = ? AND event_id = ?').get(req.params.id, establishmentId, eventId);
+  if (!currentSale) {
+    return res.status(404).json({ message: 'Venta de boleteria no encontrada.' });
+  }
+  db.prepare('DELETE FROM event_box_office_ticket_sales WHERE id = ? AND establishment_id = ? AND event_id = ?').run(req.params.id, establishmentId, eventId);
+  res.json({ ok: true, report: eventBoxOfficeReport(eventId, establishmentId, currentSale.sale_date, currentSale.sale_date) });
+});
+
 function normalizeComplimentaryStockItems(items, fallbackNotes = '') {
   return (Array.isArray(items) ? items : [])
     .map((item) => ({

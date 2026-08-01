@@ -158,6 +158,12 @@ const emptyPhysicalStockItem = {
   notes: ''
 };
 
+const emptyEventBoxOfficeSale = {
+  sale_date: new Date().toISOString().slice(0, 10),
+  location: '',
+  quantity: 1
+};
+
 const emptyComplimentaryStockItem = {
   location: '',
   quantity: '',
@@ -974,6 +980,7 @@ function AdminApp({ user, onLogout }) {
     ['promoters', 'Promotores', UsersRound],
     ['sales', 'Ventas', Ticket],
     ...(!isCommercialBusiness ? [['physical-tickets', 'Entradas fisicas', WalletCards]] : []),
+    ...(!isCommercialBusiness ? [['event-box-office', 'Boleteria evento', CircleDollarSign]] : []),
     ...(!isCommercialBusiness ? [['complimentary-tickets', 'Canje entradas', CheckCircle2]] : []),
     ...(!isCommercialBusiness ? [['box-office-tickets', 'Canje boleteria', Ticket]] : []),
     ['ranking', 'Ranking', Medal],
@@ -1086,6 +1093,14 @@ function AdminApp({ user, onLogout }) {
               <PhysicalTickets
                 locations={data.locations}
                 initialReport={data.physicalTickets}
+                eventId={selectedEventId}
+                establishmentId={selectedEstablishmentId}
+                onRefresh={refresh}
+              />
+            )}
+            {view === 'event-box-office' && !isCommercialBusiness && (
+              <EventBoxOffice
+                locations={data.locations}
                 eventId={selectedEventId}
                 establishmentId={selectedEstablishmentId}
                 onRefresh={refresh}
@@ -2248,6 +2263,148 @@ function PhysicalTickets({ locations, initialReport, eventId, establishmentId, o
           )}
         </section>
       )}
+    </div>
+  );
+}
+
+function EventBoxOffice({ locations, eventId, establishmentId, onRefresh }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [reportDate, setReportDate] = useState(today);
+  const [report, setReport] = useState(null);
+  const [saleForm, setSaleForm] = useState(emptyEventBoxOfficeSale);
+  const [error, setError] = useState('');
+  const [statusMessage, setStatusMessage] = useState('');
+  const activeLocations = locations.filter((location) => location.status === 'active');
+  const inventory = report?.inventory_by_location || [];
+  const totals = report?.all_totals || report?.totals || {};
+  const selectedInventory = inventory.find((row) => row.location === saleForm.location);
+  const selectedPrice = selectedInventory?.unit_price || 0;
+  const saleTotal = Number(saleForm.quantity || 0) * Number(selectedPrice || 0);
+
+  useEffect(() => {
+    if (eventId && establishmentId) {
+      loadReport(reportDate);
+    }
+  }, [eventId, establishmentId]);
+
+  async function loadReport(date = reportDate) {
+    setError('');
+    try {
+      const query = new URLSearchParams({ date_from: date, date_to: date });
+      const nextReport = await api(withScope(`/event-box-office/report?${query.toString()}`, eventId, establishmentId));
+      setReport(nextReport);
+      setReportDate(date);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function submitSale(event) {
+    event.preventDefault();
+    setError('');
+    try {
+      await api(withScope('/event-box-office/sales', eventId, establishmentId), {
+        method: 'POST',
+        body: JSON.stringify(saleForm)
+      });
+      setSaleForm({ ...emptyEventBoxOfficeSale, sale_date: saleForm.sale_date });
+      await loadReport(saleForm.sale_date);
+      setStatusMessage('Venta registrada en boleteria evento');
+      setTimeout(() => setStatusMessage(''), 2400);
+      onRefresh('Venta de boleteria evento registrada');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function deleteSale(sale) {
+    if (!window.confirm(`Seguro quieres eliminar la venta ${sale.sale_number}?`)) return;
+    setError('');
+    try {
+      await api(withScope(`/event-box-office/sales/${sale.id}`, eventId, establishmentId), { method: 'DELETE' });
+      await loadReport(reportDate);
+      setStatusMessage('Venta eliminada');
+      setTimeout(() => setStatusMessage(''), 2400);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  return (
+    <div className="stacked-layout physical-ticket-admin event-box-office-admin">
+      {error && <div className="alert error">{error}</div>}
+      {statusMessage && <div className="alert success">{statusMessage}</div>}
+
+      <section className="panel event-box-office-hero">
+        <div className="panel-title physical-report-header">
+          <div>
+            <span className="section-eyebrow">GEMASHOW</span>
+            <h3>Boleteria evento</h3>
+            <p>Stock separado del punto fisico. Venta rapida por localidad, cantidad y fecha.</p>
+          </div>
+          <div className="row-actions physical-report-toolbar open">
+            <Input type="date" label="Fecha reporte" value={reportDate} onChange={setReportDate} />
+            <button className="ghost-button" type="button" onClick={() => loadReport(reportDate)}>Generar</button>
+          </div>
+        </div>
+        <div className="stats-grid event-box-office-stats">
+          <article><span>Stock total</span><strong>{totals.stockQuantity || 0}</strong></article>
+          <article><span>Vendidas</span><strong>{totals.soldQuantity || 0}</strong></article>
+          <article><span>Faltantes</span><strong>{totals.remainingQuantity || 0}</strong></article>
+          <article><span>Total vendido</span><strong>{money(totals.total)}</strong></article>
+        </div>
+      </section>
+
+      <section className="panel physical-inventory-panel event-box-office-inventory">
+        <div className="panel-title"><h3>Stock boleteria evento</h3></div>
+        <div className="physical-inventory-grid">
+          {inventory.map((row) => (
+            <article key={row.location} className={Number(row.remaining_quantity || 0) <= 0 ? 'empty' : ''}>
+              <strong>{row.location}</strong>
+              <span>Precio: {money(row.unit_price)}</span>
+              <span>Ingresadas: {row.stock_quantity}</span>
+              <span>Vendidas: {row.sold_quantity}</span>
+              <b>Faltantes: {row.remaining_quantity}</b>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="panel event-box-office-sale">
+        <div className="panel-title"><h3>Registrar venta boleteria</h3></div>
+        <form className="form-grid event-box-office-form" onSubmit={submitSale}>
+          <Input type="date" label="Fecha" value={saleForm.sale_date} onChange={(sale_date) => setSaleForm({ ...saleForm, sale_date })} />
+          <label>Localidad
+            <select value={saleForm.location} onChange={(event) => setSaleForm({ ...saleForm, location: event.target.value })} required>
+              <option value="">Seleccionar</option>
+              {activeLocations.map((location) => {
+                const row = inventory.find((item) => item.location === location.name);
+                return <option value={location.name} key={location.id}>{location.name} - {money(row?.unit_price || 0)}</option>;
+              })}
+            </select>
+          </label>
+          <Input type="number" label="Cantidad" value={saleForm.quantity} onChange={(quantity) => setSaleForm({ ...saleForm, quantity })} />
+          <div className="computed"><span>Precio automatico</span><strong>{money(selectedPrice)}</strong></div>
+          <div className="computed span-2"><span>Total venta</span><strong>{money(saleTotal)}</strong></div>
+          <button className="primary-button span-2" type="submit"><Ticket size={18} />Registrar venta</button>
+        </form>
+      </section>
+
+      <section className="panel">
+        <div className="panel-title"><h3>Ventas registradas</h3></div>
+        <DataTable
+          columns={['Venta', 'Fecha', 'Localidad', 'Cantidad', 'Precio', 'Total', 'Acciones']}
+          rows={(report?.all_sales || report?.sales || []).map((sale) => [
+            sale.sale_number,
+            sale.sale_date,
+            sale.location,
+            sale.quantity,
+            money(sale.unit_price),
+            money(sale.total),
+            <button className="danger-button" onClick={() => deleteSale(sale)}>Eliminar</button>
+          ])}
+        />
+      </section>
     </div>
   );
 }

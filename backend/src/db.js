@@ -206,6 +206,37 @@ export function initDb() {
       FOREIGN KEY (event_id) REFERENCES events(id)
     );
 
+    CREATE TABLE IF NOT EXISTS event_box_office_ticket_sales (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      event_id INTEGER NOT NULL,
+      sale_number TEXT,
+      sale_date TEXT NOT NULL DEFAULT (date('now', 'localtime')),
+      location TEXT NOT NULL,
+      quantity INTEGER NOT NULL CHECK (quantity > 0),
+      unit_price REAL NOT NULL DEFAULT 0 CHECK (unit_price >= 0),
+      total REAL NOT NULL DEFAULT 0 CHECK (total >= 0),
+      created_by TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (event_id) REFERENCES events(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS event_box_office_ticket_stock_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      event_id INTEGER NOT NULL,
+      entry_date TEXT NOT NULL DEFAULT (date('now', 'localtime')),
+      location TEXT NOT NULL,
+      quantity INTEGER NOT NULL CHECK (quantity > 0),
+      unit_price REAL NOT NULL DEFAULT 0 CHECK (unit_price >= 0),
+      notes TEXT,
+      created_by TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (event_id) REFERENCES events(id)
+    );
+
     CREATE TABLE IF NOT EXISTS physical_ticket_daily_expenses (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       establishment_id INTEGER NOT NULL,
@@ -328,6 +359,8 @@ export function initDb() {
     CREATE INDEX IF NOT EXISTS idx_physical_ticket_sales_event_date ON physical_ticket_sales(establishment_id, event_id, sale_date);
     CREATE INDEX IF NOT EXISTS idx_physical_ticket_items_sale ON physical_ticket_sale_items(sale_id);
     CREATE INDEX IF NOT EXISTS idx_physical_ticket_stock_event_date ON physical_ticket_stock_entries(establishment_id, event_id, entry_date);
+    CREATE INDEX IF NOT EXISTS idx_event_box_office_sales_scope ON event_box_office_ticket_sales(establishment_id, event_id, sale_date);
+    CREATE INDEX IF NOT EXISTS idx_event_box_office_stock_scope ON event_box_office_ticket_stock_entries(establishment_id, event_id, entry_date);
     CREATE INDEX IF NOT EXISTS idx_physical_ticket_expenses_event_date ON physical_ticket_daily_expenses(establishment_id, event_id, expense_date);
     CREATE INDEX IF NOT EXISTS idx_physical_ticket_withdrawals_event_date ON physical_ticket_cash_withdrawals(establishment_id, event_id, withdrawal_date);
     CREATE INDEX IF NOT EXISTS idx_complimentary_ticket_stock_event_date ON complimentary_ticket_stock_entries(establishment_id, event_id, entry_date);
