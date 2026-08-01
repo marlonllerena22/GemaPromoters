@@ -1862,6 +1862,18 @@ function eventBoxOfficeReport(eventId, establishmentId, dateFrom, dateTo) {
      WHERE establishment_id = ? AND event_id = ?
      ORDER BY entry_date DESC, id DESC`
   ).all(establishmentId, eventId);
+  const expenses = db.prepare(
+    `SELECT *
+     FROM event_box_office_daily_expenses
+     WHERE establishment_id = ? AND event_id = ? AND expense_date BETWEEN ? AND ?
+     ORDER BY expense_date DESC, id DESC`
+  ).all(establishmentId, eventId, from, to);
+  const allExpenses = db.prepare(
+    `SELECT *
+     FROM event_box_office_daily_expenses
+     WHERE establishment_id = ? AND event_id = ?
+     ORDER BY expense_date DESC, id DESC`
+  ).all(establishmentId, eventId);
   const inventoryRows = db.prepare(
     `SELECT locations.name AS location,
             COALESCE(stock.quantity, 0) AS stock_quantity,
@@ -1906,26 +1918,30 @@ function eventBoxOfficeReport(eventId, establishmentId, dateFrom, dateTo) {
   const totals = {
     soldQuantity: sales.reduce((sum, sale) => sum + Number(sale.quantity || 0), 0),
     total: toMoney(sales.reduce((sum, sale) => sum + Number(sale.total || 0), 0)),
+    expenses: toMoney(expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0)),
     stockQuantity: stockEntries.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0),
     exchangedQuantity: inventoryRows.reduce((sum, row) => sum + Number(row.exchanged_quantity || 0), 0),
     remainingQuantity: inventoryRows.reduce((sum, row) => sum + Number(row.remaining_quantity || 0), 0),
     cashStart: eventBoxOfficeInitialCash
   };
-  totals.cashBox = toMoney(eventBoxOfficeInitialCash + totals.total);
+  totals.cashBox = toMoney(eventBoxOfficeInitialCash + totals.total - totals.expenses);
   const allTotals = {
     soldQuantity: allSales.reduce((sum, sale) => sum + Number(sale.quantity || 0), 0),
     total: toMoney(allSales.reduce((sum, sale) => sum + Number(sale.total || 0), 0)),
+    expenses: toMoney(allExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0)),
     stockQuantity: stockEntries.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0),
     exchangedQuantity: inventoryRows.reduce((sum, row) => sum + Number(row.exchanged_quantity || 0), 0),
     remainingQuantity: inventoryRows.reduce((sum, row) => sum + Number(row.remaining_quantity || 0), 0),
     cashStart: eventBoxOfficeInitialCash
   };
-  allTotals.cashBox = toMoney(eventBoxOfficeInitialCash + allTotals.total);
+  allTotals.cashBox = toMoney(eventBoxOfficeInitialCash + allTotals.total - allTotals.expenses);
   return {
     date_from: from,
     date_to: to,
     sales,
     all_sales: allSales,
+    expenses,
+    all_expenses: allExpenses,
     stock_entries: stockEntries,
     inventory_by_location: inventoryRows,
     by_location: [...byLocationMap.values()],
@@ -1981,6 +1997,34 @@ app.delete('/api/event-box-office/sales/:id', requireAdmin, (req, res) => {
   }
   db.prepare('DELETE FROM event_box_office_ticket_sales WHERE id = ? AND establishment_id = ? AND event_id = ?').run(req.params.id, establishmentId, eventId);
   res.json({ ok: true, report: eventBoxOfficeReport(eventId, establishmentId, currentSale.sale_date, currentSale.sale_date) });
+});
+
+app.post('/api/event-box-office/expenses', requireAdmin, (req, res) => {
+  const eventId = getRequestEventId(req);
+  const establishmentId = getRequestEstablishmentId(req);
+  const expenseDate = String(req.body.expense_date || new Date().toISOString().slice(0, 10)).trim();
+  const description = String(req.body.description || '').trim();
+  const amount = Number(req.body.amount || 0);
+  if (!expenseDate || !description || amount <= 0) {
+    return res.status(400).json({ message: 'Fecha, detalle y valor del gasto son obligatorios.' });
+  }
+  db.prepare(
+    `INSERT INTO event_box_office_daily_expenses
+     (establishment_id, event_id, expense_date, description, amount, created_by)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(establishmentId, eventId, expenseDate, description, toMoney(amount), req.user?.username || req.user?.role || 'admin');
+  res.status(201).json(eventBoxOfficeReport(eventId, establishmentId, expenseDate, expenseDate));
+});
+
+app.delete('/api/event-box-office/expenses/:id', requireAdmin, (req, res) => {
+  const eventId = getRequestEventId(req);
+  const establishmentId = getRequestEstablishmentId(req);
+  const currentExpense = db.prepare('SELECT id, expense_date FROM event_box_office_daily_expenses WHERE id = ? AND establishment_id = ? AND event_id = ?').get(req.params.id, establishmentId, eventId);
+  if (!currentExpense) {
+    return res.status(404).json({ message: 'Gasto de boleteria no encontrado.' });
+  }
+  db.prepare('DELETE FROM event_box_office_daily_expenses WHERE id = ? AND establishment_id = ? AND event_id = ?').run(req.params.id, establishmentId, eventId);
+  res.json({ ok: true, report: eventBoxOfficeReport(eventId, establishmentId, currentExpense.expense_date, currentExpense.expense_date) });
 });
 
 function normalizeComplimentaryStockItems(items, fallbackNotes = '') {

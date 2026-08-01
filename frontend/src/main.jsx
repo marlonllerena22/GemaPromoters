@@ -166,6 +166,12 @@ const emptyEventBoxOfficeSale = {
   unit_price: ''
 };
 
+const emptyEventBoxOfficeExpense = {
+  expense_date: new Date().toISOString().slice(0, 10),
+  description: '',
+  amount: ''
+};
+
 const emptyComplimentaryStockItem = {
   location: '',
   quantity: '',
@@ -2274,6 +2280,7 @@ function EventBoxOffice({ locations, eventId, establishmentId, onRefresh }) {
   const [reportDate, setReportDate] = useState(today);
   const [report, setReport] = useState(null);
   const [saleForm, setSaleForm] = useState(emptyEventBoxOfficeSale);
+  const [expenseForm, setExpenseForm] = useState(emptyEventBoxOfficeExpense);
   const [error, setError] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
   const activeLocations = locations.filter((location) => location.status === 'active');
@@ -2332,6 +2339,36 @@ function EventBoxOffice({ locations, eventId, establishmentId, onRefresh }) {
     }
   }
 
+  async function submitExpense(event) {
+    event.preventDefault();
+    setError('');
+    try {
+      await api(withScope('/event-box-office/expenses', eventId, establishmentId), {
+        method: 'POST',
+        body: JSON.stringify(expenseForm)
+      });
+      setExpenseForm({ expense_date: expenseForm.expense_date, description: '', amount: '' });
+      await loadReport(expenseForm.expense_date);
+      setStatusMessage('Gasto registrado y descontado de caja');
+      setTimeout(() => setStatusMessage(''), 2400);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function deleteExpense(expense) {
+    if (!window.confirm(`Seguro quieres eliminar el gasto "${expense.description}"?`)) return;
+    setError('');
+    try {
+      await api(withScope(`/event-box-office/expenses/${expense.id}`, eventId, establishmentId), { method: 'DELETE' });
+      await loadReport(reportDate);
+      setStatusMessage('Gasto eliminado');
+      setTimeout(() => setStatusMessage(''), 2400);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   return (
     <div className="stacked-layout physical-ticket-admin event-box-office-admin">
       {error && <div className="alert error">{error}</div>}
@@ -2355,6 +2392,7 @@ function EventBoxOffice({ locations, eventId, establishmentId, onRefresh }) {
           <article><span>Canjeadas online</span><strong>{totals.exchangedQuantity || 0}</strong></article>
           <article><span>Faltantes</span><strong>{totals.remainingQuantity || 0}</strong></article>
           <article><span>Total vendido</span><strong>{money(totals.total)}</strong></article>
+          <article><span>Gastos</span><strong>{money(totals.expenses)}</strong></article>
           <article><span>Caja inicial</span><strong>{money(totals.cashStart)}</strong></article>
           <article><span>Caja actual</span><strong>{money(totals.cashBox)}</strong></article>
         </div>
@@ -2400,6 +2438,16 @@ function EventBoxOffice({ locations, eventId, establishmentId, onRefresh }) {
         </form>
       </section>
 
+      <section className="panel event-box-office-expenses">
+        <div className="panel-title"><h3>Gastos de boleteria evento</h3></div>
+        <form className="form-grid event-box-office-form" onSubmit={submitExpense}>
+          <Input type="date" label="Fecha gasto" value={expenseForm.expense_date} onChange={(expense_date) => setExpenseForm({ ...expenseForm, expense_date })} />
+          <Input label="Detalle gasto" value={expenseForm.description} onChange={(description) => setExpenseForm({ ...expenseForm, description })} />
+          <Input type="number" label="Valor gasto" value={expenseForm.amount} onChange={(amount) => setExpenseForm({ ...expenseForm, amount })} />
+          <button className="secondary-button" type="submit"><CircleDollarSign size={18} />Registrar gasto</button>
+        </form>
+      </section>
+
       <section className="panel">
         <div className="panel-title"><h3>Ventas registradas</h3></div>
         <DataTable
@@ -2412,6 +2460,19 @@ function EventBoxOffice({ locations, eventId, establishmentId, onRefresh }) {
             money(sale.unit_price),
             money(sale.total),
             <button className="danger-button" onClick={() => deleteSale(sale)}>Eliminar</button>
+          ])}
+        />
+      </section>
+
+      <section className="panel">
+        <div className="panel-title"><h3>Gastos registrados</h3></div>
+        <DataTable
+          columns={['Fecha', 'Detalle', 'Valor', 'Acciones']}
+          rows={(report?.all_expenses || report?.expenses || []).map((expense) => [
+            expense.expense_date,
+            expense.description,
+            money(expense.amount),
+            <button className="danger-button" onClick={() => deleteExpense(expense)}>Eliminar</button>
           ])}
         />
       </section>
