@@ -2272,8 +2272,39 @@ function normalizeImportedTicketLocation(eventId, rawLocation) {
   return partial?.name || '';
 }
 
+function cleanTicketmasToken(value) {
+  return String(value || '').replace(/[|;,]/g, '').trim();
+}
+
+function looksLikeTicketPrice(value) {
+  return /^\$?\d+(?:[.,]\d{1,2})?$/.test(cleanTicketmasToken(value));
+}
+
+function pushImportedTicketRow(rows, seen, eventId, row) {
+  const location = normalizeImportedTicketLocation(eventId, row.location);
+  const recipientName = String(row.recipient_name || '').replace(/\s+/g, ' ').trim();
+  const buyerEmail = String(row.buyer_email || '').trim();
+  const ticketToken = cleanTicketmasToken(row.ticket_token);
+  if (!location || !recipientName || !buyerEmail) return;
+  const key = `${normalizeLookup(location)}|${normalizeLookup(recipientName)}|${normalizeLookup(buyerEmail)}|${normalizeLookup(ticketToken)}`;
+  if (seen.has(key)) return;
+  seen.add(key);
+  rows.push({
+    registered_date: row.registered_date || new Date().toISOString().slice(0, 10),
+    recipient_name: recipientName,
+    recipient_cedula: ticketToken || buyerEmail,
+    buyer_email: buyerEmail,
+    ticket_token: ticketToken,
+    location,
+    quantity: 1,
+    source_price: toMoney(String(row.source_price || 0).replace(',', '.')),
+    source_file: row.source_file
+  });
+}
+
 function parseBoxOfficeTicketRowsFromText(text, eventId, sourceFile) {
   const rows = [];
+  const seenRows = new Set();
   const lines = String(text || '')
     .split(/\r?\n/)
     .map((line) => line.replace(/\s+/g, ' ').trim())
@@ -2286,16 +2317,67 @@ function parseBoxOfficeTicketRowsFromText(text, eventId, sourceFile) {
     const buyerEmail = match[4].trim();
     const ticketToken = match[5].trim();
     const price = toMoney(String(match[6]).replace(',', '.'));
-    if (!location || !recipientName) continue;
-    rows.push({
+    pushImportedTicketRow(rows, seenRows, eventId, {
       registered_date: match[2],
       recipient_name: recipientName,
-      recipient_cedula: ticketToken || buyerEmail,
       buyer_email: buyerEmail,
       ticket_token: ticketToken,
       location,
-      quantity: 1,
       source_price: price,
+      source_file: sourceFile
+    });
+  }
+  const tokens = String(text || '')
+    .replace(/\r/g, '\n')
+    .split(/\s+/)
+    .map(cleanTicketmasToken)
+    .filter(Boolean);
+  for (let emailIndex = 0; emailIndex < tokens.length; emailIndex += 1) {
+    const buyerEmail = tokens[emailIndex];
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(buyerEmail)) continue;
+    let dateIndex = -1;
+    for (let index = emailIndex - 1; index >= Math.max(0, emailIndex - 18); index -= 1) {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(tokens[index])) {
+        dateIndex = index;
+        break;
+      }
+    }
+    if (dateIndex < 0) continue;
+    let location = '';
+    for (let index = dateIndex - 1; index >= Math.max(0, dateIndex - 5); index -= 1) {
+      if (/^\d+$/.test(tokens[index])) continue;
+      const possibleLocation = normalizeImportedTicketLocation(eventId, tokens[index]);
+      if (possibleLocation) {
+        location = possibleLocation;
+        break;
+      }
+    }
+    if (!location) continue;
+    const nameStart = /^\d{2}:\d{2}:\d{2}$/.test(tokens[dateIndex + 1]) ? dateIndex + 2 : dateIndex + 1;
+    const nameTokens = tokens
+      .slice(nameStart, emailIndex)
+      .filter((token) => !/^(Nombre|Apellido|Correo|comprador|Token|Precio|Localidad|Fecha)$/i.test(token));
+    const recipientName = nameTokens.join(' ');
+    let ticketToken = '';
+    let sourcePrice = 0;
+    for (let index = emailIndex + 1; index < Math.min(tokens.length, emailIndex + 6); index += 1) {
+      const token = tokens[index];
+      if (!ticketToken && !looksLikeTicketPrice(token) && !/^\d{4}-\d{2}-\d{2}$/.test(token)) {
+        ticketToken = token;
+        continue;
+      }
+      if (looksLikeTicketPrice(token)) {
+        sourcePrice = toMoney(String(token).replace('$', '').replace(',', '.'));
+        break;
+      }
+    }
+    pushImportedTicketRow(rows, seenRows, eventId, {
+      registered_date: tokens[dateIndex],
+      recipient_name: recipientName,
+      buyer_email: buyerEmail,
+      ticket_token: ticketToken,
+      location,
+      source_price: sourcePrice,
       source_file: sourceFile
     });
   }
