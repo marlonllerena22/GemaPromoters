@@ -898,6 +898,18 @@ input[type="file"] {
   color: #ffffff;
 }
 
+.box-office-upload-button {
+  position: relative;
+}
+
+.box-office-upload-button input {
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  width: 1px;
+}
+
 .box-office-row-done {
   background: #f8fafc;
   color: #64748b;

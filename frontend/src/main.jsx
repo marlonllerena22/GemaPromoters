@@ -2352,8 +2352,11 @@ function EventBoxOffice({ locations, eventId, establishmentId, onRefresh }) {
         <div className="stats-grid event-box-office-stats">
           <article><span>Stock total</span><strong>{totals.stockQuantity || 0}</strong></article>
           <article><span>Vendidas</span><strong>{totals.soldQuantity || 0}</strong></article>
+          <article><span>Canjeadas online</span><strong>{totals.exchangedQuantity || 0}</strong></article>
           <article><span>Faltantes</span><strong>{totals.remainingQuantity || 0}</strong></article>
           <article><span>Total vendido</span><strong>{money(totals.total)}</strong></article>
+          <article><span>Caja inicial</span><strong>{money(totals.cashStart)}</strong></article>
+          <article><span>Caja actual</span><strong>{money(totals.cashBox)}</strong></article>
         </div>
       </section>
 
@@ -2366,6 +2369,7 @@ function EventBoxOffice({ locations, eventId, establishmentId, onRefresh }) {
               <span>Precio: {money(row.unit_price)}</span>
               <span>Ingresadas: {row.stock_quantity}</span>
               <span>Vendidas: {row.sold_quantity}</span>
+              <span>Canjeadas: {row.exchanged_quantity}</span>
               <b>Faltantes: {row.remaining_quantity}</b>
             </article>
           ))}
@@ -2422,6 +2426,7 @@ function BoxOfficeTicketExchange({ locations, initialReport, eventId, establishm
   const [searchTerm, setSearchTerm] = useState('');
   const [formOpen, setFormOpen] = useState(false);
   const [loadingList, setLoadingList] = useState(false);
+  const [importingFile, setImportingFile] = useState(false);
   const [error, setError] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
   const activeLocations = locations.filter((location) => location.status === 'active');
@@ -2510,6 +2515,39 @@ function BoxOfficeTicketExchange({ locations, initialReport, eventId, establishm
     }
   }
 
+  function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error('No se pudo leer el archivo.'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function importTicketFile(event) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setError('');
+    setImportingFile(true);
+    try {
+      const fileData = await readFileAsDataUrl(file);
+      const result = await api(withScope('/box-office-ticket-exchanges/import', eventId, establishmentId), {
+        method: 'POST',
+        body: JSON.stringify({ file_name: file.name, file_data: fileData })
+      });
+      setReport(result.report);
+      setSearchTerm('');
+      setStatusMessage(`PDF importado: ${result.inserted} nuevos, ${result.updated} actualizados`);
+      setTimeout(() => setStatusMessage(''), 4200);
+      onRefresh('Lista de boleteria importada');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setImportingFile(false);
+    }
+  }
+
   function clearForm() {
     setEditingId(null);
     setForm(emptyBoxOfficeExchange);
@@ -2535,6 +2573,10 @@ function BoxOfficeTicketExchange({ locations, initialReport, eventId, establishm
             <button className="primary-button" type="button" onClick={() => { clearForm(); setFormOpen(true); document.getElementById('box-office-exchange-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}>
               <Plus size={16} />Agregar registro
             </button>
+            <label className="ghost-button box-office-upload-button">
+              {importingFile ? 'Importando...' : 'Subir PDF'}
+              <input type="file" accept="application/pdf,.pdf" onChange={importTicketFile} disabled={importingFile} />
+            </label>
           </div>
         </div>
         <div className="stats-grid box-office-stats">
@@ -2570,7 +2612,7 @@ function BoxOfficeTicketExchange({ locations, initialReport, eventId, establishm
               <tr>
                 <th>Codigo</th>
                 <th>Nombre</th>
-                <th>Cedula</th>
+                <th>Cedula / Token</th>
                 <th>Localidad</th>
                 <th>Cantidad</th>
                 <th>Estado</th>
@@ -2582,7 +2624,11 @@ function BoxOfficeTicketExchange({ locations, initialReport, eventId, establishm
                 <tr key={row.id} className={row.status === 'exchanged' ? 'box-office-row-done' : ''}>
                   <td>{row.exchange_number || `BOL-${row.id}`}</td>
                   <td><strong>{row.recipient_name}</strong><small>{row.notes || 'Sin observacion'}</small></td>
-                  <td>{row.recipient_cedula}</td>
+                  <td>
+                    <strong>{row.recipient_cedula}</strong>
+                    {row.buyer_email && <small>{row.buyer_email}</small>}
+                    {row.ticket_token && row.ticket_token !== row.recipient_cedula && <small>Token: {row.ticket_token}</small>}
+                  </td>
                   <td>{row.location}</td>
                   <td>{row.quantity}</td>
                   <td>

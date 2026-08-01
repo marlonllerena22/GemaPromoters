@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import express from 'express';
 import nodemailer from 'nodemailer';
 import path from 'node:path';
+import { PDFParse } from 'pdf-parse';
 import { fileURLToPath } from 'node:url';
 import { createToken, requireAdmin, requireAuth, requirePromoter, requireSupreme } from './auth.js';
 import { db, initDb, normalizeCode, normalizeLookup, toMoney } from './db.js';
@@ -1809,6 +1810,7 @@ const eventBoxOfficeDefaults = [
   { match: 'VIP', quantity: 200, unit_price: 30 },
   { match: 'BOX', quantity: 100, unit_price: 40 }
 ];
+const eventBoxOfficeInitialCash = 100;
 
 function eventBoxOfficePrice(location) {
   const lookup = normalizeLookup(location);
@@ -1863,7 +1865,8 @@ function eventBoxOfficeReport(eventId, establishmentId, dateFrom, dateTo) {
   const inventoryRows = db.prepare(
     `SELECT locations.name AS location,
             COALESCE(stock.quantity, 0) AS stock_quantity,
-            COALESCE(sold.quantity, 0) AS sold_quantity
+            COALESCE(sold.quantity, 0) AS sold_quantity,
+            COALESCE(exchanged.quantity, 0) AS exchanged_quantity
      FROM event_locations AS locations
      LEFT JOIN (
        SELECT location, SUM(quantity) AS quantity
@@ -1877,14 +1880,21 @@ function eventBoxOfficeReport(eventId, establishmentId, dateFrom, dateTo) {
        WHERE establishment_id = ? AND event_id = ?
        GROUP BY location
      ) AS sold ON sold.location = locations.name
+     LEFT JOIN (
+       SELECT location, SUM(quantity) AS quantity
+       FROM box_office_ticket_exchanges
+       WHERE establishment_id = ? AND event_id = ? AND status = 'exchanged'
+       GROUP BY location
+     ) AS exchanged ON exchanged.location = locations.name
      WHERE locations.event_id = ?
      ORDER BY locations.name COLLATE NOCASE`
-  ).all(establishmentId, eventId, establishmentId, eventId, eventId).map((row) => ({
+  ).all(establishmentId, eventId, establishmentId, eventId, establishmentId, eventId, eventId).map((row) => ({
     location: row.location,
     unit_price: eventBoxOfficePrice(row.location),
     stock_quantity: Number(row.stock_quantity || 0),
     sold_quantity: Number(row.sold_quantity || 0),
-    remaining_quantity: Number(row.stock_quantity || 0) - Number(row.sold_quantity || 0)
+    exchanged_quantity: Number(row.exchanged_quantity || 0),
+    remaining_quantity: Number(row.stock_quantity || 0) - Number(row.sold_quantity || 0) - Number(row.exchanged_quantity || 0)
   }));
   const byLocationMap = new Map();
   for (const sale of sales) {
@@ -1897,14 +1907,20 @@ function eventBoxOfficeReport(eventId, establishmentId, dateFrom, dateTo) {
     soldQuantity: sales.reduce((sum, sale) => sum + Number(sale.quantity || 0), 0),
     total: toMoney(sales.reduce((sum, sale) => sum + Number(sale.total || 0), 0)),
     stockQuantity: stockEntries.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0),
-    remainingQuantity: inventoryRows.reduce((sum, row) => sum + Number(row.remaining_quantity || 0), 0)
+    exchangedQuantity: inventoryRows.reduce((sum, row) => sum + Number(row.exchanged_quantity || 0), 0),
+    remainingQuantity: inventoryRows.reduce((sum, row) => sum + Number(row.remaining_quantity || 0), 0),
+    cashStart: eventBoxOfficeInitialCash
   };
+  totals.cashBox = toMoney(eventBoxOfficeInitialCash + totals.total);
   const allTotals = {
     soldQuantity: allSales.reduce((sum, sale) => sum + Number(sale.quantity || 0), 0),
     total: toMoney(allSales.reduce((sum, sale) => sum + Number(sale.total || 0), 0)),
     stockQuantity: stockEntries.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0),
-    remainingQuantity: inventoryRows.reduce((sum, row) => sum + Number(row.remaining_quantity || 0), 0)
+    exchangedQuantity: inventoryRows.reduce((sum, row) => sum + Number(row.exchanged_quantity || 0), 0),
+    remainingQuantity: inventoryRows.reduce((sum, row) => sum + Number(row.remaining_quantity || 0), 0),
+    cashStart: eventBoxOfficeInitialCash
   };
+  allTotals.cashBox = toMoney(eventBoxOfficeInitialCash + allTotals.total);
   return {
     date_from: from,
     date_to: to,
@@ -2197,6 +2213,87 @@ function boxOfficeTicketExchangeReport(eventId, establishmentId, search = '') {
   };
 }
 
+function normalizeImportedTicketLocation(eventId, rawLocation) {
+  const lookup = normalizeLookup(rawLocation);
+  if (!lookup) return '';
+  const locations = db.prepare("SELECT name FROM event_locations WHERE event_id = ? AND status = 'active'").all(eventId);
+  const exact = locations.find((location) => normalizeLookup(location.name) === lookup);
+  if (exact) return exact.name;
+  const partial = locations.find((location) => lookup.includes(normalizeLookup(location.name)) || normalizeLookup(location.name).includes(lookup));
+  return partial?.name || '';
+}
+
+function parseBoxOfficeTicketRowsFromText(text, eventId, sourceFile) {
+  const rows = [];
+  const lines = String(text || '')
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  for (const line of lines) {
+    const match = line.match(/^\d+\s+([A-Za-z.]+)\s+(\d{4}-\d{2}-\d{2})\s+\d{2}:\d{2}:\d{2}\s+(.+?)\s+([^\s@]+@[^\s@]+\.[^\s@]+)\s+(\S+)\s+(\d+(?:[.,]\d+)?)$/);
+    if (!match) continue;
+    const location = normalizeImportedTicketLocation(eventId, match[1]);
+    const recipientName = match[3].trim();
+    const buyerEmail = match[4].trim();
+    const ticketToken = match[5].trim();
+    const price = toMoney(String(match[6]).replace(',', '.'));
+    if (!location || !recipientName) continue;
+    rows.push({
+      registered_date: match[2],
+      recipient_name: recipientName,
+      recipient_cedula: ticketToken || buyerEmail,
+      buyer_email: buyerEmail,
+      ticket_token: ticketToken,
+      location,
+      quantity: 1,
+      source_price: price,
+      source_file: sourceFile
+    });
+  }
+  const grouped = new Map();
+  for (const row of rows) {
+    const key = `${normalizeLookup(row.recipient_name)}|${normalizeLookup(row.location)}`;
+    const current = grouped.get(key) || {
+      ...row,
+      quantity: 0,
+      tokens: new Set(),
+      emails: new Set(),
+      prices: new Set()
+    };
+    current.quantity += 1;
+    if (row.ticket_token) current.tokens.add(row.ticket_token);
+    if (row.buyer_email) current.emails.add(row.buyer_email);
+    if (row.source_price) current.prices.add(String(row.source_price));
+    grouped.set(key, current);
+  }
+  return [...grouped.values()].map((row) => ({
+    registered_date: row.registered_date,
+    recipient_name: row.recipient_name,
+    recipient_cedula: [...row.tokens][0] || [...row.emails][0] || row.recipient_cedula,
+    buyer_email: [...row.emails].join(', '),
+    ticket_token: [...row.tokens].join(', '),
+    location: row.location,
+    quantity: row.quantity,
+    source_price: row.prices.size === 1 ? Number([...row.prices][0]) : 0,
+    source_file: row.source_file,
+    notes: `Importado desde ${row.source_file}${row.tokens.size ? ` | Tokens: ${[...row.tokens].join(', ')}` : ''}`
+  }));
+}
+
+async function extractPdfTextFromBase64(fileData) {
+  const cleanBase64 = String(fileData || '').includes(',')
+    ? String(fileData).split(',').pop()
+    : String(fileData || '');
+  const buffer = Buffer.from(cleanBase64, 'base64');
+  const parser = new PDFParse({ data: buffer });
+  try {
+    const result = await parser.getText();
+    return result.text || '';
+  } finally {
+    await parser.destroy();
+  }
+}
+
 app.get('/api/box-office-ticket-exchanges', requireAdmin, (req, res) => {
   const eventId = getRequestEventId(req);
   const establishmentId = getRequestEstablishmentId(req);
@@ -2243,6 +2340,78 @@ app.post('/api/box-office-ticket-exchanges', requireAdmin, (req, res) => {
   res.status(201).json({ ok: true, exchange_id: result.lastInsertRowid, report: boxOfficeTicketExchangeReport(eventId, establishmentId) });
 });
 
+app.post('/api/box-office-ticket-exchanges/import', requireAdmin, async (req, res) => {
+  const eventId = getRequestEventId(req);
+  const establishmentId = getRequestEstablishmentId(req);
+  const fileName = String(req.body.file_name || 'archivo.pdf').trim();
+  const fileData = String(req.body.file_data || '').trim();
+  if (!fileData) {
+    return res.status(400).json({ message: 'Selecciona un archivo PDF para importar.' });
+  }
+  try {
+    const text = await extractPdfTextFromBase64(fileData);
+    const rows = parseBoxOfficeTicketRowsFromText(text, eventId, fileName);
+    if (!rows.length) {
+      return res.status(400).json({ message: 'No pude encontrar filas de entradas en el PDF. Verifica que sea un PDF con texto y no una imagen escaneada.' });
+    }
+    const createdBy = req.user?.username || req.user?.role || 'admin';
+    let inserted = 0;
+    let updated = 0;
+    db.transaction(() => {
+      const findPending = db.prepare(
+        `SELECT id, recipient_name, quantity, notes
+         FROM box_office_ticket_exchanges
+         WHERE establishment_id = ? AND event_id = ? AND location = ? AND status = 'pending'`
+      );
+      const updateExisting = db.prepare(
+        `UPDATE box_office_ticket_exchanges
+         SET quantity = quantity + ?, buyer_email = COALESCE(NULLIF(buyer_email, ''), ?),
+             ticket_token = COALESCE(NULLIF(ticket_token, ''), ?),
+             source_price = CASE WHEN source_price > 0 THEN source_price ELSE ? END,
+             source_file = COALESCE(NULLIF(source_file, ''), ?),
+             notes = ?
+         WHERE id = ?`
+      );
+      const insertExchange = db.prepare(
+        `INSERT INTO box_office_ticket_exchanges
+         (establishment_id, event_id, registered_date, recipient_name, recipient_cedula, buyer_email, ticket_token, location, quantity, source_price, status, notes, source_file, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`
+      );
+      const updateNumber = db.prepare('UPDATE box_office_ticket_exchanges SET exchange_number = ? WHERE id = ?');
+      for (const row of rows) {
+        const existing = findPending.all(establishmentId, eventId, row.location)
+          .find((item) => normalizeLookup(item.recipient_name) === normalizeLookup(row.recipient_name));
+        if (existing) {
+          const nextNotes = `${existing.notes || ''}${existing.notes ? ' | ' : ''}${row.notes}`.slice(0, 900);
+          updateExisting.run(row.quantity, row.buyer_email, row.ticket_token, row.source_price, row.source_file, nextNotes, existing.id);
+          updated += 1;
+        } else {
+          const result = insertExchange.run(
+            establishmentId,
+            eventId,
+            row.registered_date,
+            row.recipient_name,
+            row.recipient_cedula,
+            row.buyer_email,
+            row.ticket_token,
+            row.location,
+            row.quantity,
+            row.source_price,
+            row.notes,
+            row.source_file,
+            createdBy
+          );
+          updateNumber.run(`BOL-${String(result.lastInsertRowid).padStart(6, '0')}`, result.lastInsertRowid);
+          inserted += 1;
+        }
+      }
+    })();
+    res.status(201).json({ ok: true, inserted, updated, rows: rows.length, report: boxOfficeTicketExchangeReport(eventId, establishmentId) });
+  } catch (err) {
+    res.status(400).json({ message: err.message || 'No se pudo importar el PDF.' });
+  }
+});
+
 app.put('/api/box-office-ticket-exchanges/:id', requireAdmin, (req, res) => {
   const eventId = getRequestEventId(req);
   const establishmentId = getRequestEstablishmentId(req);
@@ -2274,9 +2443,15 @@ app.patch('/api/box-office-ticket-exchanges/:id/status', requireAdmin, (req, res
   const eventId = getRequestEventId(req);
   const establishmentId = getRequestEstablishmentId(req);
   const status = String(req.body.status || '').trim() === 'exchanged' ? 'exchanged' : 'pending';
-  const current = db.prepare('SELECT id FROM box_office_ticket_exchanges WHERE id = ? AND establishment_id = ? AND event_id = ?').get(req.params.id, establishmentId, eventId);
+  const current = db.prepare('SELECT id, location, quantity, status FROM box_office_ticket_exchanges WHERE id = ? AND establishment_id = ? AND event_id = ?').get(req.params.id, establishmentId, eventId);
   if (!current) {
     return res.status(404).json({ message: 'Registro no encontrado.' });
+  }
+  if (status === 'exchanged' && current.status !== 'exchanged') {
+    const inventory = eventBoxOfficeReport(eventId, establishmentId).inventory_by_location.find((row) => row.location === current.location);
+    if (!inventory || Number(inventory.remaining_quantity || 0) < Number(current.quantity || 0)) {
+      return res.status(400).json({ message: 'No hay suficiente stock disponible en Boleteria Evento para canjear esa entrada.' });
+    }
   }
   db.prepare(
     `UPDATE box_office_ticket_exchanges

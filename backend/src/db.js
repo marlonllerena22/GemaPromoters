@@ -306,12 +306,16 @@ export function initDb() {
       registered_date TEXT NOT NULL DEFAULT (date('now', 'localtime')),
       recipient_name TEXT NOT NULL,
       recipient_cedula TEXT NOT NULL,
+      buyer_email TEXT,
+      ticket_token TEXT,
       location TEXT NOT NULL,
       quantity INTEGER NOT NULL CHECK (quantity > 0),
+      source_price REAL NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'exchanged')),
       exchanged_at TEXT,
       checked_by TEXT,
       notes TEXT,
+      source_file TEXT,
       created_by TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       FOREIGN KEY (establishment_id) REFERENCES establishments(id),
@@ -353,6 +357,10 @@ export function initDb() {
   addColumnIfMissing('sales', 'deleted_by', 'TEXT');
   addColumnIfMissing('sales', 'deletion_reason', 'TEXT');
   addColumnIfMissing('physical_ticket_sales', 'notes', 'TEXT');
+  addColumnIfMissing('box_office_ticket_exchanges', 'buyer_email', 'TEXT');
+  addColumnIfMissing('box_office_ticket_exchanges', 'ticket_token', 'TEXT');
+  addColumnIfMissing('box_office_ticket_exchanges', 'source_price', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing('box_office_ticket_exchanges', 'source_file', 'TEXT');
 
   db.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_promoters_username ON promoters(username);
