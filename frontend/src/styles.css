@@ -927,6 +927,18 @@ input[type="file"] {
   color: #166534;
 }
 
+.box-office-ticket-admin .status-pill.courtesy {
+  background: #fef3c7;
+  border-color: #facc15;
+  color: #92400e;
+}
+
+.box-office-ticket-admin .status-pill.ticketmas {
+  background: #dbeafe;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+
 .event-box-office-hero,
 .event-box-office-sale {
   background:

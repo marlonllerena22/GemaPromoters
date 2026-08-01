@@ -1883,7 +1883,7 @@ function eventBoxOfficeReport(eventId, establishmentId, dateFrom, dateTo) {
      LEFT JOIN (
        SELECT location, SUM(quantity) AS quantity
        FROM box_office_ticket_exchanges
-       WHERE establishment_id = ? AND event_id = ? AND status = 'exchanged'
+       WHERE establishment_id = ? AND event_id = ? AND status = 'exchanged' AND source_type = 'ticketmas'
        GROUP BY location
      ) AS exchanged ON exchanged.location = locations.name
      WHERE locations.event_id = ?
@@ -2194,6 +2194,11 @@ function boxOfficeTicketExchangeReport(eventId, establishmentId, search = '') {
   const totals = allRows.reduce((current, row) => {
     const quantity = Number(row.quantity || 0);
     current.quantity += quantity;
+    if (row.source_type === 'ticketmas') {
+      current.ticketmas += quantity;
+    } else {
+      current.courtesy += quantity;
+    }
     if (row.status === 'exchanged') {
       current.exchanged += quantity;
       current.exchanged_records += 1;
@@ -2203,7 +2208,7 @@ function boxOfficeTicketExchangeReport(eventId, establishmentId, search = '') {
     }
     current.records += 1;
     return current;
-  }, { records: 0, quantity: 0, pending: 0, exchanged: 0, pending_records: 0, exchanged_records: 0 });
+  }, { records: 0, quantity: 0, courtesy: 0, ticketmas: 0, pending: 0, exchanged: 0, pending_records: 0, exchanged_records: 0 });
   return {
     search: cleanSearch,
     exchanges: rows,
@@ -2319,7 +2324,7 @@ app.post('/api/box-office-ticket-exchanges', requireAdmin, (req, res) => {
   const matchingPending = db.prepare(
     `SELECT id, recipient_name
      FROM box_office_ticket_exchanges
-     WHERE establishment_id = ? AND event_id = ? AND recipient_cedula = ? AND location = ? AND status = 'pending'`
+     WHERE establishment_id = ? AND event_id = ? AND recipient_cedula = ? AND location = ? AND status = 'pending' AND source_type = 'courtesy'`
   ).all(establishmentId, eventId, recipientCedula, location)
     .find((row) => normalizeLookup(row.recipient_name) === normalizeLookup(recipientName));
   if (matchingPending) {
@@ -2332,8 +2337,8 @@ app.post('/api/box-office-ticket-exchanges', requireAdmin, (req, res) => {
   }
   const result = db.prepare(
     `INSERT INTO box_office_ticket_exchanges
-     (establishment_id, event_id, registered_date, recipient_name, recipient_cedula, location, quantity, notes, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     (establishment_id, event_id, registered_date, recipient_name, recipient_cedula, source_type, location, quantity, notes, created_by)
+     VALUES (?, ?, ?, ?, ?, 'courtesy', ?, ?, ?, ?)`
   ).run(establishmentId, eventId, registeredDate, recipientName, recipientCedula, location, quantity, notes, createdBy);
   const exchangeNumber = `BOL-${String(result.lastInsertRowid).padStart(6, '0')}`;
   db.prepare('UPDATE box_office_ticket_exchanges SET exchange_number = ? WHERE id = ?').run(exchangeNumber, result.lastInsertRowid);
@@ -2361,12 +2366,13 @@ app.post('/api/box-office-ticket-exchanges/import', requireAdmin, async (req, re
       const findPending = db.prepare(
         `SELECT id, recipient_name, quantity, notes
          FROM box_office_ticket_exchanges
-         WHERE establishment_id = ? AND event_id = ? AND location = ? AND status = 'pending'`
+         WHERE establishment_id = ? AND event_id = ? AND location = ? AND status = 'pending' AND source_type = 'ticketmas'`
       );
       const updateExisting = db.prepare(
         `UPDATE box_office_ticket_exchanges
          SET quantity = quantity + ?, buyer_email = COALESCE(NULLIF(buyer_email, ''), ?),
              ticket_token = COALESCE(NULLIF(ticket_token, ''), ?),
+             source_type = 'ticketmas',
              source_price = CASE WHEN source_price > 0 THEN source_price ELSE ? END,
              source_file = COALESCE(NULLIF(source_file, ''), ?),
              notes = ?
@@ -2374,8 +2380,8 @@ app.post('/api/box-office-ticket-exchanges/import', requireAdmin, async (req, re
       );
       const insertExchange = db.prepare(
         `INSERT INTO box_office_ticket_exchanges
-         (establishment_id, event_id, registered_date, recipient_name, recipient_cedula, buyer_email, ticket_token, location, quantity, source_price, status, notes, source_file, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`
+         (establishment_id, event_id, registered_date, recipient_name, recipient_cedula, buyer_email, ticket_token, source_type, location, quantity, source_price, status, notes, source_file, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'ticketmas', ?, ?, ?, 'pending', ?, ?, ?)`
       );
       const updateNumber = db.prepare('UPDATE box_office_ticket_exchanges SET exchange_number = ? WHERE id = ?');
       for (const row of rows) {
@@ -2443,11 +2449,11 @@ app.patch('/api/box-office-ticket-exchanges/:id/status', requireAdmin, (req, res
   const eventId = getRequestEventId(req);
   const establishmentId = getRequestEstablishmentId(req);
   const status = String(req.body.status || '').trim() === 'exchanged' ? 'exchanged' : 'pending';
-  const current = db.prepare('SELECT id, location, quantity, status FROM box_office_ticket_exchanges WHERE id = ? AND establishment_id = ? AND event_id = ?').get(req.params.id, establishmentId, eventId);
+  const current = db.prepare('SELECT id, location, quantity, status, source_type FROM box_office_ticket_exchanges WHERE id = ? AND establishment_id = ? AND event_id = ?').get(req.params.id, establishmentId, eventId);
   if (!current) {
     return res.status(404).json({ message: 'Registro no encontrado.' });
   }
-  if (status === 'exchanged' && current.status !== 'exchanged') {
+  if (status === 'exchanged' && current.status !== 'exchanged' && current.source_type === 'ticketmas') {
     const inventory = eventBoxOfficeReport(eventId, establishmentId).inventory_by_location.find((row) => row.location === current.location);
     if (!inventory || Number(inventory.remaining_quantity || 0) < Number(current.quantity || 0)) {
       return res.status(400).json({ message: 'No hay suficiente stock disponible en Boleteria Evento para canjear esa entrada.' });

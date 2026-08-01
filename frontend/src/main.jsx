@@ -2583,6 +2583,8 @@ function BoxOfficeTicketExchange({ locations, initialReport, eventId, establishm
           <article><span>Entradas en lista</span><strong>{totals.quantity || 0}</strong></article>
           <article><span>Pendientes</span><strong>{totals.pending || 0}</strong></article>
           <article><span>Canjeadas</span><strong>{totals.exchanged || 0}</strong></article>
+          <article><span>Cortesia</span><strong>{totals.courtesy || 0}</strong></article>
+          <article><span>Ticketmas</span><strong>{totals.ticketmas || 0}</strong></article>
           <article><span>Personas registradas</span><strong>{totals.records || 0}</strong></article>
         </div>
       </section>
@@ -2615,6 +2617,7 @@ function BoxOfficeTicketExchange({ locations, initialReport, eventId, establishm
                 <th>Cedula / Token</th>
                 <th>Localidad</th>
                 <th>Cantidad</th>
+                <th>Tipo</th>
                 <th>Estado</th>
                 <th>Acciones</th>
               </tr>
@@ -2631,6 +2634,7 @@ function BoxOfficeTicketExchange({ locations, initialReport, eventId, establishm
                   </td>
                   <td>{row.location}</td>
                   <td>{row.quantity}</td>
+                  <td><span className={`status-pill ${row.source_type === 'ticketmas' ? 'ticketmas' : 'courtesy'}`}>{row.source_type === 'ticketmas' ? 'TICKETMAS' : 'CORTESIA'}</span></td>
                   <td>
                     <span className={`status-pill ${row.status === 'exchanged' ? 'paid' : 'pending'}`}>
                       {row.status === 'exchanged' ? 'Canjeado' : 'Pendiente'}
@@ -2648,7 +2652,7 @@ function BoxOfficeTicketExchange({ locations, initialReport, eventId, establishm
                     </div>
                   </td>
                 </tr>
-              )) : <tr><td colSpan="7">No hay registros con esa busqueda.</td></tr>}
+              )) : <tr><td colSpan="8">No hay registros con esa busqueda.</td></tr>}
             </tbody>
           </table>
         </div>

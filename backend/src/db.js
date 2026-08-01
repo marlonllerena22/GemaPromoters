@@ -308,6 +308,7 @@ export function initDb() {
       recipient_cedula TEXT NOT NULL,
       buyer_email TEXT,
       ticket_token TEXT,
+      source_type TEXT NOT NULL DEFAULT 'courtesy' CHECK (source_type IN ('courtesy', 'ticketmas')),
       location TEXT NOT NULL,
       quantity INTEGER NOT NULL CHECK (quantity > 0),
       source_price REAL NOT NULL DEFAULT 0,
@@ -359,6 +360,7 @@ export function initDb() {
   addColumnIfMissing('physical_ticket_sales', 'notes', 'TEXT');
   addColumnIfMissing('box_office_ticket_exchanges', 'buyer_email', 'TEXT');
   addColumnIfMissing('box_office_ticket_exchanges', 'ticket_token', 'TEXT');
+  addColumnIfMissing('box_office_ticket_exchanges', 'source_type', "TEXT NOT NULL DEFAULT 'courtesy'");
   addColumnIfMissing('box_office_ticket_exchanges', 'source_price', 'REAL NOT NULL DEFAULT 0');
   addColumnIfMissing('box_office_ticket_exchanges', 'source_file', 'TEXT');
 
@@ -390,6 +392,12 @@ export function initDb() {
     UPDATE events
     SET establishment_id = ${defaultEstablishment.id}
     WHERE establishment_id IS NULL OR establishment_id = 0;
+
+    UPDATE box_office_ticket_exchanges
+    SET source_type = 'ticketmas'
+    WHERE (source_file IS NOT NULL AND source_file != '')
+       OR (buyer_email IS NOT NULL AND buyer_email != '')
+       OR (ticket_token IS NOT NULL AND ticket_token != '');
 
     UPDATE promoters
     SET establishment_id = ${defaultEstablishment.id}
