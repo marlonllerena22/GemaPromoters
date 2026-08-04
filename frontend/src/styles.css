@@ -7181,10 +7181,20 @@ td {
   .prod-monthly-print .prod-table th,
   .prod-monthly-print .prod-table td {
     border: 1px solid #000000 !important;
-    height: 4.15mm;
-    padding: 0.25mm 0.7mm;
+    height: 5mm;
+    line-height: 1;
+    max-height: 5mm;
+    overflow: hidden;
+    padding: 0 0.55mm;
     text-align: center;
+    text-overflow: ellipsis;
     vertical-align: middle;
+    white-space: nowrap;
+  }
+
+  .prod-monthly-print .prod-table tbody tr {
+    height: 5mm;
+    max-height: 5mm;
   }
 
   .prod-monthly-print .prod-monthly-pairs-input {
@@ -7194,6 +7204,8 @@ td {
     color: #000000 !important;
     font: inherit;
     font-weight: 800;
+    height: 4.2mm;
+    line-height: 4.2mm;
     padding: 0;
     text-align: center;
     width: 100%;
@@ -7208,11 +7220,6 @@ td {
 
   .prod-monthly-print .prod-monthly-group-row th {
     font-size: 8pt;
-  }
-
-  .prod-monthly-print .prod-table td:nth-child(2),
-  .prod-monthly-print .prod-table td:nth-child(4) {
-    overflow-wrap: anywhere;
   }
 
   .prod-monthly-print .prod-table th:nth-child(5),
