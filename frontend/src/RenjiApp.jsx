@@ -582,7 +582,10 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                     <tr key={order.id}>
                       <td>{order.order_number}</td>
                       <td><strong>{order.customer_name}</strong><small>{order.customer_city} - {order.customer_phone}{order.customer_instagram ? ` - @${order.customer_instagram}` : ''}</small></td>
-                      <td>{renjiItemDetail(order)} - Negro x{order.quantity}</td>
+                      <td className={Number(order.size_edited || 0) ? 'renji-size-edited-cell' : ''}>
+                        {renjiItemDetail(order)} - Negro x{order.quantity}
+                        {Number(order.size_edited || 0) ? <span className="renji-ed-badge">ED</span> : null}
+                      </td>
                       <td>
                         <span className={`renji-pill ${paymentClass(order)}`}>{paymentLabel(order)}</span>
                         {Number(order.deposit_amount || 0) > 0 && <small>Deposito: {money(order.deposit_amount)}</small>}

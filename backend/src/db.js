@@ -966,6 +966,8 @@ function initRenjiDb() {
   addColumnIfMissing('renji_orders', 'stock_items_json', 'TEXT');
   addColumnIfMissing('renji_orders', 'production_items_json', 'TEXT');
   addColumnIfMissing('renji_orders', 'production_status', "TEXT NOT NULL DEFAULT 'ready'");
+  addColumnIfMissing('renji_orders', 'size_edited', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing('renji_orders', 'size_edited_at', 'TEXT');
   addColumnIfMissing('renji_registrations', 'registration_type', "TEXT NOT NULL DEFAULT 'paid'");
   addColumnIfMissing('renji_registrations', 'deposit_amount', 'REAL NOT NULL DEFAULT 0');
   addColumnIfMissing('renji_registrations', 'customer_email', 'TEXT');

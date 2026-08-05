@@ -164,6 +164,53 @@ function formatRegistration(row) {
   };
 }
 
+function normalizedOrderSizes(row) {
+  return {
+    size: row.size || '',
+    hoodie_size: row.hoodie_size || row.size || '',
+    pants_size: row.pants_size || row.size || ''
+  };
+}
+
+function orderSizeChanged(order, payload) {
+  const current = normalizedOrderSizes(order);
+  return current.size !== payload.size
+    || current.hoodie_size !== payload.hoodieSize
+    || current.pants_size !== payload.pantsSize;
+}
+
+function movementItemKey(row) {
+  return `${row.item_type || ''}|${row.size || ''}`;
+}
+
+function detectHistoricallyEditedSizeOrderIds(db, establishmentId) {
+  const rows = db.prepare(
+    `SELECT order_id, item_type, size, notes
+     FROM renji_stock_movements
+     WHERE establishment_id = ?
+       AND order_id IS NOT NULL
+       AND movement_type = 'sale'
+     ORDER BY id ASC`
+  ).all(establishmentId);
+  const byOrder = new Map();
+  for (const row of rows) {
+    const orderRows = byOrder.get(row.order_id) || { initial: new Set(), edited: new Set() };
+    if (String(row.notes || '').toUpperCase().includes('EDICION')) {
+      orderRows.edited.add(movementItemKey(row));
+    } else {
+      orderRows.initial.add(movementItemKey(row));
+    }
+    byOrder.set(row.order_id, orderRows);
+  }
+  const editedIds = new Set();
+  for (const [orderId, itemSets] of byOrder.entries()) {
+    if (!itemSets.edited.size || !itemSets.initial.size) continue;
+    const hasDifferentSize = [...itemSets.edited].some((item) => !itemSets.initial.has(item));
+    if (hasDifferentSize) editedIds.add(Number(orderId));
+  }
+  return editedIds;
+}
+
 function getRenjiEstablishment(db) {
   return db.prepare("SELECT * FROM establishments WHERE name = 'RENJI' AND status = 'active'").get()
     || db.prepare("SELECT * FROM establishments WHERE module_type = 'clothing' AND status = 'active' ORDER BY id ASC").get();
@@ -243,6 +290,7 @@ function readOrderPayload(body, { paidByDefault = false, registrationType = null
 }
 
 function getRenjiOverview(db, establishmentId) {
+  const historicallyEditedSizeIds = detectHistoricallyEditedSizeOrderIds(db, establishmentId);
   const stock = db
     .prepare(
       `SELECT *
@@ -261,7 +309,10 @@ function getRenjiOverview(db, establishmentId) {
        ORDER BY created_at DESC, id DESC`
     )
     .all(establishmentId)
-    .map(formatOrder);
+    .map((row) => ({
+      ...formatOrder(row),
+      size_edited: Number(row.size_edited || 0) || historicallyEditedSizeIds.has(Number(row.id)) ? 1 : 0
+    }));
   const registrations = db
     .prepare(
       `SELECT *
@@ -600,6 +651,7 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
         return res.status(404).json({ message: 'Pedido no encontrado' });
       }
       const payload = readOrderPayload(req.body);
+      const sizeChanged = orderSizeChanged(order, payload);
       const transaction = db.transaction(() => {
         restoreOrderStock(db, order);
         const updateOrder = db.prepare(
@@ -607,7 +659,10 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
            SET customer_name = ?, customer_cedula = ?, customer_city = ?, customer_address = ?, customer_phone = ?,
                customer_email = ?, customer_instagram = ?, purchase_channel = ?, selection_type = ?, size = ?, hoodie_size = ?, pants_size = ?, quantity = ?,
                deposit_amount = ?, pending_amount = ?, payment_status = ?, notes = ?,
-               stock_items_json = ?, production_items_json = ?, production_status = ?, updated_at = datetime('now', 'localtime')
+               stock_items_json = ?, production_items_json = ?, production_status = ?,
+               size_edited = CASE WHEN ? = 1 THEN 1 ELSE size_edited END,
+               size_edited_at = CASE WHEN ? = 1 THEN datetime('now', 'localtime') ELSE size_edited_at END,
+               updated_at = datetime('now', 'localtime')
            WHERE id = ? AND establishment_id = ?`
         );
         const items = orderItemsForSelection(payload.selectionType, payload.quantity, payload);
@@ -639,6 +694,8 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
           JSON.stringify(reservation.stockItems),
           JSON.stringify(reservation.productionItems),
           reservation.productionStatus,
+          sizeChanged ? 1 : 0,
+          sizeChanged ? 1 : 0,
           order.id,
           establishmentId
         );
