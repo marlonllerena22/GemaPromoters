@@ -89,8 +89,14 @@ function money2(value) {
   return Math.round((Number(value || 0) || 0) * 100) / 100;
 }
 
-function localDailySaleCommission(localName, amountValue) {
+function localDailySaleCommission(localName, amountValue, configuredRules = []) {
   const amount = money2(amountValue);
+  if (configuredRules.length) {
+    const matchingRule = [...configuredRules]
+      .sort((left, right) => Number(right.min_amount || 0) - Number(left.min_amount || 0))
+      .find((rule) => amount >= Number(rule.min_amount || 0));
+    return money2(matchingRule?.commission_amount || 0);
+  }
   const isSebastians = String(localName || '').toLowerCase().includes('sebastian');
   if (isSebastians) {
     if (amount >= 185) return 3;
@@ -2357,6 +2363,186 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     res.json({ ok: true });
   });
 
+  function getConfiguredCommissionRules(businessId, localName) {
+    const schemeKey = String(localName).toLowerCase().includes('sebastian') ? 'sebastians' : 'marjorie';
+    return db.prepare(
+      `SELECT * FROM production_local_commission_rules
+       WHERE establishment_id = ? AND scheme_key = ?
+       ORDER BY min_amount, position, id`
+    ).all(businessId, schemeKey);
+  }
+
+  function configuredLocalCommission(businessId, localName, amount) {
+    return localDailySaleCommission(localName, amount, getConfiguredCommissionRules(businessId, localName));
+  }
+
+  app.get('/api/producalza/local-settings', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    if (!canAccessProductionReports(req)) {
+      return res.status(403).json({ message: 'No tienes acceso a la informacion de locales' });
+    }
+    const settingsRows = db.prepare(
+      `SELECT * FROM production_local_settings
+       WHERE establishment_id = ?
+       ORDER BY local_name`
+    ).all(business.id);
+    const staffRows = db.prepare(
+      `SELECT id, name, username, status
+       FROM production_local_staff
+       WHERE establishment_id = ?
+       ORDER BY name`
+    ).all(business.id);
+    const assignmentRows = db.prepare(
+      `SELECT * FROM production_local_staff_assignments
+       WHERE establishment_id = ?
+       ORDER BY local_name, staff_id`
+    ).all(business.id);
+    const ruleRows = db.prepare(
+      `SELECT * FROM production_local_commission_rules
+       WHERE establishment_id = ?
+       ORDER BY scheme_key, min_amount, position, id`
+    ).all(business.id);
+    const locations = RETURN_DESTINATIONS.map((localName) => {
+      const setting = settingsRows.find((row) => row.local_name === localName) || {
+        local_name: localName,
+        rent_amount: 0,
+        electricity_amount: 0,
+        water_amount: 0,
+        internet_amount: 0,
+        condominium_amount: 0,
+        production_cost_per_pair: 35,
+        commission_scheme: localName === 'Sebastians' ? 'sebastians' : 'marjorie',
+        notes: ''
+      };
+      return {
+        ...setting,
+        staff: staffRows.map((staff) => {
+          const assignment = assignmentRows.find((row) => row.local_name === localName && row.staff_id === staff.id);
+          return {
+            ...staff,
+            include_in_report: Number(assignment?.include_in_report || 0),
+            monthly_salary: money2(assignment?.monthly_salary || 0)
+          };
+        })
+      };
+    });
+    res.json({
+      locations,
+      commission_schemes: ['marjorie', 'sebastians'].map((schemeKey) => ({
+        scheme_key: schemeKey,
+        label: schemeKey === 'marjorie' ? 'Marjorie Botas' : 'Sebastians',
+        rules: ruleRows.filter((row) => row.scheme_key === schemeKey)
+      }))
+    });
+  });
+
+  app.put('/api/producalza/local-settings', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    if (!canAccessProductionReports(req)) {
+      return res.status(403).json({ message: 'No tienes acceso para editar la informacion de locales' });
+    }
+    const localName = normalizeLocalLocation(req.body.local_name);
+    if (!RETURN_DESTINATIONS.includes(localName)) {
+      return res.status(400).json({ message: 'Selecciona un local valido' });
+    }
+    const schemeKey = localName === 'Sebastians' ? 'sebastians' : 'marjorie';
+    const staffPayload = Array.isArray(req.body.staff) ? req.body.staff : [];
+    db.transaction(() => {
+      db.prepare(
+        `INSERT INTO production_local_settings
+         (establishment_id, local_name, rent_amount, electricity_amount, water_amount,
+          internet_amount, condominium_amount, production_cost_per_pair, commission_scheme, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(establishment_id, local_name) DO UPDATE SET
+           rent_amount = excluded.rent_amount,
+           electricity_amount = excluded.electricity_amount,
+           water_amount = excluded.water_amount,
+           internet_amount = excluded.internet_amount,
+           condominium_amount = excluded.condominium_amount,
+           production_cost_per_pair = excluded.production_cost_per_pair,
+           commission_scheme = excluded.commission_scheme,
+           notes = excluded.notes,
+           updated_at = datetime('now', 'localtime')`
+      ).run(
+        business.id,
+        localName,
+        Math.max(0, moneyValue(req.body.rent_amount)),
+        Math.max(0, moneyValue(req.body.electricity_amount)),
+        Math.max(0, moneyValue(req.body.water_amount)),
+        Math.max(0, moneyValue(req.body.internet_amount)),
+        Math.max(0, moneyValue(req.body.condominium_amount)),
+        Math.max(0, moneyValue(req.body.production_cost_per_pair || 35)),
+        schemeKey,
+        String(req.body.notes || '').trim()
+      );
+      const validStaffIds = new Set(db.prepare(
+        'SELECT id FROM production_local_staff WHERE establishment_id = ?'
+      ).all(business.id).map((row) => Number(row.id)));
+      const upsertAssignment = db.prepare(
+        `INSERT INTO production_local_staff_assignments
+         (establishment_id, local_name, staff_id, include_in_report, monthly_salary)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(establishment_id, local_name, staff_id) DO UPDATE SET
+           include_in_report = excluded.include_in_report,
+           monthly_salary = excluded.monthly_salary,
+           updated_at = datetime('now', 'localtime')`
+      );
+      for (const item of staffPayload) {
+        const staffId = Number(item.staff_id || item.id || 0);
+        if (!validStaffIds.has(staffId)) continue;
+        upsertAssignment.run(
+          business.id,
+          localName,
+          staffId,
+          item.include_in_report ? 1 : 0,
+          Math.max(0, moneyValue(item.monthly_salary))
+        );
+      }
+    })();
+    audit(req, 'update', 'local_settings', null, localName);
+    res.json({ ok: true });
+  });
+
+  app.put('/api/producalza/local-commission-rules', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    if (!canAccessProductionReports(req)) {
+      return res.status(403).json({ message: 'No tienes acceso para editar las comisiones' });
+    }
+    const schemeKey = String(req.body.scheme_key || '').trim();
+    if (!['marjorie', 'sebastians'].includes(schemeKey)) {
+      return res.status(400).json({ message: 'Selecciona una tabla de comisiones valida' });
+    }
+    const rules = (Array.isArray(req.body.rules) ? req.body.rules : [])
+      .map((item) => ({
+        min_amount: Math.max(0, moneyValue(item.min_amount)),
+        commission_amount: Math.max(0, moneyValue(item.commission_amount))
+      }))
+      .sort((left, right) => left.min_amount - right.min_amount);
+    if (!rules.length) return res.status(400).json({ message: 'Agrega al menos una regla de comision' });
+    if (new Set(rules.map((rule) => rule.min_amount)).size !== rules.length) {
+      return res.status(400).json({ message: 'No puede repetirse el valor Desde en la tabla de comisiones' });
+    }
+    if (rules[0].min_amount !== 0) rules.unshift({ min_amount: 0, commission_amount: 0 });
+    db.transaction(() => {
+      db.prepare(
+        'DELETE FROM production_local_commission_rules WHERE establishment_id = ? AND scheme_key = ?'
+      ).run(business.id, schemeKey);
+      const insert = db.prepare(
+        `INSERT INTO production_local_commission_rules
+         (establishment_id, scheme_key, min_amount, commission_amount, position)
+         VALUES (?, ?, ?, ?, ?)`
+      );
+      rules.forEach((rule, index) => {
+        insert.run(business.id, schemeKey, rule.min_amount, rule.commission_amount, index);
+      });
+    })();
+    audit(req, 'update', 'local_commission_rules', null, schemeKey);
+    res.json({ ok: true });
+  });
+
   function nextLocalSaleNumber(businessId, saleDate) {
     const compactDate = String(saleDate || '').replace(/[^0-9]/g, '') || new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const prefix = `LOC-${compactDate}-`;
@@ -2390,10 +2576,6 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     if (localName) {
       filters.push('local_name = ?');
       params.push(localName);
-    }
-    if (!isProductionAdmin(req)) {
-      filters.push('created_by_user_id = ?');
-      params.push(req.user.productionUserId || 0);
     }
     const rows = db
       .prepare(
@@ -2493,7 +2675,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
           sellerName,
           quantity,
           amount,
-          commission: money2(localDailySaleCommission(localName, amount)),
+          commission: money2(configuredLocalCommission(business.id, localName, amount)),
           notes: String(item.notes || req.body.notes || '').trim()
         };
       });
@@ -2576,10 +2758,6 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     if (localName) {
       filters.push('local_name = ?');
       params.push(localName);
-    }
-    if (!isProductionAdmin(req)) {
-      filters.push('created_by_user_id = ?');
-      params.push(req.user.productionUserId || 0);
     }
     const rows = db.prepare(
       `SELECT * FROM production_local_finances
@@ -2759,7 +2937,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
             sale.seller_name,
             sale.payment_method,
             sale.amount,
-            sale.commission,
+            configuredLocalCommission(business.id, sale.local_name, sale.amount),
             sale.sale_date,
             sale.notes,
             userId

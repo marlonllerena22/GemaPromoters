@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Boxes,
   Check,
+  ChevronDown,
   ChevronLeft,
   ClipboardList,
   Clock,
@@ -20,6 +21,7 @@ import {
   Printer,
   Save,
   Search,
+  Settings2,
   Tags,
   BarChart3,
   Trash2,
@@ -216,8 +218,17 @@ const LOCAL_SELLERS = {
 const MARJORIE_GUIDE_TEMPLATE_KEY = 'standard-marjorie';
 const SEBASTIANS_GUIDE_TEMPLATE_KEY = 'standard-c-andrade';
 
-function localSaleCommission(localName, amountValue) {
+function localSaleCommission(localName, amountValue, configuration = null) {
   const amount = Number(amountValue || 0);
+  const schemeKey = String(localName || '').toLowerCase().includes('sebastian') ? 'sebastians' : 'marjorie';
+  const configuredRules = configuration?.commission_schemes
+    ?.find((scheme) => scheme.scheme_key === schemeKey)?.rules || [];
+  if (configuredRules.length) {
+    const matchingRule = [...configuredRules]
+      .sort((left, right) => Number(right.min_amount || 0) - Number(left.min_amount || 0))
+      .find((rule) => amount >= Number(rule.min_amount || 0));
+    return Number(matchingRule?.commission_amount || 0);
+  }
   const isSebastians = String(localName || '').toLowerCase().includes('sebastian');
   if (isSebastians) {
     if (amount >= 185) return 3;
@@ -4346,6 +4357,7 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
   });
   const [finance, setFinance] = useState(null);
   const [sales, setSales] = useState(null);
+  const [localConfiguration, setLocalConfiguration] = useState(null);
   const [saleForm, setSaleForm] = useState({
     local_name: RETURN_DESTINATIONS[0],
     sale_date: today,
@@ -4377,12 +4389,14 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
       query.set('date_from', filters.date_from);
       query.set('date_to', filters.date_to);
       if (filters.local_name) query.set('local_name', filters.local_name);
-      const [financeResponse, salesResponse] = await Promise.all([
+      const [financeResponse, salesResponse, configurationResponse] = await Promise.all([
         api(scope(`/producalza/local-finances?${query.toString()}`)),
-        api(scope(`/producalza/local-sales?${query.toString()}`))
+        api(scope(`/producalza/local-sales?${query.toString()}`)),
+        api(scope('/producalza/local-settings'))
       ]);
       setFinance(financeResponse);
       setSales(salesResponse);
+      setLocalConfiguration(configurationResponse);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -4508,7 +4522,7 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
     const quantity = Math.max(1, Number(item.quantity || 1));
     acc.pairs += quantity;
     acc.amount += Number(item.amount || 0) * quantity;
-    acc.commission += localSaleCommission(saleForm.local_name, item.amount) * quantity;
+    acc.commission += localSaleCommission(saleForm.local_name, item.amount, localConfiguration) * quantity;
     return acc;
   }, { pairs: 0, amount: 0, commission: 0 });
   const totalByPayment = (method) => saleRows
@@ -4537,10 +4551,9 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
   const adminExpenses = financeSum('admin');
   const deposits = financeSum('deposit');
   const serviceExpenses = financeSum('service');
-  const rentDefault = filters.local_name ? Number(LOCAL_RENT_DEFAULTS[filters.local_name] || 0) : 0;
-  const internetDefault = filters.local_name ? Number(LOCAL_INTERNET_DEFAULTS[filters.local_name] || 0) : 0;
-  const payrollBase = LOCAL_STAFF_DEFAULTS
-    .filter((staff) => !filters.local_name || !staff.local_name || staff.local_name === filters.local_name)
+  const selectedLocalConfiguration = localConfiguration?.locations?.find((item) => item.local_name === filters.local_name);
+  const payrollBase = (selectedLocalConfiguration?.staff || [])
+    .filter((staff) => staff.include_in_report)
     .reduce((sum, staff) => sum + Number(staff.monthly_salary || 0), 0);
   const payrollTotalEstimate = payrollBase + Number(salesTotals.commission || 0);
   const finalLocalTotal = Number(salesTotals.amount || 0) - payrollTotalEstimate - serviceExpenses - deposits;
@@ -4559,8 +4572,10 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
     setForm((current) => ({
       ...current,
       local_name: localName,
-      amount: current.finance_group === 'service' && current.category === 'Arriendo' ? String(LOCAL_RENT_DEFAULTS[localName] || '')
-        : current.finance_group === 'service' && current.category === 'Internet' ? String(LOCAL_INTERNET_DEFAULTS[localName] || '')
+      amount: current.finance_group === 'service' && current.category === 'Arriendo'
+        ? String(localConfiguration?.locations?.find((item) => item.local_name === localName)?.rent_amount || '')
+        : current.finance_group === 'service' && current.category === 'Internet'
+          ? String(localConfiguration?.locations?.find((item) => item.local_name === localName)?.internet_amount || '')
           : current.amount
     }));
   }
@@ -4575,7 +4590,14 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
         <article><DollarSign size={21} /><span>Saldo rapido</span><strong>{displayMoney(balance)}</strong></article>
       </section>
 
-      <LocalMonthlyManager scope={scope} setError={setError} />
+      <LocalSettingsManager
+        scope={scope}
+        setError={setError}
+        configuration={localConfiguration}
+        onConfigurationChange={setLocalConfiguration}
+      />
+
+      <LocalMonthlyManager scope={scope} setError={setError} configuration={localConfiguration} />
 
       <section className="prod-panel">
         <div className="prod-panel-title">
@@ -4726,7 +4748,9 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
                     : event.target.value === 'admin' ? 'Publicidad'
                       : event.target.value === 'income' ? 'Otro ingreso'
                         : 'Gasto varios',
-                amount: event.target.value === 'service' ? String(LOCAL_RENT_DEFAULTS[form.local_name] || '') : form.amount
+                amount: event.target.value === 'service'
+                  ? String(localConfiguration?.locations?.find((item) => item.local_name === form.local_name)?.rent_amount || '')
+                  : form.amount
               })}
             >
               {LOCAL_FINANCE_GROUP_OPTIONS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}
@@ -4739,9 +4763,11 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
                 onChange={(event) => setForm({
                   ...form,
                   category: event.target.value,
-                  amount: event.target.value === 'Arriendo' ? String(LOCAL_RENT_DEFAULTS[form.local_name] || '')
-                    : event.target.value === 'Internet' ? String(LOCAL_INTERNET_DEFAULTS[form.local_name] || '')
-                      : form.amount
+                  amount: event.target.value === 'Arriendo'
+                    ? String(localConfiguration?.locations?.find((item) => item.local_name === form.local_name)?.rent_amount || '')
+                    : event.target.value === 'Internet'
+                      ? String(localConfiguration?.locations?.find((item) => item.local_name === form.local_name)?.internet_amount || '')
+                    : form.amount
                 })}
               >
                 <option>Arriendo</option>
@@ -4806,6 +4832,210 @@ function LocalSecretaryReports({ dashboard, orders, production, scope, onRefresh
   );
 }
 
+function LocalSettingsManager({ scope, setError, configuration, onConfigurationChange }) {
+  const [expanded, setExpanded] = useState(false);
+  const [selectedLocal, setSelectedLocal] = useState(RETURN_DESTINATIONS[0]);
+  const [draft, setDraft] = useState(null);
+  const [rules, setRules] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [savedMessage, setSavedMessage] = useState('');
+
+  const selectedConfiguration = configuration?.locations?.find((item) => item.local_name === selectedLocal);
+  const selectedScheme = selectedLocal === 'Sebastians' ? 'sebastians' : 'marjorie';
+
+  useEffect(() => {
+    if (!selectedConfiguration) return;
+    setDraft({
+      ...selectedConfiguration,
+      staff: (selectedConfiguration.staff || []).map((item) => ({ ...item }))
+    });
+  }, [configuration, selectedLocal]);
+
+  useEffect(() => {
+    const scheme = configuration?.commission_schemes?.find((item) => item.scheme_key === selectedScheme);
+    setRules((scheme?.rules || []).map((item) => ({
+      min_amount: item.min_amount,
+      commission_amount: item.commission_amount
+    })));
+  }, [configuration, selectedScheme]);
+
+  async function reloadConfiguration() {
+    const response = await api(scope('/producalza/local-settings'));
+    onConfigurationChange(response);
+    return response;
+  }
+
+  function updateStaff(staffId, patch) {
+    setDraft((current) => ({
+      ...current,
+      staff: current.staff.map((item) => item.id === staffId ? { ...item, ...patch } : item)
+    }));
+  }
+
+  async function saveLocalSettings() {
+    if (!draft) return;
+    setSaving(true);
+    setSavedMessage('');
+    try {
+      await api(scope('/producalza/local-settings'), {
+        method: 'PUT',
+        body: JSON.stringify({
+          ...draft,
+          local_name: selectedLocal,
+          staff: (draft.staff || []).map((item) => ({
+            staff_id: item.id,
+            include_in_report: Boolean(item.include_in_report),
+            monthly_salary: item.monthly_salary
+          }))
+        })
+      });
+      await reloadConfiguration();
+      setSavedMessage(`Informacion de ${selectedLocal} guardada.`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function updateRule(index, patch) {
+    setRules((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item));
+  }
+
+  async function saveCommissionRules() {
+    setSaving(true);
+    setSavedMessage('');
+    try {
+      await api(scope('/producalza/local-commission-rules'), {
+        method: 'PUT',
+        body: JSON.stringify({ scheme_key: selectedScheme, rules })
+      });
+      await reloadConfiguration();
+      setSavedMessage(`Tabla de comisiones de ${selectedScheme === 'marjorie' ? 'Marjorie Botas' : 'Sebastians'} guardada.`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const activeStaff = (draft?.staff || []).filter((item) => item.status === 'active');
+  const includedStaff = activeStaff.filter((item) => item.include_in_report);
+  const fixedCosts = Number(draft?.rent_amount || 0)
+    + Number(draft?.electricity_amount || 0)
+    + Number(draft?.water_amount || 0)
+    + Number(draft?.internet_amount || 0)
+    + Number(draft?.condominium_amount || 0);
+
+  return (
+    <section className={`prod-panel prod-local-settings ${expanded ? 'is-open' : ''}`}>
+      <button className="prod-local-settings-toggle" onClick={() => setExpanded((current) => !current)}>
+        <span className="prod-local-settings-icon"><Settings2 size={21} /></span>
+        <span>
+          <small>Configuracion separada</small>
+          <strong>Informacion de locales</strong>
+        </span>
+        <span className="prod-local-settings-summary">
+          {selectedLocal} · {includedStaff.length} empleada{includedStaff.length === 1 ? '' : 's'} · {displayMoney(fixedCosts)} fijos
+        </span>
+        <ChevronDown size={20} />
+      </button>
+
+      {expanded && (
+        <div className="prod-local-settings-body">
+          {!draft ? <div className="prod-empty">Cargando configuracion...</div> : (
+            <>
+              <div className="prod-local-tabs" role="tablist" aria-label="Seleccionar local">
+                {RETURN_DESTINATIONS.map((localName) => (
+                  <button
+                    key={localName}
+                    className={selectedLocal === localName ? 'active' : ''}
+                    onClick={() => { setSelectedLocal(localName); setSavedMessage(''); }}
+                  >
+                    {localName.replace('Local Marjorie Botas ', '')}
+                  </button>
+                ))}
+              </div>
+
+              <div className="prod-local-config-grid">
+                <div className="prod-local-config-card">
+                  <div className="prod-local-config-heading">
+                    <div><span>Valores del local</span><h3>{selectedLocal}</h3></div>
+                  </div>
+                  <div className="prod-form-grid prod-local-cost-grid">
+                    <label>Arriendo $<input type="number" min="0" step="0.01" value={draft.rent_amount ?? ''} onChange={(event) => setDraft({ ...draft, rent_amount: event.target.value })} /></label>
+                    <label>Luz $<input type="number" min="0" step="0.01" value={draft.electricity_amount ?? ''} onChange={(event) => setDraft({ ...draft, electricity_amount: event.target.value })} /></label>
+                    <label>Agua $<input type="number" min="0" step="0.01" value={draft.water_amount ?? ''} onChange={(event) => setDraft({ ...draft, water_amount: event.target.value })} /></label>
+                    <label>Internet $<input type="number" min="0" step="0.01" value={draft.internet_amount ?? ''} onChange={(event) => setDraft({ ...draft, internet_amount: event.target.value })} /></label>
+                    <label>Alicuota $<input type="number" min="0" step="0.01" value={draft.condominium_amount ?? ''} onChange={(event) => setDraft({ ...draft, condominium_amount: event.target.value })} /></label>
+                    <label>Costo Producalza por par $<input type="number" min="0" step="0.01" value={draft.production_cost_per_pair ?? ''} onChange={(event) => setDraft({ ...draft, production_cost_per_pair: event.target.value })} /></label>
+                  </div>
+                  <label>Tabla de comisiones
+                    <input value={selectedLocal === 'Sebastians' ? 'Sebastians' : 'Marjorie Botas (compartida Norte, Sur y Valle)'} readOnly />
+                  </label>
+                  <label>Notas del local<textarea rows="2" value={draft.notes || ''} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} /></label>
+                  <button className="prod-primary-button" disabled={saving} onClick={saveLocalSettings}><Save size={17} />Guardar informacion del local</button>
+                </div>
+
+                <div className="prod-local-config-card">
+                  <div className="prod-local-config-heading">
+                    <div><span>Rol mensual</span><h3>Empleadas incluidas</h3></div>
+                    <strong>{displayMoney(includedStaff.reduce((sum, item) => sum + Number(item.monthly_salary || 0), 0))}</strong>
+                  </div>
+                  <div className="prod-local-staff-config">
+                    {activeStaff.map((item) => (
+                      <div className={`prod-local-staff-row ${item.include_in_report ? 'selected' : ''}`} key={item.id}>
+                        <label className="prod-check-line">
+                          <input type="checkbox" checked={Boolean(item.include_in_report)} onChange={(event) => updateStaff(item.id, { include_in_report: event.target.checked })} />
+                          <span><strong>{item.name}</strong><small>Incluir en el reporte de este local</small></span>
+                        </label>
+                        <label>Sueldo $<input type="number" min="0" step="0.01" disabled={!item.include_in_report} value={item.monthly_salary ?? ''} onChange={(event) => updateStaff(item.id, { monthly_salary: event.target.value })} /></label>
+                      </div>
+                    ))}
+                  </div>
+                  <button className="prod-primary-button" disabled={saving} onClick={saveLocalSettings}><Save size={17} />Guardar empleadas y sueldos</button>
+                </div>
+              </div>
+
+              <div className="prod-local-config-card prod-commission-config">
+                <div className="prod-local-config-heading">
+                  <div>
+                    <span>Calculo automatico</span>
+                    <h3>Comisiones {selectedScheme === 'marjorie' ? 'Marjorie Botas' : 'Sebastians'}</h3>
+                    <small>{selectedScheme === 'marjorie' ? 'Esta tabla se usa en Norte, Sur y Valle.' : 'Esta tabla se usa unicamente en Sebastians.'}</small>
+                  </div>
+                  <button className="prod-secondary-button" onClick={() => setRules((current) => [...current, { min_amount: '', commission_amount: '' }])}><Plus size={16} />Agregar rango</button>
+                </div>
+                <div className="prod-commission-table">
+                  <div className="prod-commission-head"><span>Desde $</span><span>Hasta $</span><span>Comision $</span><span></span></div>
+                  {rules.map((rule, index) => {
+                    const nextMinimum = Number(rules[index + 1]?.min_amount);
+                    const maximum = Number.isFinite(nextMinimum) && nextMinimum > Number(rule.min_amount || 0)
+                      ? displayNumber(nextMinimum - 0.01, 2)
+                      : 'En adelante';
+                    return (
+                      <div className="prod-commission-row" key={`${index}-${rule.min_amount}`}>
+                        <input type="number" min="0" step="0.01" value={rule.min_amount} onChange={(event) => updateRule(index, { min_amount: event.target.value })} />
+                        <span>{maximum}</span>
+                        <input type="number" min="0" step="0.01" value={rule.commission_amount} onChange={(event) => updateRule(index, { commission_amount: event.target.value })} />
+                        <button className="prod-icon-button danger" disabled={rules.length === 1 || Number(rule.min_amount) === 0} onClick={() => setRules((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={15} /></button>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="prod-form-actions">
+                  {savedMessage && <span className="prod-local-saved"><Check size={16} />{savedMessage}</span>}
+                  <button className="prod-primary-button" disabled={saving} onClick={saveCommissionRules}><Save size={17} />Guardar tabla de comisiones</button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function emptyLocalMonthlyForm(month) {
   return {
     report_month: month,
@@ -4849,8 +5079,15 @@ function emptyLocalPayrollForm(month) {
   };
 }
 
-function localStaffBaseSalary(name) {
+function localStaffBaseSalary(name, localName = '', configuration = null) {
   const clean = String(name || '').toLowerCase();
+  const configuredStaff = configuration?.locations
+    ?.find((item) => item.local_name === localName)?.staff
+    ?.find((staff) => {
+      const staffName = String(staff.name || '').toLowerCase();
+      return clean.includes(staffName) || staffName.includes(clean);
+    });
+  if (configuredStaff) return configuredStaff.monthly_salary || '';
   return LOCAL_STAFF_DEFAULTS.find((staff) => clean.includes(staff.name.toLowerCase()) || staff.name.toLowerCase().includes(clean))?.monthly_salary || '';
 }
 
@@ -4865,9 +5102,9 @@ function localStaffCommission(name, salesRows = []) {
     .reduce((sum, sale) => sum + Number(sale.commission || 0), 0);
 }
 
-function localPayrollItemsFor(name, salesRows = []) {
+function localPayrollItemsFor(name, salesRows = [], localName = '', configuration = null) {
   return [
-    { item_type: 'income', label: 'Sueldo mensual', amount: localStaffBaseSalary(name), notes: '' },
+    { item_type: 'income', label: 'Sueldo mensual', amount: localStaffBaseSalary(name, localName, configuration), notes: '' },
     { item_type: 'income', label: 'Comisiones', amount: localStaffCommission(name, salesRows), notes: '' },
     { item_type: 'income', label: 'Adicionales', amount: '', notes: '' },
     { item_type: 'deduction', label: 'Adelanto', amount: '', notes: '' },
@@ -4976,9 +5213,8 @@ function localReportConceptLabel(row, group = '') {
 }
 
 function localReportTableRows(rows, fallbackRows = [], group = '') {
-  const source = rows?.length ? rows : fallbackRows;
   const grouped = new Map();
-  for (const row of source) {
+  for (const row of fallbackRows) {
     const label = localReportConceptLabel(row, group);
     if (!label) continue;
     const key = normalizeText(label);
@@ -4986,23 +5222,60 @@ function localReportTableRows(rows, fallbackRows = [], group = '') {
     current.amount += Number(row.amount || 0);
     grouped.set(key, current);
   }
+  const actual = new Map();
+  for (const row of rows || []) {
+    const label = localReportConceptLabel(row, group);
+    if (!label) continue;
+    const key = normalizeText(label);
+    const current = actual.get(key) || { label, amount: 0 };
+    current.amount += Number(row.amount || 0);
+    actual.set(key, current);
+  }
+  for (const [key, value] of actual.entries()) grouped.set(key, value);
   return [...grouped.values()];
 }
 
-function localReportPayrollRows(payrollRows, localName, salesRows) {
+function localReportPayrollRows(payrollRows, localName, salesRows, configuration = null) {
   if (payrollRows?.length) {
-    return payrollRows.map((row) => ({
-      name: row.staff_name || 'Empleada',
-      salary: Number(row.total_income || 0) - Number(row.total_deductions || 0),
-      commission: 0,
-      additions: 0,
-      advance: 0,
-      deductions: Number(row.total_deductions || 0),
-      net: Number(row.net_pay || 0)
-    }));
+    return payrollRows.map((row) => {
+      const incomes = row.incomes || [];
+      const deductionsRows = row.deductions || [];
+      const incomeAmount = (pattern) => incomes
+        .filter((item) => pattern.test(normalizeText(item.label || '')))
+        .reduce((sum, item) => sum + Number(item.amount || 0), 0);
+      const deductionAmount = (pattern) => deductionsRows
+        .filter((item) => pattern.test(normalizeText(item.label || '')))
+        .reduce((sum, item) => sum + Number(item.amount || 0), 0);
+      const salary = incomeAmount(/sueldo|mensual/) || Number(localStaffBaseSalary(row.staff_name, localName, configuration) || 0);
+      const commission = incomeAmount(/comision/);
+      const additions = incomes
+        .filter((item) => !/sueldo|mensual|comision/.test(normalizeText(item.label || '')))
+        .reduce((sum, item) => sum + Number(item.amount || 0), 0);
+      const advance = deductionAmount(/adelanto/);
+      const otherDeductions = deductionsRows
+        .filter((item) => !/adelanto/.test(normalizeText(item.label || '')))
+        .reduce((sum, item) => sum + Number(item.amount || 0), 0);
+      return {
+        name: row.staff_name || 'Empleada',
+        salary,
+        commission,
+        additions,
+        advance,
+        deductions: otherDeductions,
+        deductionLines: deductionsRows.map((item) => ({
+          label: item.label || 'Descuento',
+          amount: Number(item.amount || 0)
+        })),
+        net: Number(row.net_pay || (salary + commission + additions - advance - otherDeductions))
+      };
+    });
   }
-  return LOCAL_STAFF_DEFAULTS
-    .filter((staff) => staff.local_name === localName)
+  const configuredLocation = configuration?.locations?.find((item) => item.local_name === localName);
+  const configuredStaff = (configuredLocation?.staff || [])
+    .filter((staff) => staff.include_in_report)
+    .map((staff) => ({ name: staff.name, monthly_salary: staff.monthly_salary }));
+  const fallbackStaff = LOCAL_STAFF_DEFAULTS.filter((staff) => staff.local_name === localName);
+  return (configuredLocation ? configuredStaff : fallbackStaff)
     .map((staff) => {
       const commission = localStaffCommission(staff.name, salesRows);
       const salary = Number(staff.monthly_salary || 0);
@@ -5013,12 +5286,13 @@ function localReportPayrollRows(payrollRows, localName, salesRows) {
         additions: 0,
         advance: 0,
         deductions: 0,
+        deductionLines: [],
         net: salary + commission
       };
     });
 }
 
-function LocalMonthlyManager({ scope, setError }) {
+function LocalMonthlyManager({ scope, setError, configuration }) {
   const todayMonth = new Date().toISOString().slice(0, 7);
   const [month, setMonth] = useState(todayMonth);
   const [localName, setLocalName] = useState(RETURN_DESTINATIONS[0]);
@@ -5070,7 +5344,9 @@ function LocalMonthlyManager({ scope, setError }) {
         local_name: localName,
         staff_id: current.staff_id,
         staff_name: current.staff_name,
-        items: current.staff_name ? localPayrollItemsFor(current.staff_name, salesResponse.rows || []) : emptyLocalPayrollForm(month).items
+        items: current.staff_name
+          ? localPayrollItemsFor(current.staff_name, salesResponse.rows || [], localName, configuration)
+          : emptyLocalPayrollForm(month).items
       }));
     } catch (err) {
       setError(err.message);
@@ -5163,15 +5439,26 @@ function LocalMonthlyManager({ scope, setError }) {
     }
     const salesLines = localReportLineTotals(salesRows.filter((row) => row.local_name === localName));
     const financeGroups = localReportFinanceGroups(financeRows.filter((row) => row.local_name === localName));
-    const freshPayrollRows = reportResponse?.payroll || [];
-    const payrollLines = localReportPayrollRows(freshPayrollRows, localName, salesRows);
+    const localSetting = configuration?.locations?.find((item) => item.local_name === localName);
+    const includedStaff = (localSetting?.staff || []).filter((item) => item.include_in_report);
+    const freshPayrollRows = (reportResponse?.payroll || []).filter((row) => {
+      if (row.local_name !== localName) return false;
+      if (!localSetting) return true;
+      const rowName = normalizeText(row.staff_name || '');
+      return includedStaff.some((item) => {
+        const staffName = normalizeText(item.name || '');
+        return rowName.includes(staffName) || staffName.includes(rowName);
+      });
+    });
+    const payrollLines = localReportPayrollRows(freshPayrollRows, localName, salesRows, configuration);
     const payrollTotal = payrollLines.reduce((sum, row) => sum + Number(row.net || 0), 0);
     const variousRows = localReportTableRows(financeGroups.various, [], 'various');
     const serviceFallback = [
-      { label: `Arriendo ${reportMonthName(month)}`, amount: LOCAL_RENT_DEFAULTS[localName] || 0 },
-      { label: 'Luz', amount: 0 },
-      { label: 'Agua', amount: 0 },
-      { label: 'Internet', amount: LOCAL_INTERNET_DEFAULTS[localName] || 0 }
+      { label: `Arriendo ${reportMonthName(month)}`, amount: localSetting?.rent_amount || 0 },
+      { label: 'Luz', amount: localSetting?.electricity_amount || 0 },
+      { label: 'Agua', amount: localSetting?.water_amount || 0 },
+      { label: 'Internet', amount: localSetting?.internet_amount || 0 },
+      { label: 'Alicuota', amount: localSetting?.condominium_amount || 0 }
     ];
     const serviceRows = localReportTableRows(financeGroups.service, serviceFallback, 'service');
     const depositRows = localReportTableRows(financeGroups.deposit, [], 'deposit');
@@ -5181,7 +5468,8 @@ function LocalMonthlyManager({ scope, setError }) {
     const servicesTotal = sumAmount(serviceRows);
     const depositsTotal = sumAmount(depositRows);
     const adminTotal = sumAmount(adminRows);
-    const producalzaCost = Number(salesLines.total.pairs || 0) * 35;
+    const productionCostPerPair = Number(localSetting?.production_cost_per_pair || 35);
+    const producalzaCost = Number(salesLines.total.pairs || 0) * productionCostPerPair;
     const localBalance = Number(salesLines.total.amount || 0) - variousTotal - payrollTotal - servicesTotal - depositsTotal;
     const utility = Number(salesLines.total.amount || 0) - producalzaCost - variousTotal - payrollTotal - servicesTotal - adminTotal;
     const missingData = [
@@ -5208,8 +5496,12 @@ function LocalMonthlyManager({ scope, setError }) {
           <tr><td>Comision</td>${moneyCell(row.commission)}</tr>
           <tr><td>Adicionales</td>${moneyCell(row.additions)}</tr>
           <tr class="accent-red"><td>Total ganado</td>${moneyCell(row.salary + row.commission + row.additions)}</tr>
-          <tr><td>Adelanto</td>${moneyCell(row.advance)}</tr>
-          <tr><td>Descuen varios</td>${moneyCell(row.deductions)}</tr>
+          ${(row.deductionLines?.length
+            ? row.deductionLines
+            : [
+                ...(row.advance ? [{ label: 'Adelanto', amount: row.advance }] : []),
+                ...(row.deductions ? [{ label: 'Descuentos varios', amount: row.deductions }] : [])
+              ]).map((item) => `<tr><td>${escapeReportHtml(item.label)}</td>${moneyCell(item.amount)}</tr>`).join('')}
           <tr class="accent-blue"><td>Total a recibir</td>${moneyCell(row.net)}</tr>
         `).join('')
       : rowsHtml([], 7);
@@ -5251,7 +5543,7 @@ function LocalMonthlyManager({ scope, setError }) {
         </head>
         <body>
           <div class="sheet">
-            <h1>${escapeReportHtml(localName.replace(/^Local\s+/, '').toUpperCase())} 2026</h1>
+            <h1>${escapeReportHtml(localName.replace(/^Local\s+/, '').toUpperCase())} ${escapeReportHtml(month.slice(0, 4))}</h1>
             <div class="subtitle">Reporte general por local: ${escapeReportHtml(localName)}</div>
             ${missingData.length ? `<div class="missing">Datos pendientes por llenar: ${escapeReportHtml(missingData.join(', '))}. El reporte se genera igual con los datos disponibles.</div>` : ''}
             <div class="top">
@@ -5290,7 +5582,7 @@ function LocalMonthlyManager({ scope, setError }) {
                 </table>
                 <table class="utility">
                   <tr><td>Venta total</td>${moneyCell(salesLines.total.amount)}</tr>
-                  <tr><td>Producalza ${salesLines.total.pairs} x 35</td>${moneyCell(producalzaCost)}</tr>
+                  <tr><td>Producalza ${salesLines.total.pairs} x ${displayNumber(productionCostPerPair, 2)}</td>${moneyCell(producalzaCost)}</tr>
                   <tr><td>Gastos varios</td>${moneyCell(variousTotal)}</tr>
                   <tr><td>Sueldos empleadas</td>${moneyCell(payrollTotal)}</tr>
                   <tr><td>Servicios basicos</td>${moneyCell(servicesTotal)}</tr>
@@ -5523,8 +5815,23 @@ function LocalMonthlyManager({ scope, setError }) {
     printWindow.document.close();
   }
 
-  const selectedReport = (reports?.rows || [])[0];
-  const payrollRows = reports?.payroll || [];
+  const selectedLocalSetting = configuration?.locations?.find((item) => item.local_name === localName);
+  const selectedIncludedStaff = (selectedLocalSetting?.staff || []).filter((item) => item.include_in_report);
+  const payrollRows = (reports?.payroll || []).filter((row) => {
+    if (row.local_name !== localName) return false;
+    if (!selectedLocalSetting) return true;
+    const rowName = normalizeText(row.staff_name || '');
+    return selectedIncludedStaff.some((item) => {
+      const staffName = normalizeText(item.name || '');
+      return rowName.includes(staffName) || staffName.includes(rowName);
+    });
+  });
+  const reportStaffIds = new Set((selectedLocalSetting?.staff || [])
+    .filter((item) => item.include_in_report)
+    .map((item) => Number(item.id)));
+  const payrollStaffOptions = selectedLocalSetting
+    ? staff.filter((item) => reportStaffIds.has(Number(item.id)))
+    : staff;
   const itemTotals = (monthlyForm.items || []).reduce((acc, item) => {
     acc[item.section] = (acc[item.section] || 0) + Number(item.amount || 0);
     return acc;
@@ -5569,15 +5876,15 @@ function LocalMonthlyManager({ scope, setError }) {
                     ...payrollForm,
                     staff_id: event.target.value,
                     staff_name: staffName,
-                    items: staffName ? localPayrollItemsFor(staffName, localSales) : payrollForm.items
+                    items: staffName ? localPayrollItemsFor(staffName, localSales, localName, configuration) : payrollForm.items
                   });
                 }}
               >
                 <option value="">Escribir manual</option>
-                {staff.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}
+                {payrollStaffOptions.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}
               </select>
             </label>
-            <label>Nombre<input value={payrollForm.staff_name} onChange={(event) => setPayrollForm({ ...payrollForm, staff_name: event.target.value, items: localPayrollItemsFor(event.target.value, localSales) })} /></label>
+            <label>Nombre<input value={payrollForm.staff_name} onChange={(event) => setPayrollForm({ ...payrollForm, staff_name: event.target.value, items: localPayrollItemsFor(event.target.value, localSales, localName, configuration) })} /></label>
             <label>Desde<input type="date" value={payrollForm.date_from || ''} onChange={(event) => setPayrollForm({ ...payrollForm, date_from: event.target.value })} /></label>
             <label>Hasta<input type="date" value={payrollForm.date_to || ''} onChange={(event) => setPayrollForm({ ...payrollForm, date_to: event.target.value })} /></label>
           </div>

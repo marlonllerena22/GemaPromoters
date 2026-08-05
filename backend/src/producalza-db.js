@@ -414,6 +414,51 @@ export function initProducalzaDb(db) {
       FOREIGN KEY (establishment_id) REFERENCES establishments(id)
     );
 
+    CREATE TABLE IF NOT EXISTS production_local_settings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      local_name TEXT NOT NULL,
+      rent_amount REAL NOT NULL DEFAULT 0,
+      electricity_amount REAL NOT NULL DEFAULT 0,
+      water_amount REAL NOT NULL DEFAULT 0,
+      internet_amount REAL NOT NULL DEFAULT 0,
+      condominium_amount REAL NOT NULL DEFAULT 0,
+      production_cost_per_pair REAL NOT NULL DEFAULT 35,
+      commission_scheme TEXT NOT NULL DEFAULT 'marjorie',
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      UNIQUE(establishment_id, local_name)
+    );
+
+    CREATE TABLE IF NOT EXISTS production_local_staff_assignments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      local_name TEXT NOT NULL,
+      staff_id INTEGER NOT NULL,
+      include_in_report INTEGER NOT NULL DEFAULT 0,
+      monthly_salary REAL NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (staff_id) REFERENCES production_local_staff(id),
+      UNIQUE(establishment_id, local_name, staff_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS production_local_commission_rules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      scheme_key TEXT NOT NULL,
+      min_amount REAL NOT NULL DEFAULT 0,
+      commission_amount REAL NOT NULL DEFAULT 0,
+      position INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      UNIQUE(establishment_id, scheme_key, min_amount)
+    );
+
     CREATE TABLE IF NOT EXISTS production_local_attendance (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       establishment_id INTEGER NOT NULL,
@@ -536,6 +581,12 @@ export function initProducalzaDb(db) {
       ON production_local_daily_sales(establishment_id, sale_date, local_name);
     CREATE INDEX IF NOT EXISTS idx_production_local_attendance_business
       ON production_local_attendance(establishment_id, local_date, staff_id);
+    CREATE INDEX IF NOT EXISTS idx_production_local_settings_business
+      ON production_local_settings(establishment_id, local_name);
+    CREATE INDEX IF NOT EXISTS idx_production_local_staff_assignments_business
+      ON production_local_staff_assignments(establishment_id, local_name, staff_id);
+    CREATE INDEX IF NOT EXISTS idx_production_local_commission_rules_business
+      ON production_local_commission_rules(establishment_id, scheme_key, position);
     CREATE INDEX IF NOT EXISTS idx_production_local_monthly_reports_business
       ON production_local_monthly_reports(establishment_id, report_month, local_name);
     CREATE INDEX IF NOT EXISTS idx_production_local_payroll_business
@@ -644,6 +695,7 @@ export function initProducalzaDb(db) {
   seedLocalStores(db, establishment.id);
   seedLocalSecretary(db, establishment.id);
   seedLocalStaff(db, establishment.id);
+  seedLocalReportSettings(db, establishment.id);
   normalizeLocalStoreReferences(db);
 
   db.prepare('DELETE FROM production_monthly_report_rows WHERE establishment_id = ?').run(establishment.id);
@@ -869,5 +921,57 @@ function seedLocalStaff(db, establishmentId) {
   );
   for (const item of staff) {
     statement.run(establishmentId, item[0], item[1], item[2], JSON.stringify(item[3]), item[4]);
+  }
+}
+
+function seedLocalReportSettings(db, establishmentId) {
+  const settings = [
+    ['Local Marjorie Botas Norte', 760, 0, 0, 29.21, 0, 35, 'marjorie'],
+    ['Local Marjorie Botas Sur', 287.5, 0, 0, 0, 0, 35, 'marjorie'],
+    ['Local Marjorie Botas Valle', 550, 0, 0, 29.21, 0, 35, 'marjorie'],
+    ['Sebastians', 950, 0, 0, 29.21, 92.5, 35, 'sebastians']
+  ];
+  const insertSetting = db.prepare(
+    `INSERT OR IGNORE INTO production_local_settings
+     (establishment_id, local_name, rent_amount, electricity_amount, water_amount,
+      internet_amount, condominium_amount, production_cost_per_pair, commission_scheme)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  for (const row of settings) insertSetting.run(establishmentId, ...row);
+
+  const defaultAssignments = [
+    ['liliana', 'Local Marjorie Botas Norte', 1, 550],
+    ['selena', 'Local Marjorie Botas Sur', 1, 500],
+    ['nayely', 'Local Marjorie Botas Valle', 1, 482],
+    ['belen', 'Sebastians', 1, 600],
+    ['yamileth', 'Local Marjorie Botas Sur', 0, 0],
+    ['yamileth', 'Local Marjorie Botas Valle', 0, 0],
+    ['yamileth', 'Sebastians', 0, 0]
+  ];
+  const insertAssignment = db.prepare(
+    `INSERT OR IGNORE INTO production_local_staff_assignments
+     (establishment_id, local_name, staff_id, include_in_report, monthly_salary)
+     VALUES (?, ?, ?, ?, ?)`
+  );
+  for (const [username, localName, includeInReport, monthlySalary] of defaultAssignments) {
+    const staff = db.prepare(
+      'SELECT id FROM production_local_staff WHERE establishment_id = ? AND lower(username) = lower(?)'
+    ).get(establishmentId, username);
+    if (staff) insertAssignment.run(establishmentId, localName, staff.id, includeInReport, monthlySalary);
+  }
+
+  const commissionRules = {
+    marjorie: [[0, 0], [20, 0.5], [40, 0.75], [60, 1], [80, 1.5], [100, 2], [120, 2.5], [150, 3]],
+    sebastians: [[0, 0], [35, 0.5], [60, 0.75], [85, 1], [110, 1.5], [135, 2], [160, 2.5], [185, 3]]
+  };
+  const insertRule = db.prepare(
+    `INSERT OR IGNORE INTO production_local_commission_rules
+     (establishment_id, scheme_key, min_amount, commission_amount, position)
+     VALUES (?, ?, ?, ?, ?)`
+  );
+  for (const [schemeKey, rules] of Object.entries(commissionRules)) {
+    rules.forEach(([minimum, commission], index) => {
+      insertRule.run(establishmentId, schemeKey, minimum, commission, index);
+    });
   }
 }
