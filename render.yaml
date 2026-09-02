@@ -34,6 +34,16 @@ services:
         sync: false
       - key: BENDO_WEBHOOK_SECRET
         generateValue: true
+      - key: BENDO_CLIENT_ID
+        sync: false
+      - key: BENDO_CLIENT_SECRET
+        sync: false
+      - key: BENDO_AUTH_URL
+        value: https://auth.prd.geopagos.io/oauth/token
+      - key: BENDO_API_URL
+        value: https://api.prd.geopagos.io
+      - key: TICKETING_SERVICE_FEE_PERCENT
+        value: 10
     disk:
       name: gemapromoters-data
       mountPath: /var/data

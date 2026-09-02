@@ -435,7 +435,9 @@ function EventPage({ slug, customer, onRequireAccount }) {
   const salesEnabled = Boolean(Number(event.sales_enabled));
   const paymentEnabled = Boolean(Number(event.payment_enabled));
   const isPast = Boolean(Number(event.is_past));
-  const total = selected ? Number(selected.price + selected.service_fee) * quantity : 0;
+  const subtotal = selected ? Number(selected.price) * quantity : 0;
+  const serviceFee = subtotal * Number(event.service_fee_rate ?? 0.1);
+  const total = subtotal + serviceFee;
   return (
     <>
       <section className={`pt-event-hero ${event.hero_display_mode === 'contain' ? 'contained' : 'covered'}`}>
@@ -467,7 +469,7 @@ function EventPage({ slug, customer, onRequireAccount }) {
               return (
                 <button key={type.id} disabled={!available} className={selected?.id === type.id ? 'selected' : ''} type="button" onClick={() => { setSelected(type); setQuantity(1); }}>
                   <span><strong>{type.name}</strong>{type.description && <small>{type.description}</small>}<small className="pt-ticket-state">{isPast ? 'Evento finalizado' : !salesEnabled ? 'No disponible' : !paymentEnabled ? 'Preventa' : available ? `${type.available} disponibles` : 'Agotado'}</small></span>
-                  <span><strong>{money(type.price)}</strong>{Number(type.service_fee) > 0 && <small>+ {money(type.service_fee)} servicio</small>}</span>
+                  <span><strong>{money(type.price)}</strong><small>+ {money(Number(type.price) * Number(event.service_fee_rate ?? 0.1))} servicio</small></span>
                 </button>
               );
             })}
@@ -482,6 +484,7 @@ function EventPage({ slug, customer, onRequireAccount }) {
           {isPast && <div className="pt-alert info">Este evento ya finalizo y se conserva en el historial de ProTickets.</div>}
           {!isPast && salesEnabled && !paymentEnabled && <div className="pt-alert info">Puedes escoger tus entradas y completar el checkout. El boton final de pago se habilitara proximamente.</div>}
           {!isPast && !salesEnabled && <div className="pt-alert info">La seleccion de entradas todavia no esta habilitada.</div>}
+          <div className="pt-price-breakdown"><span>Subtotal<strong>{money(subtotal)}</strong></span><span>Tarifa de servicio<strong>{money(serviceFee)}</strong></span></div>
           <div className="pt-order-total"><span>Total</span><strong>{money(total)}</strong></div>
           {error && <div className="pt-alert error">{error}</div>}
           <button className="pt-primary wide" type="button" disabled={!selected || busy || isPast || !salesEnabled} onClick={continueToCheckout}>
@@ -490,13 +493,13 @@ function EventPage({ slug, customer, onRequireAccount }) {
           <p className="pt-checkout-note"><Clock3 size={15} /> La reserva se mantiene durante 20 minutos.</p>
         </aside>
       </main>
-      {checkoutOpen && <CheckoutDialog customer={customer} selected={selected} quantity={quantity} total={total} paymentEnabled={paymentEnabled} busy={busy} error={error} onConfirm={reserve} onClose={() => setCheckoutOpen(false)} />}
+      {checkoutOpen && <CheckoutDialog customer={customer} selected={selected} quantity={quantity} subtotal={subtotal} serviceFee={serviceFee} total={total} paymentEnabled={paymentEnabled} busy={busy} error={error} onConfirm={reserve} onClose={() => setCheckoutOpen(false)} />}
       {order && <OrderDialog order={order} onClose={() => setOrder(null)} />}
     </>
   );
 }
 
-function CheckoutDialog({ customer, selected, quantity, total, paymentEnabled, busy, error, onConfirm, onClose }) {
+function CheckoutDialog({ customer, selected, quantity, subtotal, serviceFee, total, paymentEnabled, busy, error, onConfirm, onClose }) {
   const [form, setForm] = useState({ name: '', email: customer?.email || '', cedula: '', phone: '' });
 
   function fillFromAccount() {
@@ -529,8 +532,9 @@ function CheckoutDialog({ customer, selected, quantity, total, paymentEnabled, b
             <label>Celular<input required value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></label>
           </div>
           <div className="pt-checkout-summary">
-            <span><Ticket size={18} /> {selected?.name} x{quantity}</span>
-            <strong>{money(total)}</strong>
+            <div className="pt-checkout-item"><span><Ticket size={18} /> {selected?.name} x{quantity}</span><strong>{money(subtotal)}</strong></div>
+            <div className="pt-checkout-fee"><span>Tarifa de servicio</span><strong>{money(serviceFee)}</strong></div>
+            <div className="pt-checkout-final"><span>Total</span><strong>{money(total)}</strong></div>
           </div>
           {!paymentEnabled && <div className="pt-alert info">Tu seleccion esta lista. El pago en linea se habilitara proximamente.</div>}
           {error && <div className="pt-alert error">{error}</div>}
@@ -745,7 +749,7 @@ function EventEditor({ eventId, onSaved, onCancel }) {
           <div className="pta-section-title"><div><p>INVENTARIO</p><h3>Localidades y precios</h3></div></div>
           <div className="pta-type-list">{types.map((type, index) => (
             <article key={type.id}>
-              <div className="pta-grid type"><label>Localidad<input value={type.name} onChange={(e) => setTypes(types.map((item, i) => i === index ? { ...item, name: e.target.value } : item))} /></label><label>Precio<input type="number" min="0" step="0.01" value={type.price} onChange={(e) => setTypes(types.map((item, i) => i === index ? { ...item, price: e.target.value } : item))} /></label><label>Servicio<input type="number" min="0" step="0.01" value={type.service_fee} onChange={(e) => setTypes(types.map((item, i) => i === index ? { ...item, service_fee: e.target.value } : item))} /></label><label>Stock<input type="number" min={type.sold || 0} value={type.stock} onChange={(e) => setTypes(types.map((item, i) => i === index ? { ...item, stock: e.target.value } : item))} /></label><label>Maximo<input type="number" min="1" value={type.max_per_order} onChange={(e) => setTypes(types.map((item, i) => i === index ? { ...item, max_per_order: e.target.value } : item))} /></label><label>Estado<select value={type.status} onChange={(e) => setTypes(types.map((item, i) => i === index ? { ...item, status: e.target.value } : item))}><option value="active">Activa</option><option value="inactive">Inactiva</option><option value="sold_out">Agotada</option></select></label></div>
+              <div className="pta-grid type"><label>Localidad<input value={type.name} onChange={(e) => setTypes(types.map((item, i) => i === index ? { ...item, name: e.target.value } : item))} /></label><label>Precio<input type="number" min="0" step="0.01" value={type.price} onChange={(e) => setTypes(types.map((item, i) => i === index ? { ...item, price: e.target.value } : item))} /></label><label>Servicio<input readOnly value={money(Number(type.price || 0) * 0.1)} title="Se calcula automaticamente" /></label><label>Stock<input type="number" min={type.sold || 0} value={type.stock} onChange={(e) => setTypes(types.map((item, i) => i === index ? { ...item, stock: e.target.value } : item))} /></label><label>Maximo<input type="number" min="1" value={type.max_per_order} onChange={(e) => setTypes(types.map((item, i) => i === index ? { ...item, max_per_order: e.target.value } : item))} /></label><label>Estado<select value={type.status} onChange={(e) => setTypes(types.map((item, i) => i === index ? { ...item, status: e.target.value } : item))}><option value="active">Activa</option><option value="inactive">Inactiva</option><option value="sold_out">Agotada</option></select></label></div>
               <div className="pta-row-actions"><span>{type.sold || 0} vendidas</span><button type="button" onClick={() => saveType(type)}><Save /> Guardar</button><button className="danger" type="button" onClick={() => removeType(type)}><Trash2 /></button></div>
             </article>
           ))}</div>

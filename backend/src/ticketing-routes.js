@@ -7,6 +7,16 @@ function money(value) {
   return Math.round((Number(value || 0) || 0) * 100) / 100;
 }
 
+function ticketingServiceFeeRate() {
+  const percentage = Number(process.env.TICKETING_SERVICE_FEE_PERCENT || 10);
+  if (!Number.isFinite(percentage) || percentage < 0) return 0.1;
+  return Math.min(percentage, 100) / 100;
+}
+
+function serviceFeeFor(subtotal) {
+  return money(money(subtotal) * ticketingServiceFeeRate());
+}
+
 function cleanText(value, max = 300) {
   return String(value || '').trim().slice(0, max);
 }
@@ -62,6 +72,141 @@ function ticketingTransporter() {
 
 function publicAppUrl() {
   return String(process.env.PUBLIC_APP_URL || 'https://promotersec.com').replace(/\/$/, '');
+}
+
+let bendoTokenCache = null;
+
+function decodeJwtPayload(token) {
+  try {
+    const encoded = String(token || '').split('.')[1];
+    if (!encoded) return {};
+    return JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+  } catch {
+    return {};
+  }
+}
+
+function findMerchantId(value) {
+  const preferredKeys = new Set(['merchant_id', 'merchantid', 'merchant_code', 'merchantcode']);
+  const visited = new Set();
+  function visit(current, key = '') {
+    if (current == null) return null;
+    if (typeof current !== 'object') {
+      const normalizedKey = String(key).toLowerCase().replace(/[^a-z0-9_]/g, '');
+      const parsed = Number(current);
+      if ((preferredKeys.has(normalizedKey) || normalizedKey === 'merchant') && Number.isSafeInteger(parsed) && parsed > 0) {
+        return parsed;
+      }
+      return null;
+    }
+    if (visited.has(current)) return null;
+    visited.add(current);
+    for (const [childKey, child] of Object.entries(current)) {
+      const match = visit(child, childKey);
+      if (match) return match;
+    }
+    return null;
+  }
+  return visit(value);
+}
+
+async function getBendoAccess() {
+  const now = Date.now();
+  if (bendoTokenCache?.token && bendoTokenCache.expiresAt > now + 30000) return bendoTokenCache;
+  const clientId = String(process.env.BENDO_CLIENT_ID || '').trim();
+  const clientSecret = String(process.env.BENDO_CLIENT_SECRET || '').trim();
+  if (!clientId || !clientSecret) throw new Error('Bendo no esta configurado');
+  const response = await fetch(process.env.BENDO_AUTH_URL || 'https://auth.prd.geopagos.io/oauth/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, grant_type: 'client_credentials', scope: '*' })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload.access_token) {
+    throw new Error(`Bendo no pudo autenticar la cuenta (HTTP ${response.status})`);
+  }
+  const tokenPayload = decodeJwtPayload(payload.access_token);
+  const configuredMerchant = Number(process.env.BENDO_MERCHANT_ID || 0);
+  const merchantId = configuredMerchant || findMerchantId(payload) || findMerchantId(tokenPayload);
+  const lifetime = Math.max(60, Number(payload.expires_in || 900));
+  bendoTokenCache = {
+    token: payload.access_token,
+    merchantId,
+    expiresAt: now + lifetime * 1000
+  };
+  return bendoTokenCache;
+}
+
+function checkoutUrlFromBendo(payload) {
+  return cleanText(
+    payload?.transaction_data?.checkout_url
+      || payload?.transaction_data?.url
+      || payload?.data?.links?.checkout
+      || payload?.checkout_url
+      || payload?.payment_url
+      || payload?.url,
+    2000
+  );
+}
+
+async function createBendoPaymentLink({ orderNumber, eventTitle, ticketName, quantity, unitPrice, fee, buyer }) {
+  const access = await getBendoAccess();
+  if (!access.merchantId) throw new Error('Bendo no informo el identificador del comercio');
+  const nameParts = cleanText(buyer.name, 120).split(/\s+/).filter(Boolean);
+  const lastName = nameParts.length > 1 ? nameParts.pop() : '-';
+  const firstName = nameParts.join(' ') || cleanText(buyer.name, 120) || 'Cliente';
+  const webhookSecret = String(process.env.BENDO_WEBHOOK_SECRET || '').trim();
+  const webhookUrl = webhookSecret
+    ? `${publicAppUrl()}/api/ticketing/payments/bendo/webhook?secret=${encodeURIComponent(webhookSecret)}`
+    : null;
+  const items = [{
+    description: `${cleanText(eventTitle, 90)} - ${cleanText(ticketName, 60)}`,
+    quantity,
+    unit_price: money(unitPrice),
+    external_reference: orderNumber
+  }];
+  if (fee > 0) {
+    items.push({ description: 'Tarifa de servicio', quantity: 1, unit_price: money(fee), external_reference: `${orderNumber}-SERVICIO` });
+  }
+  const body = {
+    source: process.env.BENDO_SOURCE || 'BENDO_EC_SDK',
+    currency: 'USD',
+    items,
+    expires_in_minutes: 20,
+    successful_payment_quantity_limit: 1,
+    failed_payment_quantity_limit: 5,
+    webhook_url: webhookUrl,
+    webhook_version: 'V4',
+    redirect_on_success: `${publicAppUrl()}/tickets/mi-cuenta?payment=success`,
+    redirect_on_failure: `${publicAppUrl()}/tickets/mi-cuenta?payment=failed`,
+    external_data: JSON.stringify({ order_number: orderNumber }),
+    merchant_id: access.merchantId,
+    metadata: { order_number: orderNumber, platform: 'ProTickets' },
+    customer: {
+      document: cleanText(buyer.cedula, 30),
+      first_name: firstName,
+      last_name: lastName,
+      email: cleanEmail(buyer.email),
+      document_type: 'CI'
+    }
+  };
+  const baseUrl = String(process.env.BENDO_API_URL || 'https://api.prd.geopagos.io').replace(/\/$/, '');
+  const response = await fetch(`${baseUrl}/api/v4/payments/links`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${access.token}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+  const payload = await response.json().catch(() => ({}));
+  const paymentUrl = checkoutUrlFromBendo(payload);
+  if (!response.ok || !paymentUrl) {
+    const detail = cleanText(payload?.message || payload?.error || payload?.detail, 180);
+    throw new Error(`Bendo no pudo crear el pago (HTTP ${response.status}${detail ? `: ${detail}` : ''})`);
+  }
+  return { paymentUrl, providerReference: cleanText(payload.id || payload?.data?.id || orderNumber, 180) };
 }
 
 function ticketingEstablishment(db) {
@@ -293,7 +438,7 @@ export function registerTicketingRoutes(app, db) {
        WHERE event_id = ? AND status != 'inactive'
        ORDER BY sort_order, price, id`
     ).all(event.id).map((type) => ({ ...type, available: availableForType(type) }));
-    res.json({ ...event, ticket_types: ticketTypes });
+    res.json({ ...event, service_fee_rate: ticketingServiceFeeRate(), ticket_types: ticketTypes });
   });
 
   app.get('/api/ticketing/public/tickets/:code', (req, res) => {
@@ -412,7 +557,7 @@ export function registerTicketingRoutes(app, db) {
     res.json(orders);
   });
 
-  app.post('/api/ticketing/orders', requireTicketCustomer, (req, res) => {
+  app.post('/api/ticketing/orders', requireTicketCustomer, async (req, res) => {
     const establishment = ticketingEstablishment(db);
     expireOldOrders(establishment.id);
     const ticketTypeId = Number(req.body.ticket_type_id || 0);
@@ -456,7 +601,7 @@ export function registerTicketingRoutes(app, db) {
       ).run(buyerName, buyerCedula, buyerPhone, req.ticketCustomer.id);
     }
     const subtotal = money(ticketType.price * quantity);
-    const fee = money(ticketType.service_fee * quantity);
+    const fee = serviceFeeFor(subtotal);
     const total = money(subtotal + fee);
     const orderNumber = `PT-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
     const expiresAt = sqlDateTime(new Date(Date.now() + 20 * 60 * 1000));
@@ -474,7 +619,7 @@ export function registerTicketingRoutes(app, db) {
         subtotal,
         fee,
         total,
-        cleanText(ticketType.bendo_payment_url, 2000),
+        null,
         orderNumber,
         expiresAt
       );
@@ -482,10 +627,32 @@ export function registerTicketingRoutes(app, db) {
         `INSERT INTO ticketing_order_items
          (order_id, ticket_type_id, ticket_name, quantity, unit_price, unit_fee)
          VALUES (?, ?, ?, ?, ?, ?)`
-      ).run(result.lastInsertRowid, ticketType.id, ticketType.name, quantity, ticketType.price, ticketType.service_fee);
+      ).run(result.lastInsertRowid, ticketType.id, ticketType.name, quantity, ticketType.price, money(fee / quantity));
       return result.lastInsertRowid;
     })();
-    res.status(201).json(orderDetails(orderId));
+    try {
+      const payment = await createBendoPaymentLink({
+        orderNumber,
+        eventTitle: ticketType.event_title,
+        ticketName: ticketType.name,
+        quantity,
+        unitPrice: ticketType.price,
+        fee,
+        buyer: { ...buyer, email: req.ticketCustomer.email }
+      });
+      db.prepare(
+        `UPDATE ticketing_orders SET payment_url = ?, external_reference = ?,
+         updated_at = datetime('now', 'localtime') WHERE id = ?`
+      ).run(payment.paymentUrl, payment.providerReference, orderId);
+      return res.status(201).json(orderDetails(orderId));
+    } catch (error) {
+      db.transaction(() => {
+        db.prepare('DELETE FROM ticketing_order_items WHERE order_id = ?').run(orderId);
+        db.prepare("DELETE FROM ticketing_orders WHERE id = ? AND payment_status = 'pending'").run(orderId);
+      })();
+      console.error('Bendo checkout:', error.message);
+      return res.status(502).json({ message: 'No fue posible iniciar el pago con Bendo. Intenta nuevamente.' });
+    }
   });
 
   app.get('/api/ticketing/admin/overview', requireTicketAdmin, (req, res) => {
@@ -797,9 +964,15 @@ export function registerTicketingRoutes(app, db) {
       return res.status(401).json({ message: 'Webhook no autorizado' });
     }
     const establishment = ticketingEstablishment(db);
+    let externalData = req.body.external_data || req.body.externalData || req.body.metadata || {};
+    if (typeof externalData === 'string') {
+      try { externalData = JSON.parse(externalData); } catch { externalData = {}; }
+    }
     const reference = cleanText(
-      req.body.external_reference || req.body.reference || req.body.order_number || req.body.merchant_reference,
-      120
+      req.body.orderUuid || req.body.order_uuid || req.body.payment_link_id || req.body.external_reference
+        || req.body.reference || req.body.order_number || req.body.merchant_reference
+        || externalData.order_number || externalData.orderNumber,
+      180
     );
     const status = cleanText(req.body.status || req.body.payment_status, 40).toLowerCase();
     const order = db.prepare(
@@ -813,6 +986,10 @@ export function registerTicketingRoutes(app, db) {
     ).run(establishment.id, order?.id || null, reference, status, JSON.stringify(req.body || {}));
     if (!order) return res.status(404).json({ message: 'Pedido no encontrado' });
     if (['paid', 'approved', 'success', 'completed', 'aprobado'].includes(status)) {
+      const reportedTotal = Number(req.body?.billing?.totals?.net ?? req.body.total ?? req.body.amount);
+      if (Number.isFinite(reportedTotal) && money(reportedTotal) !== money(order.total)) {
+        return res.status(409).json({ message: 'El valor confirmado no coincide con el pedido' });
+      }
       try {
         const result = await confirmOrder(order.id, 'Bendo webhook');
         return res.json({ ok: true, email_sent: Boolean(result.email?.sent) });
