@@ -1,0 +1,741 @@
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ArrowLeft,
+  ArrowRight,
+  CalendarDays,
+  Check,
+  CheckCircle2,
+  Clock3,
+  Copy,
+  CreditCard,
+  Edit3,
+  ExternalLink,
+  Eye,
+  Image as ImageIcon,
+  LayoutDashboard,
+  LogIn,
+  LogOut,
+  MapPin,
+  Menu,
+  Plus,
+  QrCode,
+  Save,
+  Search,
+  ShieldCheck,
+  ShoppingBag,
+  Ticket,
+  Trash2,
+  Upload,
+  UserRound,
+  X
+} from 'lucide-react';
+import { API_URL, getToken } from './api.js';
+import './protickets.css';
+
+const CUSTOMER_TOKEN_KEY = 'protickets_customer_token';
+const CUSTOMER_KEY = 'protickets_customer';
+
+const emptyEvent = {
+  title: '',
+  slug: '',
+  subtitle: '',
+  description: '',
+  venue: '',
+  city: '',
+  address: '',
+  event_date: '',
+  doors_time: '',
+  hero_image_url: '',
+  card_image_url: '',
+  organizer: '',
+  terms: '',
+  bendo_payment_url: '',
+  status: 'draft',
+  featured: false
+};
+
+const emptyTicketType = {
+  name: '',
+  description: '',
+  price: 0,
+  service_fee: 0,
+  stock: 0,
+  max_per_order: 6,
+  status: 'active',
+  sort_order: 0
+};
+
+const emptyBanner = {
+  image_url: '',
+  title: '',
+  subtitle: '',
+  cta_label: 'Ver evento',
+  cta_url: '',
+  status: 'active',
+  sort_order: 0
+};
+
+function readCustomer() {
+  try {
+    return JSON.parse(localStorage.getItem(CUSTOMER_KEY) || 'null');
+  } catch {
+    return null;
+  }
+}
+
+function saveCustomerSession(payload) {
+  localStorage.setItem(CUSTOMER_TOKEN_KEY, payload.token);
+  localStorage.setItem(CUSTOMER_KEY, JSON.stringify(payload.customer));
+}
+
+function clearCustomerSession() {
+  localStorage.removeItem(CUSTOMER_TOKEN_KEY);
+  localStorage.removeItem(CUSTOMER_KEY);
+}
+
+async function ticketingApi(path, options = {}) {
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  const token = options.admin ? getToken() : localStorage.getItem(CUSTOMER_TOKEN_KEY);
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const response = await fetch(`${API_URL}/ticketing${path}`, { ...options, headers });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.message || 'No se pudo completar la accion');
+  return data;
+}
+
+function money(value) {
+  return new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD' }).format(Number(value || 0));
+}
+
+function formatDate(value, withTime = false) {
+  if (!value) return 'Fecha por confirmar';
+  const normalized = String(value).includes('T') ? value : String(value).replace(' ', 'T');
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('es-EC', {
+    dateStyle: 'long',
+    ...(withTime ? { timeStyle: 'short' } : {})
+  }).format(date);
+}
+
+function statusLabel(status) {
+  return ({
+    draft: 'Borrador',
+    published: 'Publicado',
+    sold_out: 'Agotado',
+    archived: 'Archivado',
+    pending: 'Pendiente',
+    paid: 'Pagado',
+    rejected: 'Rechazado',
+    expired: 'Expirado',
+    refunded: 'Reembolsado',
+    valid: 'Vigente',
+    used: 'Utilizada',
+    void: 'Anulada'
+  })[status] || status;
+}
+
+function fileToDataUrl(file, callback) {
+  if (!file) return;
+  if (!file.type.startsWith('image/')) throw new Error('Selecciona una imagen valida');
+  if (file.size > 7 * 1024 * 1024) throw new Error('La imagen no puede superar 7 MB');
+  const reader = new FileReader();
+  reader.onload = () => callback(String(reader.result || ''));
+  reader.readAsDataURL(file);
+}
+
+function Logo({ compact = false }) {
+  return (
+    <a className={`pt-logo ${compact ? 'compact' : ''}`} href="/tickets" aria-label="ProTickets inicio">
+      <img src="/protickets/protickets-logo.png" alt="ProTickets" />
+    </a>
+  );
+}
+
+function PublicHeader({ customer, onAccount }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <header className="pt-header">
+      <Logo />
+      <button className="pt-menu" type="button" aria-label="Abrir menu" onClick={() => setOpen((value) => !value)}>
+        {open ? <X /> : <Menu />}
+      </button>
+      <nav className={open ? 'open' : ''}>
+        <a href="/tickets#eventos" onClick={() => setOpen(false)}>Eventos</a>
+        <a href="/tickets/mi-cuenta" onClick={() => setOpen(false)}>Mis entradas</a>
+        <button className="pt-account-button" type="button" onClick={() => { setOpen(false); onAccount(); }}>
+          <UserRound size={18} />
+          {customer ? customer.name.split(' ')[0] : 'Ingresar'}
+        </button>
+      </nav>
+    </header>
+  );
+}
+
+function PublicFooter() {
+  return (
+    <footer className="pt-footer">
+      <Logo compact />
+      <div>
+        <strong>Compra simple. Acceso seguro.</strong>
+        <span>Entradas digitales con codigo unico para cada asistente.</span>
+      </div>
+      <span>ProTickets Ecuador</span>
+    </footer>
+  );
+}
+
+function GoogleButton({ clientId, onSuccess, onError }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!clientId) return undefined;
+    let cancelled = false;
+    function render() {
+      if (cancelled || !ref.current || !window.google?.accounts?.id) return;
+      window.google.accounts.id.initialize({ client_id: clientId, callback: onSuccess });
+      window.google.accounts.id.renderButton(ref.current, { theme: 'outline', size: 'large', width: 320, text: 'continue_with' });
+    }
+    if (window.google?.accounts?.id) render();
+    else {
+      const script = document.createElement('script');
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.onload = render;
+      script.onerror = () => onError?.('No se pudo cargar Google');
+      document.head.appendChild(script);
+    }
+    return () => { cancelled = true; };
+  }, [clientId, onSuccess, onError]);
+  if (!clientId) return null;
+  return <div className="pt-google-button" ref={ref} />;
+}
+
+function AccountDialog({ open, googleClientId, onClose, onAuthenticated }) {
+  const [mode, setMode] = useState('login');
+  const [form, setForm] = useState({ name: '', email: '', password: '', cedula: '', phone: '' });
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  if (!open) return null;
+
+  async function submit(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      const payload = await ticketingApi(`/auth/${mode}`, { method: 'POST', body: JSON.stringify(form) });
+      saveCustomerSession(payload);
+      onAuthenticated(payload.customer);
+      onClose();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function googleSuccess(response) {
+    setBusy(true);
+    setError('');
+    try {
+      const payload = await ticketingApi('/auth/google', { method: 'POST', body: JSON.stringify({ credential: response.credential }) });
+      saveCustomerSession(payload);
+      onAuthenticated(payload.customer);
+      onClose();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="pt-modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="pt-auth-modal" role="dialog" aria-modal="true" aria-label="Cuenta ProTickets">
+        <button className="pt-icon-button close" type="button" aria-label="Cerrar" onClick={onClose}><X /></button>
+        <Logo compact />
+        <p className="pt-eyebrow">TU CUENTA</p>
+        <h2>{mode === 'login' ? 'Bienvenido de vuelta' : 'Crea tu cuenta'}</h2>
+        <p>{mode === 'login' ? 'Ingresa para comprar y consultar tus entradas.' : 'Tus entradas quedaran vinculadas a este correo.'}</p>
+        <GoogleButton clientId={googleClientId} onSuccess={googleSuccess} onError={setError} />
+        {googleClientId && <div className="pt-divider"><span>o continua con correo</span></div>}
+        <form onSubmit={submit}>
+          {mode === 'register' && (
+            <>
+              <label>Nombres completos<input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
+              <div className="pt-form-row">
+                <label>Cedula<input value={form.cedula} onChange={(e) => setForm({ ...form, cedula: e.target.value })} /></label>
+                <label>Celular<input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></label>
+              </div>
+            </>
+          )}
+          <label>Correo electronico<input required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label>
+          <label>Contrasena<input required type="password" minLength={8} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></label>
+          {error && <div className="pt-alert error">{error}</div>}
+          <button className="pt-primary wide" disabled={busy} type="submit">
+            {busy ? 'Procesando...' : mode === 'login' ? 'Ingresar' : 'Crear cuenta'}
+            <ArrowRight size={18} />
+          </button>
+        </form>
+        <button className="pt-text-button" type="button" onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(''); }}>
+          {mode === 'login' ? 'No tengo cuenta. Registrarme' : 'Ya tengo cuenta. Ingresar'}
+        </button>
+      </section>
+    </div>
+  );
+}
+
+function EventCard({ event }) {
+  return (
+    <article className="pt-event-card">
+      <a className="pt-event-image" href={`/tickets/evento/${event.slug}`}>
+        <img src={event.card_image_url || event.hero_image_url || '/protickets/kris-r-hero.png'} alt={event.title} />
+        <span className={`pt-status ${event.status}`}>{event.status === 'sold_out' ? 'Agotado' : 'Disponible'}</span>
+      </a>
+      <div className="pt-event-card-body">
+        <span>{event.city || 'Ecuador'}</span>
+        <h3>{event.title}</h3>
+        <p><CalendarDays size={17} /> {formatDate(event.event_date)}</p>
+        <p><MapPin size={17} /> {event.venue || 'Lugar por confirmar'}</p>
+        <div>
+          <strong>{Number(event.min_price || 0) > 0 ? `Desde ${money(event.min_price)}` : 'Precio por confirmar'}</strong>
+          <a className="pt-round-link" href={`/tickets/evento/${event.slug}`} aria-label={`Ver ${event.title}`}><ArrowRight /></a>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function HomePage({ data }) {
+  const banner = data.banners?.[0];
+  const heroEvent = data.events?.find((event) => event.featured) || data.events?.[0];
+  return (
+    <>
+      <section className="pt-hero" style={{ backgroundImage: `linear-gradient(90deg, rgba(0,0,0,.9) 0%, rgba(0,0,0,.48) 56%, rgba(0,0,0,.2) 100%), url('${banner?.image_url || heroEvent?.hero_image_url || '/protickets/kris-r-hero.png'}')` }}>
+        <div className="pt-hero-content">
+          <span className="pt-live-tag">EVENTO DESTACADO</span>
+          <h1>{banner?.title || heroEvent?.title || 'Vive el evento'}</h1>
+          <p>{banner?.subtitle || heroEvent?.subtitle || 'Compra tus entradas de forma simple y segura.'}</p>
+          {heroEvent && (
+            <a className="pt-primary" href={banner?.cta_url || `/tickets/evento/${heroEvent.slug}`}>
+              <Ticket size={20} /> {banner?.cta_label || 'Comprar entradas'}
+            </a>
+          )}
+        </div>
+      </section>
+      <section className="pt-section" id="eventos">
+        <div className="pt-section-heading">
+          <div><p className="pt-eyebrow">AGENDA</p><h2>Eventos disponibles</h2></div>
+          <span>{data.events?.length || 0} {data.events?.length === 1 ? 'evento' : 'eventos'}</span>
+        </div>
+        {data.events?.length ? <div className="pt-event-grid">{data.events.map((event) => <EventCard key={event.id} event={event} />)}</div> : <div className="pt-empty"><CalendarDays /><h3>Muy pronto</h3><p>Estamos preparando nuevos eventos para ti.</p></div>}
+      </section>
+      <section className="pt-trust-band">
+        <div><ShieldCheck /><strong>Compra protegida</strong><span>Pedido identificado y confirmacion controlada.</span></div>
+        <div><QrCode /><strong>Entrada digital</strong><span>Recibe un codigo unico directamente en tu correo.</span></div>
+        <div><CreditCard /><strong>Pago con Bendo</strong><span>Accede al enlace oficial configurado para el evento.</span></div>
+      </section>
+    </>
+  );
+}
+
+function EventPage({ slug, customer, onRequireAccount }) {
+  const [event, setEvent] = useState(null);
+  const [selected, setSelected] = useState(null);
+  const [quantity, setQuantity] = useState(1);
+  const [order, setOrder] = useState(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    ticketingApi(`/public/events/${encodeURIComponent(slug)}`)
+      .then((result) => { setEvent(result); setSelected(result.ticket_types?.find((type) => type.status === 'active' && type.available > 0) || null); })
+      .catch((err) => setError(err.message));
+  }, [slug]);
+
+  async function reserve() {
+    if (!customer) return onRequireAccount();
+    if (!selected) return setError('Selecciona una localidad disponible');
+    setBusy(true);
+    setError('');
+    try {
+      const nextOrder = await ticketingApi('/orders', { method: 'POST', body: JSON.stringify({ ticket_type_id: selected.id, quantity }) });
+      setOrder(nextOrder);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (error && !event) return <div className="pt-page-state"><Ticket /><h2>{error}</h2><a href="/tickets">Volver al inicio</a></div>;
+  if (!event) return <div className="pt-page-state">Cargando evento...</div>;
+
+  const total = selected ? Number(selected.price + selected.service_fee) * quantity : 0;
+  return (
+    <>
+      <section className="pt-event-hero">
+        <img src={event.hero_image_url || '/protickets/kris-r-hero.png'} alt={event.title} />
+        <div className="pt-event-hero-shade" />
+        <a className="pt-back-link" href="/tickets"><ArrowLeft /> Todos los eventos</a>
+        <div className="pt-event-hero-copy">
+          <span>{event.organizer || 'ProTickets presenta'}</span>
+          <h1>{event.title}</h1>
+          <p>{event.subtitle}</p>
+        </div>
+      </section>
+      <main className="pt-event-layout">
+        <section className="pt-event-info">
+          <div className="pt-event-facts">
+            <div><CalendarDays /><span>Fecha<strong>{formatDate(event.event_date)}</strong></span></div>
+            <div><MapPin /><span>Lugar<strong>{event.venue || 'Por confirmar'}, {event.city}</strong></span></div>
+          </div>
+          <div className="pt-copy-block"><p className="pt-eyebrow">EL EVENTO</p><h2>Todo lo que debes saber</h2><p>{event.description || 'Muy pronto publicaremos todos los detalles.'}</p></div>
+          {event.address && <div className="pt-copy-block"><p className="pt-eyebrow">UBICACION</p><h2>{event.venue}</h2><p>{event.address}</p></div>}
+          {event.terms && <details className="pt-terms"><summary>Terminos de la entrada</summary><p>{event.terms}</p></details>}
+        </section>
+        <aside className="pt-checkout">
+          <p className="pt-eyebrow">SELECCIONA TU ENTRADA</p>
+          <h2>Localidades</h2>
+          <div className="pt-ticket-options">
+            {event.ticket_types.map((type) => {
+              const available = type.status === 'active' && Number(type.available) > 0;
+              return (
+                <button key={type.id} disabled={!available} className={selected?.id === type.id ? 'selected' : ''} type="button" onClick={() => { setSelected(type); setQuantity(1); }}>
+                  <span><strong>{type.name}</strong><small>{available ? `${type.available} disponibles` : 'Agotado'}</small></span>
+                  <span><strong>{money(type.price)}</strong>{Number(type.service_fee) > 0 && <small>+ {money(type.service_fee)} servicio</small>}</span>
+                </button>
+              );
+            })}
+          </div>
+          {selected && (
+            <label className="pt-quantity">Cantidad
+              <select value={quantity} onChange={(e) => setQuantity(Number(e.target.value))}>
+                {Array.from({ length: Math.min(Number(selected.max_per_order || 6), Number(selected.available || 0)) }, (_, index) => index + 1).map((value) => <option key={value}>{value}</option>)}
+              </select>
+            </label>
+          )}
+          <div className="pt-order-total"><span>Total</span><strong>{money(total)}</strong></div>
+          {error && <div className="pt-alert error">{error}</div>}
+          <button className="pt-primary wide" type="button" disabled={!selected || busy} onClick={reserve}>
+            <ShoppingBag size={19} /> {busy ? 'Reservando...' : 'Continuar al pago'}
+          </button>
+          <p className="pt-checkout-note"><Clock3 size={15} /> La reserva se mantiene durante 20 minutos.</p>
+        </aside>
+      </main>
+      {order && <OrderDialog order={order} onClose={() => setOrder(null)} />}
+    </>
+  );
+}
+
+function OrderDialog({ order, onClose }) {
+  return (
+    <div className="pt-modal-backdrop">
+      <section className="pt-order-modal">
+        <button className="pt-icon-button close" type="button" onClick={onClose}><X /></button>
+        <div className="pt-success-icon"><Check /></div>
+        <p className="pt-eyebrow">RESERVA CREADA</p>
+        <h2>{order.order_number}</h2>
+        <p>Tu entrada queda pendiente hasta confirmar el pago.</p>
+        <div className="pt-receipt">
+          <span>{order.event_title}</span>
+          {order.items?.map((item) => <strong key={item.id}>{item.ticket_name} x{item.quantity}</strong>)}
+          <div><span>Total</span><strong>{money(order.total)}</strong></div>
+        </div>
+        {order.payment_url ? (
+          <a className="pt-primary wide" href={order.payment_url} target="_blank" rel="noreferrer"><CreditCard /> Pagar ahora con Bendo</a>
+        ) : (
+          <div className="pt-alert info">El administrador asignara el enlace de pago a este pedido.</div>
+        )}
+        <a className="pt-secondary wide" href="/tickets/mi-cuenta">Ver mis pedidos</a>
+      </section>
+    </div>
+  );
+}
+
+function AccountPage({ customer, onRequireAccount, onLogout }) {
+  const [orders, setOrders] = useState([]);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    if (!customer) return;
+    ticketingApi('/me/orders').then(setOrders).catch((err) => setError(err.message));
+  }, [customer]);
+  if (!customer) return <div className="pt-page-state"><UserRound /><h2>Consulta tus entradas</h2><p>Ingresa con la cuenta que utilizaste para comprar.</p><button className="pt-primary" onClick={onRequireAccount}>Ingresar</button></div>;
+  return (
+    <main className="pt-account-page">
+      <header><div><p className="pt-eyebrow">MI CUENTA</p><h1>Hola, {customer.name.split(' ')[0]}</h1><p>{customer.email}</p></div><button className="pt-secondary" type="button" onClick={onLogout}><LogOut /> Cerrar sesion</button></header>
+      <section>
+        <div className="pt-section-heading"><div><h2>Pedidos y entradas</h2><p>Todo lo que has comprado con ProTickets.</p></div></div>
+        {error && <div className="pt-alert error">{error}</div>}
+        {!orders.length ? <div className="pt-empty"><Ticket /><h3>Aun no tienes pedidos</h3><a className="pt-primary" href="/tickets#eventos">Explorar eventos</a></div> : (
+          <div className="pt-orders-list">{orders.map((order) => (
+            <article key={order.id}>
+              <img src={order.card_image_url || '/protickets/kris-r-hero.png'} alt="" />
+              <div className="pt-order-main"><span className={`pt-order-status ${order.payment_status}`}>{statusLabel(order.payment_status)}</span><h3>{order.event_title}</h3><p>{order.order_number} · {formatDate(order.created_at, true)}</p><strong>{order.items?.map((item) => `${item.ticket_name} x${item.quantity}`).join(', ')}</strong></div>
+              <div className="pt-order-actions"><strong>{money(order.total)}</strong>{order.payment_status === 'pending' && order.payment_url && <a className="pt-primary" href={order.payment_url} target="_blank" rel="noreferrer">Pagar <ExternalLink /></a>}</div>
+              {order.payment_status === 'paid' && order.tickets?.length > 0 && <div className="pt-ticket-links">{order.tickets.map((ticket, index) => <a href={`/tickets/entrada/${ticket.code}`} key={ticket.id}><QrCode /> Entrada {index + 1}: {ticket.ticket_name}</a>)}</div>}
+            </article>
+          ))}</div>
+        )}
+      </section>
+    </main>
+  );
+}
+
+function TicketPage({ code }) {
+  const [ticket, setTicket] = useState(null);
+  const [error, setError] = useState('');
+  useEffect(() => { ticketingApi(`/public/tickets/${encodeURIComponent(code)}`).then(setTicket).catch((err) => setError(err.message)); }, [code]);
+  if (error) return <div className="pt-page-state"><X /><h2>{error}</h2></div>;
+  if (!ticket) return <div className="pt-page-state">Consultando entrada...</div>;
+  return (
+    <main className="pt-digital-ticket-page">
+      <section className={`pt-digital-ticket ${ticket.status}`}>
+        <Logo compact />
+        <span className="pt-eyebrow">ENTRADA DIGITAL</span>
+        <h1>{ticket.event_title}</h1>
+        <div className="pt-ticket-owner"><span>Asistente</span><strong>{ticket.customer_name}</strong></div>
+        <div className="pt-ticket-meta"><span><CalendarDays />{formatDate(ticket.event_date)}</span><span><MapPin />{ticket.venue}, {ticket.city}</span></div>
+        <div className="pt-ticket-code"><QrCode /><strong>{ticket.ticket_name}</strong><code>{ticket.code}</code></div>
+        <div className={`pt-validity ${ticket.status}`}><ShieldCheck />{ticket.status === 'valid' ? 'Entrada valida' : ticket.status === 'used' ? 'Entrada ya utilizada' : 'Entrada anulada'}</div>
+      </section>
+    </main>
+  );
+}
+
+export function ProTicketsPublicSite() {
+  const [data, setData] = useState({ brand: {}, events: [], banners: [], google_client_id: '' });
+  const [customer, setCustomer] = useState(readCustomer());
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [error, setError] = useState('');
+  const path = window.location.pathname;
+
+  useEffect(() => { ticketingApi('/public/home').then(setData).catch((err) => setError(err.message)); }, []);
+
+  const route = useMemo(() => {
+    if (path.startsWith('/tickets/evento/')) return { type: 'event', value: decodeURIComponent(path.split('/').pop()) };
+    if (path.startsWith('/tickets/entrada/')) return { type: 'ticket', value: decodeURIComponent(path.split('/').pop()) };
+    if (path === '/tickets/mi-cuenta') return { type: 'account' };
+    return { type: 'home' };
+  }, [path]);
+
+  function logout() {
+    clearCustomerSession();
+    setCustomer(null);
+  }
+
+  return (
+    <div className="pt-public-site">
+      <PublicHeader customer={customer} onAccount={() => customer ? (window.location.href = '/tickets/mi-cuenta') : setAccountOpen(true)} />
+      {error ? <div className="pt-page-state"><X /><h2>{error}</h2></div> : (
+        <>
+          {route.type === 'home' && <HomePage data={data} />}
+          {route.type === 'event' && <EventPage slug={route.value} customer={customer} onRequireAccount={() => setAccountOpen(true)} />}
+          {route.type === 'account' && <AccountPage customer={customer} onRequireAccount={() => setAccountOpen(true)} onLogout={logout} />}
+          {route.type === 'ticket' && <TicketPage code={route.value} />}
+        </>
+      )}
+      <PublicFooter />
+      <AccountDialog open={accountOpen} googleClientId={data.google_client_id} onClose={() => setAccountOpen(false)} onAuthenticated={setCustomer} />
+    </div>
+  );
+}
+
+function AdminImageField({ label, value, onChange }) {
+  const [error, setError] = useState('');
+  return (
+    <label className="pta-image-field">
+      {label}
+      <input value={value || ''} placeholder="URL o imagen seleccionada" onChange={(e) => onChange(e.target.value)} />
+      <span className="pta-upload"><Upload size={17} /> Elegir desde el dispositivo<input type="file" accept="image/*" onChange={(e) => { try { fileToDataUrl(e.target.files?.[0], onChange); setError(''); } catch (err) { setError(err.message); } }} /></span>
+      {value && <img src={value} alt="Vista previa" />}
+      {error && <small className="pta-error">{error}</small>}
+    </label>
+  );
+}
+
+function EventEditor({ eventId, onSaved, onCancel }) {
+  const [form, setForm] = useState(emptyEvent);
+  const [types, setTypes] = useState([]);
+  const [newType, setNewType] = useState(emptyTicketType);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!eventId) { setForm(emptyEvent); setTypes([]); return; }
+    ticketingApi(`/admin/events/${eventId}`, { admin: true }).then((data) => { setForm({ ...emptyEvent, ...data, featured: Boolean(data.featured) }); setTypes(data.ticket_types || []); }).catch((err) => setError(err.message));
+  }, [eventId]);
+
+  async function save(event) {
+    event.preventDefault();
+    setBusy(true); setError('');
+    try {
+      await ticketingApi(eventId ? `/admin/events/${eventId}` : '/admin/events', { admin: true, method: eventId ? 'PUT' : 'POST', body: JSON.stringify(form) });
+      onSaved();
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
+  }
+
+  async function saveType(type) {
+    try {
+      await ticketingApi(`/admin/ticket-types/${type.id}`, { admin: true, method: 'PUT', body: JSON.stringify(type) });
+      onSaved(false);
+    } catch (err) { setError(err.message); }
+  }
+
+  async function addType(event) {
+    event.preventDefault();
+    try {
+      const created = await ticketingApi(`/admin/events/${eventId}/ticket-types`, { admin: true, method: 'POST', body: JSON.stringify(newType) });
+      setTypes([...types, created]); setNewType(emptyTicketType);
+    } catch (err) { setError(err.message); }
+  }
+
+  async function removeType(type) {
+    if (!window.confirm(`Eliminar la localidad ${type.name}?`)) return;
+    try { await ticketingApi(`/admin/ticket-types/${type.id}`, { admin: true, method: 'DELETE' }); setTypes(types.filter((item) => item.id !== type.id)); } catch (err) { setError(err.message); }
+  }
+
+  return (
+    <section className="pta-editor">
+      <header><div><p>GESTION DE EVENTO</p><h2>{eventId ? 'Editar evento' : 'Nuevo evento'}</h2></div><button className="pta-icon" type="button" onClick={onCancel}><X /></button></header>
+      <form className="pta-form" onSubmit={save}>
+        <div className="pta-grid two"><label>Nombre del evento<input required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} /></label><label>Enlace corto<input value={form.slug} placeholder="se-genera-automaticamente" onChange={(e) => setForm({ ...form, slug: e.target.value })} /></label></div>
+        <label>Frase destacada<input value={form.subtitle} onChange={(e) => setForm({ ...form, subtitle: e.target.value })} /></label>
+        <label>Descripcion<textarea rows="5" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
+        <div className="pta-grid three"><label>Fecha y hora<input type="datetime-local" value={form.event_date ? String(form.event_date).slice(0, 16) : ''} onChange={(e) => setForm({ ...form, event_date: e.target.value })} /></label><label>Ciudad<input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></label><label>Lugar<input value={form.venue} onChange={(e) => setForm({ ...form, venue: e.target.value })} /></label></div>
+        <label>Direccion<input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></label>
+        <div className="pta-grid two"><label>Organizador<input value={form.organizer} onChange={(e) => setForm({ ...form, organizer: e.target.value })} /></label><label>Enlace de pago Bendo<input type="url" placeholder="https://..." value={form.bendo_payment_url} onChange={(e) => setForm({ ...form, bendo_payment_url: e.target.value })} /></label></div>
+        <div className="pta-grid two"><AdminImageField label="Imagen principal" value={form.hero_image_url} onChange={(hero_image_url) => setForm({ ...form, hero_image_url, card_image_url: form.card_image_url || hero_image_url })} /><AdminImageField label="Imagen de tarjeta" value={form.card_image_url} onChange={(card_image_url) => setForm({ ...form, card_image_url })} /></div>
+        <label>Terminos y condiciones<textarea rows="4" value={form.terms} onChange={(e) => setForm({ ...form, terms: e.target.value })} /></label>
+        <div className="pta-grid three"><label>Estado<select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}><option value="draft">Borrador</option><option value="published">Publicado</option><option value="sold_out">Agotado</option><option value="archived">Archivado</option></select></label><label className="pta-check"><input type="checkbox" checked={form.featured} onChange={(e) => setForm({ ...form, featured: e.target.checked })} /> Mostrar como evento destacado</label></div>
+        {error && <div className="pta-alert error">{error}</div>}
+        <div className="pta-actions"><button className="pta-secondary" type="button" onClick={onCancel}>Cancelar</button><button className="pta-primary" disabled={busy}><Save />{busy ? 'Guardando...' : 'Guardar evento'}</button></div>
+      </form>
+      {eventId && (
+        <section className="pta-types">
+          <div className="pta-section-title"><div><p>INVENTARIO</p><h3>Localidades y precios</h3></div></div>
+          <div className="pta-type-list">{types.map((type, index) => (
+            <article key={type.id}>
+              <div className="pta-grid type"><label>Localidad<input value={type.name} onChange={(e) => setTypes(types.map((item, i) => i === index ? { ...item, name: e.target.value } : item))} /></label><label>Precio<input type="number" min="0" step="0.01" value={type.price} onChange={(e) => setTypes(types.map((item, i) => i === index ? { ...item, price: e.target.value } : item))} /></label><label>Servicio<input type="number" min="0" step="0.01" value={type.service_fee} onChange={(e) => setTypes(types.map((item, i) => i === index ? { ...item, service_fee: e.target.value } : item))} /></label><label>Stock<input type="number" min={type.sold || 0} value={type.stock} onChange={(e) => setTypes(types.map((item, i) => i === index ? { ...item, stock: e.target.value } : item))} /></label><label>Maximo<input type="number" min="1" value={type.max_per_order} onChange={(e) => setTypes(types.map((item, i) => i === index ? { ...item, max_per_order: e.target.value } : item))} /></label><label>Estado<select value={type.status} onChange={(e) => setTypes(types.map((item, i) => i === index ? { ...item, status: e.target.value } : item))}><option value="active">Activa</option><option value="inactive">Inactiva</option><option value="sold_out">Agotada</option></select></label></div>
+              <div className="pta-row-actions"><span>{type.sold || 0} vendidas</span><button type="button" onClick={() => saveType(type)}><Save /> Guardar</button><button className="danger" type="button" onClick={() => removeType(type)}><Trash2 /></button></div>
+            </article>
+          ))}</div>
+          <form className="pta-new-type" onSubmit={addType}><input required placeholder="Nueva localidad" value={newType.name} onChange={(e) => setNewType({ ...newType, name: e.target.value })} /><input type="number" min="0" step="0.01" placeholder="Precio" value={newType.price} onChange={(e) => setNewType({ ...newType, price: e.target.value })} /><input type="number" min="0" placeholder="Stock" value={newType.stock} onChange={(e) => setNewType({ ...newType, stock: e.target.value })} /><button className="pta-secondary"><Plus /> Agregar localidad</button></form>
+        </section>
+      )}
+    </section>
+  );
+}
+
+function OrdersAdmin({ orders, onRefresh }) {
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState('all');
+  const filtered = orders.filter((order) => (filter === 'all' || order.payment_status === filter) && `${order.order_number} ${order.customer_name} ${order.customer_email}`.toLowerCase().includes(query.toLowerCase()));
+
+  async function updateLink(order) {
+    const paymentUrl = window.prompt('Enlace de pago Bendo', order.payment_url || '');
+    if (paymentUrl === null) return;
+    await ticketingApi(`/admin/orders/${order.id}/payment-link`, { admin: true, method: 'PUT', body: JSON.stringify({ payment_url: paymentUrl }) });
+    onRefresh('Enlace actualizado');
+  }
+
+  async function process(order, action) {
+    const message = action === 'confirm' ? 'Confirmar este pago y emitir las entradas?' : 'Rechazar este pedido?';
+    if (!window.confirm(message)) return;
+    try {
+      const result = await ticketingApi(`/admin/orders/${order.id}/${action}`, { admin: true, method: 'POST' });
+      onRefresh(action === 'confirm' ? (result.email?.sent ? 'Pago confirmado y entradas enviadas' : 'Pago confirmado; revisa la configuracion de correo') : 'Pedido rechazado');
+    } catch (error) { window.alert(error.message); }
+  }
+
+  return (
+    <section className="pta-section">
+      <div className="pta-section-title"><div><p>VENTAS</p><h2>Pedidos</h2></div><div className="pta-filters"><label><Search /><input placeholder="Buscar cliente o pedido" value={query} onChange={(e) => setQuery(e.target.value)} /></label><select value={filter} onChange={(e) => setFilter(e.target.value)}><option value="all">Todos</option><option value="pending">Pendientes</option><option value="paid">Pagados</option><option value="rejected">Rechazados</option><option value="expired">Expirados</option></select></div></div>
+      <div className="pta-order-list">{filtered.map((order) => (
+        <article key={order.id}>
+          <div><span className={`pta-pill ${order.payment_status}`}>{statusLabel(order.payment_status)}</span><h3>{order.customer_name}</h3><p>{order.customer_email}</p></div>
+          <div><small>Pedido</small><strong>{order.order_number}</strong><span>{order.detail}</span></div>
+          <div><small>Total</small><strong>{money(order.total)}</strong><span>{formatDate(order.created_at, true)}</span></div>
+          <div className="pta-order-buttons"><button type="button" onClick={() => updateLink(order)}><CreditCard /> Enlace Bendo</button>{order.payment_status === 'pending' && <><button className="confirm" type="button" onClick={() => process(order, 'confirm')}><Check /> Confirmar pago</button><button className="danger" type="button" onClick={() => process(order, 'reject')}><X /></button></>}</div>
+        </article>
+      ))}{!filtered.length && <div className="pta-empty">No hay pedidos con estos filtros.</div>}</div>
+    </section>
+  );
+}
+
+function BannersAdmin({ banners, onRefresh }) {
+  const [editing, setEditing] = useState(null);
+  const form = editing || emptyBanner;
+  function setForm(next) { setEditing(next); }
+  async function submit(event) {
+    event.preventDefault();
+    const isEdit = Boolean(form.id);
+    try { await ticketingApi(isEdit ? `/admin/banners/${form.id}` : '/admin/banners', { admin: true, method: isEdit ? 'PUT' : 'POST', body: JSON.stringify(form) }); setEditing(null); onRefresh('Banner guardado'); } catch (error) { window.alert(error.message); }
+  }
+  async function remove(id) { if (!window.confirm('Eliminar este banner?')) return; await ticketingApi(`/admin/banners/${id}`, { admin: true, method: 'DELETE' }); onRefresh('Banner eliminado'); }
+  return (
+    <div className="pta-split">
+      <section className="pta-section"><div className="pta-section-title"><div><p>PORTADA</p><h2>Banners publicos</h2></div></div><div className="pta-banner-list">{banners.map((banner) => <article key={banner.id}><img src={banner.image_url} alt="" /><div><span className={`pta-pill ${banner.status}`}>{banner.status === 'active' ? 'Activo' : 'Inactivo'}</span><h3>{banner.title || 'Sin titulo'}</h3><p>{banner.subtitle}</p></div><div><button type="button" onClick={() => setEditing({ ...banner })}><Edit3 /></button><button className="danger" type="button" onClick={() => remove(banner.id)}><Trash2 /></button></div></article>)}</div></section>
+      <section className="pta-section"><div className="pta-section-title"><div><p>PUBLICIDAD</p><h2>{form.id ? 'Editar banner' : 'Nuevo banner'}</h2></div></div><form className="pta-form" onSubmit={submit}><AdminImageField label="Imagen del banner" value={form.image_url} onChange={(image_url) => setForm({ ...form, image_url })} /><label>Titulo<input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} /></label><label>Texto corto<input value={form.subtitle} onChange={(e) => setForm({ ...form, subtitle: e.target.value })} /></label><div className="pta-grid two"><label>Texto del boton<input value={form.cta_label} onChange={(e) => setForm({ ...form, cta_label: e.target.value })} /></label><label>Enlace<input value={form.cta_url} onChange={(e) => setForm({ ...form, cta_url: e.target.value })} /></label></div><div className="pta-grid two"><label>Estado<select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}><option value="active">Activo</option><option value="inactive">Inactivo</option></select></label><label>Orden<input type="number" value={form.sort_order} onChange={(e) => setForm({ ...form, sort_order: e.target.value })} /></label></div><div className="pta-actions">{editing && <button className="pta-secondary" type="button" onClick={() => setEditing(null)}>Cancelar</button>}<button className="pta-primary"><Save /> Guardar banner</button></div></form></section>
+    </div>
+  );
+}
+
+function ValidatorAdmin() {
+  const [code, setCode] = useState('');
+  const [result, setResult] = useState(null);
+  async function validate(event) { event.preventDefault(); setResult(null); try { setResult(await ticketingApi('/admin/tickets/validate', { admin: true, method: 'POST', body: JSON.stringify({ code }) })); setCode(''); } catch (error) { setResult({ valid: false, message: error.message }); } }
+  return <section className="pta-validator"><QrCode /><p>CONTROL DE ACCESO</p><h2>Validar entrada</h2><span>Escribe o escanea el codigo presentado por el asistente.</span><form onSubmit={validate}><input autoFocus required placeholder="PT-XXXXXXXX" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} /><button className="pta-primary"><ShieldCheck /> Validar acceso</button></form>{result && <div className={`pta-validation-result ${result.valid ? 'valid' : 'invalid'}`}>{result.valid ? <CheckCircle2 /> : <X />}<strong>{result.message}</strong>{result.ticket?.customer_name && <span>{result.ticket.customer_name} · {result.ticket.ticket_name}</span>}</div>}</section>;
+}
+
+function DashboardAdmin({ data, setView, editEvent }) {
+  return (
+    <>
+      <section className="pta-stats"><article><span>Ingresos confirmados</span><strong>{money(data.stats?.revenue)}</strong><CreditCard /></article><article><span>Pedidos pendientes</span><strong>{data.stats?.pending_orders || 0}</strong><Clock3 /></article><article><span>Entradas vigentes</span><strong>{data.stats?.valid_tickets || 0}</strong><Ticket /></article><article><span>Eventos</span><strong>{data.stats?.events || 0}</strong><CalendarDays /></article></section>
+      <div className="pta-split dashboard"><section className="pta-section"><div className="pta-section-title"><div><p>EVENTOS</p><h2>Actividad publicada</h2></div><button className="pta-secondary" onClick={() => setView('events')}>Administrar</button></div><div className="pta-event-list">{data.events?.map((event) => <article key={event.id}><img src={event.card_image_url || event.hero_image_url} alt="" /><div><span className={`pta-pill ${event.status}`}>{statusLabel(event.status)}</span><h3>{event.title}</h3><p>{formatDate(event.event_date)} · {event.city}</p><span>{event.available_tickets || 0} entradas disponibles</span></div><button className="pta-icon" onClick={() => editEvent(event.id)}><Edit3 /></button></article>)}</div></section><section className="pta-section"><div className="pta-section-title"><div><p>POR CONFIRMAR</p><h2>Pagos recientes</h2></div><button className="pta-secondary" onClick={() => setView('orders')}>Ver pedidos</button></div><div className="pta-mini-orders">{data.orders?.filter((order) => order.payment_status === 'pending').slice(0, 6).map((order) => <article key={order.id}><div><strong>{order.customer_name}</strong><span>{order.detail}</span></div><strong>{money(order.total)}</strong></article>)}{!data.orders?.some((order) => order.payment_status === 'pending') && <div className="pta-empty">No hay pagos pendientes.</div>}</div></section></div>
+    </>
+  );
+}
+
+export default function ProTicketsApp({ embedded = false, onLogout }) {
+  const [view, setView] = useState('dashboard');
+  const [data, setData] = useState({ events: [], banners: [], orders: [], stats: {} });
+  const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState('');
+  const [editingEventId, setEditingEventId] = useState(null);
+  const [showEventEditor, setShowEventEditor] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  async function load(message = '') {
+    setLoading(true);
+    try { setData(await ticketingApi('/admin/overview', { admin: true })); if (message) { setNotice(message); window.setTimeout(() => setNotice(''), 3000); } } catch (error) { setNotice(error.message); }
+    setLoading(false);
+  }
+  useEffect(() => { load(); }, []);
+
+  function editEvent(id) { setEditingEventId(id); setShowEventEditor(true); setView('events'); }
+  function newEvent() { setEditingEventId(null); setShowEventEditor(true); setView('events'); }
+  async function savedEvent(close = true) { await load('Evento actualizado'); if (close) setShowEventEditor(false); }
+
+  const nav = [['dashboard', 'Resumen', LayoutDashboard], ['events', 'Eventos', CalendarDays], ['orders', 'Pedidos', ShoppingBag], ['banners', 'Banners', ImageIcon], ['validate', 'Validar QR', QrCode]];
+  const content = (
+    <div className="pta-workspace">
+      <header className="pta-topbar"><div><p>PROTICKETS</p><h1>{nav.find(([key]) => key === view)?.[1]}</h1></div><div>{notice && <span className="pta-notice">{notice}</span>}<a className="pta-secondary" href="/tickets" target="_blank" rel="noreferrer"><Eye /> Ver pagina publica</a>{view === 'events' && !showEventEditor && <button className="pta-primary" onClick={newEvent}><Plus /> Nuevo evento</button>}<button className="pta-mobile-menu" onClick={() => setMenuOpen((value) => !value)}><Menu /></button></div></header>
+      {loading ? <div className="pta-empty large">Cargando ProTickets...</div> : <>
+        {view === 'dashboard' && <DashboardAdmin data={data} setView={setView} editEvent={editEvent} />}
+        {view === 'events' && (showEventEditor ? <EventEditor eventId={editingEventId} onSaved={savedEvent} onCancel={() => setShowEventEditor(false)} /> : <section className="pta-section"><div className="pta-section-title"><div><p>CATALOGO</p><h2>Todos los eventos</h2></div></div><div className="pta-event-table">{data.events.map((event) => <article key={event.id}><img src={event.card_image_url || event.hero_image_url} alt="" /><div><span className={`pta-pill ${event.status}`}>{statusLabel(event.status)}</span><h3>{event.title}</h3><p>{formatDate(event.event_date)} · {event.venue}, {event.city}</p></div><div><strong>{event.available_tickets || 0}</strong><span>disponibles</span></div><button className="pta-secondary" onClick={() => editEvent(event.id)}><Edit3 /> Editar</button></article>)}</div></section>)}
+        {view === 'orders' && <OrdersAdmin orders={data.orders} onRefresh={load} />}
+        {view === 'banners' && <BannersAdmin banners={data.banners} onRefresh={load} />}
+        {view === 'validate' && <ValidatorAdmin />}
+      </>}
+    </div>
+  );
+
+  if (embedded) return <div className="pta-embedded">{content}</div>;
+  return (
+    <main className="pta-app">
+      <aside className={menuOpen ? 'open' : ''}><Logo /> <nav>{nav.map(([key, label, Icon]) => <button className={view === key ? 'active' : ''} key={key} onClick={() => { setView(key); setMenuOpen(false); setShowEventEditor(false); }}><Icon />{label}</button>)}</nav><button className="pta-logout" onClick={onLogout}><LogOut /> Cerrar sesion</button></aside>
+      {content}
+    </main>
+  );
+}

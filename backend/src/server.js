@@ -13,6 +13,7 @@ import {
   registerProducalzaRoutes
 } from './producalza-routes.js';
 import { registerRenjiRoutes } from './renji-routes.js';
+import { registerTicketingRoutes } from './ticketing-routes.js';
 
 dotenv.config();
 initDb();
@@ -678,7 +679,9 @@ app.post('/api/establishments', requireSupreme, (req, res) => {
   const name = String(req.body.name || '').trim();
   const displayName = String(req.body.display_name || '').trim();
   const businessType = req.body.business_type === 'commercial' ? 'commercial' : 'event';
-  const moduleType = req.body.module_type === 'production' ? 'production' : 'promoters';
+  const moduleType = ['production', 'clothing', 'ticketing'].includes(req.body.module_type)
+    ? req.body.module_type
+    : 'promoters';
   const codePrefix = normalizeLookup(req.body.code_prefix || name).slice(0, 12) || 'PROMO';
   const theme = normalizeLookup(req.body.theme || name).toLowerCase() || 'custom';
   const logoUrl = String(req.body.logo_url || '').trim();
@@ -695,7 +698,7 @@ app.post('/api/establishments', requireSupreme, (req, res) => {
     const result = db
       .prepare('INSERT INTO establishments (name, display_name, business_type, module_type, code_prefix, theme, logo_url, admin_username, admin_password, status, promoter_sales_enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run(name, displayName || name, businessType, moduleType, codePrefix, theme, logoUrl, adminUsername, adminPassword, status, promoterSalesEnabled);
-    if (moduleType !== 'production') {
+    if (moduleType === 'promoters') {
       const eventResult = db
         .prepare('INSERT INTO events (establishment_id, name, description, status, is_active) VALUES (?, ?, ?, ?, 1)')
         .run(result.lastInsertRowid, name.toUpperCase(), `Evento principal ${name}`, 'active');
@@ -711,7 +714,9 @@ app.put('/api/establishments/:id', requireSupreme, (req, res) => {
   const name = String(req.body.name || '').trim();
   const displayName = String(req.body.display_name || '').trim();
   const businessType = req.body.business_type === 'commercial' ? 'commercial' : 'event';
-  const moduleType = req.body.module_type === 'production' ? 'production' : 'promoters';
+  const moduleType = ['production', 'clothing', 'ticketing'].includes(req.body.module_type)
+    ? req.body.module_type
+    : 'promoters';
   const codePrefix = normalizeLookup(req.body.code_prefix || name).slice(0, 12) || 'PROMO';
   const theme = normalizeLookup(req.body.theme || name).toLowerCase() || 'custom';
   const logoUrl = String(req.body.logo_url || '').trim();
@@ -2932,6 +2937,7 @@ app.post('/api/verify', (req, res) => {
 
 registerProducalzaRoutes(app, db, getRequestEstablishmentId);
 registerRenjiRoutes(app, db, getRequestEstablishmentId);
+registerTicketingRoutes(app, db);
 
 recalculateAllCommissions();
 

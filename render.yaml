@@ -16,6 +16,24 @@ services:
         sync: false
       - key: DB_PATH
         value: /var/data/gemapromoters.sqlite
+      - key: PUBLIC_APP_URL
+        value: https://promotersec.com
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: 587
+      - key: SMTP_SECURE
+        value: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: BENDO_WEBHOOK_SECRET
+        generateValue: true
     disk:
       name: gemapromoters-data
       mountPath: /var/data

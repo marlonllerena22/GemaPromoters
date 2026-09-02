@@ -46,6 +46,9 @@ Credenciales iniciales:
 - Administrador Marjorie Botas:
   - Usuario: `marjorie`
   - Contrasena: `marjorie123`
+- Administrador ProTickets:
+  - Usuario: `protickets`
+  - Contrasena inicial: `protickets123`
 
 Puedes cambiarlas en `backend/.env`.
 
@@ -68,6 +71,7 @@ Abre:
 - Panel admin: http://localhost:5173
 - Verificacion publica: http://localhost:5173/verificar
 - API backend: http://localhost:4000/api/health
+- Ticketera publica: http://localhost:5173/tickets
 
 ## Compilar para produccion
 
@@ -121,6 +125,23 @@ PRODUCCION.md
 - Beneficios editables por nivel y visibles para promotores segun su progreso
 - Banners publicitarios por evento visibles en el panel del promotor
 - Diseno responsive para celular
+
+## ProTickets
+
+ProTickets funciona como un negocio independiente dentro de PROMOTERS. Su pagina publica esta en `/tickets` y permite:
+
+- Consultar eventos sin iniciar sesion.
+- Crear una cuenta de comprador con correo y contrasena.
+- Ingresar con Google cuando `GOOGLE_CLIENT_ID` esta configurado.
+- Elegir localidad y cantidad, reservar stock durante 20 minutos y abrir el enlace de pago Bendo.
+- Consultar pedidos y entradas digitales desde `Mis entradas`.
+- Recibir por correo un codigo QR unico por cada entrada confirmada.
+
+El administrador ProTickets puede crear y editar eventos, cargar imagenes y banners desde su dispositivo, definir precios, cargos de servicio, stock y limite por compra, asignar enlaces Bendo, confirmar pagos y validar entradas en el acceso.
+
+El evento inicial `KRIS R EL TRAP DE KOLOMBIA` se crea publicado, pero sus localidades empiezan con stock `0`. Antes de vender, entra como administrador ProTickets, edita el evento y configura el stock real y el enlace Bendo.
+
+Para enviar entradas por correo configura `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` y `SMTP_FROM`. Para Google configura `GOOGLE_CLIENT_ID`. La confirmacion automatica de Bendo queda preparada en `/api/ticketing/payments/bendo/webhook`; debe ajustarse a la documentacion y credenciales finales que entregue Bendo. Mientras tanto, el administrador puede confirmar cada pago manualmente y el sistema emite las entradas en ese momento.
 
 ## Acceso de promotores
 

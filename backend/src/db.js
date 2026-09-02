@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { initProducalzaDb } from './producalza-db.js';
+import { initTicketingDb } from './ticketing-db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -497,6 +498,7 @@ export function initDb() {
   ensureSacuGroupEstablishment();
   ensureRenjiEstablishment();
   initProducalzaDb(db);
+  initTicketingDb(db);
 }
 
 export function toMoney(value) {
