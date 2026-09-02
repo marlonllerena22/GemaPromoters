@@ -47,11 +47,13 @@ const emptyEvent = {
   doors_time: '',
   hero_image_url: '',
   card_image_url: '',
+  hero_display_mode: 'cover',
   organizer: '',
   terms: '',
   bendo_payment_url: '',
   status: 'draft',
-  featured: false
+  featured: false,
+  sales_enabled: false
 };
 
 const emptyTicketType = {
@@ -67,11 +69,13 @@ const emptyTicketType = {
 
 const emptyBanner = {
   image_url: '',
+  mobile_image_url: '',
   title: '',
   subtitle: '',
   cta_label: 'Ver evento',
   cta_url: '',
   status: 'active',
+  show_overlay: true,
   sort_order: 0
 };
 
@@ -286,11 +290,13 @@ function AccountDialog({ open, googleClientId, onClose, onAuthenticated }) {
 }
 
 function EventCard({ event }) {
+  const salesEnabled = Boolean(Number(event.sales_enabled));
+  const eventState = event.status === 'sold_out' ? 'Agotado' : salesEnabled ? 'Disponible' : 'Proximamente';
   return (
     <article className="pt-event-card">
       <a className="pt-event-image" href={`/tickets/evento/${event.slug}`}>
         <img src={event.card_image_url || event.hero_image_url || '/protickets/kris-r-hero.png'} alt={event.title} />
-        <span className={`pt-status ${event.status}`}>{event.status === 'sold_out' ? 'Agotado' : 'Disponible'}</span>
+        <span className={`pt-status ${salesEnabled ? event.status : 'upcoming'}`}>{eventState}</span>
       </a>
       <div className="pt-event-card-body">
         <span>{event.city || 'Ecuador'}</span>
@@ -308,20 +314,36 @@ function EventCard({ event }) {
 
 function HomePage({ data }) {
   const banner = data.banners?.[0];
-  const heroEvent = data.events?.find((event) => event.featured) || data.events?.[0];
+  const heroEvent = data.events?.find((event) => Number(event.id) === Number(banner?.event_id))
+    || data.events?.find((event) => event.featured)
+    || data.events?.[0];
+  const desktopImage = banner?.image_url || heroEvent?.hero_image_url || '/protickets/kris-r-hero.png';
+  const mobileImage = banner?.mobile_image_url || desktopImage;
+  const showOverlay = banner?.show_overlay !== 0;
   return (
     <>
-      <section className="pt-hero" style={{ backgroundImage: `linear-gradient(90deg, rgba(0,0,0,.9) 0%, rgba(0,0,0,.48) 56%, rgba(0,0,0,.2) 100%), url('${banner?.image_url || heroEvent?.hero_image_url || '/protickets/kris-r-hero.png'}')` }}>
-        <div className="pt-hero-content">
-          <span className="pt-live-tag">EVENTO DESTACADO</span>
-          <h1>{banner?.title || heroEvent?.title || 'Vive el evento'}</h1>
-          <p>{banner?.subtitle || heroEvent?.subtitle || 'Compra tus entradas de forma simple y segura.'}</p>
-          {heroEvent && (
-            <a className="pt-primary" href={banner?.cta_url || `/tickets/evento/${heroEvent.slug}`}>
-              <Ticket size={20} /> {banner?.cta_label || 'Comprar entradas'}
-            </a>
-          )}
-        </div>
+      <section className={`pt-hero ${showOverlay ? 'with-overlay' : 'artwork-only'}`}>
+        <picture className="pt-hero-media">
+          <source media="(max-width: 760px)" srcSet={mobileImage} />
+          <img src={desktopImage} alt={banner?.title || heroEvent?.title || 'Evento ProTickets'} />
+        </picture>
+        {showOverlay && <div className="pt-hero-shade" />}
+        {showOverlay ? (
+          <div className="pt-hero-content">
+            <span className="pt-live-tag">EVENTO DESTACADO</span>
+            <h1>{banner?.title || heroEvent?.title || 'Vive el evento'}</h1>
+            <p>{banner?.subtitle || heroEvent?.subtitle || 'Compra tus entradas de forma simple y segura.'}</p>
+            {heroEvent && (
+              <a className="pt-primary" href={banner?.cta_url || `/tickets/evento/${heroEvent.slug}`}>
+                <Ticket size={20} /> {banner?.cta_label || 'Comprar entradas'}
+              </a>
+            )}
+          </div>
+        ) : heroEvent && (
+          <a className="pt-artwork-cta" href={banner?.cta_url || `/tickets/evento/${heroEvent.slug}`}>
+            <Eye size={18} /> {banner?.cta_label || 'Ver evento'}
+          </a>
+        )}
       </section>
       <section className="pt-section" id="eventos">
         <div className="pt-section-heading">
@@ -349,7 +371,12 @@ function EventPage({ slug, customer, onRequireAccount }) {
 
   useEffect(() => {
     ticketingApi(`/public/events/${encodeURIComponent(slug)}`)
-      .then((result) => { setEvent(result); setSelected(result.ticket_types?.find((type) => type.status === 'active' && type.available > 0) || null); })
+      .then((result) => {
+        setEvent(result);
+        setSelected(Number(result.sales_enabled)
+          ? result.ticket_types?.find((type) => type.status === 'active' && type.available > 0) || null
+          : null);
+      })
       .catch((err) => setError(err.message));
   }, [slug]);
 
@@ -371,10 +398,11 @@ function EventPage({ slug, customer, onRequireAccount }) {
   if (error && !event) return <div className="pt-page-state"><Ticket /><h2>{error}</h2><a href="/tickets">Volver al inicio</a></div>;
   if (!event) return <div className="pt-page-state">Cargando evento...</div>;
 
+  const salesEnabled = Boolean(Number(event.sales_enabled));
   const total = selected ? Number(selected.price + selected.service_fee) * quantity : 0;
   return (
     <>
-      <section className="pt-event-hero">
+      <section className={`pt-event-hero ${event.hero_display_mode === 'contain' ? 'contained' : 'covered'}`}>
         <img src={event.hero_image_url || '/protickets/kris-r-hero.png'} alt={event.title} />
         <div className="pt-event-hero-shade" />
         <a className="pt-back-link" href="/tickets"><ArrowLeft /> Todos los eventos</a>
@@ -399,10 +427,10 @@ function EventPage({ slug, customer, onRequireAccount }) {
           <h2>Localidades</h2>
           <div className="pt-ticket-options">
             {event.ticket_types.map((type) => {
-              const available = type.status === 'active' && Number(type.available) > 0;
+              const available = salesEnabled && type.status === 'active' && Number(type.available) > 0;
               return (
                 <button key={type.id} disabled={!available} className={selected?.id === type.id ? 'selected' : ''} type="button" onClick={() => { setSelected(type); setQuantity(1); }}>
-                  <span><strong>{type.name}</strong><small>{available ? `${type.available} disponibles` : 'Agotado'}</small></span>
+                  <span><strong>{type.name}</strong>{type.description && <small>{type.description}</small>}<small className="pt-ticket-state">{!salesEnabled ? 'Venta proximamente' : available ? `${type.available} disponibles` : 'Agotado'}</small></span>
                   <span><strong>{money(type.price)}</strong>{Number(type.service_fee) > 0 && <small>+ {money(type.service_fee)} servicio</small>}</span>
                 </button>
               );
@@ -415,10 +443,11 @@ function EventPage({ slug, customer, onRequireAccount }) {
               </select>
             </label>
           )}
+          {!salesEnabled && <div className="pt-alert info">La preventa se encuentra preparada, pero las compras todavia no estan habilitadas.</div>}
           <div className="pt-order-total"><span>Total</span><strong>{money(total)}</strong></div>
           {error && <div className="pt-alert error">{error}</div>}
           <button className="pt-primary wide" type="button" disabled={!selected || busy} onClick={reserve}>
-            <ShoppingBag size={19} /> {busy ? 'Reservando...' : 'Continuar al pago'}
+            <ShoppingBag size={19} /> {busy ? 'Reservando...' : salesEnabled ? 'Continuar al pago' : 'Venta proximamente'}
           </button>
           <p className="pt-checkout-note"><Clock3 size={15} /> La reserva se mantiene durante 20 minutos.</p>
         </aside>
@@ -541,11 +570,12 @@ export function ProTicketsPublicSite() {
   );
 }
 
-function AdminImageField({ label, value, onChange }) {
+function AdminImageField({ label, hint, value, onChange }) {
   const [error, setError] = useState('');
   return (
     <label className="pta-image-field">
       {label}
+      {hint && <small className="pta-field-hint">{hint}</small>}
       <input value={value || ''} placeholder="URL o imagen seleccionada" onChange={(e) => onChange(e.target.value)} />
       <span className="pta-upload"><Upload size={17} /> Elegir desde el dispositivo<input type="file" accept="image/*" onChange={(e) => { try { fileToDataUrl(e.target.files?.[0], onChange); setError(''); } catch (err) { setError(err.message); } }} /></span>
       {value && <img src={value} alt="Vista previa" />}
@@ -563,7 +593,15 @@ function EventEditor({ eventId, onSaved, onCancel }) {
 
   useEffect(() => {
     if (!eventId) { setForm(emptyEvent); setTypes([]); return; }
-    ticketingApi(`/admin/events/${eventId}`, { admin: true }).then((data) => { setForm({ ...emptyEvent, ...data, featured: Boolean(data.featured) }); setTypes(data.ticket_types || []); }).catch((err) => setError(err.message));
+    ticketingApi(`/admin/events/${eventId}`, { admin: true }).then((data) => {
+      setForm({
+        ...emptyEvent,
+        ...data,
+        featured: Boolean(data.featured),
+        sales_enabled: Boolean(data.sales_enabled)
+      });
+      setTypes(data.ticket_types || []);
+    }).catch((err) => setError(err.message));
   }, [eventId]);
 
   async function save(event) {
@@ -605,9 +643,11 @@ function EventEditor({ eventId, onSaved, onCancel }) {
         <div className="pta-grid three"><label>Fecha y hora<input type="datetime-local" value={form.event_date ? String(form.event_date).slice(0, 16) : ''} onChange={(e) => setForm({ ...form, event_date: e.target.value })} /></label><label>Ciudad<input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></label><label>Lugar<input value={form.venue} onChange={(e) => setForm({ ...form, venue: e.target.value })} /></label></div>
         <label>Direccion<input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></label>
         <div className="pta-grid two"><label>Organizador<input value={form.organizer} onChange={(e) => setForm({ ...form, organizer: e.target.value })} /></label><label>Enlace de pago Bendo<input type="url" placeholder="https://..." value={form.bendo_payment_url} onChange={(e) => setForm({ ...form, bendo_payment_url: e.target.value })} /></label></div>
-        <div className="pta-grid two"><AdminImageField label="Imagen principal" value={form.hero_image_url} onChange={(hero_image_url) => setForm({ ...form, hero_image_url, card_image_url: form.card_image_url || hero_image_url })} /><AdminImageField label="Imagen de tarjeta" value={form.card_image_url} onChange={(card_image_url) => setForm({ ...form, card_image_url })} /></div>
+        <div className="pta-grid two"><AdminImageField label="Portada dentro del evento" hint="Recomendado: cuadrada 1:1, por ejemplo 1200 x 1200 px" value={form.hero_image_url} onChange={(hero_image_url) => setForm({ ...form, hero_image_url, card_image_url: form.card_image_url || hero_image_url })} /><AdminImageField label="Portada en la pagina principal" hint="Recomendado: horizontal 16:9, por ejemplo 1600 x 900 px" value={form.card_image_url} onChange={(card_image_url) => setForm({ ...form, card_image_url })} /></div>
+        <label>Ajuste de la portada interna<select value={form.hero_display_mode} onChange={(e) => setForm({ ...form, hero_display_mode: e.target.value })}><option value="cover">Llenar el espacio</option><option value="contain">Mostrar imagen completa</option></select></label>
         <label>Terminos y condiciones<textarea rows="4" value={form.terms} onChange={(e) => setForm({ ...form, terms: e.target.value })} /></label>
-        <div className="pta-grid three"><label>Estado<select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}><option value="draft">Borrador</option><option value="published">Publicado</option><option value="sold_out">Agotado</option><option value="archived">Archivado</option></select></label><label className="pta-check"><input type="checkbox" checked={form.featured} onChange={(e) => setForm({ ...form, featured: e.target.checked })} /> Mostrar como evento destacado</label></div>
+        <div className="pta-grid three"><label>Estado<select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}><option value="draft">Borrador</option><option value="published">Publicado</option><option value="sold_out">Agotado</option><option value="archived">Archivado</option></select></label><label className="pta-check"><input type="checkbox" checked={form.featured} onChange={(e) => setForm({ ...form, featured: e.target.checked })} /> Mostrar como evento destacado</label><label className="pta-check sales"><input type="checkbox" checked={form.sales_enabled} onChange={(e) => setForm({ ...form, sales_enabled: e.target.checked })} /> Habilitar compras</label></div>
+        {!form.sales_enabled && <div className="pta-alert info">El evento sera visible con sus precios, pero nadie podra comprar hasta activar esta opcion.</div>}
         {error && <div className="pta-alert error">{error}</div>}
         <div className="pta-actions"><button className="pta-secondary" type="button" onClick={onCancel}>Cancelar</button><button className="pta-primary" disabled={busy}><Save />{busy ? 'Guardando...' : 'Guardar evento'}</button></div>
       </form>
@@ -676,7 +716,7 @@ function BannersAdmin({ banners, onRefresh }) {
   return (
     <div className="pta-split">
       <section className="pta-section"><div className="pta-section-title"><div><p>PORTADA</p><h2>Banners publicos</h2></div></div><div className="pta-banner-list">{banners.map((banner) => <article key={banner.id}><img src={banner.image_url} alt="" /><div><span className={`pta-pill ${banner.status}`}>{banner.status === 'active' ? 'Activo' : 'Inactivo'}</span><h3>{banner.title || 'Sin titulo'}</h3><p>{banner.subtitle}</p></div><div><button type="button" onClick={() => setEditing({ ...banner })}><Edit3 /></button><button className="danger" type="button" onClick={() => remove(banner.id)}><Trash2 /></button></div></article>)}</div></section>
-      <section className="pta-section"><div className="pta-section-title"><div><p>PUBLICIDAD</p><h2>{form.id ? 'Editar banner' : 'Nuevo banner'}</h2></div></div><form className="pta-form" onSubmit={submit}><AdminImageField label="Imagen del banner" value={form.image_url} onChange={(image_url) => setForm({ ...form, image_url })} /><label>Titulo<input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} /></label><label>Texto corto<input value={form.subtitle} onChange={(e) => setForm({ ...form, subtitle: e.target.value })} /></label><div className="pta-grid two"><label>Texto del boton<input value={form.cta_label} onChange={(e) => setForm({ ...form, cta_label: e.target.value })} /></label><label>Enlace<input value={form.cta_url} onChange={(e) => setForm({ ...form, cta_url: e.target.value })} /></label></div><div className="pta-grid two"><label>Estado<select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}><option value="active">Activo</option><option value="inactive">Inactivo</option></select></label><label>Orden<input type="number" value={form.sort_order} onChange={(e) => setForm({ ...form, sort_order: e.target.value })} /></label></div><div className="pta-actions">{editing && <button className="pta-secondary" type="button" onClick={() => setEditing(null)}>Cancelar</button>}<button className="pta-primary"><Save /> Guardar banner</button></div></form></section>
+      <section className="pta-section"><div className="pta-section-title"><div><p>PUBLICIDAD</p><h2>{form.id ? 'Editar banner' : 'Nuevo banner'}</h2></div></div><form className="pta-form" onSubmit={submit}><AdminImageField label="Banner para computadora" hint="Recomendado: horizontal 16:9, por ejemplo 1920 x 1080 px" value={form.image_url} onChange={(image_url) => setForm({ ...form, image_url })} /><AdminImageField label="Banner para celular" hint="Recomendado: vertical 2:3, por ejemplo 1080 x 1620 px" value={form.mobile_image_url} onChange={(mobile_image_url) => setForm({ ...form, mobile_image_url })} /><label>Titulo<input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} /></label><label>Texto corto<input value={form.subtitle} onChange={(e) => setForm({ ...form, subtitle: e.target.value })} /></label><div className="pta-grid two"><label>Texto del boton<input value={form.cta_label} onChange={(e) => setForm({ ...form, cta_label: e.target.value })} /></label><label>Enlace<input value={form.cta_url} onChange={(e) => setForm({ ...form, cta_url: e.target.value })} /></label></div><label className="pta-check"><input type="checkbox" checked={form.show_overlay !== false && form.show_overlay !== 0} onChange={(e) => setForm({ ...form, show_overlay: e.target.checked })} /> Mostrar titulo y texto encima del banner</label><div className="pta-grid two"><label>Estado<select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}><option value="active">Activo</option><option value="inactive">Inactivo</option></select></label><label>Orden<input type="number" value={form.sort_order} onChange={(e) => setForm({ ...form, sort_order: e.target.value })} /></label></div><div className="pta-actions">{editing && <button className="pta-secondary" type="button" onClick={() => setEditing(null)}>Cancelar</button>}<button className="pta-primary"><Save /> Guardar banner</button></div></form></section>
     </div>
   );
 }

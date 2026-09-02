@@ -419,13 +419,16 @@ export function registerTicketingRoutes(app, db) {
     const quantity = Math.max(1, Math.round(Number(req.body.quantity || 1)));
     const ticketType = db.prepare(
       `SELECT types.*, events.establishment_id, events.title AS event_title,
-              events.status AS event_status, events.bendo_payment_url
+              events.status AS event_status, events.sales_enabled, events.bendo_payment_url
        FROM ticketing_ticket_types AS types
        JOIN ticketing_events AS events ON events.id = types.event_id
        WHERE types.id = ? AND events.establishment_id = ?`
     ).get(ticketTypeId, establishment.id);
     if (!ticketType || ticketType.event_status !== 'published' || ticketType.status !== 'active') {
       return res.status(404).json({ message: 'Localidad no disponible' });
+    }
+    if (!Number(ticketType.sales_enabled)) {
+      return res.status(409).json({ message: 'La venta de este evento aun no esta habilitada' });
     }
     if (quantity > Number(ticketType.max_per_order || 6)) {
       return res.status(400).json({ message: `Puedes comprar maximo ${ticketType.max_per_order} entradas por pedido` });
@@ -517,9 +520,9 @@ export function registerTicketingRoutes(app, db) {
     const result = db.prepare(
       `INSERT INTO ticketing_events
        (establishment_id, slug, title, subtitle, description, venue, city, address,
-        event_date, doors_time, hero_image_url, card_image_url, organizer, terms,
-        bendo_payment_url, status, featured)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        event_date, doors_time, hero_image_url, card_image_url, hero_display_mode,
+        organizer, terms, bendo_payment_url, status, featured, sales_enabled)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       req.ticketEstablishment.id,
       slug,
@@ -533,11 +536,13 @@ export function registerTicketingRoutes(app, db) {
       cleanText(req.body.doors_time, 20),
       cleanText(req.body.hero_image_url, 10000000),
       cleanText(req.body.card_image_url || req.body.hero_image_url, 10000000),
+      req.body.hero_display_mode === 'contain' ? 'contain' : 'cover',
       cleanText(req.body.organizer, 180),
       cleanText(req.body.terms, 8000),
       cleanText(req.body.bendo_payment_url, 2000),
       ['draft', 'published', 'sold_out', 'archived'].includes(req.body.status) ? req.body.status : 'draft',
-      req.body.featured ? 1 : 0
+      req.body.featured ? 1 : 0,
+      req.body.sales_enabled ? 1 : 0
     );
     res.status(201).json(db.prepare('SELECT * FROM ticketing_events WHERE id = ?').get(result.lastInsertRowid));
   });
@@ -553,8 +558,8 @@ export function registerTicketingRoutes(app, db) {
     db.prepare(
       `UPDATE ticketing_events SET
         slug = ?, title = ?, subtitle = ?, description = ?, venue = ?, city = ?, address = ?,
-        event_date = ?, doors_time = ?, hero_image_url = ?, card_image_url = ?, organizer = ?,
-        terms = ?, bendo_payment_url = ?, status = ?, featured = ?,
+        event_date = ?, doors_time = ?, hero_image_url = ?, card_image_url = ?, hero_display_mode = ?, organizer = ?,
+        terms = ?, bendo_payment_url = ?, status = ?, featured = ?, sales_enabled = ?,
         updated_at = datetime('now', 'localtime')
        WHERE id = ? AND establishment_id = ?`
     ).run(
@@ -569,11 +574,13 @@ export function registerTicketingRoutes(app, db) {
       cleanText(req.body.doors_time, 20),
       cleanText(req.body.hero_image_url, 10000000),
       cleanText(req.body.card_image_url || req.body.hero_image_url, 10000000),
+      req.body.hero_display_mode === 'contain' ? 'contain' : 'cover',
       cleanText(req.body.organizer, 180),
       cleanText(req.body.terms, 8000),
       cleanText(req.body.bendo_payment_url, 2000),
       ['draft', 'published', 'sold_out', 'archived'].includes(req.body.status) ? req.body.status : 'draft',
       req.body.featured ? 1 : 0,
+      req.body.sales_enabled ? 1 : 0,
       current.id,
       req.ticketEstablishment.id
     );
@@ -651,16 +658,20 @@ export function registerTicketingRoutes(app, db) {
     if (!imageUrl) return res.status(400).json({ message: 'Selecciona una imagen' });
     const result = db.prepare(
       `INSERT INTO ticketing_banners
-       (establishment_id, image_url, title, subtitle, cta_label, cta_url, status, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+       (establishment_id, event_id, image_url, mobile_image_url, title, subtitle,
+        cta_label, cta_url, status, show_overlay, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       req.ticketEstablishment.id,
+      Number(req.body.event_id || 0) || null,
       imageUrl,
+      cleanText(req.body.mobile_image_url, 10000000),
       cleanText(req.body.title, 180),
       cleanText(req.body.subtitle, 250),
       cleanText(req.body.cta_label, 80),
       cleanText(req.body.cta_url, 2000),
       req.body.status === 'inactive' ? 'inactive' : 'active',
+      req.body.show_overlay === false || Number(req.body.show_overlay) === 0 ? 0 : 1,
       Math.round(Number(req.body.sort_order || 0))
     );
     res.status(201).json(db.prepare('SELECT * FROM ticketing_banners WHERE id = ?').get(result.lastInsertRowid));
@@ -672,15 +683,18 @@ export function registerTicketingRoutes(app, db) {
     ).get(req.params.id, req.ticketEstablishment.id);
     if (!current) return res.status(404).json({ message: 'Banner no encontrado' });
     db.prepare(
-      `UPDATE ticketing_banners SET image_url = ?, title = ?, subtitle = ?, cta_label = ?,
-        cta_url = ?, status = ?, sort_order = ?, updated_at = datetime('now', 'localtime') WHERE id = ?`
+      `UPDATE ticketing_banners SET event_id = ?, image_url = ?, mobile_image_url = ?, title = ?, subtitle = ?, cta_label = ?,
+        cta_url = ?, status = ?, show_overlay = ?, sort_order = ?, updated_at = datetime('now', 'localtime') WHERE id = ?`
     ).run(
+      Number(req.body.event_id || 0) || current.event_id || null,
       cleanText(req.body.image_url, 10000000) || current.image_url,
+      cleanText(req.body.mobile_image_url, 10000000),
       cleanText(req.body.title, 180),
       cleanText(req.body.subtitle, 250),
       cleanText(req.body.cta_label, 80),
       cleanText(req.body.cta_url, 2000),
       req.body.status === 'inactive' ? 'inactive' : 'active',
+      req.body.show_overlay === false || Number(req.body.show_overlay) === 0 ? 0 : 1,
       Math.round(Number(req.body.sort_order || 0)),
       current.id
     );

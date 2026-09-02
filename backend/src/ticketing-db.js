@@ -69,9 +69,11 @@ export function initTicketingDb(db) {
       doors_time TEXT,
       hero_image_url TEXT,
       card_image_url TEXT,
+      hero_display_mode TEXT NOT NULL DEFAULT 'cover',
       organizer TEXT,
       terms TEXT,
       bendo_payment_url TEXT,
+      sales_enabled INTEGER NOT NULL DEFAULT 1,
       status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'sold_out', 'archived')),
       featured INTEGER NOT NULL DEFAULT 0 CHECK (featured IN (0, 1)),
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
@@ -101,12 +103,15 @@ export function initTicketingDb(db) {
     CREATE TABLE IF NOT EXISTS ticketing_banners (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       establishment_id INTEGER NOT NULL,
+      event_id INTEGER,
       image_url TEXT NOT NULL,
+      mobile_image_url TEXT,
       title TEXT,
       subtitle TEXT,
       cta_label TEXT,
       cta_url TEXT,
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+      show_overlay INTEGER NOT NULL DEFAULT 1,
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
@@ -194,6 +199,11 @@ export function initTicketingDb(db) {
   addColumnIfMissing(db, 'ticketing_orders', 'external_reference', 'TEXT');
   addColumnIfMissing(db, 'ticketing_orders', 'expires_at', 'TEXT');
   addColumnIfMissing(db, 'ticketing_orders', 'email_sent_at', 'TEXT');
+  addColumnIfMissing(db, 'ticketing_events', 'hero_display_mode', "TEXT NOT NULL DEFAULT 'cover'");
+  addColumnIfMissing(db, 'ticketing_events', 'sales_enabled', 'INTEGER NOT NULL DEFAULT 1');
+  addColumnIfMissing(db, 'ticketing_banners', 'event_id', 'INTEGER');
+  addColumnIfMissing(db, 'ticketing_banners', 'mobile_image_url', 'TEXT');
+  addColumnIfMissing(db, 'ticketing_banners', 'show_overlay', 'INTEGER NOT NULL DEFAULT 1');
 
   let event = db.prepare(
     `SELECT * FROM ticketing_events
@@ -230,6 +240,67 @@ export function initTicketingDb(db) {
   insertType.run(event.id, 'FAN', 'Acceso localidad Fan', 20, 1);
   insertType.run(event.id, 'VIP', 'Acceso localidad VIP', 30, 2);
   insertType.run(event.id, 'BOX', 'Acceso localidad Box', 40, 3);
+
+  let magoEvent = db.prepare(
+    `SELECT * FROM ticketing_events
+     WHERE establishment_id = ? AND slug = 'las-leyendas-de-mago-de-oz-imbabura'`
+  ).get(establishment.id);
+  if (!magoEvent) {
+    const result = db.prepare(
+      `INSERT INTO ticketing_events
+       (establishment_id, slug, title, subtitle, description, venue, city, address,
+        event_date, doors_time, hero_image_url, card_image_url, hero_display_mode,
+        organizer, terms, status, featured, sales_enabled)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'contain', ?, ?, 'published', 1, 0)`
+    ).run(
+      establishment.id,
+      'las-leyendas-de-mago-de-oz-imbabura',
+      'LAS LEYENDAS DE MAGO DE OZ - KABRONES!!!',
+      'Por primera vez en Imbabura, Ecuador',
+      'Una noche histórica llega por primera vez a Imbabura. Las leyendas de Mago de Oz, Kabrones!!!, presentan un espectáculo de dos horas en el Coliseo Atuntaqui con José Andrëa, Frank, Salva y Carlitos. Vive en directo los himnos que marcaron generaciones en una experiencia cargada de rock, energía y nostalgia.',
+      'Coliseo Atuntaqui',
+      'Atuntaqui, Imbabura',
+      'Coliseo Atuntaqui, Imbabura, Ecuador',
+      '2026-10-08T20:00',
+      '20:00',
+      '/protickets/mago-de-oz-imbabura/portada-evento.png',
+      '/protickets/mago-de-oz-imbabura/portada-principal.png',
+      'ProTickets',
+      'Preventa sujeta a disponibilidad. PROMO GOLDEN es válida para el ingreso de 2 personas juntas. La entrada digital será personal y deberá presentarse junto con un documento de identidad. Las compras permanecerán deshabilitadas hasta el anuncio oficial de apertura de ventas.'
+    );
+    magoEvent = db.prepare('SELECT * FROM ticketing_events WHERE id = ?').get(result.lastInsertRowid);
+  }
+
+  const insertMagoType = db.prepare(
+    `INSERT OR IGNORE INTO ticketing_ticket_types
+     (event_id, name, description, price, service_fee, stock, max_per_order, status, sort_order)
+     VALUES (?, ?, ?, ?, 0, 0, 6, 'active', ?)`
+  );
+  insertMagoType.run(magoEvent.id, 'GENERAL', 'Preventa General', 15, 1);
+  insertMagoType.run(magoEvent.id, 'PREFERENCIA', 'Preventa Preferencia', 25, 2);
+  insertMagoType.run(magoEvent.id, 'GOLDEN', 'Preventa Golden', 40, 3);
+  insertMagoType.run(magoEvent.id, 'PROMO GOLDEN', 'Preventa válida para 2 personas', 70, 4);
+
+  db.prepare(
+    `INSERT INTO ticketing_banners
+     (establishment_id, event_id, image_url, mobile_image_url, title, subtitle,
+      cta_label, cta_url, status, show_overlay, sort_order)
+     SELECT ?, ?, ?, ?, ?, ?, ?, ?, 'active', 0, 0
+     WHERE NOT EXISTS (
+       SELECT 1 FROM ticketing_banners WHERE establishment_id = ? AND event_id = ?
+     )`
+  ).run(
+    establishment.id,
+    magoEvent.id,
+    '/protickets/mago-de-oz-imbabura/banner-pc.png',
+    '/protickets/mago-de-oz-imbabura/banner-celular.png',
+    'LAS LEYENDAS DE MAGO DE OZ - KABRONES!!!',
+    '8 de octubre · Coliseo Atuntaqui',
+    'Ver evento',
+    '/tickets/evento/las-leyendas-de-mago-de-oz-imbabura',
+    establishment.id,
+    magoEvent.id
+  );
 
   db.prepare(
     `INSERT INTO ticketing_banners
