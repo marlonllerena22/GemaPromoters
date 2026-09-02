@@ -53,7 +53,9 @@ const emptyEvent = {
   bendo_payment_url: '',
   status: 'draft',
   featured: false,
-  sales_enabled: false
+  sales_enabled: false,
+  payment_enabled: false,
+  is_past: false
 };
 
 const emptyTicketType = {
@@ -291,12 +293,13 @@ function AccountDialog({ open, googleClientId, onClose, onAuthenticated }) {
 
 function EventCard({ event }) {
   const salesEnabled = Boolean(Number(event.sales_enabled));
-  const eventState = event.status === 'sold_out' ? 'Agotado' : salesEnabled ? 'Disponible' : 'Proximamente';
+  const isPast = Boolean(Number(event.is_past));
+  const eventState = isPast ? 'Evento pasado' : event.status === 'sold_out' ? 'Agotado' : salesEnabled ? 'Disponible' : 'Proximamente';
   return (
     <article className="pt-event-card">
       <a className="pt-event-image" href={`/tickets/evento/${event.slug}`}>
         <img src={event.card_image_url || event.hero_image_url || '/protickets/kris-r-hero.png'} alt={event.title} />
-        <span className={`pt-status ${salesEnabled ? event.status : 'upcoming'}`}>{eventState}</span>
+        <span className={`pt-status ${isPast ? 'past' : salesEnabled ? event.status : 'upcoming'}`}>{eventState}</span>
       </a>
       <div className="pt-event-card-body">
         <span>{event.city || 'Ecuador'}</span>
@@ -320,6 +323,8 @@ function HomePage({ data }) {
   const desktopImage = banner?.image_url || heroEvent?.hero_image_url || '/protickets/kris-r-hero.png';
   const mobileImage = banner?.mobile_image_url || desktopImage;
   const showOverlay = banner?.show_overlay !== 0;
+  const availableEvents = data.events?.filter((event) => !Number(event.is_past)) || [];
+  const pastEvents = data.events?.filter((event) => Number(event.is_past)) || [];
   return (
     <>
       <section className={`pt-hero ${showOverlay ? 'with-overlay' : 'artwork-only'}`}>
@@ -348,10 +353,19 @@ function HomePage({ data }) {
       <section className="pt-section" id="eventos">
         <div className="pt-section-heading">
           <div><p className="pt-eyebrow">AGENDA</p><h2>Eventos disponibles</h2></div>
-          <span>{data.events?.length || 0} {data.events?.length === 1 ? 'evento' : 'eventos'}</span>
+          <span>{availableEvents.length} {availableEvents.length === 1 ? 'evento' : 'eventos'}</span>
         </div>
-        {data.events?.length ? <div className="pt-event-grid">{data.events.map((event) => <EventCard key={event.id} event={event} />)}</div> : <div className="pt-empty"><CalendarDays /><h3>Muy pronto</h3><p>Estamos preparando nuevos eventos para ti.</p></div>}
+        {availableEvents.length ? <div className="pt-event-grid">{availableEvents.map((event) => <EventCard key={event.id} event={event} />)}</div> : <div className="pt-empty"><CalendarDays /><h3>Muy pronto</h3><p>Estamos preparando nuevos eventos para ti.</p></div>}
       </section>
+      {pastEvents.length > 0 && (
+        <section className="pt-section pt-past-section">
+          <div className="pt-section-heading">
+            <div><p className="pt-eyebrow">HISTORIAL</p><h2>Eventos pasados</h2></div>
+            <span>{pastEvents.length} {pastEvents.length === 1 ? 'evento' : 'eventos'}</span>
+          </div>
+          <div className="pt-event-grid">{pastEvents.map((event) => <EventCard key={event.id} event={event} />)}</div>
+        </section>
+      )}
       <section className="pt-trust-band">
         <div><ShieldCheck /><strong>Compra protegida</strong><span>Pedido identificado y confirmacion controlada.</span></div>
         <div><QrCode /><strong>Entrada digital</strong><span>Recibe un codigo unico directamente en tu correo.</span></div>
@@ -366,6 +380,8 @@ function EventPage({ slug, customer, onRequireAccount }) {
   const [selected, setSelected] = useState(null);
   const [quantity, setQuantity] = useState(1);
   const [order, setOrder] = useState(null);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [waitingForAccount, setWaitingForAccount] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -373,20 +389,38 @@ function EventPage({ slug, customer, onRequireAccount }) {
     ticketingApi(`/public/events/${encodeURIComponent(slug)}`)
       .then((result) => {
         setEvent(result);
-        setSelected(Number(result.sales_enabled)
-          ? result.ticket_types?.find((type) => type.status === 'active' && type.available > 0) || null
+        setSelected(Number(result.sales_enabled) && !Number(result.is_past)
+          ? result.ticket_types?.find((type) => type.status === 'active' && (!Number(result.payment_enabled) || type.available > 0)) || null
           : null);
       })
       .catch((err) => setError(err.message));
   }, [slug]);
 
-  async function reserve() {
+  useEffect(() => {
+    if (customer && waitingForAccount) {
+      setWaitingForAccount(false);
+      setCheckoutOpen(true);
+    }
+  }, [customer, waitingForAccount]);
+
+  function continueToCheckout() {
+    if (!customer) {
+      setWaitingForAccount(true);
+      onRequireAccount();
+      return;
+    }
+    if (!selected) return setError('Selecciona una localidad disponible');
+    setCheckoutOpen(true);
+  }
+
+  async function reserve(customerData) {
     if (!customer) return onRequireAccount();
     if (!selected) return setError('Selecciona una localidad disponible');
     setBusy(true);
     setError('');
     try {
-      const nextOrder = await ticketingApi('/orders', { method: 'POST', body: JSON.stringify({ ticket_type_id: selected.id, quantity }) });
+      const nextOrder = await ticketingApi('/orders', { method: 'POST', body: JSON.stringify({ ticket_type_id: selected.id, quantity, customer: customerData }) });
+      setCheckoutOpen(false);
       setOrder(nextOrder);
     } catch (err) {
       setError(err.message);
@@ -399,6 +433,8 @@ function EventPage({ slug, customer, onRequireAccount }) {
   if (!event) return <div className="pt-page-state">Cargando evento...</div>;
 
   const salesEnabled = Boolean(Number(event.sales_enabled));
+  const paymentEnabled = Boolean(Number(event.payment_enabled));
+  const isPast = Boolean(Number(event.is_past));
   const total = selected ? Number(selected.price + selected.service_fee) * quantity : 0;
   return (
     <>
@@ -427,10 +463,10 @@ function EventPage({ slug, customer, onRequireAccount }) {
           <h2>Localidades</h2>
           <div className="pt-ticket-options">
             {event.ticket_types.map((type) => {
-              const available = salesEnabled && type.status === 'active' && Number(type.available) > 0;
+              const available = salesEnabled && !isPast && type.status === 'active' && (!paymentEnabled || Number(type.available) > 0);
               return (
                 <button key={type.id} disabled={!available} className={selected?.id === type.id ? 'selected' : ''} type="button" onClick={() => { setSelected(type); setQuantity(1); }}>
-                  <span><strong>{type.name}</strong>{type.description && <small>{type.description}</small>}<small className="pt-ticket-state">{!salesEnabled ? 'Venta proximamente' : available ? `${type.available} disponibles` : 'Agotado'}</small></span>
+                  <span><strong>{type.name}</strong>{type.description && <small>{type.description}</small>}<small className="pt-ticket-state">{isPast ? 'Evento finalizado' : !salesEnabled ? 'No disponible' : !paymentEnabled ? 'Preventa' : available ? `${type.available} disponibles` : 'Agotado'}</small></span>
                   <span><strong>{money(type.price)}</strong>{Number(type.service_fee) > 0 && <small>+ {money(type.service_fee)} servicio</small>}</span>
                 </button>
               );
@@ -443,17 +479,65 @@ function EventPage({ slug, customer, onRequireAccount }) {
               </select>
             </label>
           )}
-          {!salesEnabled && <div className="pt-alert info">La preventa se encuentra preparada, pero las compras todavia no estan habilitadas.</div>}
+          {isPast && <div className="pt-alert info">Este evento ya finalizo y se conserva en el historial de ProTickets.</div>}
+          {!isPast && salesEnabled && !paymentEnabled && <div className="pt-alert info">Puedes escoger tus entradas y completar el checkout. El boton final de pago se habilitara proximamente.</div>}
+          {!isPast && !salesEnabled && <div className="pt-alert info">La seleccion de entradas todavia no esta habilitada.</div>}
           <div className="pt-order-total"><span>Total</span><strong>{money(total)}</strong></div>
           {error && <div className="pt-alert error">{error}</div>}
-          <button className="pt-primary wide" type="button" disabled={!selected || busy} onClick={reserve}>
-            <ShoppingBag size={19} /> {busy ? 'Reservando...' : salesEnabled ? 'Continuar al pago' : 'Venta proximamente'}
+          <button className="pt-primary wide" type="button" disabled={!selected || busy || isPast || !salesEnabled} onClick={continueToCheckout}>
+            <ShoppingBag size={19} /> {isPast ? 'Evento finalizado' : !salesEnabled ? 'Venta no disponible' : customer ? 'Continuar al checkout' : 'Ingresar para continuar'}
           </button>
           <p className="pt-checkout-note"><Clock3 size={15} /> La reserva se mantiene durante 20 minutos.</p>
         </aside>
       </main>
+      {checkoutOpen && <CheckoutDialog customer={customer} selected={selected} quantity={quantity} total={total} paymentEnabled={paymentEnabled} busy={busy} error={error} onConfirm={reserve} onClose={() => setCheckoutOpen(false)} />}
       {order && <OrderDialog order={order} onClose={() => setOrder(null)} />}
     </>
+  );
+}
+
+function CheckoutDialog({ customer, selected, quantity, total, paymentEnabled, busy, error, onConfirm, onClose }) {
+  const [form, setForm] = useState({ name: '', email: customer?.email || '', cedula: '', phone: '' });
+
+  function fillFromAccount() {
+    setForm({
+      name: customer?.name || '',
+      email: customer?.email || '',
+      cedula: customer?.cedula || '',
+      phone: customer?.phone || ''
+    });
+  }
+
+  function submit(event) {
+    event.preventDefault();
+    if (paymentEnabled) onConfirm(form);
+  }
+
+  return (
+    <div className="pt-modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="pt-checkout-modal" role="dialog" aria-modal="true" aria-label="Checkout de entradas">
+        <button className="pt-icon-button close" type="button" aria-label="Cerrar" onClick={onClose}><X /></button>
+        <p className="pt-eyebrow">CHECKOUT</p>
+        <h2>Datos del comprador</h2>
+        <p>La entrada quedara vinculada a tu cuenta de ProTickets.</p>
+        <button className="pt-account-fill" type="button" onClick={fillFromAccount}><UserRound size={18} /> Completar con los datos de mi cuenta</button>
+        <form onSubmit={submit}>
+          <label>Nombres completos<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
+          <label>Correo electronico<input required readOnly type="email" value={form.email} /></label>
+          <div className="pt-form-row">
+            <label>Cedula<input required value={form.cedula} onChange={(event) => setForm({ ...form, cedula: event.target.value })} /></label>
+            <label>Celular<input required value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></label>
+          </div>
+          <div className="pt-checkout-summary">
+            <span><Ticket size={18} /> {selected?.name} x{quantity}</span>
+            <strong>{money(total)}</strong>
+          </div>
+          {!paymentEnabled && <div className="pt-alert info">Tu seleccion esta lista. El pago en linea se habilitara proximamente.</div>}
+          {error && <div className="pt-alert error">{error}</div>}
+          <button className="pt-primary wide" disabled={!paymentEnabled || busy} type="submit"><CreditCard size={19} /> {busy ? 'Procesando...' : paymentEnabled ? 'Confirmar e ir a pagar' : 'Pago proximamente'}</button>
+        </form>
+      </section>
+    </div>
   );
 }
 
@@ -598,7 +682,9 @@ function EventEditor({ eventId, onSaved, onCancel }) {
         ...emptyEvent,
         ...data,
         featured: Boolean(data.featured),
-        sales_enabled: Boolean(data.sales_enabled)
+        sales_enabled: Boolean(data.sales_enabled),
+        payment_enabled: Boolean(data.payment_enabled),
+        is_past: Boolean(data.is_past)
       });
       setTypes(data.ticket_types || []);
     }).catch((err) => setError(err.message));
@@ -646,8 +732,11 @@ function EventEditor({ eventId, onSaved, onCancel }) {
         <div className="pta-grid two"><AdminImageField label="Portada dentro del evento" hint="Recomendado: cuadrada 1:1, por ejemplo 1200 x 1200 px" value={form.hero_image_url} onChange={(hero_image_url) => setForm({ ...form, hero_image_url, card_image_url: form.card_image_url || hero_image_url })} /><AdminImageField label="Portada en la pagina principal" hint="Recomendado: horizontal 16:9, por ejemplo 1600 x 900 px" value={form.card_image_url} onChange={(card_image_url) => setForm({ ...form, card_image_url })} /></div>
         <label>Ajuste de la portada interna<select value={form.hero_display_mode} onChange={(e) => setForm({ ...form, hero_display_mode: e.target.value })}><option value="cover">Llenar el espacio</option><option value="contain">Mostrar imagen completa</option></select></label>
         <label>Terminos y condiciones<textarea rows="4" value={form.terms} onChange={(e) => setForm({ ...form, terms: e.target.value })} /></label>
-        <div className="pta-grid three"><label>Estado<select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}><option value="draft">Borrador</option><option value="published">Publicado</option><option value="sold_out">Agotado</option><option value="archived">Archivado</option></select></label><label className="pta-check"><input type="checkbox" checked={form.featured} onChange={(e) => setForm({ ...form, featured: e.target.checked })} /> Mostrar como evento destacado</label><label className="pta-check sales"><input type="checkbox" checked={form.sales_enabled} onChange={(e) => setForm({ ...form, sales_enabled: e.target.checked })} /> Habilitar compras</label></div>
-        {!form.sales_enabled && <div className="pta-alert info">El evento sera visible con sus precios, pero nadie podra comprar hasta activar esta opcion.</div>}
+        <div className="pta-grid three"><label>Estado<select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}><option value="draft">Borrador</option><option value="published">Publicado</option><option value="sold_out">Agotado</option><option value="archived">Archivado</option></select></label><label className="pta-check"><input type="checkbox" checked={form.featured} onChange={(e) => setForm({ ...form, featured: e.target.checked })} /> Mostrar como evento destacado</label><label className="pta-check"><input type="checkbox" checked={form.is_past} onChange={(e) => setForm({ ...form, is_past: e.target.checked, featured: e.target.checked ? false : form.featured, sales_enabled: e.target.checked ? false : form.sales_enabled, payment_enabled: e.target.checked ? false : form.payment_enabled })} /> Marcar como evento pasado</label></div>
+        <div className="pta-grid two"><label className="pta-check sales"><input type="checkbox" checked={form.sales_enabled} disabled={form.is_past} onChange={(e) => setForm({ ...form, sales_enabled: e.target.checked })} /> Habilitar seleccion de entradas</label><label className="pta-check sales"><input type="checkbox" checked={form.payment_enabled} disabled={form.is_past} onChange={(e) => setForm({ ...form, payment_enabled: e.target.checked })} /> Habilitar boton final de pago</label></div>
+        {form.is_past && <div className="pta-alert info">Este evento aparecera en Eventos pasados y no permitira seleccionar entradas.</div>}
+        {!form.is_past && form.sales_enabled && !form.payment_enabled && <div className="pta-alert info">Los clientes podran elegir entradas, ingresar a su cuenta y completar el checkout, pero el boton final de pago quedara bloqueado.</div>}
+        {!form.is_past && !form.sales_enabled && <div className="pta-alert info">El evento sera visible con sus precios, pero no permitira seleccionar entradas.</div>}
         {error && <div className="pta-alert error">{error}</div>}
         <div className="pta-actions"><button className="pta-secondary" type="button" onClick={onCancel}>Cancelar</button><button className="pta-primary" disabled={busy}><Save />{busy ? 'Guardando...' : 'Guardar evento'}</button></div>
       </form>

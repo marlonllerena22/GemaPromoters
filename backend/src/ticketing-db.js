@@ -2,7 +2,9 @@ function addColumnIfMissing(db, table, column, definition) {
   const columns = db.prepare(`PRAGMA table_info(${table})`).all();
   if (!columns.some((item) => item.name === column)) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    return true;
   }
+  return false;
 }
 
 export function initTicketingDb(db) {
@@ -74,6 +76,8 @@ export function initTicketingDb(db) {
       terms TEXT,
       bendo_payment_url TEXT,
       sales_enabled INTEGER NOT NULL DEFAULT 1,
+      payment_enabled INTEGER NOT NULL DEFAULT 1,
+      is_past INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'sold_out', 'archived')),
       featured INTEGER NOT NULL DEFAULT 0 CHECK (featured IN (0, 1)),
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
@@ -201,6 +205,8 @@ export function initTicketingDb(db) {
   addColumnIfMissing(db, 'ticketing_orders', 'email_sent_at', 'TEXT');
   addColumnIfMissing(db, 'ticketing_events', 'hero_display_mode', "TEXT NOT NULL DEFAULT 'cover'");
   addColumnIfMissing(db, 'ticketing_events', 'sales_enabled', 'INTEGER NOT NULL DEFAULT 1');
+  const addedPaymentEnabled = addColumnIfMissing(db, 'ticketing_events', 'payment_enabled', 'INTEGER NOT NULL DEFAULT 1');
+  const addedPastState = addColumnIfMissing(db, 'ticketing_events', 'is_past', 'INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'ticketing_banners', 'event_id', 'INTEGER');
   addColumnIfMissing(db, 'ticketing_banners', 'mobile_image_url', 'TEXT');
   addColumnIfMissing(db, 'ticketing_banners', 'show_overlay', 'INTEGER NOT NULL DEFAULT 1');
@@ -213,8 +219,9 @@ export function initTicketingDb(db) {
     const result = db.prepare(
       `INSERT INTO ticketing_events
        (establishment_id, slug, title, subtitle, description, venue, city, address,
-        hero_image_url, card_image_url, organizer, terms, status, featured)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'published', 1)`
+        event_date, hero_image_url, card_image_url, organizer, terms, status, featured,
+        sales_enabled, payment_enabled, is_past)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'published', 0, 0, 0, 1)`
     ).run(
       establishment.id,
       'kris-r-el-trap-de-kolombia',
@@ -224,13 +231,33 @@ export function initTicketingDb(db) {
       'Lugar por confirmar',
       'Ambato',
       'Ambato, Ecuador',
-      '/protickets/kris-r-hero.png',
-      '/protickets/kris-r-hero.png',
+      '2026-08-01T19:00',
+      '/protickets/kris-r-evento-pasado.png',
+      '/protickets/kris-r-evento-pasado.png',
       'GEMASHOW',
       'La entrada es personal. Presenta tu código QR y documento de identidad al ingresar.'
     );
     event = db.prepare('SELECT * FROM ticketing_events WHERE id = ?').get(result.lastInsertRowid);
   }
+
+  if (addedPastState) {
+    db.prepare(
+      `UPDATE ticketing_events
+       SET is_past = 1, featured = 0, sales_enabled = 0, payment_enabled = 0,
+           updated_at = datetime('now', 'localtime')
+       WHERE establishment_id = ? AND slug = 'kris-r-el-trap-de-kolombia'`
+    ).run(establishment.id);
+  }
+  db.prepare(
+    `UPDATE ticketing_events
+     SET event_date = COALESCE(event_date, '2026-08-01T19:00'),
+         venue = CASE WHEN venue IS NULL OR venue = '' OR venue = 'Lugar por confirmar' THEN 'Casa de Campo' ELSE venue END,
+         address = CASE WHEN address IS NULL OR address = '' OR address = 'Ambato, Ecuador' THEN 'Casa de Campo, Ambato, Ecuador' ELSE address END,
+         hero_image_url = CASE WHEN hero_image_url IS NULL OR hero_image_url = '' OR hero_image_url = '/protickets/kris-r-hero.png' THEN '/protickets/kris-r-evento-pasado.png' ELSE hero_image_url END,
+         card_image_url = CASE WHEN card_image_url IS NULL OR card_image_url = '' OR card_image_url = '/protickets/kris-r-hero.png' THEN '/protickets/kris-r-evento-pasado.png' ELSE card_image_url END,
+         updated_at = datetime('now', 'localtime')
+     WHERE establishment_id = ? AND slug = 'kris-r-el-trap-de-kolombia'`
+  ).run(establishment.id);
 
   const insertType = db.prepare(
     `INSERT OR IGNORE INTO ticketing_ticket_types
@@ -250,8 +277,8 @@ export function initTicketingDb(db) {
       `INSERT INTO ticketing_events
        (establishment_id, slug, title, subtitle, description, venue, city, address,
         event_date, doors_time, hero_image_url, card_image_url, hero_display_mode,
-        organizer, terms, status, featured, sales_enabled)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'contain', ?, ?, 'published', 1, 0)`
+        organizer, terms, status, featured, sales_enabled, payment_enabled, is_past)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'contain', ?, ?, 'published', 1, 1, 0, 0)`
     ).run(
       establishment.id,
       'las-leyendas-de-mago-de-oz-imbabura',
@@ -269,6 +296,15 @@ export function initTicketingDb(db) {
       'Preventa sujeta a disponibilidad. PROMO GOLDEN es válida para el ingreso de 2 personas juntas. La entrada digital será personal y deberá presentarse junto con un documento de identidad. Las compras permanecerán deshabilitadas hasta el anuncio oficial de apertura de ventas.'
     );
     magoEvent = db.prepare('SELECT * FROM ticketing_events WHERE id = ?').get(result.lastInsertRowid);
+  }
+
+  if (addedPaymentEnabled) {
+    db.prepare(
+      `UPDATE ticketing_events
+       SET sales_enabled = 1, payment_enabled = 0, is_past = 0,
+           updated_at = datetime('now', 'localtime')
+       WHERE establishment_id = ? AND slug = 'las-leyendas-de-mago-de-oz-imbabura'`
+    ).run(establishment.id);
   }
 
   const insertMagoType = db.prepare(

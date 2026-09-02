@@ -419,7 +419,8 @@ export function registerTicketingRoutes(app, db) {
     const quantity = Math.max(1, Math.round(Number(req.body.quantity || 1)));
     const ticketType = db.prepare(
       `SELECT types.*, events.establishment_id, events.title AS event_title,
-              events.status AS event_status, events.sales_enabled, events.bendo_payment_url
+              events.status AS event_status, events.sales_enabled, events.payment_enabled,
+              events.is_past, events.bendo_payment_url
        FROM ticketing_ticket_types AS types
        JOIN ticketing_events AS events ON events.id = types.event_id
        WHERE types.id = ? AND events.establishment_id = ?`
@@ -430,11 +431,29 @@ export function registerTicketingRoutes(app, db) {
     if (!Number(ticketType.sales_enabled)) {
       return res.status(409).json({ message: 'La venta de este evento aun no esta habilitada' });
     }
+    if (Number(ticketType.is_past)) {
+      return res.status(409).json({ message: 'Este evento ya finalizo' });
+    }
+    if (!Number(ticketType.payment_enabled)) {
+      return res.status(409).json({ message: 'El pago de este evento se habilitara proximamente' });
+    }
     if (quantity > Number(ticketType.max_per_order || 6)) {
       return res.status(400).json({ message: `Puedes comprar maximo ${ticketType.max_per_order} entradas por pedido` });
     }
     if (quantity > availableForType(ticketType)) {
       return res.status(409).json({ message: 'No hay suficientes entradas disponibles' });
+    }
+    const buyer = req.body.customer || {};
+    const buyerName = cleanText(buyer.name, 120);
+    const buyerCedula = cleanText(buyer.cedula, 30);
+    const buyerPhone = cleanText(buyer.phone, 30);
+    if (buyerName || buyerCedula || buyerPhone) {
+      db.prepare(
+        `UPDATE ticketing_customers
+         SET name = COALESCE(NULLIF(?, ''), name), cedula = COALESCE(NULLIF(?, ''), cedula),
+             phone = COALESCE(NULLIF(?, ''), phone), updated_at = datetime('now', 'localtime')
+         WHERE id = ?`
+      ).run(buyerName, buyerCedula, buyerPhone, req.ticketCustomer.id);
     }
     const subtotal = money(ticketType.price * quantity);
     const fee = money(ticketType.service_fee * quantity);
@@ -521,8 +540,9 @@ export function registerTicketingRoutes(app, db) {
       `INSERT INTO ticketing_events
        (establishment_id, slug, title, subtitle, description, venue, city, address,
         event_date, doors_time, hero_image_url, card_image_url, hero_display_mode,
-        organizer, terms, bendo_payment_url, status, featured, sales_enabled)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        organizer, terms, bendo_payment_url, status, featured, sales_enabled,
+        payment_enabled, is_past)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       req.ticketEstablishment.id,
       slug,
@@ -542,7 +562,9 @@ export function registerTicketingRoutes(app, db) {
       cleanText(req.body.bendo_payment_url, 2000),
       ['draft', 'published', 'sold_out', 'archived'].includes(req.body.status) ? req.body.status : 'draft',
       req.body.featured ? 1 : 0,
-      req.body.sales_enabled ? 1 : 0
+      req.body.sales_enabled ? 1 : 0,
+      req.body.payment_enabled ? 1 : 0,
+      req.body.is_past ? 1 : 0
     );
     res.status(201).json(db.prepare('SELECT * FROM ticketing_events WHERE id = ?').get(result.lastInsertRowid));
   });
@@ -560,6 +582,7 @@ export function registerTicketingRoutes(app, db) {
         slug = ?, title = ?, subtitle = ?, description = ?, venue = ?, city = ?, address = ?,
         event_date = ?, doors_time = ?, hero_image_url = ?, card_image_url = ?, hero_display_mode = ?, organizer = ?,
         terms = ?, bendo_payment_url = ?, status = ?, featured = ?, sales_enabled = ?,
+        payment_enabled = ?, is_past = ?,
         updated_at = datetime('now', 'localtime')
        WHERE id = ? AND establishment_id = ?`
     ).run(
@@ -581,6 +604,8 @@ export function registerTicketingRoutes(app, db) {
       ['draft', 'published', 'sold_out', 'archived'].includes(req.body.status) ? req.body.status : 'draft',
       req.body.featured ? 1 : 0,
       req.body.sales_enabled ? 1 : 0,
+      req.body.payment_enabled ? 1 : 0,
+      req.body.is_past ? 1 : 0,
       current.id,
       req.ticketEstablishment.id
     );
