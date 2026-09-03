@@ -110,7 +110,11 @@ async function ticketingApi(path, options = {}) {
   if (token) headers.Authorization = `Bearer ${token}`;
   const response = await fetch(`${API_URL}/ticketing${path}`, { ...options, headers });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.message || 'No se pudo completar la accion');
+  if (!response.ok) {
+    const error = new Error(data.message || 'No se pudo completar la accion');
+    error.data = data;
+    throw error;
+  }
   return data;
 }
 
@@ -997,6 +1001,7 @@ function ValidatorAdmin({ restricted = false }) {
     busyRef.current = true;
     setBusy(true);
     setResult(null);
+    stopCamera();
     try {
       const response = await ticketingApi('/admin/tickets/validate', {
         admin: true,
@@ -1007,7 +1012,7 @@ function ValidatorAdmin({ restricted = false }) {
       setCode('');
       navigator.vibrate?.(120);
     } catch (error) {
-      setResult({ valid: false, message: error.message });
+      setResult({ ...(error.data || {}), valid: false, message: error.message });
       navigator.vibrate?.([80, 60, 80]);
     } finally {
       await loadHistory();
@@ -1026,7 +1031,18 @@ function ValidatorAdmin({ restricted = false }) {
   function stopCamera() {
     controlsRef.current?.stop();
     controlsRef.current = null;
+    const stream = videoRef.current?.srcObject;
+    stream?.getTracks?.().forEach((track) => track.stop());
+    if (videoRef.current) videoRef.current.srcObject = null;
     setScanning(false);
+  }
+
+  function scanNext() {
+    setResult(null);
+    setCode('');
+    setCameraError('');
+    lastScanRef.current = { code: '', at: 0 };
+    startCamera();
   }
 
   async function startCamera() {
@@ -1115,25 +1131,34 @@ function ValidatorAdmin({ restricted = false }) {
       <p>CONTROL DE ACCESO</p>
       <h2>Validar entrada</h2>
       <span>Abre la camara y apunta al QR. La lectura se registra automaticamente.</span>
-      <div className={`pta-camera ${scanning ? 'active' : ''}`}>
-        <video ref={videoRef} muted playsInline />
-        {!scanning && <div><Camera /><strong>Camara lista para escanear</strong></div>}
-        {scanning && <span className="pta-scan-line" />}
-      </div>
-      <div className="pta-camera-actions">
-        {!scanning
-          ? <button type="button" className="pta-primary" onClick={startCamera}><Camera /> Abrir camara</button>
-          : <button type="button" className="pta-secondary" onClick={stopCamera}><CameraOff /> Cerrar camara</button>}
-      </div>
-      {cameraError && <div className="pta-camera-error">{cameraError}</div>}
-      <form onSubmit={validate}>
-        <input required placeholder="PT-XXXXXXXX" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} />
-        <button className="pta-primary" disabled={busy}><ShieldCheck /> {busy ? 'Validando...' : 'Validar acceso'}</button>
-      </form>
+      {!result && <>
+        <div className={`pta-camera ${scanning ? 'active' : ''}`}>
+          <video ref={videoRef} muted playsInline />
+          {!scanning && <div><Camera /><strong>Camara lista para escanear</strong></div>}
+          {scanning && <span className="pta-scan-line" />}
+        </div>
+        <div className="pta-camera-actions">
+          {!scanning
+            ? <button type="button" className="pta-primary" onClick={startCamera}><Camera /> Abrir camara</button>
+            : <button type="button" className="pta-secondary" onClick={stopCamera}><CameraOff /> Cerrar camara</button>}
+        </div>
+        {cameraError && <div className="pta-camera-error">{cameraError}</div>}
+        <form onSubmit={validate}>
+          <input required placeholder="PT-XXXXXXXX" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} />
+          <button className="pta-primary" disabled={busy}><ShieldCheck /> {busy ? 'Validando...' : 'Validar acceso'}</button>
+        </form>
+      </>}
       {result && <div className={`pta-validation-result ${result.valid ? 'valid' : 'invalid'}`}>
         {result.valid ? <CheckCircle2 /> : <X />}
         <strong>{result.message}</strong>
-        {result.ticket?.customer_name && <span>{result.ticket.customer_name} · {result.ticket.ticket_name}</span>}
+        {result.ticket && <div className="pta-validation-details">
+          <div><span>Cliente</span><strong>{result.ticket.customer_name || 'Sin nombre'}</strong></div>
+          <div><span>Localidad</span><strong>{result.ticket.ticket_name || '-'}</strong></div>
+          <div><span>Este QR permite</span><strong>1 entrada</strong></div>
+          <div><span>Compradas en esta localidad</span><strong>{result.ticket.purchase_quantity || 1}</strong></div>
+          {Number(result.ticket.order_quantity || 0) > Number(result.ticket.purchase_quantity || 1) && <div><span>Total de la compra</span><strong>{result.ticket.order_quantity}</strong></div>}
+        </div>}
+        <button type="button" className="pta-primary pta-scan-next" onClick={scanNext}><Camera /> Escanear nuevo codigo</button>
       </div>}
     </section>
 

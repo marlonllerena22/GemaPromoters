@@ -1174,10 +1174,15 @@ export function registerTicketingRoutes(app, db) {
     const code = ticketCodeFromInput(req.body?.code);
     if (!code) return res.status(400).json({ valid: false, message: 'Ingresa o escanea un codigo' });
     const ticket = db.prepare(
-      `SELECT tickets.*, items.ticket_name, events.title AS event_title,
-              customers.name AS customer_name
+      `SELECT tickets.*, items.ticket_name, items.quantity AS purchase_quantity,
+              orders.order_number,
+              (SELECT COUNT(*) FROM ticketing_tickets AS order_tickets
+               WHERE order_tickets.order_id = tickets.order_id
+                 AND order_tickets.status != 'void') AS order_quantity,
+              events.title AS event_title, customers.name AS customer_name
        FROM ticketing_tickets AS tickets
        JOIN ticketing_order_items AS items ON items.id = tickets.order_item_id
+       JOIN ticketing_orders AS orders ON orders.id = tickets.order_id
        JOIN ticketing_events AS events ON events.id = tickets.event_id
        JOIN ticketing_customers AS customers ON customers.id = tickets.customer_id
        WHERE tickets.code = ? AND tickets.establishment_id = ?`
