@@ -587,9 +587,28 @@ export function registerTicketingRoutes(app, db) {
               events.event_date, events.venue, events.city, events.card_image_url
        FROM ticketing_orders AS orders
        JOIN ticketing_events AS events ON events.id = orders.event_id
-       WHERE orders.customer_id = ? ORDER BY orders.id DESC`
+       WHERE orders.customer_id = ? AND orders.payment_status IN ('pending', 'paid')
+       ORDER BY orders.id DESC`
     ).all(req.ticketCustomer.id).map((order) => orderDetails(order.id));
     res.json(orders);
+  });
+
+  app.delete('/api/ticketing/me/orders/:id', requireTicketCustomer, (req, res) => {
+    expireOldOrders(req.ticketCustomer.establishment_id);
+    const order = db.prepare(
+      `SELECT id, payment_status FROM ticketing_orders
+       WHERE id = ? AND customer_id = ? AND establishment_id = ?`
+    ).get(req.params.id, req.ticketCustomer.id, req.ticketCustomer.establishment_id);
+    if (!order) return res.status(404).json({ message: 'Pedido no encontrado' });
+    if (order.payment_status !== 'pending') {
+      return res.status(409).json({ message: 'Solo puedes quitar pedidos pendientes de pago' });
+    }
+    db.prepare(
+      `UPDATE ticketing_orders
+       SET payment_status = 'rejected', updated_at = datetime('now', 'localtime')
+       WHERE id = ? AND customer_id = ? AND payment_status = 'pending'`
+    ).run(order.id, req.ticketCustomer.id);
+    res.json({ ok: true });
   });
 
   app.post('/api/ticketing/orders', requireTicketCustomer, async (req, res) => {

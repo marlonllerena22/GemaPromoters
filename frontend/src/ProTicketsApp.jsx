@@ -491,6 +491,20 @@ function EventPage({ slug, customer, onRequireAccount }) {
     }
   }
 
+  async function removeReservedOrder() {
+    if (!order || !window.confirm('Quitar esta reserva pendiente?')) return;
+    setBusy(true);
+    setError('');
+    try {
+      await ticketingApi(`/me/orders/${order.id}`, { method: 'DELETE' });
+      setOrder(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (error && !event) return <div className="pt-page-state"><Ticket /><h2>{error}</h2><a href="/tickets">Volver al inicio</a></div>;
   if (!event) return <div className="pt-page-state">Cargando evento...</div>;
 
@@ -537,11 +551,14 @@ function EventPage({ slug, customer, onRequireAccount }) {
             })}
           </div>
           {selected && (
-            <label className="pt-quantity">Cantidad
-              <select value={quantity} onChange={(e) => setQuantity(Number(e.target.value))}>
-                {Array.from({ length: Math.min(Number(selected.max_per_order || 6), Number(selected.available || 0)) }, (_, index) => index + 1).map((value) => <option key={value}>{value}</option>)}
-              </select>
-            </label>
+            <div className="pt-selection-controls">
+              <label className="pt-quantity">Cantidad
+                <select value={quantity} onChange={(e) => setQuantity(Number(e.target.value))}>
+                  {Array.from({ length: Math.min(Number(selected.max_per_order || 6), Number(selected.available || 0)) }, (_, index) => index + 1).map((value) => <option key={value}>{value}</option>)}
+                </select>
+              </label>
+              <button className="pt-remove-selection" type="button" onClick={() => { setSelected(null); setQuantity(1); setError(''); }}><Trash2 size={16} /> Quitar seleccion</button>
+            </div>
           )}
           {isPast && <div className="pt-alert info">Este evento ya finalizo y se conserva en el historial de ProTickets.</div>}
           {!isPast && salesEnabled && !paymentEnabled && <div className="pt-alert info">Puedes escoger tus entradas y completar el checkout. El boton final de pago se habilitara proximamente.</div>}
@@ -556,7 +573,7 @@ function EventPage({ slug, customer, onRequireAccount }) {
         </aside>
       </main>
       {checkoutOpen && <CheckoutDialog customer={customer} selected={selected} quantity={quantity} subtotal={subtotal} serviceFee={serviceFee} total={total} paymentEnabled={paymentEnabled} busy={busy} error={error} onConfirm={reserve} onClose={() => setCheckoutOpen(false)} />}
-      {order && <OrderDialog order={order} onClose={() => setOrder(null)} />}
+      {order && <OrderDialog order={order} busy={busy} error={error} onDelete={removeReservedOrder} onClose={() => setOrder(null)} />}
     </>
   );
 }
@@ -607,7 +624,7 @@ function CheckoutDialog({ customer, selected, quantity, subtotal, serviceFee, to
   );
 }
 
-function OrderDialog({ order, onClose }) {
+function OrderDialog({ order, busy, error, onDelete, onClose }) {
   return (
     <div className="pt-modal-backdrop">
       <section className="pt-order-modal">
@@ -626,6 +643,8 @@ function OrderDialog({ order, onClose }) {
         ) : (
           <div className="pt-alert info">El administrador asignara el enlace de pago a este pedido.</div>
         )}
+        {error && <div className="pt-alert error">{error}</div>}
+        <button className="pt-danger-outline wide" type="button" disabled={busy} onClick={onDelete}><Trash2 size={17} /> Quitar reserva</button>
         <a className="pt-secondary wide" href="/tickets/mi-cuenta">Ver mis pedidos</a>
       </section>
     </div>
@@ -635,12 +654,27 @@ function OrderDialog({ order, onClose }) {
 function AccountPage({ customer, onRequireAccount, onLogout }) {
   const [orders, setOrders] = useState([]);
   const [error, setError] = useState('');
+  const [removingId, setRemovingId] = useState(null);
   const paymentResult = new URLSearchParams(window.location.search).get('payment');
   const emailResult = new URLSearchParams(window.location.search).get('email');
   useEffect(() => {
     if (!customer) return;
     ticketingApi('/me/orders').then(setOrders).catch((err) => setError(err.message));
   }, [customer]);
+
+  async function removePendingOrder(order) {
+    if (!window.confirm(`Quitar la reserva ${order.order_number}?`)) return;
+    setRemovingId(order.id);
+    setError('');
+    try {
+      await ticketingApi(`/me/orders/${order.id}`, { method: 'DELETE' });
+      setOrders((current) => current.filter((item) => item.id !== order.id));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setRemovingId(null);
+    }
+  }
   if (!customer) return <div className="pt-page-state"><UserRound /><h2>Consulta tus entradas</h2><p>Ingresa con la cuenta que utilizaste para comprar.</p><button className="pt-primary" onClick={onRequireAccount}>Ingresar</button></div>;
   return (
     <main className="pt-account-page">
@@ -656,7 +690,7 @@ function AccountPage({ customer, onRequireAccount, onLogout }) {
             <article key={order.id}>
               <img src={order.card_image_url || '/protickets/kris-r-hero.png'} alt="" />
               <div className="pt-order-main"><span className={`pt-order-status ${order.payment_status}`}>{statusLabel(order.payment_status)}</span><h3>{order.event_title}</h3><p>{order.order_number} · {formatDate(order.created_at, true)}</p><strong>{order.items?.map((item) => `${item.ticket_name} x${item.quantity}`).join(', ')}</strong></div>
-              <div className="pt-order-actions"><strong>{money(order.total)}</strong>{order.payment_status === 'pending' && order.payment_url && <a className="pt-primary" href={order.payment_url}>Pagar <ExternalLink /></a>}</div>
+              <div className="pt-order-actions"><strong>{money(order.total)}</strong>{order.payment_status === 'pending' && order.payment_url && <a className="pt-primary" href={order.payment_url}>Pagar <ExternalLink /></a>}{order.payment_status === 'pending' && <button className="pt-remove-order" type="button" disabled={removingId === order.id} onClick={() => removePendingOrder(order)}><Trash2 /> {removingId === order.id ? 'Quitando...' : 'Quitar'}</button>}</div>
               {order.payment_status === 'paid' && order.tickets?.length > 0 && <div className="pt-ticket-links">{order.tickets.map((ticket, index) => <a href={`/tickets/entrada/${ticket.code}`} key={ticket.id}><QrCode /> Entrada {index + 1}: {ticket.ticket_name}</a>)}</div>}
             </article>
           ))}</div>
