@@ -12,6 +12,7 @@ import {
   ExternalLink,
   Eye,
   Image as ImageIcon,
+  KeyRound,
   LayoutDashboard,
   LogIn,
   LogOut,
@@ -220,6 +221,7 @@ function AccountDialog({ open, googleClientId, onClose, onAuthenticated }) {
   const [mode, setMode] = useState('login');
   const [form, setForm] = useState({ name: '', email: '', password: '', cedula: '', phone: '' });
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
 
   if (!open) return null;
@@ -228,7 +230,13 @@ function AccountDialog({ open, googleClientId, onClose, onAuthenticated }) {
     event.preventDefault();
     setBusy(true);
     setError('');
+    setMessage('');
     try {
+      if (mode === 'forgot-password') {
+        const payload = await ticketingApi('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email: form.email }) });
+        setMessage(payload.message);
+        return;
+      }
       const payload = await ticketingApi(`/auth/${mode}`, { method: 'POST', body: JSON.stringify(form) });
       saveCustomerSession(payload);
       onAuthenticated(payload.customer);
@@ -261,10 +269,10 @@ function AccountDialog({ open, googleClientId, onClose, onAuthenticated }) {
         <button className="pt-icon-button close" type="button" aria-label="Cerrar" onClick={onClose}><X /></button>
         <Logo compact />
         <p className="pt-eyebrow">TU CUENTA</p>
-        <h2>{mode === 'login' ? 'Bienvenido de vuelta' : 'Crea tu cuenta'}</h2>
-        <p>{mode === 'login' ? 'Ingresa para comprar y consultar tus entradas.' : 'Tus entradas quedaran vinculadas a este correo.'}</p>
-        <GoogleButton clientId={googleClientId} onSuccess={googleSuccess} onError={setError} />
-        {googleClientId && <div className="pt-divider"><span>o continua con correo</span></div>}
+        <h2>{mode === 'login' ? 'Bienvenido de vuelta' : mode === 'register' ? 'Crea tu cuenta' : 'Recupera tu acceso'}</h2>
+        <p>{mode === 'login' ? 'Ingresa para comprar y consultar tus entradas.' : mode === 'register' ? 'Tus entradas quedaran vinculadas a este correo.' : 'Te enviaremos un enlace seguro para crear una contrasena nueva.'}</p>
+        {mode !== 'forgot-password' && <GoogleButton clientId={googleClientId} onSuccess={googleSuccess} onError={setError} />}
+        {mode !== 'forgot-password' && googleClientId && <div className="pt-divider"><span>o continua con correo</span></div>}
         <form onSubmit={submit}>
           {mode === 'register' && (
             <>
@@ -276,18 +284,72 @@ function AccountDialog({ open, googleClientId, onClose, onAuthenticated }) {
             </>
           )}
           <label>Correo electronico<input required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label>
-          <label>Contrasena<input required type="password" minLength={8} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></label>
+          {mode !== 'forgot-password' && <label>Contrasena<input required type="password" minLength={8} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></label>}
+          {mode === 'login' && <button className="pt-forgot-link" type="button" onClick={() => { setMode('forgot-password'); setError(''); setMessage(''); }}>Olvide mi contrasena</button>}
           {error && <div className="pt-alert error">{error}</div>}
+          {message && <div className="pt-alert success">{message}</div>}
           <button className="pt-primary wide" disabled={busy} type="submit">
-            {busy ? 'Procesando...' : mode === 'login' ? 'Ingresar' : 'Crear cuenta'}
+            {busy ? 'Procesando...' : mode === 'login' ? 'Ingresar' : mode === 'register' ? 'Crear cuenta' : 'Enviar enlace'}
             <ArrowRight size={18} />
           </button>
         </form>
-        <button className="pt-text-button" type="button" onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(''); }}>
-          {mode === 'login' ? 'No tengo cuenta. Registrarme' : 'Ya tengo cuenta. Ingresar'}
+        <button className="pt-text-button" type="button" onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(''); setMessage(''); }}>
+          {mode === 'login' ? 'No tengo cuenta. Registrarme' : 'Volver al ingreso'}
         </button>
       </section>
     </div>
+  );
+}
+
+function ResetPasswordPage() {
+  const token = new URLSearchParams(window.location.search).get('token') || '';
+  const [password, setPassword] = useState('');
+  const [confirmation, setConfirmation] = useState('');
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event) {
+    event.preventDefault();
+    setError('');
+    setMessage('');
+    if (password.length < 8) return setError('La contrasena debe tener al menos 8 caracteres');
+    if (password !== confirmation) return setError('Las contrasenas no coinciden');
+    setBusy(true);
+    try {
+      const payload = await ticketingApi('/auth/reset-password', {
+        method: 'POST',
+        body: JSON.stringify({ token, password })
+      });
+      setMessage(payload.message);
+      setPassword('');
+      setConfirmation('');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="pt-reset-page">
+      <section className="pt-reset-card">
+        <div className="pt-reset-icon"><KeyRound /></div>
+        <p className="pt-eyebrow">SEGURIDAD DE CUENTA</p>
+        <h1>Nueva contrasena</h1>
+        <p>Crea una clave de al menos 8 caracteres para volver a ingresar a ProTickets.</p>
+        {!token ? <div className="pt-alert error">Este enlace de recuperacion no es valido.</div> : !message && (
+          <form onSubmit={submit}>
+            <label>Nueva contrasena<input required type="password" minLength={8} autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+            <label>Confirmar contrasena<input required type="password" minLength={8} autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></label>
+            {error && <div className="pt-alert error">{error}</div>}
+            <button className="pt-primary wide" disabled={busy} type="submit">{busy ? 'Actualizando...' : 'Guardar nueva contrasena'}<ArrowRight size={18} /></button>
+          </form>
+        )}
+        {message && <div className="pt-alert success">{message}</div>}
+        <a className="pt-text-button" href="/tickets">Volver a ProTickets</a>
+      </section>
+    </main>
   );
 }
 
@@ -635,6 +697,7 @@ export function ProTicketsPublicSite() {
   useEffect(() => { ticketingApi('/public/home').then(setData).catch((err) => setError(err.message)); }, []);
 
   const route = useMemo(() => {
+    if (path === '/tickets/restablecer-contrasena') return { type: 'reset-password' };
     if (path.startsWith('/tickets/evento/')) return { type: 'event', value: decodeURIComponent(path.split('/').pop()) };
     if (path.startsWith('/tickets/entrada/')) return { type: 'ticket', value: decodeURIComponent(path.split('/').pop()) };
     if (path === '/tickets/mi-cuenta') return { type: 'account' };
@@ -649,12 +712,13 @@ export function ProTicketsPublicSite() {
   return (
     <div className="pt-public-site">
       <PublicHeader customer={customer} onAccount={() => customer ? (window.location.href = '/tickets/mi-cuenta') : setAccountOpen(true)} />
-      {error ? <div className="pt-page-state"><X /><h2>{error}</h2></div> : (
+      {error && route.type !== 'reset-password' ? <div className="pt-page-state"><X /><h2>{error}</h2></div> : (
         <>
           {route.type === 'home' && <HomePage data={data} />}
           {route.type === 'event' && <EventPage slug={route.value} customer={customer} onRequireAccount={() => setAccountOpen(true)} />}
           {route.type === 'account' && <AccountPage customer={customer} onRequireAccount={() => setAccountOpen(true)} onLogout={logout} />}
           {route.type === 'ticket' && <TicketPage code={route.value} />}
+          {route.type === 'reset-password' && <ResetPasswordPage />}
         </>
       )}
       <PublicFooter />

@@ -189,6 +189,18 @@ export function initTicketingDb(db) {
       FOREIGN KEY (order_id) REFERENCES ticketing_orders(id)
     );
 
+    CREATE TABLE IF NOT EXISTS ticketing_password_resets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      customer_id INTEGER NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (customer_id) REFERENCES ticketing_customers(id)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_ticketing_events_public
       ON ticketing_events(establishment_id, status, featured, event_date);
     CREATE INDEX IF NOT EXISTS idx_ticketing_orders_customer
@@ -197,6 +209,8 @@ export function initTicketingDb(db) {
       ON ticketing_orders(establishment_id, payment_status, created_at);
     CREATE INDEX IF NOT EXISTS idx_ticketing_tickets_code
       ON ticketing_tickets(code, status);
+    CREATE INDEX IF NOT EXISTS idx_ticketing_password_resets_customer
+      ON ticketing_password_resets(customer_id, expires_at);
   `);
 
   addColumnIfMissing(db, 'ticketing_orders', 'payment_url', 'TEXT');

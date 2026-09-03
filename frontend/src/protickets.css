@@ -880,6 +880,103 @@
   margin: 17px auto 0;
 }
 
+.pt-forgot-link {
+  background: transparent;
+  border: 0;
+  color: var(--pt-red-dark);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  justify-self: end;
+  margin-top: -6px;
+  padding: 0;
+}
+
+.pt-reset-page {
+  align-items: center;
+  background: #f5f5f6;
+  display: flex;
+  justify-content: center;
+  min-height: calc(100vh - 190px);
+  padding: 54px 18px;
+}
+
+.pt-reset-card {
+  background: #fff;
+  border: 1px solid var(--pt-line);
+  border-radius: 8px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, .08);
+  max-width: 470px;
+  padding: 38px;
+  width: 100%;
+}
+
+.pt-reset-card h1 {
+  font-size: 32px;
+  margin: 5px 0 9px;
+}
+
+.pt-reset-card > p:not(.pt-eyebrow) {
+  color: var(--pt-muted);
+  line-height: 1.55;
+}
+
+.pt-reset-card form {
+  display: grid;
+  gap: 14px;
+  margin-top: 24px;
+}
+
+.pt-reset-card label {
+  color: #43434a;
+  display: grid;
+  font-size: 12px;
+  font-weight: 800;
+  gap: 7px;
+}
+
+.pt-reset-card input {
+  background: #fff;
+  border: 1px solid #d8d8dd;
+  border-radius: 5px;
+  color: #111;
+  font: inherit;
+  font-size: 14px;
+  min-height: 46px;
+  padding: 10px 12px;
+  width: 100%;
+}
+
+.pt-reset-card input:focus {
+  border-color: var(--pt-red);
+  box-shadow: 0 0 0 3px rgba(237, 28, 47, .09);
+  outline: none;
+}
+
+.pt-reset-card .pt-alert {
+  margin-top: 18px;
+}
+
+.pt-reset-card form .pt-alert {
+  margin-top: 0;
+}
+
+.pt-reset-card > .pt-text-button {
+  display: flex;
+}
+
+.pt-reset-icon {
+  align-items: center;
+  background: #fff0f1;
+  border-radius: 50%;
+  color: var(--pt-red);
+  display: flex;
+  height: 52px;
+  justify-content: center;
+  margin-bottom: 22px;
+  width: 52px;
+}
+
 .pt-divider {
   border-top: 1px solid var(--pt-line);
   margin: 23px 0;
@@ -1921,6 +2018,9 @@
   .pt-checkout { order: 1; padding: 20px; position: static; width: 100%; }
   .pt-event-facts { grid-template-columns: 1fr; }
   .pt-auth-modal, .pt-order-modal, .pt-checkout-modal { padding: 26px 20px; }
+  .pt-reset-page { min-height: calc(100vh - 160px); padding: 30px 14px; }
+  .pt-reset-card { padding: 28px 20px; }
+  .pt-reset-card h1 { font-size: 28px; }
   .pt-form-row { grid-template-columns: 1fr; }
   .pt-account-page { padding: 38px 16px 70px; }
   .pt-account-page > header { align-items: flex-start; flex-direction: column; gap: 16px; }

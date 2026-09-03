@@ -52,6 +52,20 @@ function verifyPassword(password, stored) {
   return expectedBuffer.length === actual.length && crypto.timingSafeEqual(actual, expectedBuffer);
 }
 
+function hashResetToken(token) {
+  return crypto.createHash('sha256').update(String(token || '')).digest('hex');
+}
+
+function escapeHtml(value) {
+  return String(value || '').replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[character]);
+}
+
 function sqlDateTime(date) {
   return date.toISOString().slice(0, 19).replace('T', ' ');
 }
@@ -436,6 +450,94 @@ export function registerTicketingRoutes(app, db) {
       token: createToken({ role: 'ticket_customer', customerId: customer.id, establishmentId: establishment.id, email }),
       customer: customerResponse(customer)
     });
+  });
+
+  app.post('/api/ticketing/auth/forgot-password', async (req, res) => {
+    const establishment = ticketingEstablishment(db);
+    const email = cleanEmail(req.body.email);
+    const genericMessage = 'Si el correo esta registrado, recibiras un enlace para cambiar tu contrasena.';
+    if (!validEmail(email)) return res.status(400).json({ message: 'Ingresa un correo valido' });
+
+    const customer = establishment && db.prepare(
+      `SELECT * FROM ticketing_customers
+       WHERE establishment_id = ? AND email = ? AND status = 'active'`
+    ).get(establishment.id, email);
+    if (!customer) return res.json({ message: genericMessage });
+
+    db.prepare(
+      `DELETE FROM ticketing_password_resets
+       WHERE expires_at < datetime('now', 'localtime') OR used_at IS NOT NULL`
+    ).run();
+    const recentRequest = db.prepare(
+      `SELECT id FROM ticketing_password_resets
+       WHERE customer_id = ? AND used_at IS NULL
+         AND created_at >= datetime('now', 'localtime', '-2 minutes')
+       ORDER BY id DESC LIMIT 1`
+    ).get(customer.id);
+    if (recentRequest) return res.json({ message: genericMessage });
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const reset = db.prepare(
+      `INSERT INTO ticketing_password_resets
+       (establishment_id, customer_id, token_hash, expires_at)
+       VALUES (?, ?, ?, datetime('now', 'localtime', '+1 hour'))`
+    ).run(establishment.id, customer.id, hashResetToken(token));
+    const resetUrl = `${publicAppUrl()}/tickets/restablecer-contrasena?token=${encodeURIComponent(token)}`;
+
+    try {
+      const transporter = ticketingTransporter();
+      if (!transporter) throw new Error('SMTP no configurado');
+      const safeName = escapeHtml(customer.name);
+      await transporter.sendMail({
+        from: process.env.SMTP_FROM || process.env.SMTP_USER,
+        to: customer.email,
+        subject: 'Recupera tu contrasena de ProTickets',
+        text: `Hola ${customer.name},\n\nAbre este enlace para crear una nueva contrasena de ProTickets:\n${resetUrl}\n\nEl enlace vence en 60 minutos y solo puede utilizarse una vez. Si no solicitaste este cambio, ignora este correo.`,
+        html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#171719">
+          <h2 style="margin-bottom:8px">Recupera tu contrasena</h2>
+          <p>Hola ${safeName}, recibimos una solicitud para cambiar tu contrasena de ProTickets.</p>
+          <p style="margin:28px 0"><a href="${resetUrl}" style="background:#ed1c2f;color:#fff;padding:13px 22px;border-radius:6px;text-decoration:none;font-weight:700">Crear nueva contrasena</a></p>
+          <p style="color:#6f7076;font-size:13px">Este enlace vence en 60 minutos y solo puede utilizarse una vez. Si no solicitaste este cambio, puedes ignorar este correo.</p>
+        </div>`
+      });
+    } catch (error) {
+      db.prepare('DELETE FROM ticketing_password_resets WHERE id = ?').run(reset.lastInsertRowid);
+      console.error('No se pudo enviar la recuperacion de ProTickets:', error.message);
+    }
+    res.json({ message: genericMessage });
+  });
+
+  app.post('/api/ticketing/auth/reset-password', (req, res) => {
+    const establishment = ticketingEstablishment(db);
+    const token = cleanText(req.body.token, 180);
+    const password = String(req.body.password || '');
+    if (!token) return res.status(400).json({ message: 'El enlace de recuperacion no es valido' });
+    if (password.length < 8) return res.status(400).json({ message: 'La contrasena debe tener al menos 8 caracteres' });
+
+    const reset = establishment && db.prepare(
+      `SELECT resets.id, resets.customer_id
+       FROM ticketing_password_resets AS resets
+       JOIN ticketing_customers AS customers ON customers.id = resets.customer_id
+       WHERE resets.establishment_id = ? AND resets.token_hash = ?
+         AND resets.used_at IS NULL
+         AND resets.expires_at >= datetime('now', 'localtime')
+         AND customers.status = 'active'`
+    ).get(establishment.id, hashResetToken(token));
+    if (!reset) return res.status(400).json({ message: 'Este enlace vencio o ya fue utilizado. Solicita uno nuevo.' });
+
+    db.transaction(() => {
+      db.prepare(
+        `UPDATE ticketing_customers
+         SET password_hash = ?, updated_at = datetime('now', 'localtime')
+         WHERE id = ? AND establishment_id = ?`
+      ).run(hashPassword(password), reset.customer_id, establishment.id);
+      db.prepare(
+        `UPDATE ticketing_password_resets
+         SET used_at = datetime('now', 'localtime')
+         WHERE customer_id = ? AND used_at IS NULL`
+      ).run(reset.customer_id);
+    })();
+    res.json({ message: 'Tu contrasena fue actualizada. Ya puedes ingresar a ProTickets.' });
   });
 
   app.post('/api/ticketing/auth/google', async (req, res) => {
