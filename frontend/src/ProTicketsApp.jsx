@@ -657,6 +657,7 @@ function AccountPage({ customer, onRequireAccount, onLogout }) {
   const [removingId, setRemovingId] = useState(null);
   const paymentResult = new URLSearchParams(window.location.search).get('payment');
   const emailResult = new URLSearchParams(window.location.search).get('email');
+  const [paymentNoticeOpen, setPaymentNoticeOpen] = useState(paymentResult === 'success');
   useEffect(() => {
     if (!customer) return;
     ticketingApi('/me/orders').then(setOrders).catch((err) => setError(err.message));
@@ -675,13 +676,37 @@ function AccountPage({ customer, onRequireAccount, onLogout }) {
       setRemovingId(null);
     }
   }
+
+  function acknowledgePayment() {
+    setPaymentNoticeOpen(false);
+    const cleanUrl = new URL(window.location.href);
+    cleanUrl.searchParams.delete('payment');
+    cleanUrl.searchParams.delete('email');
+    cleanUrl.searchParams.delete('order');
+    window.history.replaceState({}, '', `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`);
+  }
+
   if (!customer) return <div className="pt-page-state"><UserRound /><h2>Consulta tus entradas</h2><p>Ingresa con la cuenta que utilizaste para comprar.</p><button className="pt-primary" onClick={onRequireAccount}>Ingresar</button></div>;
   return (
     <main className="pt-account-page">
+      {paymentNoticeOpen && (
+        <div className="pt-modal-backdrop">
+          <section className="pt-order-modal pt-payment-success-modal" role="alertdialog" aria-modal="true" aria-labelledby="pt-payment-success-title">
+            <div className="pt-success-icon"><CheckCircle2 /></div>
+            <p className="pt-eyebrow">PAGO CONFIRMADO</p>
+            <h2 id="pt-payment-success-title">Tu compra fue realizada con exito</h2>
+            {emailResult === 'pending' ? (
+              <p>Tus entradas ya estan disponibles en esta pagina. El envio por correo no pudo completarse, pero puedes abrirlas directamente desde tus pedidos.</p>
+            ) : (
+              <p>Enviamos tus entradas al correo electronico registrado. Revisa tu bandeja de entrada y, si no las encuentras, verifica tambien las carpetas de Spam o Correo no deseado.</p>
+            )}
+            <button className="pt-primary wide" type="button" autoFocus onClick={acknowledgePayment}><Check size={18} /> OK</button>
+          </section>
+        </div>
+      )}
       <header><div><p className="pt-eyebrow">MI CUENTA</p><h1>Hola, {customer.name.split(' ')[0]}</h1><p>{customer.email}</p></div><button className="pt-secondary" type="button" onClick={onLogout}><LogOut /> Cerrar sesion</button></header>
       <section>
         <div className="pt-section-heading"><div><h2>Pedidos y entradas</h2><p>Todo lo que has comprado con ProTickets.</p></div></div>
-        {paymentResult === 'success' && <div className="pt-alert success">Pago confirmado. Tus entradas ya estan disponibles{emailResult === 'pending' ? '; el correo no pudo enviarse y puedes abrirlas aqui.' : ' y fueron enviadas a tu correo.'}</div>}
         {paymentResult === 'failed' && <div className="pt-alert error">No pudimos confirmar el pago. No se emitieron entradas ni se desconto inventario.</div>}
         {paymentResult === 'cancelled' && <div className="pt-alert info">El pago fue cancelado. Tu pedido sigue pendiente mientras la reserva este vigente.</div>}
         {error && <div className="pt-alert error">{error}</div>}

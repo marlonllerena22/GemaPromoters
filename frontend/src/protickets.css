@@ -1120,6 +1120,28 @@
   margin-top: 10px;
 }
 
+.pt-payment-success-modal {
+  max-width: 500px;
+  text-align: center;
+}
+
+.pt-payment-success-modal .pt-success-icon {
+  height: 62px;
+  margin: 0 auto 22px;
+  width: 62px;
+}
+
+.pt-payment-success-modal .pt-success-icon svg {
+  height: 30px;
+  width: 30px;
+}
+
+.pt-payment-success-modal > p:not(.pt-eyebrow) {
+  font-size: 15px;
+  line-height: 1.65;
+  margin: 10px 0 25px;
+}
+
 .pt-page-state,
 .pt-empty {
   align-items: center;
