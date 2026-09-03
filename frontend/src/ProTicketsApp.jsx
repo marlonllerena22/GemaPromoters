@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { BrowserQRCodeReader } from '@zxing/browser';
 import {
   ArrowLeft,
   ArrowRight,
+  Camera,
+  CameraOff,
   CalendarDays,
   Check,
   CheckCircle2,
@@ -27,6 +30,7 @@ import {
   Ticket,
   Trash2,
   Upload,
+  UserPlus,
   UserRound,
   X
 } from 'lucide-react';
@@ -942,11 +946,233 @@ function BannersAdmin({ banners, onRefresh }) {
   );
 }
 
-function ValidatorAdmin() {
+function ticketCodeFromScan(value) {
+  const input = String(value || '').trim();
+  const directCode = input.match(/PT-[A-Z0-9-]+/i);
+  if (directCode) return directCode[0].toUpperCase();
+  try {
+    const url = new URL(input);
+    const match = url.pathname.match(/\/tickets\/entrada\/([^/?#]+)/i);
+    if (match) return decodeURIComponent(match[1]).toUpperCase();
+  } catch {
+    // The manual field also accepts the ticket code by itself.
+  }
+  return input.toUpperCase();
+}
+
+function ValidatorAdmin({ restricted = false }) {
   const [code, setCode] = useState('');
   const [result, setResult] = useState(null);
-  async function validate(event) { event.preventDefault(); setResult(null); try { setResult(await ticketingApi('/admin/tickets/validate', { admin: true, method: 'POST', body: JSON.stringify({ code }) })); setCode(''); } catch (error) { setResult({ valid: false, message: error.message }); } }
-  return <section className="pta-validator"><QrCode /><p>CONTROL DE ACCESO</p><h2>Validar entrada</h2><span>Escribe o escanea el codigo presentado por el asistente.</span><form onSubmit={validate}><input autoFocus required placeholder="PT-XXXXXXXX" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} /><button className="pta-primary"><ShieldCheck /> Validar acceso</button></form>{result && <div className={`pta-validation-result ${result.valid ? 'valid' : 'invalid'}`}>{result.valid ? <CheckCircle2 /> : <X />}<strong>{result.message}</strong>{result.ticket?.customer_name && <span>{result.ticket.customer_name} · {result.ticket.ticket_name}</span>}</div>}</section>;
+  const [busy, setBusy] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [cameraError, setCameraError] = useState('');
+  const [history, setHistory] = useState([]);
+  const [historySearch, setHistorySearch] = useState('');
+  const [validators, setValidators] = useState([]);
+  const [validatorForm, setValidatorForm] = useState({ id: null, name: '', username: '', password: '', status: 'active' });
+  const [accountNotice, setAccountNotice] = useState('');
+  const videoRef = useRef(null);
+  const controlsRef = useRef(null);
+  const busyRef = useRef(false);
+  const lastScanRef = useRef({ code: '', at: 0 });
+
+  async function loadHistory() {
+    try { setHistory(await ticketingApi('/validation/history', { admin: true })); } catch (error) { setCameraError(error.message); }
+  }
+
+  async function loadValidators() {
+    if (restricted) return;
+    try { setValidators(await ticketingApi('/admin/validators', { admin: true })); } catch (error) { setAccountNotice(error.message); }
+  }
+
+  useEffect(() => {
+    loadHistory();
+    loadValidators();
+    return () => controlsRef.current?.stop();
+  }, [restricted]);
+
+  async function validateCode(rawCode) {
+    const normalized = ticketCodeFromScan(rawCode);
+    if (!normalized || busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setResult(null);
+    try {
+      const response = await ticketingApi('/admin/tickets/validate', {
+        admin: true,
+        method: 'POST',
+        body: JSON.stringify({ code: normalized })
+      });
+      setResult(response);
+      setCode('');
+      navigator.vibrate?.(120);
+    } catch (error) {
+      setResult({ valid: false, message: error.message });
+      navigator.vibrate?.([80, 60, 80]);
+    } finally {
+      await loadHistory();
+      window.setTimeout(() => {
+        busyRef.current = false;
+        setBusy(false);
+      }, 700);
+    }
+  }
+
+  async function validate(event) {
+    event.preventDefault();
+    await validateCode(code);
+  }
+
+  function stopCamera() {
+    controlsRef.current?.stop();
+    controlsRef.current = null;
+    setScanning(false);
+  }
+
+  async function startCamera() {
+    stopCamera();
+    setCameraError('');
+    setResult(null);
+    setScanning(true);
+    try {
+      const reader = new BrowserQRCodeReader(undefined, {
+        delayBetweenScanAttempts: 80,
+        delayBetweenScanSuccess: 1200
+      });
+      controlsRef.current = await reader.decodeFromConstraints(
+        {
+          audio: false,
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          }
+        },
+        videoRef.current,
+        (scanResult) => {
+          if (!scanResult) return;
+          const scannedCode = ticketCodeFromScan(scanResult.getText());
+          const now = Date.now();
+          if (lastScanRef.current.code === scannedCode && now - lastScanRef.current.at < 3000) return;
+          lastScanRef.current = { code: scannedCode, at: now };
+          setCode(scannedCode);
+          validateCode(scannedCode);
+        }
+      );
+    } catch (error) {
+      setScanning(false);
+      setCameraError(error?.name === 'NotAllowedError'
+        ? 'Permite el acceso a la camara desde Chrome para escanear entradas.'
+        : 'No se pudo abrir la camara. Puedes ingresar el codigo manualmente.');
+    }
+  }
+
+  async function saveValidator(event) {
+    event.preventDefault();
+    setAccountNotice('');
+    try {
+      const updating = Boolean(validatorForm.id);
+      await ticketingApi(updating ? `/admin/validators/${validatorForm.id}` : '/admin/validators', {
+        admin: true,
+        method: updating ? 'PUT' : 'POST',
+        body: JSON.stringify(validatorForm)
+      });
+      setValidatorForm({ id: null, name: '', username: '', password: '', status: 'active' });
+      setAccountNotice(updating ? 'Usuario actualizado' : 'Usuario de validacion creado');
+      await loadValidators();
+    } catch (error) { setAccountNotice(error.message); }
+  }
+
+  async function toggleValidator(validator) {
+    setAccountNotice('');
+    try {
+      await ticketingApi(`/admin/validators/${validator.id}`, {
+        admin: true,
+        method: 'PUT',
+        body: JSON.stringify({ ...validator, status: validator.status === 'active' ? 'inactive' : 'active' })
+      });
+      await loadValidators();
+    } catch (error) { setAccountNotice(error.message); }
+  }
+
+  async function removeValidator(validator) {
+    if (!window.confirm(`Eliminar el acceso de ${validator.name}?`)) return;
+    try {
+      await ticketingApi(`/admin/validators/${validator.id}`, { admin: true, method: 'DELETE' });
+      await loadValidators();
+    } catch (error) { setAccountNotice(error.message); }
+  }
+
+  const visibleHistory = history.filter((item) => {
+    const search = historySearch.trim().toLowerCase();
+    return !search || [item.code, item.customer_name, item.ticket_name, item.checked_by]
+      .some((value) => String(value || '').toLowerCase().includes(search));
+  });
+
+  return <div className="pta-validation-page">
+    <section className="pta-validator">
+      <QrCode />
+      <p>CONTROL DE ACCESO</p>
+      <h2>Validar entrada</h2>
+      <span>Abre la camara y apunta al QR. La lectura se registra automaticamente.</span>
+      <div className={`pta-camera ${scanning ? 'active' : ''}`}>
+        <video ref={videoRef} muted playsInline />
+        {!scanning && <div><Camera /><strong>Camara lista para escanear</strong></div>}
+        {scanning && <span className="pta-scan-line" />}
+      </div>
+      <div className="pta-camera-actions">
+        {!scanning
+          ? <button type="button" className="pta-primary" onClick={startCamera}><Camera /> Abrir camara</button>
+          : <button type="button" className="pta-secondary" onClick={stopCamera}><CameraOff /> Cerrar camara</button>}
+      </div>
+      {cameraError && <div className="pta-camera-error">{cameraError}</div>}
+      <form onSubmit={validate}>
+        <input required placeholder="PT-XXXXXXXX" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} />
+        <button className="pta-primary" disabled={busy}><ShieldCheck /> {busy ? 'Validando...' : 'Validar acceso'}</button>
+      </form>
+      {result && <div className={`pta-validation-result ${result.valid ? 'valid' : 'invalid'}`}>
+        {result.valid ? <CheckCircle2 /> : <X />}
+        <strong>{result.message}</strong>
+        {result.ticket?.customer_name && <span>{result.ticket.customer_name} · {result.ticket.ticket_name}</span>}
+      </div>}
+    </section>
+
+    <section className="pta-section pta-validation-history">
+      <div className="pta-section-title"><div><p>REGISTRO</p><h2>Historial de validaciones</h2></div><label className="pta-history-search"><Search /><input placeholder="Buscar codigo, cliente o usuario" value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} /></label></div>
+      <div className="pta-history-list">
+        {visibleHistory.map((item) => <article key={item.id}>
+          <span className={`pta-history-status ${item.result}`}>{item.result === 'valid' ? <CheckCircle2 /> : <X />}</span>
+          <div><strong>{item.code}</strong><span>{item.customer_name || item.message}{item.ticket_name ? ` · ${item.ticket_name}` : ''}</span></div>
+          <div><strong>{item.checked_by}</strong><span>{formatDate(item.created_at, true)}</span></div>
+          <span className={`pta-pill ${item.result === 'valid' ? 'active' : 'inactive'}`}>{item.result === 'valid' ? 'Ingreso valido' : item.message}</span>
+        </article>)}
+        {!visibleHistory.length && <div className="pta-empty">Todavia no hay validaciones registradas.</div>}
+      </div>
+    </section>
+
+    {!restricted && <section className="pta-section pta-validator-users">
+      <div className="pta-section-title"><div><p>USUARIOS</p><h2>Accesos para validadores</h2></div>{accountNotice && <span className="pta-notice">{accountNotice}</span>}</div>
+      <form className="pta-validator-form" onSubmit={saveValidator}>
+        <label>Nombre<input required value={validatorForm.name} onChange={(event) => setValidatorForm({ ...validatorForm, name: event.target.value })} placeholder="Persona encargada" /></label>
+        <label>Usuario<input required value={validatorForm.username} onChange={(event) => setValidatorForm({ ...validatorForm, username: event.target.value.toLowerCase().replace(/\s/g, '') })} placeholder="control.evento" /></label>
+        <label>Contrasena<input required={!validatorForm.id} minLength="8" type="password" value={validatorForm.password} onChange={(event) => setValidatorForm({ ...validatorForm, password: event.target.value })} placeholder={validatorForm.id ? 'Dejar vacio para conservar' : 'Minimo 8 caracteres'} /></label>
+        <button className="pta-primary"><UserPlus /> {validatorForm.id ? 'Guardar cambios' : 'Crear usuario'}</button>
+        {validatorForm.id && <button type="button" className="pta-secondary" onClick={() => setValidatorForm({ id: null, name: '', username: '', password: '', status: 'active' })}>Cancelar</button>}
+      </form>
+      <div className="pta-validator-user-list">
+        {validators.map((validator) => <article key={validator.id}>
+          <div><strong>{validator.name}</strong><span>{validator.username}</span></div>
+          <span className={`pta-pill ${validator.status === 'active' ? 'active' : 'inactive'}`}>{validator.status === 'active' ? 'Activo' : 'Inactivo'}</span>
+          <div className="pta-row-actions">
+            <button type="button" onClick={() => setValidatorForm({ ...validator, password: '' })}><Edit3 /> Editar</button>
+            <button type="button" onClick={() => toggleValidator(validator)}>{validator.status === 'active' ? 'Desactivar' : 'Activar'}</button>
+            <button type="button" className="danger" onClick={() => removeValidator(validator)}><Trash2 /></button>
+          </div>
+        </article>)}
+        {!validators.length && <div className="pta-empty">Crea el primer usuario para el personal de ingreso.</div>}
+      </div>
+    </section>}
+  </div>;
 }
 
 function DashboardAdmin({ data, setView, editEvent }) {
@@ -958,8 +1184,9 @@ function DashboardAdmin({ data, setView, editEvent }) {
   );
 }
 
-export default function ProTicketsApp({ embedded = false, onLogout }) {
-  const [view, setView] = useState('dashboard');
+export default function ProTicketsApp({ embedded = false, onLogout, user }) {
+  const restrictedValidator = user?.role === 'ticket_validator';
+  const [view, setView] = useState(restrictedValidator ? 'validate' : 'dashboard');
   const [data, setData] = useState({ events: [], banners: [], orders: [], stats: {} });
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState('');
@@ -972,13 +1199,22 @@ export default function ProTicketsApp({ embedded = false, onLogout }) {
     try { setData(await ticketingApi('/admin/overview', { admin: true })); if (message) { setNotice(message); window.setTimeout(() => setNotice(''), 3000); } } catch (error) { setNotice(error.message); }
     setLoading(false);
   }
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    if (restrictedValidator) {
+      setLoading(false);
+      setView('validate');
+      return;
+    }
+    load();
+  }, [restrictedValidator]);
 
   function editEvent(id) { setEditingEventId(id); setShowEventEditor(true); setView('events'); }
   function newEvent() { setEditingEventId(null); setShowEventEditor(true); setView('events'); }
   async function savedEvent(close = true) { await load('Evento actualizado'); if (close) setShowEventEditor(false); }
 
-  const nav = [['dashboard', 'Resumen', LayoutDashboard], ['events', 'Eventos', CalendarDays], ['orders', 'Pedidos', ShoppingBag], ['banners', 'Banners', ImageIcon], ['validate', 'Validar QR', QrCode]];
+  const nav = restrictedValidator
+    ? [['validate', 'Validar QR', QrCode]]
+    : [['dashboard', 'Resumen', LayoutDashboard], ['events', 'Eventos', CalendarDays], ['orders', 'Pedidos', ShoppingBag], ['banners', 'Banners', ImageIcon], ['validate', 'Validar QR', QrCode]];
   const content = (
     <div className="pta-workspace">
       <header className="pta-topbar"><div><p>PROTICKETS</p><h1>{nav.find(([key]) => key === view)?.[1]}</h1></div><div>{notice && <span className="pta-notice">{notice}</span>}<a className="pta-secondary" href="/tickets" target="_blank" rel="noreferrer"><Eye /> Ver pagina publica</a>{view === 'events' && !showEventEditor && <button className="pta-primary" onClick={newEvent}><Plus /> Nuevo evento</button>}<button className="pta-mobile-menu" onClick={() => setMenuOpen((value) => !value)}><Menu /></button></div></header>
@@ -987,7 +1223,7 @@ export default function ProTicketsApp({ embedded = false, onLogout }) {
         {view === 'events' && (showEventEditor ? <EventEditor eventId={editingEventId} onSaved={savedEvent} onCancel={() => setShowEventEditor(false)} /> : <section className="pta-section"><div className="pta-section-title"><div><p>CATALOGO</p><h2>Todos los eventos</h2></div></div><div className="pta-event-table">{data.events.map((event) => <article key={event.id}><img src={event.card_image_url || event.hero_image_url} alt="" /><div><span className={`pta-pill ${event.status}`}>{statusLabel(event.status)}</span><h3>{event.title}</h3><p>{formatDate(event.event_date)} · {event.venue}, {event.city}</p></div><div><strong>{event.available_tickets || 0}</strong><span>disponibles</span></div><button className="pta-secondary" onClick={() => editEvent(event.id)}><Edit3 /> Editar</button></article>)}</div></section>)}
         {view === 'orders' && <OrdersAdmin orders={data.orders} onRefresh={load} />}
         {view === 'banners' && <BannersAdmin banners={data.banners} onRefresh={load} />}
-        {view === 'validate' && <ValidatorAdmin />}
+        {view === 'validate' && <ValidatorAdmin restricted={restrictedValidator} />}
       </>}
     </div>
   );

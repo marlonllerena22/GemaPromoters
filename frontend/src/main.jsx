@@ -931,7 +931,7 @@ function Login({ onLogin }) {
     event.preventDefault();
     setError('');
     try {
-      const paths = ['/auth/login', '/auth/promoter-login'];
+      const paths = ['/auth/login', '/ticketing/validator/login', '/auth/promoter-login'];
       let data = null;
       let lastError = null;
 

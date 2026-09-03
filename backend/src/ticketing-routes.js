@@ -176,6 +176,20 @@ function eventSelect() {
     (SELECT COALESCE(SUM(stock - sold), 0) FROM ticketing_ticket_types WHERE event_id = events.id AND status = 'active') AS available_tickets`;
 }
 
+function ticketCodeFromInput(value) {
+  const input = cleanText(value, 2000);
+  const codeMatch = input.match(/PT-[A-Z0-9-]+/i);
+  if (codeMatch) return codeMatch[0].toUpperCase();
+  try {
+    const url = new URL(input);
+    const pathMatch = url.pathname.match(/\/tickets\/entrada\/([^/?#]+)/i);
+    if (pathMatch) return cleanText(decodeURIComponent(pathMatch[1]), 80).toUpperCase();
+  } catch {
+    // Manual codes are expected to be plain text, not necessarily URLs.
+  }
+  return cleanText(input, 80).toUpperCase();
+}
+
 export function registerTicketingRoutes(app, db) {
   function requireTicketCustomer(req, res, next) {
     requireAuth(req, res, () => {
@@ -208,6 +222,73 @@ export function registerTicketingRoutes(app, db) {
       return next();
     });
   }
+
+  function requireTicketValidationAccess(req, res, next) {
+    requireAuth(req, res, () => {
+      if (req.user?.role === 'supreme' || req.user?.role === 'admin') {
+        return requireTicketAdmin(req, res, next);
+      }
+      if (req.user?.role !== 'ticket_validator') {
+        return res.status(403).json({ message: 'Acceso exclusivo para validacion' });
+      }
+      const validator = db.prepare(
+        `SELECT validators.*, establishments.name AS establishment_name,
+                establishments.display_name AS establishment_display_name
+         FROM ticketing_validators AS validators
+         JOIN establishments ON establishments.id = validators.establishment_id
+         WHERE validators.id = ? AND validators.establishment_id = ?
+           AND validators.status = 'active'
+           AND establishments.module_type = 'ticketing' AND establishments.status = 'active'`
+      ).get(req.user.validatorId, req.user.establishmentId);
+      if (!validator) return res.status(401).json({ message: 'Usuario de validacion no disponible' });
+      req.ticketValidator = validator;
+      req.ticketEstablishment = db.prepare('SELECT * FROM establishments WHERE id = ?').get(validator.establishment_id);
+      return next();
+    });
+  }
+
+  function validationUser(req) {
+    return cleanText(req.ticketValidator?.name || req.user?.username || 'Administrador', 120);
+  }
+
+  function recordValidation(req, { ticketId = null, code, result, message }) {
+    db.prepare(
+      `INSERT INTO ticketing_validation_logs
+       (establishment_id, ticket_id, code, result, message, checked_by)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(req.ticketEstablishment.id, ticketId, code || '-', result, message, validationUser(req));
+  }
+
+  app.post('/api/ticketing/validator/login', (req, res) => {
+    const establishment = ticketingEstablishment(db);
+    const username = cleanText(req.body?.username, 80).toLowerCase();
+    const password = String(req.body?.password || '');
+    const validator = establishment && db.prepare(
+      `SELECT * FROM ticketing_validators
+       WHERE establishment_id = ? AND lower(username) = ? AND status = 'active'`
+    ).get(establishment.id, username);
+    if (!validator || !verifyPassword(password, validator.password_hash)) {
+      return res.status(401).json({ message: 'Usuario o contrasena incorrectos' });
+    }
+    return res.json({
+      token: createToken({
+        role: 'ticket_validator',
+        validatorId: validator.id,
+        establishmentId: establishment.id,
+        username: validator.username
+      }),
+      user: {
+        id: validator.id,
+        username: validator.username,
+        role: 'ticket_validator',
+        name: validator.name,
+        establishment_id: establishment.id,
+        establishment_name: establishment.name,
+        establishment_display_name: establishment.display_name || establishment.name,
+        establishment_module_type: 'ticketing'
+      }
+    });
+  });
 
   function expireOldOrders(establishmentId) {
     db.prepare(
@@ -986,8 +1067,112 @@ export function registerTicketingRoutes(app, db) {
     res.json({ ok: true });
   });
 
-  app.post('/api/ticketing/admin/tickets/validate', requireTicketAdmin, (req, res) => {
-    const code = cleanText(req.body.code, 80).toUpperCase();
+  app.get('/api/ticketing/admin/validators', requireTicketAdmin, (req, res) => {
+    const validators = db.prepare(
+      `SELECT id, name, username, status, created_at, updated_at
+       FROM ticketing_validators WHERE establishment_id = ? ORDER BY name, id`
+    ).all(req.ticketEstablishment.id);
+    res.json(validators);
+  });
+
+  app.post('/api/ticketing/admin/validators', requireTicketAdmin, (req, res) => {
+    const name = cleanText(req.body?.name, 120);
+    const username = cleanText(req.body?.username, 80).toLowerCase();
+    const password = String(req.body?.password || '');
+    if (!name || !username || !password) {
+      return res.status(400).json({ message: 'Completa nombre, usuario y contrasena' });
+    }
+    if (!/^[a-z0-9._-]{3,80}$/.test(username)) {
+      return res.status(400).json({ message: 'El usuario debe tener al menos 3 caracteres y no usar espacios' });
+    }
+    if (password.length < 8) {
+      return res.status(400).json({ message: 'La contrasena debe tener al menos 8 caracteres' });
+    }
+    try {
+      const result = db.prepare(
+        `INSERT INTO ticketing_validators
+         (establishment_id, name, username, password_hash, status)
+         VALUES (?, ?, ?, ?, 'active')`
+      ).run(req.ticketEstablishment.id, name, username, hashPassword(password));
+      return res.status(201).json(db.prepare(
+        `SELECT id, name, username, status, created_at, updated_at
+         FROM ticketing_validators WHERE id = ?`
+      ).get(result.lastInsertRowid));
+    } catch (error) {
+      if (String(error.message).includes('UNIQUE')) {
+        return res.status(409).json({ message: 'Ese usuario ya esta registrado' });
+      }
+      throw error;
+    }
+  });
+
+  app.put('/api/ticketing/admin/validators/:id', requireTicketAdmin, (req, res) => {
+    const current = db.prepare(
+      'SELECT * FROM ticketing_validators WHERE id = ? AND establishment_id = ?'
+    ).get(req.params.id, req.ticketEstablishment.id);
+    if (!current) return res.status(404).json({ message: 'Usuario no encontrado' });
+    const name = cleanText(req.body?.name, 120) || current.name;
+    const username = cleanText(req.body?.username, 80).toLowerCase() || current.username;
+    const password = String(req.body?.password || '');
+    const status = req.body?.status === 'inactive' ? 'inactive' : 'active';
+    if (!/^[a-z0-9._-]{3,80}$/.test(username)) {
+      return res.status(400).json({ message: 'El usuario debe tener al menos 3 caracteres y no usar espacios' });
+    }
+    if (password && password.length < 8) {
+      return res.status(400).json({ message: 'La contrasena debe tener al menos 8 caracteres' });
+    }
+    try {
+      db.prepare(
+        `UPDATE ticketing_validators
+         SET name = ?, username = ?, password_hash = ?, status = ?,
+             updated_at = datetime('now', 'localtime')
+         WHERE id = ? AND establishment_id = ?`
+      ).run(
+        name,
+        username,
+        password ? hashPassword(password) : current.password_hash,
+        status,
+        current.id,
+        req.ticketEstablishment.id
+      );
+      return res.json(db.prepare(
+        `SELECT id, name, username, status, created_at, updated_at
+         FROM ticketing_validators WHERE id = ?`
+      ).get(current.id));
+    } catch (error) {
+      if (String(error.message).includes('UNIQUE')) {
+        return res.status(409).json({ message: 'Ese usuario ya esta registrado' });
+      }
+      throw error;
+    }
+  });
+
+  app.delete('/api/ticketing/admin/validators/:id', requireTicketAdmin, (req, res) => {
+    const result = db.prepare(
+      'DELETE FROM ticketing_validators WHERE id = ? AND establishment_id = ?'
+    ).run(req.params.id, req.ticketEstablishment.id);
+    if (!result.changes) return res.status(404).json({ message: 'Usuario no encontrado' });
+    res.json({ ok: true });
+  });
+
+  app.get('/api/ticketing/validation/history', requireTicketValidationAccess, (req, res) => {
+    const history = db.prepare(
+      `SELECT logs.*, tickets.status AS ticket_status, items.ticket_name,
+              events.title AS event_title, customers.name AS customer_name
+       FROM ticketing_validation_logs AS logs
+       LEFT JOIN ticketing_tickets AS tickets ON tickets.id = logs.ticket_id
+       LEFT JOIN ticketing_order_items AS items ON items.id = tickets.order_item_id
+       LEFT JOIN ticketing_events AS events ON events.id = tickets.event_id
+       LEFT JOIN ticketing_customers AS customers ON customers.id = tickets.customer_id
+       WHERE logs.establishment_id = ?
+       ORDER BY logs.id DESC LIMIT 200`
+    ).all(req.ticketEstablishment.id);
+    res.json(history);
+  });
+
+  app.post('/api/ticketing/admin/tickets/validate', requireTicketValidationAccess, (req, res) => {
+    const code = ticketCodeFromInput(req.body?.code);
+    if (!code) return res.status(400).json({ valid: false, message: 'Ingresa o escanea un codigo' });
     const ticket = db.prepare(
       `SELECT tickets.*, items.ticket_name, events.title AS event_title,
               customers.name AS customer_name
@@ -997,18 +1182,30 @@ export function registerTicketingRoutes(app, db) {
        JOIN ticketing_customers AS customers ON customers.id = tickets.customer_id
        WHERE tickets.code = ? AND tickets.establishment_id = ?`
     ).get(code, req.ticketEstablishment.id);
-    if (!ticket) return res.status(404).json({ valid: false, message: 'Entrada no registrada' });
+    if (!ticket) {
+      recordValidation(req, { code, result: 'invalid', message: 'Entrada no registrada' });
+      return res.status(404).json({ valid: false, message: 'Entrada no registrada' });
+    }
     if (ticket.status === 'used') {
+      recordValidation(req, { ticketId: ticket.id, code, result: 'already_used', message: 'Entrada ya utilizada' });
       return res.status(409).json({ valid: false, message: 'Entrada ya utilizada', ticket });
     }
     if (ticket.status !== 'valid') {
+      recordValidation(req, { ticketId: ticket.id, code, result: 'void', message: 'Entrada anulada' });
       return res.status(409).json({ valid: false, message: 'Entrada anulada', ticket });
     }
+    const checkedBy = validationUser(req);
     db.prepare(
       `UPDATE ticketing_tickets
        SET status = 'used', used_at = datetime('now', 'localtime'), checked_by = ? WHERE id = ?`
-    ).run(req.user.username || 'Administrador', ticket.id);
-    res.json({ valid: true, message: 'Entrada valida. Acceso registrado.', ticket: { ...ticket, status: 'used' } });
+    ).run(checkedBy, ticket.id);
+    const usage = db.prepare('SELECT used_at, checked_by FROM ticketing_tickets WHERE id = ?').get(ticket.id);
+    recordValidation(req, { ticketId: ticket.id, code, result: 'valid', message: 'Entrada valida. Acceso registrado.' });
+    res.json({
+      valid: true,
+      message: 'Entrada valida. Acceso registrado.',
+      ticket: { ...ticket, ...usage, status: 'used' }
+    });
   });
 
   app.all('/api/ticketing/payments/payphone/response', async (req, res) => {

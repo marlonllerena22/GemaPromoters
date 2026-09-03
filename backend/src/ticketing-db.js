@@ -176,6 +176,32 @@ export function initTicketingDb(db) {
       FOREIGN KEY (customer_id) REFERENCES ticketing_customers(id)
     );
 
+    CREATE TABLE IF NOT EXISTS ticketing_validators (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      username TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      UNIQUE (establishment_id, username)
+    );
+
+    CREATE TABLE IF NOT EXISTS ticketing_validation_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      ticket_id INTEGER,
+      code TEXT NOT NULL,
+      result TEXT NOT NULL,
+      message TEXT NOT NULL,
+      checked_by TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (ticket_id) REFERENCES ticketing_tickets(id)
+    );
+
     CREATE TABLE IF NOT EXISTS ticketing_payment_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       establishment_id INTEGER NOT NULL,
@@ -209,6 +235,10 @@ export function initTicketingDb(db) {
       ON ticketing_orders(establishment_id, payment_status, created_at);
     CREATE INDEX IF NOT EXISTS idx_ticketing_tickets_code
       ON ticketing_tickets(code, status);
+    CREATE INDEX IF NOT EXISTS idx_ticketing_validators_login
+      ON ticketing_validators(establishment_id, username, status);
+    CREATE INDEX IF NOT EXISTS idx_ticketing_validation_logs_date
+      ON ticketing_validation_logs(establishment_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_ticketing_password_resets_customer
       ON ticketing_password_resets(customer_id, expires_at);
   `);
