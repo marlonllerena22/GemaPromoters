@@ -32,16 +32,14 @@ services:
         sync: false
       - key: GOOGLE_CLIENT_ID
         sync: false
-      - key: BENDO_WEBHOOK_SECRET
-        generateValue: true
-      - key: BENDO_CLIENT_ID
+      - key: PAYPHONE_TOKEN
         sync: false
-      - key: BENDO_CLIENT_SECRET
+      - key: PAYPHONE_STORE_ID
         sync: false
-      - key: BENDO_AUTH_URL
-        value: https://auth.prd.geopagos.io/oauth/token
-      - key: BENDO_API_URL
-        value: https://api.prd.geopagos.io
+      - key: PAYPHONE_PREPARE_URL
+        value: https://pay.payphonetodoesposible.com/api/button/Prepare
+      - key: PAYPHONE_CONFIRM_URL
+        value: https://pay.payphonetodoesposible.com/api/button/V2/Confirm
       - key: TICKETING_SERVICE_FEE_PERCENT
         value: 10
     disk:

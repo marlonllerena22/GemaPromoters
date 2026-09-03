@@ -921,6 +921,11 @@
   color: #234d8c;
 }
 
+.pt-alert.success {
+  background: #eaf8f0;
+  color: #17613a;
+}
+
 .pta-alert.info {
   background: #f0f5ff;
   color: #234d8c;

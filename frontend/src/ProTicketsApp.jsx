@@ -369,7 +369,7 @@ function HomePage({ data }) {
       <section className="pt-trust-band">
         <div><ShieldCheck /><strong>Compra protegida</strong><span>Pedido identificado y confirmacion controlada.</span></div>
         <div><QrCode /><strong>Entrada digital</strong><span>Recibe un codigo unico directamente en tu correo.</span></div>
-        <div><CreditCard /><strong>Pago con Bendo</strong><span>Accede al enlace oficial configurado para el evento.</span></div>
+        <div><CreditCard /><strong>Pago seguro con PayPhone</strong><span>Paga con tarjeta o saldo PayPhone desde su plataforma protegida.</span></div>
       </section>
     </>
   );
@@ -490,7 +490,7 @@ function EventPage({ slug, customer, onRequireAccount }) {
           <button className="pt-primary wide" type="button" disabled={!selected || busy || isPast || !salesEnabled} onClick={continueToCheckout}>
             <ShoppingBag size={19} /> {isPast ? 'Evento finalizado' : !salesEnabled ? 'Venta no disponible' : customer ? 'Continuar al checkout' : 'Ingresar para continuar'}
           </button>
-          <p className="pt-checkout-note"><Clock3 size={15} /> La reserva se mantiene durante 20 minutos.</p>
+          <p className="pt-checkout-note"><Clock3 size={15} /> La reserva se mantiene durante 10 minutos.</p>
         </aside>
       </main>
       {checkoutOpen && <CheckoutDialog customer={customer} selected={selected} quantity={quantity} subtotal={subtotal} serviceFee={serviceFee} total={total} paymentEnabled={paymentEnabled} busy={busy} error={error} onConfirm={reserve} onClose={() => setCheckoutOpen(false)} />}
@@ -560,7 +560,7 @@ function OrderDialog({ order, onClose }) {
           <div><span>Total</span><strong>{money(order.total)}</strong></div>
         </div>
         {order.payment_url ? (
-          <a className="pt-primary wide" href={order.payment_url} target="_blank" rel="noreferrer"><CreditCard /> Pagar ahora con Bendo</a>
+          <a className="pt-primary wide" href={order.payment_url}><CreditCard /> Pagar ahora con PayPhone</a>
         ) : (
           <div className="pt-alert info">El administrador asignara el enlace de pago a este pedido.</div>
         )}
@@ -573,6 +573,8 @@ function OrderDialog({ order, onClose }) {
 function AccountPage({ customer, onRequireAccount, onLogout }) {
   const [orders, setOrders] = useState([]);
   const [error, setError] = useState('');
+  const paymentResult = new URLSearchParams(window.location.search).get('payment');
+  const emailResult = new URLSearchParams(window.location.search).get('email');
   useEffect(() => {
     if (!customer) return;
     ticketingApi('/me/orders').then(setOrders).catch((err) => setError(err.message));
@@ -583,13 +585,16 @@ function AccountPage({ customer, onRequireAccount, onLogout }) {
       <header><div><p className="pt-eyebrow">MI CUENTA</p><h1>Hola, {customer.name.split(' ')[0]}</h1><p>{customer.email}</p></div><button className="pt-secondary" type="button" onClick={onLogout}><LogOut /> Cerrar sesion</button></header>
       <section>
         <div className="pt-section-heading"><div><h2>Pedidos y entradas</h2><p>Todo lo que has comprado con ProTickets.</p></div></div>
+        {paymentResult === 'success' && <div className="pt-alert success">Pago confirmado. Tus entradas ya estan disponibles{emailResult === 'pending' ? '; el correo no pudo enviarse y puedes abrirlas aqui.' : ' y fueron enviadas a tu correo.'}</div>}
+        {paymentResult === 'failed' && <div className="pt-alert error">No pudimos confirmar el pago. No se emitieron entradas ni se desconto inventario.</div>}
+        {paymentResult === 'cancelled' && <div className="pt-alert info">El pago fue cancelado. Tu pedido sigue pendiente mientras la reserva este vigente.</div>}
         {error && <div className="pt-alert error">{error}</div>}
         {!orders.length ? <div className="pt-empty"><Ticket /><h3>Aun no tienes pedidos</h3><a className="pt-primary" href="/tickets#eventos">Explorar eventos</a></div> : (
           <div className="pt-orders-list">{orders.map((order) => (
             <article key={order.id}>
               <img src={order.card_image_url || '/protickets/kris-r-hero.png'} alt="" />
               <div className="pt-order-main"><span className={`pt-order-status ${order.payment_status}`}>{statusLabel(order.payment_status)}</span><h3>{order.event_title}</h3><p>{order.order_number} · {formatDate(order.created_at, true)}</p><strong>{order.items?.map((item) => `${item.ticket_name} x${item.quantity}`).join(', ')}</strong></div>
-              <div className="pt-order-actions"><strong>{money(order.total)}</strong>{order.payment_status === 'pending' && order.payment_url && <a className="pt-primary" href={order.payment_url} target="_blank" rel="noreferrer">Pagar <ExternalLink /></a>}</div>
+              <div className="pt-order-actions"><strong>{money(order.total)}</strong>{order.payment_status === 'pending' && order.payment_url && <a className="pt-primary" href={order.payment_url}>Pagar <ExternalLink /></a>}</div>
               {order.payment_status === 'paid' && order.tickets?.length > 0 && <div className="pt-ticket-links">{order.tickets.map((ticket, index) => <a href={`/tickets/entrada/${ticket.code}`} key={ticket.id}><QrCode /> Entrada {index + 1}: {ticket.ticket_name}</a>)}</div>}
             </article>
           ))}</div>
@@ -732,7 +737,7 @@ function EventEditor({ eventId, onSaved, onCancel }) {
         <label>Descripcion<textarea rows="5" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
         <div className="pta-grid three"><label>Fecha y hora<input type="datetime-local" value={form.event_date ? String(form.event_date).slice(0, 16) : ''} onChange={(e) => setForm({ ...form, event_date: e.target.value })} /></label><label>Ciudad<input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></label><label>Lugar<input value={form.venue} onChange={(e) => setForm({ ...form, venue: e.target.value })} /></label></div>
         <label>Direccion<input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></label>
-        <div className="pta-grid two"><label>Organizador<input value={form.organizer} onChange={(e) => setForm({ ...form, organizer: e.target.value })} /></label><label>Enlace de pago Bendo<input type="url" placeholder="https://..." value={form.bendo_payment_url} onChange={(e) => setForm({ ...form, bendo_payment_url: e.target.value })} /></label></div>
+        <div className="pta-grid two"><label>Organizador<input value={form.organizer} onChange={(e) => setForm({ ...form, organizer: e.target.value })} /></label><label>Enlace de pago alternativo (opcional)<input type="url" placeholder="https://..." value={form.bendo_payment_url} onChange={(e) => setForm({ ...form, bendo_payment_url: e.target.value })} /></label></div>
         <div className="pta-grid two"><AdminImageField label="Portada dentro del evento" hint="Recomendado: cuadrada 1:1, por ejemplo 1200 x 1200 px" value={form.hero_image_url} onChange={(hero_image_url) => setForm({ ...form, hero_image_url, card_image_url: form.card_image_url || hero_image_url })} /><AdminImageField label="Portada en la pagina principal" hint="Recomendado: horizontal 16:9, por ejemplo 1600 x 900 px" value={form.card_image_url} onChange={(card_image_url) => setForm({ ...form, card_image_url })} /></div>
         <label>Ajuste de la portada interna<select value={form.hero_display_mode} onChange={(e) => setForm({ ...form, hero_display_mode: e.target.value })}><option value="cover">Llenar el espacio</option><option value="contain">Mostrar imagen completa</option></select></label>
         <label>Terminos y condiciones<textarea rows="4" value={form.terms} onChange={(e) => setForm({ ...form, terms: e.target.value })} /></label>
@@ -766,7 +771,7 @@ function OrdersAdmin({ orders, onRefresh }) {
   const filtered = orders.filter((order) => (filter === 'all' || order.payment_status === filter) && `${order.order_number} ${order.customer_name} ${order.customer_email}`.toLowerCase().includes(query.toLowerCase()));
 
   async function updateLink(order) {
-    const paymentUrl = window.prompt('Enlace de pago Bendo', order.payment_url || '');
+    const paymentUrl = window.prompt('Enlace de pago', order.payment_url || '');
     if (paymentUrl === null) return;
     await ticketingApi(`/admin/orders/${order.id}/payment-link`, { admin: true, method: 'PUT', body: JSON.stringify({ payment_url: paymentUrl }) });
     onRefresh('Enlace actualizado');
@@ -789,7 +794,7 @@ function OrdersAdmin({ orders, onRefresh }) {
           <div><span className={`pta-pill ${order.payment_status}`}>{statusLabel(order.payment_status)}</span><h3>{order.customer_name}</h3><p>{order.customer_email}</p></div>
           <div><small>Pedido</small><strong>{order.order_number}</strong><span>{order.detail}</span></div>
           <div><small>Total</small><strong>{money(order.total)}</strong><span>{formatDate(order.created_at, true)}</span></div>
-          <div className="pta-order-buttons"><button type="button" onClick={() => updateLink(order)}><CreditCard /> Enlace Bendo</button>{order.payment_status === 'pending' && <><button className="confirm" type="button" onClick={() => process(order, 'confirm')}><Check /> Confirmar pago</button><button className="danger" type="button" onClick={() => process(order, 'reject')}><X /></button></>}</div>
+          <div className="pta-order-buttons"><button type="button" onClick={() => updateLink(order)}><CreditCard /> Editar enlace</button>{order.payment_status === 'pending' && <><button className="confirm" type="button" onClick={() => process(order, 'confirm')}><Check /> Confirmar pago</button><button className="danger" type="button" onClick={() => process(order, 'reject')}><X /></button></>}</div>
         </article>
       ))}{!filtered.length && <div className="pta-empty">No hay pedidos con estos filtros.</div>}</div>
     </section>

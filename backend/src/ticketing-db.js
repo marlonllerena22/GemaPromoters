@@ -180,7 +180,7 @@ export function initTicketingDb(db) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       establishment_id INTEGER NOT NULL,
       order_id INTEGER,
-      provider TEXT NOT NULL DEFAULT 'bendo',
+      provider TEXT NOT NULL DEFAULT 'payphone',
       provider_reference TEXT,
       event_status TEXT,
       payload TEXT,
