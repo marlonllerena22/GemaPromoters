@@ -3,6 +3,7 @@ import { BrowserQRCodeReader } from '@zxing/browser';
 import {
   ArrowLeft,
   ArrowRight,
+  BarChart3,
   Camera,
   CameraOff,
   CalendarDays,
@@ -25,6 +26,7 @@ import {
   QrCode,
   Save,
   Search,
+  Settings,
   ShieldCheck,
   ShoppingBag,
   Ticket,
@@ -35,6 +37,7 @@ import {
   X
 } from 'lucide-react';
 import { API_URL, getToken } from './api.js';
+import { TransferDetails, TransfersAdmin, PaymentSettings, TicketSalesReport } from './TicketingPayments.jsx';
 import './protickets.css';
 
 const CUSTOMER_TOKEN_KEY = 'protickets_customer_token';
@@ -483,13 +486,13 @@ function EventPage({ slug, customer, onRequireAccount }) {
     setCheckoutOpen(true);
   }
 
-  async function reserve(customerData) {
+  async function reserve(customerData, paymentMethod) {
     if (!customer) return onRequireAccount();
     if (!selected) return setError('Selecciona una localidad disponible');
     setBusy(true);
     setError('');
     try {
-      const nextOrder = await ticketingApi('/orders', { method: 'POST', body: JSON.stringify({ ticket_type_id: selected.id, quantity, customer: customerData }) });
+      const nextOrder = await ticketingApi('/orders', { method: 'POST', body: JSON.stringify({ ticket_type_id: selected.id, quantity, customer: customerData, payment_method: paymentMethod }) });
       setCheckoutOpen(false);
       setOrder(nextOrder);
     } catch (err) {
@@ -521,7 +524,6 @@ function EventPage({ slug, customer, onRequireAccount }) {
   const isPast = Boolean(Number(event.is_past));
   const subtotal = selected ? Number(selected.price) * quantity : 0;
   const serviceFee = subtotal * Number(event.service_fee_rate ?? 0.1);
-  const total = subtotal + serviceFee;
   return (
     <>
       <section className={`pt-event-hero ${event.hero_display_mode === 'contain' ? 'contained' : 'covered'}`}>
@@ -552,8 +554,8 @@ function EventPage({ slug, customer, onRequireAccount }) {
               const available = salesEnabled && !isPast && type.status === 'active' && (!paymentEnabled || Number(type.available) > 0);
               return (
                 <button key={type.id} disabled={!available} className={selected?.id === type.id ? 'selected' : ''} type="button" onClick={() => { setSelected(type); setQuantity(1); }}>
-                  <span><strong>{type.name}</strong>{type.description && <small>{type.description}</small>}<small className="pt-ticket-state">{isPast ? 'Evento finalizado' : !salesEnabled ? 'No disponible' : !paymentEnabled ? 'Preventa' : available ? `${type.available} disponibles` : 'Agotado'}</small></span>
-                  <span><strong>{money(type.price)}</strong><small>+ {money(Number(type.price) * Number(event.service_fee_rate ?? 0.1))} servicio</small></span>
+                  <span><strong>{type.name}</strong>{type.description && <small>{type.description}</small>}<small className="pt-ticket-state">{isPast ? 'Evento finalizado' : !salesEnabled ? 'No disponible' : !paymentEnabled ? 'Preventa' : available ? 'Disponible' : 'Agotado'}</small></span>
+                  <span><strong>{money(type.price)}</strong></span>
                 </button>
               );
             })}
@@ -571,23 +573,24 @@ function EventPage({ slug, customer, onRequireAccount }) {
           {isPast && <div className="pt-alert info">Este evento ya finalizo y se conserva en el historial de ProTickets.</div>}
           {!isPast && salesEnabled && !paymentEnabled && <div className="pt-alert info">Puedes escoger tus entradas y completar el checkout. El boton final de pago se habilitara proximamente.</div>}
           {!isPast && !salesEnabled && <div className="pt-alert info">La seleccion de entradas todavia no esta habilitada.</div>}
-          <div className="pt-price-breakdown"><span>Subtotal<strong>{money(subtotal)}</strong></span><span>Tarifa de servicio<strong>{money(serviceFee)}</strong></span></div>
-          <div className="pt-order-total"><span>Total</span><strong>{money(total)}</strong></div>
+          <div className="pt-order-total"><span>Entradas</span><strong>{money(subtotal)}</strong></div>
           {error && <div className="pt-alert error">{error}</div>}
           <button className="pt-primary wide" type="button" disabled={!selected || busy || isPast || !salesEnabled} onClick={continueToCheckout}>
             <ShoppingBag size={19} /> {isPast ? 'Evento finalizado' : !salesEnabled ? 'Venta no disponible' : customer ? 'Continuar al checkout' : 'Ingresar para continuar'}
           </button>
-          <p className="pt-checkout-note"><Clock3 size={15} /> La reserva se mantiene durante 10 minutos.</p>
         </aside>
       </main>
-      {checkoutOpen && <CheckoutDialog customer={customer} selected={selected} quantity={quantity} subtotal={subtotal} serviceFee={serviceFee} total={total} paymentEnabled={paymentEnabled} busy={busy} error={error} onConfirm={reserve} onClose={() => setCheckoutOpen(false)} />}
+      {checkoutOpen && <CheckoutDialog customer={customer} selected={selected} quantity={quantity} subtotal={subtotal} serviceFee={serviceFee} transferEnabled={event.transfer_enabled} transferMinutes={event.transfer_minutes} paymentEnabled={paymentEnabled} busy={busy} error={error} onConfirm={reserve} onClose={() => setCheckoutOpen(false)} />}
       {order && <OrderDialog order={order} busy={busy} error={error} onDelete={removeReservedOrder} onClose={() => setOrder(null)} />}
     </>
   );
 }
 
-function CheckoutDialog({ customer, selected, quantity, subtotal, serviceFee, total, paymentEnabled, busy, error, onConfirm, onClose }) {
+function CheckoutDialog({ customer, selected, quantity, subtotal, serviceFee, transferEnabled, transferMinutes, paymentEnabled, busy, error, onConfirm, onClose }) {
   const [form, setForm] = useState({ name: '', email: customer?.email || '', cedula: '', phone: '' });
+  const [paymentMethod, setPaymentMethod] = useState('payphone');
+  const fee = Math.round((paymentMethod === 'transfer' ? subtotal * 0.05 : serviceFee) * 100) / 100;
+  const total = Math.round((subtotal + fee) * 100) / 100;
 
   function fillFromAccount() {
     setForm({
@@ -600,7 +603,7 @@ function CheckoutDialog({ customer, selected, quantity, subtotal, serviceFee, to
 
   function submit(event) {
     event.preventDefault();
-    if (paymentEnabled) onConfirm(form);
+    if (paymentEnabled) onConfirm(form, paymentMethod);
   }
 
   return (
@@ -618,9 +621,14 @@ function CheckoutDialog({ customer, selected, quantity, subtotal, serviceFee, to
             <label>Cedula<input required value={form.cedula} onChange={(event) => setForm({ ...form, cedula: event.target.value })} /></label>
             <label>Celular<input required value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></label>
           </div>
+          <fieldset className="pt-payment-methods"><legend>Metodo de pago</legend>
+            <label><input type="radio" name="payment-method" value="payphone" checked={paymentMethod === 'payphone'} onChange={() => setPaymentMethod('payphone')} /> Tarjeta de credito o debito</label>
+            <label><input type="radio" name="payment-method" value="transfer" disabled={!transferEnabled} checked={paymentMethod === 'transfer'} onChange={() => setPaymentMethod('transfer')} /> Transferencia / Deuna</label>
+          </fieldset>
+          <p className="pt-checkout-note"><Clock3 size={15} /> Reserva por {paymentMethod === 'transfer' ? transferMinutes : 10} minutos.</p>
           <div className="pt-checkout-summary">
             <div className="pt-checkout-item"><span><Ticket size={18} /> {selected?.name} x{quantity}</span><strong>{money(subtotal)}</strong></div>
-            <div className="pt-checkout-fee"><span>Tarifa de servicio</span><strong>{money(serviceFee)}</strong></div>
+            <div className="pt-checkout-fee"><span>Tarifa de servicio</span><strong>{money(fee)}</strong></div>
             <div className="pt-checkout-final"><span>Total</span><strong>{money(total)}</strong></div>
           </div>
           {!paymentEnabled && <div className="pt-alert info">Tu seleccion esta lista. El pago en linea se habilitara proximamente.</div>}
@@ -646,7 +654,7 @@ function OrderDialog({ order, busy, error, onDelete, onClose }) {
           {order.items?.map((item) => <strong key={item.id}>{item.ticket_name} x{item.quantity}</strong>)}
           <div><span>Total</span><strong>{money(order.total)}</strong></div>
         </div>
-        {order.payment_url ? (
+        {order.payment_method === 'transfer' ? <TransferDetails order={order} /> : order.payment_url ? (
           <a className="pt-primary wide" href={order.payment_url}><CreditCard /> Pagar ahora con PayPhone</a>
         ) : (
           <div className="pt-alert info">El administrador asignara el enlace de pago a este pedido.</div>
@@ -663,6 +671,7 @@ function AccountPage({ customer, onRequireAccount, onLogout }) {
   const [orders, setOrders] = useState([]);
   const [error, setError] = useState('');
   const [removingId, setRemovingId] = useState(null);
+  const [transferOrder, setTransferOrder] = useState(null);
   const paymentResult = new URLSearchParams(window.location.search).get('payment');
   const emailResult = new URLSearchParams(window.location.search).get('email');
   const [paymentNoticeOpen, setPaymentNoticeOpen] = useState(paymentResult === 'success');
@@ -697,6 +706,7 @@ function AccountPage({ customer, onRequireAccount, onLogout }) {
   if (!customer) return <div className="pt-page-state"><UserRound /><h2>Consulta tus entradas</h2><p>Ingresa con la cuenta que utilizaste para comprar.</p><button className="pt-primary" onClick={onRequireAccount}>Ingresar</button></div>;
   return (
     <main className="pt-account-page">
+      {transferOrder && <OrderDialog order={transferOrder} busy={removingId === transferOrder.id} error={error} onClose={() => setTransferOrder(null)} onDelete={async () => { await removePendingOrder(transferOrder); setTransferOrder(null); }} />}
       {paymentNoticeOpen && (
         <div className="pt-modal-backdrop">
           <section className="pt-order-modal pt-payment-success-modal" role="alertdialog" aria-modal="true" aria-labelledby="pt-payment-success-title">
@@ -723,7 +733,7 @@ function AccountPage({ customer, onRequireAccount, onLogout }) {
             <article key={order.id}>
               <img src={order.card_image_url || '/protickets/kris-r-hero.png'} alt="" />
               <div className="pt-order-main"><span className={`pt-order-status ${order.payment_status}`}>{statusLabel(order.payment_status)}</span><h3>{order.event_title}</h3><p>{order.order_number} · {formatDate(order.created_at, true)}</p><strong>{order.items?.map((item) => `${item.ticket_name} x${item.quantity}`).join(', ')}</strong></div>
-              <div className="pt-order-actions"><strong>{money(order.total)}</strong>{order.payment_status === 'pending' && order.payment_url && <a className="pt-primary" href={order.payment_url}>Pagar <ExternalLink /></a>}{order.payment_status === 'pending' && <button className="pt-remove-order" type="button" disabled={removingId === order.id} onClick={() => removePendingOrder(order)}><Trash2 /> {removingId === order.id ? 'Quitando...' : 'Quitar'}</button>}</div>
+              <div className="pt-order-actions"><strong>{money(order.total)}</strong>{order.payment_status === 'pending' && order.payment_method === 'transfer' && <button className="pt-primary" onClick={() => setTransferOrder(order)}>Ver transferencia</button>}{order.payment_status === 'pending' && order.payment_url && <a className="pt-primary" href={order.payment_url}>Pagar <ExternalLink /></a>}{order.payment_status === 'pending' && <button className="pt-remove-order" type="button" disabled={removingId === order.id} onClick={() => removePendingOrder(order)}><Trash2 /> {removingId === order.id ? 'Quitando...' : 'Quitar'}</button>}</div>
               {order.payment_status === 'paid' && order.tickets?.length > 0 && <div className="pt-ticket-links">{order.tickets.map((ticket, index) => <a href={`/tickets/entrada/${ticket.code}`} key={ticket.id}><QrCode /> Entrada {index + 1}: {ticket.ticket_name}</a>)}</div>}
             </article>
           ))}</div>
@@ -896,7 +906,7 @@ function EventEditor({ eventId, onSaved, onCancel }) {
   );
 }
 
-function OrdersAdmin({ orders, onRefresh }) {
+function OrdersAdmin({ orders, onRefresh, onTransfers }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
   const filtered = orders.filter((order) => (filter === 'all' || order.payment_status === filter) && `${order.order_number} ${order.customer_name} ${order.customer_email}`.toLowerCase().includes(query.toLowerCase()));
@@ -925,7 +935,7 @@ function OrdersAdmin({ orders, onRefresh }) {
           <div><span className={`pta-pill ${order.payment_status}`}>{statusLabel(order.payment_status)}</span><h3>{order.customer_name}</h3><p>{order.customer_email}</p></div>
           <div><small>Pedido</small><strong>{order.order_number}</strong><span>{order.detail}</span></div>
           <div><small>Total</small><strong>{money(order.total)}</strong><span>{formatDate(order.created_at, true)}</span></div>
-          <div className="pta-order-buttons"><button type="button" onClick={() => updateLink(order)}><CreditCard /> Editar enlace</button>{order.payment_status === 'pending' && <><button className="confirm" type="button" onClick={() => process(order, 'confirm')}><Check /> Confirmar pago</button><button className="danger" type="button" onClick={() => process(order, 'reject')}><X /></button></>}</div>
+          <div className="pta-order-buttons">{order.payment_method === 'transfer' ? <button onClick={onTransfers}><Check /> Ver transferencia</button> : <><button type="button" onClick={() => updateLink(order)}><CreditCard /> Editar enlace</button>{order.payment_status === 'pending' && <><button className="confirm" type="button" onClick={() => process(order, 'confirm')}><Check /> Confirmar pago</button><button className="danger" type="button" onClick={() => process(order, 'reject')}><X /></button></>}</>}</div>
         </article>
       ))}{!filtered.length && <div className="pta-empty">No hay pedidos con estos filtros.</div>}</div>
     </section>
@@ -986,7 +996,7 @@ function ValidatorAdmin({ restricted = false }) {
 
   async function loadValidators() {
     if (restricted) return;
-    try { setValidators(await ticketingApi('/admin/validators', { admin: true })); } catch (error) { setAccountNotice(error.message); }
+    try { setValidators((await ticketingApi('/admin/validators', { admin: true })).filter((user) => user.access_scope !== 'transfers')); } catch (error) { setAccountNotice(error.message); }
   }
 
   useEffect(() => {
@@ -1211,7 +1221,8 @@ function DashboardAdmin({ data, setView, editEvent }) {
 
 export default function ProTicketsApp({ embedded = false, onLogout, user }) {
   const restrictedValidator = user?.role === 'ticket_validator';
-  const [view, setView] = useState(restrictedValidator ? 'validate' : 'dashboard');
+  const restrictedTransfers = user?.role === 'ticket_transfer_reviewer';
+  const [view, setView] = useState(restrictedTransfers ? 'transfers' : restrictedValidator ? 'validate' : 'dashboard');
   const [data, setData] = useState({ events: [], banners: [], orders: [], stats: {} });
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState('');
@@ -1225,28 +1236,31 @@ export default function ProTicketsApp({ embedded = false, onLogout, user }) {
     setLoading(false);
   }
   useEffect(() => {
-    if (restrictedValidator) {
+    if (restrictedValidator || restrictedTransfers) {
       setLoading(false);
-      setView('validate');
+      setView(restrictedTransfers ? 'transfers' : 'validate');
       return;
     }
     load();
-  }, [restrictedValidator]);
+  }, [restrictedValidator, restrictedTransfers]);
 
   function editEvent(id) { setEditingEventId(id); setShowEventEditor(true); setView('events'); }
   function newEvent() { setEditingEventId(null); setShowEventEditor(true); setView('events'); }
   async function savedEvent(close = true) { await load('Evento actualizado'); if (close) setShowEventEditor(false); }
 
-  const nav = restrictedValidator
+  const nav = restrictedTransfers ? [['transfers', 'Transferencias', CreditCard]] : restrictedValidator
     ? [['validate', 'Validar QR', QrCode]]
-    : [['dashboard', 'Resumen', LayoutDashboard], ['events', 'Eventos', CalendarDays], ['orders', 'Pedidos', ShoppingBag], ['banners', 'Banners', ImageIcon], ['validate', 'Validar QR', QrCode]];
+    : [['dashboard', 'Resumen', LayoutDashboard], ['events', 'Eventos', CalendarDays], ['orders', 'Pedidos', ShoppingBag], ['transfers', 'Transferencias', CreditCard], ['salesReport', 'Reporte de ventas', BarChart3], ['paymentSettings', 'Configuracion de pagos', Settings], ['banners', 'Banners', ImageIcon], ['validate', 'Validar QR', QrCode]];
   const content = (
     <div className="pta-workspace">
       <header className="pta-topbar"><div><p>PROTICKETS</p><h1>{nav.find(([key]) => key === view)?.[1]}</h1></div><div>{notice && <span className="pta-notice">{notice}</span>}<a className="pta-secondary" href="/tickets" target="_blank" rel="noreferrer"><Eye /> Ver pagina publica</a>{view === 'events' && !showEventEditor && <button className="pta-primary" onClick={newEvent}><Plus /> Nuevo evento</button>}<button className="pta-mobile-menu" onClick={() => setMenuOpen((value) => !value)}><Menu /></button></div></header>
       {loading ? <div className="pta-empty large">Cargando ProTickets...</div> : <>
         {view === 'dashboard' && <DashboardAdmin data={data} setView={setView} editEvent={editEvent} />}
         {view === 'events' && (showEventEditor ? <EventEditor eventId={editingEventId} onSaved={savedEvent} onCancel={() => setShowEventEditor(false)} /> : <section className="pta-section"><div className="pta-section-title"><div><p>CATALOGO</p><h2>Todos los eventos</h2></div></div><div className="pta-event-table">{data.events.map((event) => <article key={event.id}><img src={event.card_image_url || event.hero_image_url} alt="" /><div><span className={`pta-pill ${event.status}`}>{statusLabel(event.status)}</span><h3>{event.title}</h3><p>{formatDate(event.event_date)} · {event.venue}, {event.city}</p></div><div><strong>{event.available_tickets || 0}</strong><span>disponibles</span></div><button className="pta-secondary" onClick={() => editEvent(event.id)}><Edit3 /> Editar</button></article>)}</div></section>)}
-        {view === 'orders' && <OrdersAdmin orders={data.orders} onRefresh={load} />}
+        {view === 'orders' && <OrdersAdmin orders={data.orders} onRefresh={load} onTransfers={() => setView('transfers')} />}
+        {view === 'transfers' && <TransfersAdmin api={ticketingApi} restricted={restrictedTransfers} />}
+        {view === 'salesReport' && <TicketSalesReport api={ticketingApi} />}
+        {view === 'paymentSettings' && <PaymentSettings api={ticketingApi} />}
         {view === 'banners' && <BannersAdmin banners={data.banners} onRefresh={load} />}
         {view === 'validate' && <ValidatorAdmin restricted={restrictedValidator} />}
       </>}

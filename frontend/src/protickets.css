@@ -2097,6 +2097,60 @@
   width: 100%;
 }
 
+.pt-payment-methods { border: 1px solid #ddd; border-radius: 6px; display: grid; gap: 12px; margin: 16px 0; padding: 16px; }
+.pt-payment-methods legend { font-weight: 700; font-size: 14px; }
+.pt-checkout-modal .pt-payment-methods label { display: flex; align-items: center; gap: 10px; margin: 0; }
+.pt-checkout-modal .pt-payment-methods input { width: 18px; height: 18px; min-height: 0; margin: 0; accent-color: var(--pt-red); }
+.pt-transfer-details { margin: 16px 0; text-align: left; }
+.pt-bank-logo { display: block; width: 210px; max-width: 100%; height: auto; margin: 0 auto 12px; }
+.pt-transfer-details dl { margin: 0; }
+.pt-transfer-details dl > div { display: grid; grid-template-columns: 100px minmax(0,1fr); padding: 5px 0; gap: 8px; }
+.pt-transfer-details dt { font-size: 12px; color: #666; }
+.pt-transfer-details dd { font-weight: 700; margin: 0; overflow-wrap: anywhere; }
+.pt-deuna { display: grid; justify-items: center; gap: 10px; margin: 16px 0; }
+.pt-deuna img, .pt-settings-qr { width: 240px; max-width: 100%; height: auto; object-fit: contain; }
+.pt-whatsapp { background: #15803d; color: #fff; display: flex; align-items: center; justify-content: center; gap: 9px; padding: 14px; border-radius: 6px; font-weight: 800; text-decoration: none; }
+.pt-whatsapp:hover { background: #166534; }
+.pt-copy-phone { display: flex; gap: 10px; align-items: center; justify-content: center; padding: 12px 0; }
+.pt-copy-phone a { color: #14532d; font-size: 18px; font-weight: 800; }
+.pt-copy-phone button { border: 1px solid #ddd; background: #fff; border-radius: 5px; width: 38px; height: 38px; display: grid; place-items: center; cursor: pointer; }
+.pt-order-modal .pt-transfer-deadline { font-size: 13px; font-weight: 700; color: #9a3412; }
+.pt-order-modal .pt-transfer-status { font-size: 13px; line-height: 1.5; }
+.pt-payment-admin { display: grid; gap: 24px; }
+.pt-transfer-orders { display: grid; margin-top: 18px; }
+.pt-transfer-orders article { display: grid; grid-template-columns: minmax(0,1.4fr) minmax(130px,.8fr) minmax(220px,1fr); gap: 20px; padding: 22px 0; border-top: 1px solid #dedee2; align-items: start; }
+.pt-transfer-orders h3 { margin: 8px 0; font-size: 17px; }
+.pt-transfer-orders p { margin: 6px 0; overflow-wrap: anywhere; }
+.pt-transfer-orders small { color: #666; line-height: 1.5; }
+.pt-transfer-orders form, .pt-transfer-orders label { display: grid; gap: 8px; }
+.pt-transfer-orders input, .pt-transfer-users select, .pt-report-filters input, .pt-report-filters select { border: 1px solid #d6d6db; background: white; border-radius: 5px; min-height: 42px; padding: 8px 10px; font: inherit; width: 100%; min-width: 0; }
+.pt-transfer-orders .pta-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.pt-transfer-amount { display: grid; gap: 6px; }
+.pt-transfer-amount > strong { font-size: 24px; }
+.pt-transfer-users .pta-validator-form { grid-template-columns: repeat(3,minmax(0,1fr)); }
+.pt-report-filters { display: grid; grid-template-columns: minmax(180px,2fr) 1fr 1fr auto; gap: 12px; align-items: end; }
+.pt-report-filters label { display: grid; gap: 6px; font-size: 12px; font-weight: 700; min-width: 0; }
+.pt-report-totals { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 12px; margin: 18px 0; }
+.pt-report-totals > div { background: #f3f6f5; padding: 12px; border: 1px solid #d7e2dd; border-radius: 5px; display: grid; gap: 8px; }
+.pt-report-totals span { color: #4e5653; font-size: 12px; }
+.pt-report-totals strong { font-size: 21px; overflow-wrap: anywhere; }
+.pt-report-table { overflow-x: auto; }
+.pt-report-table table { border-collapse: collapse; width: 100%; min-width: 850px; font-size: 12px; }
+.pt-report-table td, .pt-report-table th { border: 1px solid #d2d6d4; padding: 10px 8px; text-align: right; }
+.pt-report-table td:first-child, .pt-report-table th:first-child { text-align: left; }
+.pt-report-table thead, .pt-report-table tfoot { background: #eef2f0; }
+.pt-finance-report > p { font-size: 12px; color: #626862; }
+@media (max-width: 900px) {
+  .pt-transfer-orders article { grid-template-columns: minmax(0,1fr); }
+  .pt-report-filters { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .pt-report-totals { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .pt-transfer-users .pta-validator-form { grid-template-columns: 1fr; }
+}
+@media (max-width: 480px) {
+  .pt-report-filters { grid-template-columns: 1fr; }
+  .pt-report-totals strong { font-size: 18px; }
+}
+
 .pta-validation-page {
   display: grid;
   gap: 18px;

@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import nodemailer from 'nodemailer';
 import QRCode from 'qrcode';
 import { createToken, requireAuth } from './auth.js';
+import { transferSettings, transferInstructions, buildTicketSalesReport } from './ticketing-finance.js';
 
 function money(value) {
   return Math.round((Number(value || 0) || 0) * 100) / 100;
@@ -191,6 +192,7 @@ function ticketCodeFromInput(value) {
 }
 
 export function registerTicketingRoutes(app, db) {
+  const emailDeliveries = new Map();
   function requireTicketCustomer(req, res, next) {
     requireAuth(req, res, () => {
       if (req.user?.role !== 'ticket_customer') {
@@ -237,7 +239,7 @@ export function registerTicketingRoutes(app, db) {
          FROM ticketing_validators AS validators
          JOIN establishments ON establishments.id = validators.establishment_id
          WHERE validators.id = ? AND validators.establishment_id = ?
-           AND validators.status = 'active'
+           AND validators.status = 'active' AND validators.access_scope = 'qr'
            AND establishments.module_type = 'ticketing' AND establishments.status = 'active'`
       ).get(req.user.validatorId, req.user.establishmentId);
       if (!validator) return res.status(401).json({ message: 'Usuario de validacion no disponible' });
@@ -249,6 +251,22 @@ export function registerTicketingRoutes(app, db) {
 
   function validationUser(req) {
     return cleanText(req.ticketValidator?.name || req.user?.username || 'Administrador', 120);
+  }
+
+  function requireTransferAccess(req, res, next) {
+    requireAuth(req, res, () => {
+      if (['supreme', 'admin'].includes(req.user?.role)) return requireTicketAdmin(req, res, next);
+      if (req.user?.role !== 'ticket_transfer_reviewer') return res.status(403).json({ message: 'Solo validacion de transferencias' });
+      const reviewer = db.prepare(`SELECT v.* FROM ticketing_validators v
+        JOIN establishments e ON e.id = v.establishment_id
+        WHERE v.id = ? AND v.establishment_id = ? AND v.status = 'active'
+        AND v.access_scope = 'transfers' AND e.status = 'active' AND e.module_type = 'ticketing'`)
+        .get(req.user.validatorId, req.user.establishmentId);
+      if (!reviewer) return res.status(401).json({ message: 'Usuario no disponible' });
+      req.ticketValidator = reviewer;
+      req.ticketEstablishment = { id: reviewer.establishment_id };
+      next();
+    });
   }
 
   function recordValidation(req, { ticketId = null, code, result, message }) {
@@ -272,7 +290,7 @@ export function registerTicketingRoutes(app, db) {
     }
     return res.json({
       token: createToken({
-        role: 'ticket_validator',
+        role: validator.access_scope === 'transfers' ? 'ticket_transfer_reviewer' : 'ticket_validator',
         validatorId: validator.id,
         establishmentId: establishment.id,
         username: validator.username
@@ -280,7 +298,7 @@ export function registerTicketingRoutes(app, db) {
       user: {
         id: validator.id,
         username: validator.username,
-        role: 'ticket_validator',
+        role: validator.access_scope === 'transfers' ? 'ticket_transfer_reviewer' : 'ticket_validator',
         name: validator.name,
         establishment_id: establishment.id,
         establishment_name: establishment.name,
@@ -312,7 +330,8 @@ export function registerTicketingRoutes(app, db) {
 
   function orderDetails(orderId) {
     const order = db.prepare(
-      `SELECT orders.*, events.title AS event_title, events.slug AS event_slug,
+      `SELECT orders.*, strftime('%Y-%m-%dT%H:%M:%SZ', orders.expires_at, 'utc') AS expires_at_iso,
+              events.title AS event_title, events.slug AS event_slug,
               events.event_date, events.venue, events.city,
               customers.name AS customer_name, customers.email AS customer_email
        FROM ticketing_orders AS orders
@@ -330,7 +349,9 @@ export function registerTicketingRoutes(app, db) {
        JOIN ticketing_order_items AS items ON items.id = tickets.order_item_id
        WHERE tickets.order_id = ? ORDER BY tickets.id`
     ).all(orderId);
-    return { ...order, items, tickets };
+    return { ...order, items, tickets, ...(order.payment_method === 'transfer' ? {
+      transfer: transferInstructions(transferSettings(db, order.establishment_id, order.event_id), order)
+    } : {}) };
   }
 
   async function sendTicketEmail(orderId) {
@@ -380,18 +401,33 @@ export function registerTicketingRoutes(app, db) {
     return { sent: true };
   }
 
-  async function confirmOrder(orderId, checkedBy = 'Administrador', provider = 'manual') {
+  async function confirmOrder(orderId, checkedBy = 'Administrador', provider = 'manual', reference = '') {
     const result = db.transaction(() => {
       const order = db.prepare('SELECT * FROM ticketing_orders WHERE id = ?').get(orderId);
       if (!order) throw new Error('Pedido no encontrado');
       if (order.payment_status === 'paid') return order;
-      if (!['pending', 'rejected'].includes(order.payment_status)) throw new Error('Este pedido no puede confirmarse');
+      if (!(provider === 'transfer' ? ['pending', 'expired'] : ['pending', 'rejected']).includes(order.payment_status)) throw new Error('Este pedido no puede confirmarse');
       const items = db.prepare('SELECT * FROM ticketing_order_items WHERE order_id = ?').all(order.id);
       for (const item of items) {
         const type = db.prepare('SELECT * FROM ticketing_ticket_types WHERE id = ?').get(item.ticket_type_id);
         if (!type || Number(type.sold) + Number(item.quantity) > Number(type.stock)) {
           throw new Error(`No hay stock suficiente en ${item.ticket_name}`);
         }
+        if (provider === 'transfer') {
+          const reserved = db.prepare(`SELECT COALESCE(SUM(i.quantity), 0) AS quantity FROM ticketing_order_items i
+            JOIN ticketing_orders o ON o.id = i.order_id WHERE i.ticket_type_id = ? AND o.id != ?
+            AND o.payment_status = 'pending' AND (o.expires_at IS NULL OR o.expires_at >= datetime('now', 'localtime'))`)
+            .get(type.id, order.id).quantity;
+          if (Number(type.stock) - Number(type.sold) - reserved < Number(item.quantity)) {
+            throw new Error('La reserva vencio y no hay disponibilidad libre. Revisa el pago para gestionar la devolucion.');
+          }
+        }
+      }
+      if (provider === 'transfer') {
+        if (!reference) throw new Error('Registra la referencia bancaria del comprobante');
+        const duplicate = db.prepare('SELECT id FROM ticketing_orders WHERE establishment_id = ? AND transfer_reference = ? AND id != ?').get(order.establishment_id, reference, order.id);
+        if (duplicate) throw new Error('Esta referencia bancaria ya fue utilizada en otro pedido');
+        db.prepare('UPDATE ticketing_orders SET transfer_reference = ?, transfer_checked_by = ? WHERE id = ?').run(reference, checkedBy, order.id);
       }
       db.prepare(
         `UPDATE ticketing_orders
@@ -424,7 +460,12 @@ export function registerTicketingRoutes(app, db) {
     if (confirmedOrder?.email_sent_at) {
       return { order: confirmedOrder, email: { sent: true, already_sent: true } };
     }
-    const email = await sendTicketEmail(result.id).catch((error) => ({ sent: false, reason: error.message }));
+    if (!emailDeliveries.has(result.id)) {
+      const delivery = sendTicketEmail(result.id).catch((error) => ({ sent: false, reason: error.message }));
+      emailDeliveries.set(result.id, delivery);
+      delivery.finally(() => emailDeliveries.delete(result.id));
+    }
+    const email = await emailDeliveries.get(result.id);
     return { order: orderDetails(result.id), email };
   }
 
@@ -466,7 +507,9 @@ export function registerTicketingRoutes(app, db) {
        WHERE event_id = ? AND status != 'inactive'
        ORDER BY sort_order, price, id`
     ).all(event.id).map((type) => ({ ...type, available: availableForType(type) }));
-    res.json({ ...event, service_fee_rate: ticketingServiceFeeRate(), ticket_types: ticketTypes });
+    const transfer = transferSettings(db, establishment.id, event.id);
+    res.json({ ...event, service_fee_rate: ticketingServiceFeeRate(), ticket_types: ticketTypes,
+      transfer_enabled: transfer.ready, transfer_minutes: transfer.transfer_minutes });
   });
 
   app.get('/api/ticketing/public/tickets/:code', (req, res) => {
@@ -694,9 +737,13 @@ export function registerTicketingRoutes(app, db) {
 
   app.post('/api/ticketing/orders', requireTicketCustomer, async (req, res) => {
     const establishment = ticketingEstablishment(db);
+    if (!establishment || establishment.id !== req.ticketCustomer.establishment_id) return res.status(403).json({ message: 'Negocio no disponible' });
+    const paymentMethod = req.body.payment_method || 'payphone';
+    if (!['payphone', 'transfer'].includes(paymentMethod)) return res.status(400).json({ message: 'Forma de pago no valida' });
     expireOldOrders(establishment.id);
     const ticketTypeId = Number(req.body.ticket_type_id || 0);
-    const quantity = Math.max(1, Math.round(Number(req.body.quantity || 1)));
+    const quantity = Number(req.body.quantity || 1);
+    if (!Number.isSafeInteger(quantity) || quantity < 1) return res.status(400).json({ message: 'Cantidad no valida' });
     const ticketType = db.prepare(
       `SELECT types.*, events.establishment_id, events.title AS event_title,
               events.status AS event_status, events.sales_enabled, events.payment_enabled,
@@ -717,6 +764,13 @@ export function registerTicketingRoutes(app, db) {
     if (!Number(ticketType.payment_enabled)) {
       return res.status(409).json({ message: 'El pago de este evento se habilitara proximamente' });
     }
+    const settings = transferSettings(db, establishment.id, ticketType.event_id);
+    if (paymentMethod === 'transfer' && !settings.ready) return res.status(409).json({ message: 'La transferencia no esta habilitada para este evento' });
+    if (paymentMethod === 'transfer') {
+      const existing = db.prepare(`SELECT id FROM ticketing_orders WHERE customer_id = ? AND event_id = ?
+        AND payment_method = 'transfer' AND payment_status = 'pending'`).get(req.ticketCustomer.id, ticketType.event_id);
+      if (existing) return res.status(409).json({ message: 'Ya tienes una reserva por transferencia para este evento. Revisala o quitala en Mis pedidos antes de crear otra.' });
+    }
     if (quantity > Number(ticketType.max_per_order || 6)) {
       return res.status(400).json({ message: `Puedes comprar maximo ${ticketType.max_per_order} entradas por pedido` });
     }
@@ -736,16 +790,17 @@ export function registerTicketingRoutes(app, db) {
       ).run(buyerName, buyerCedula, buyerPhone, req.ticketCustomer.id);
     }
     const subtotal = money(ticketType.price * quantity);
-    const fee = serviceFeeFor(subtotal);
+    const fee = paymentMethod === 'transfer' ? money(subtotal * 0.05) : serviceFeeFor(subtotal);
     const total = money(subtotal + fee);
     const orderNumber = `PT-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
-    const expiresAt = sqlDateTime(new Date(Date.now() + 10 * 60 * 1000));
+    const expiresAt = db.prepare("SELECT datetime('now', 'localtime', ?) AS value")
+      .get(`+${paymentMethod === 'transfer' ? settings.transfer_minutes : 10} minutes`).value;
     const orderId = db.transaction(() => {
       const result = db.prepare(
         `INSERT INTO ticketing_orders
          (establishment_id, event_id, customer_id, order_number, subtotal, service_fee,
-          total, payment_status, payment_url, external_reference, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`
+          total, payment_status, payment_url, external_reference, expires_at, payment_method, provider_fee_rate)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`
       ).run(
         establishment.id,
         ticketType.event_id,
@@ -756,7 +811,9 @@ export function registerTicketingRoutes(app, db) {
         total,
         null,
         orderNumber,
-        expiresAt
+        expiresAt,
+        paymentMethod,
+        paymentMethod === 'transfer' ? 0 : settings.payphone_fee_percent
       );
       db.prepare(
         `INSERT INTO ticketing_order_items
@@ -765,6 +822,7 @@ export function registerTicketingRoutes(app, db) {
       ).run(result.lastInsertRowid, ticketType.id, ticketType.name, quantity, ticketType.price, money(fee / quantity));
       return result.lastInsertRowid;
     })();
+    if (paymentMethod === 'transfer') return res.status(201).json(orderDetails(orderId));
     try {
       const payment = await createPayPhonePayment({
         orderNumber,
@@ -788,6 +846,89 @@ export function registerTicketingRoutes(app, db) {
       console.error('PayPhone checkout:', error.message);
       return res.status(502).json({ message: 'No fue posible iniciar el pago con PayPhone. Intenta nuevamente.' });
     }
+  });
+
+  app.get('/api/ticketing/transfers', requireTransferAccess, (req, res) => {
+    expireOldOrders(req.ticketEstablishment.id);
+    res.json(db.prepare(`SELECT o.*, e.title AS event_title, c.name AS customer_name, c.email AS customer_email,
+      (SELECT GROUP_CONCAT(ticket_name || ' x' || quantity, ', ') FROM ticketing_order_items WHERE order_id = o.id) AS detail
+      FROM ticketing_orders o JOIN ticketing_events e ON e.id = o.event_id JOIN ticketing_customers c ON c.id = o.customer_id
+      WHERE o.establishment_id = ? AND o.payment_method = 'transfer' ORDER BY o.id DESC`).all(req.ticketEstablishment.id));
+  });
+
+  app.post('/api/ticketing/transfers/:id/confirm', requireTransferAccess, async (req, res) => {
+    expireOldOrders(req.ticketEstablishment.id);
+    const order = db.prepare("SELECT * FROM ticketing_orders WHERE id = ? AND establishment_id = ? AND payment_method = 'transfer'")
+      .get(req.params.id, req.ticketEstablishment.id);
+    if (!order) return res.status(404).json({ message: 'Transferencia no encontrada' });
+    try {
+      res.json(await confirmOrder(order.id, validationUser(req), 'transfer', cleanText(req.body.reference, 120).toUpperCase()));
+    } catch (error) { res.status(409).json({ message: error.message }); }
+  });
+
+  app.post('/api/ticketing/transfers/:id/reject', requireTransferAccess, (req, res) => {
+    const order = db.prepare("SELECT * FROM ticketing_orders WHERE id = ? AND establishment_id = ? AND payment_method = 'transfer'")
+      .get(req.params.id, req.ticketEstablishment.id);
+    if (!order || !['pending', 'expired'].includes(order.payment_status)) return res.status(409).json({ message: 'Pedido no disponible para rechazar' });
+    db.transaction(() => {
+      db.prepare("UPDATE ticketing_orders SET payment_status = 'rejected', updated_at = datetime('now','localtime') WHERE id = ?").run(order.id);
+      db.prepare(`INSERT INTO ticketing_payment_events (establishment_id, order_id, provider, event_status, payload)
+        VALUES (?, ?, 'transfer', 'rejected', ?)`).run(order.establishment_id, order.id, JSON.stringify({ checked_by: validationUser(req), note: cleanText(req.body.note, 500) }));
+    })();
+    res.json({ ok: true });
+  });
+
+  app.get('/api/ticketing/admin/payment-settings', requireTicketAdmin, (req, res) => {
+    res.json({ settings: transferSettings(db, req.ticketEstablishment.id), events: db.prepare(
+      'SELECT id, title, transfer_qr_url FROM ticketing_events WHERE establishment_id = ? ORDER BY id DESC'
+    ).all(req.ticketEstablishment.id) });
+  });
+
+  app.put('/api/ticketing/admin/payment-settings', requireTicketAdmin, (req, res) => {
+    const current = transferSettings(db, req.ticketEstablishment.id);
+    const body = { ...current, ...req.body };
+    const minutes = Number(body.transfer_minutes);
+    const feePercent = Number(body.payphone_fee_percent);
+    let whatsapp = cleanText(body.whatsapp, 40).replace(/\D/g, '');
+    if (/^0\d{9}$/.test(whatsapp)) whatsapp = `593${whatsapp.slice(1)}`;
+    if (!/^\d{10,15}$/.test(whatsapp)) return res.status(400).json({ message: 'WhatsApp no valido' });
+    if (!Number.isInteger(minutes) || minutes < 5 || minutes > 1440) return res.status(400).json({ message: 'El plazo debe estar entre 5 y 1440 minutos' });
+    if (!Number.isFinite(feePercent) || feePercent < 0 || feePercent > 100) return res.status(400).json({ message: 'Comision no valida' });
+    let event;
+    if (body.event_id) {
+      event = db.prepare('SELECT id FROM ticketing_events WHERE id = ? AND establishment_id = ?').get(body.event_id, req.ticketEstablishment.id);
+      if (!event) return res.status(404).json({ message: 'Evento no encontrado' });
+      if (body.event_qr_url && !/^(\/protickets\/|data:image\/(png|jpeg|webp);base64,)/.test(body.event_qr_url)) return res.status(400).json({ message: 'Carga el QR como imagen PNG, JPG o WebP' });
+      if (String(body.event_qr_url || '').length > 4000000) return res.status(400).json({ message: 'La imagen del QR es demasiado grande' });
+    }
+    db.transaction(() => {
+      db.prepare(`UPDATE ticketing_payment_settings SET transfer_enabled = ?, beneficiary = ?, bank_name = ?, identification = ?,
+        account_number = ?, account_type = ?, whatsapp = ?, transfer_minutes = ?, payphone_fee_percent = ? WHERE establishment_id = ?`)
+        .run(body.transfer_enabled ? 1 : 0, cleanText(body.beneficiary, 120), cleanText(body.bank_name, 120), cleanText(body.identification, 30),
+          cleanText(body.account_number, 50), cleanText(body.account_type, 50), whatsapp, minutes, feePercent, req.ticketEstablishment.id);
+      if (event) db.prepare('UPDATE ticketing_events SET transfer_qr_url = ? WHERE id = ?').run(body.event_qr_url || '', event.id);
+    })();
+    res.json({ ok: true });
+  });
+
+  app.get('/api/ticketing/admin/sales-report', requireTicketAdmin, (req, res) => {
+    const from = cleanText(req.query.from, 10);
+    const to = cleanText(req.query.to, 10);
+    if ([from, to].some((value) => value && (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(value)))) || (from && to && from > to)) {
+      return res.status(400).json({ message: 'Rango de fechas no valido' });
+    }
+    const eventId = Number(req.query.event_id || 0);
+    const orders = db.prepare(`SELECT o.*, e.title AS event_title FROM ticketing_orders o JOIN ticketing_events e ON e.id = o.event_id
+      WHERE o.establishment_id = ? AND o.payment_status = 'paid' AND (? = 0 OR o.event_id = ?)
+      AND (? = '' OR date(COALESCE(o.paid_at, o.created_at)) >= ?)
+      AND (? = '' OR date(COALESCE(o.paid_at, o.created_at)) <= ?) ORDER BY o.id`)
+      .all(req.ticketEstablishment.id, eventId, eventId, from, from, to, to);
+    const items = db.prepare(`SELECT i.* FROM ticketing_order_items i JOIN ticketing_orders o ON o.id = i.order_id
+      WHERE o.establishment_id = ? AND o.payment_status = 'paid'`).all(req.ticketEstablishment.id);
+    const settings = transferSettings(db, req.ticketEstablishment.id);
+    res.json({ ...buildTicketSalesReport(orders, items, settings.payphone_fee_percent), from, to,
+      payphone_fee_percent: settings.payphone_fee_percent,
+      events: db.prepare('SELECT id, title FROM ticketing_events WHERE establishment_id = ? ORDER BY id DESC').all(req.ticketEstablishment.id) });
   });
 
   app.get('/api/ticketing/admin/overview', requireTicketAdmin, (req, res) => {
@@ -1049,9 +1190,10 @@ export function registerTicketingRoutes(app, db) {
   app.post('/api/ticketing/admin/orders/:id/confirm', requireTicketAdmin, async (req, res) => {
     try {
       const order = db.prepare(
-        'SELECT id FROM ticketing_orders WHERE id = ? AND establishment_id = ?'
+        'SELECT id, payment_method FROM ticketing_orders WHERE id = ? AND establishment_id = ?'
       ).get(req.params.id, req.ticketEstablishment.id);
       if (!order) return res.status(404).json({ message: 'Pedido no encontrado' });
+      if (order.payment_method === 'transfer') return res.status(400).json({ message: 'Valida este pago en Transferencias con la referencia bancaria' });
       res.json(await confirmOrder(order.id, req.user.username || 'Administrador'));
     } catch (error) {
       res.status(400).json({ message: error.message });
@@ -1069,7 +1211,7 @@ export function registerTicketingRoutes(app, db) {
 
   app.get('/api/ticketing/admin/validators', requireTicketAdmin, (req, res) => {
     const validators = db.prepare(
-      `SELECT id, name, username, status, created_at, updated_at
+      `SELECT id, name, username, status, access_scope, created_at, updated_at
        FROM ticketing_validators WHERE establishment_id = ? ORDER BY name, id`
     ).all(req.ticketEstablishment.id);
     res.json(validators);
@@ -1091,11 +1233,11 @@ export function registerTicketingRoutes(app, db) {
     try {
       const result = db.prepare(
         `INSERT INTO ticketing_validators
-         (establishment_id, name, username, password_hash, status)
-         VALUES (?, ?, ?, ?, 'active')`
-      ).run(req.ticketEstablishment.id, name, username, hashPassword(password));
+         (establishment_id, name, username, password_hash, status, access_scope)
+         VALUES (?, ?, ?, ?, 'active', ?)`
+      ).run(req.ticketEstablishment.id, name, username, hashPassword(password), req.body.access_scope === 'transfers' ? 'transfers' : 'qr');
       return res.status(201).json(db.prepare(
-        `SELECT id, name, username, status, created_at, updated_at
+        `SELECT id, name, username, status, access_scope, created_at, updated_at
          FROM ticketing_validators WHERE id = ?`
       ).get(result.lastInsertRowid));
     } catch (error) {
@@ -1124,7 +1266,7 @@ export function registerTicketingRoutes(app, db) {
     try {
       db.prepare(
         `UPDATE ticketing_validators
-         SET name = ?, username = ?, password_hash = ?, status = ?,
+         SET name = ?, username = ?, password_hash = ?, status = ?, access_scope = ?,
              updated_at = datetime('now', 'localtime')
          WHERE id = ? AND establishment_id = ?`
       ).run(
@@ -1132,11 +1274,12 @@ export function registerTicketingRoutes(app, db) {
         username,
         password ? hashPassword(password) : current.password_hash,
         status,
+        ['qr', 'transfers'].includes(req.body.access_scope) ? req.body.access_scope : current.access_scope,
         current.id,
         req.ticketEstablishment.id
       );
       return res.json(db.prepare(
-        `SELECT id, name, username, status, created_at, updated_at
+        `SELECT id, name, username, status, access_scope, created_at, updated_at
          FROM ticketing_validators WHERE id = ?`
       ).get(current.id));
     } catch (error) {
@@ -1234,7 +1377,7 @@ export function registerTicketingRoutes(app, db) {
          WHERE establishment_id = ? AND order_number = ?`
       ).get(establishment.id, clientTransactionId)
       : null;
-    if (!order || !paymentId) return finish('failed', clientTransactionId);
+    if (!order || !paymentId || order.payment_method === 'transfer') return finish('failed', clientTransactionId);
     if (order.payment_status === 'paid') return finish('success', order.order_number);
 
     try {

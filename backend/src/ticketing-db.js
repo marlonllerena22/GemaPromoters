@@ -247,7 +247,33 @@ export function initTicketingDb(db) {
   addColumnIfMissing(db, 'ticketing_orders', 'external_reference', 'TEXT');
   addColumnIfMissing(db, 'ticketing_orders', 'expires_at', 'TEXT');
   addColumnIfMissing(db, 'ticketing_orders', 'email_sent_at', 'TEXT');
+  addColumnIfMissing(db, 'ticketing_orders', 'payment_method', "TEXT NOT NULL DEFAULT 'payphone'");
+  addColumnIfMissing(db, 'ticketing_orders', 'provider_fee_rate', 'REAL');
+  addColumnIfMissing(db, 'ticketing_orders', 'transfer_reference', 'TEXT');
+  addColumnIfMissing(db, 'ticketing_orders', 'transfer_checked_by', 'TEXT');
+  addColumnIfMissing(db, 'ticketing_validators', 'access_scope', "TEXT NOT NULL DEFAULT 'qr'");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ticketing_payment_settings (
+      establishment_id INTEGER PRIMARY KEY,
+      transfer_enabled INTEGER NOT NULL DEFAULT 1,
+      beneficiary TEXT NOT NULL DEFAULT 'Henry Freire',
+      bank_name TEXT NOT NULL DEFAULT 'Banco Pichincha',
+      identification TEXT NOT NULL DEFAULT '1804888988',
+      account_number TEXT NOT NULL DEFAULT '',
+      account_type TEXT NOT NULL DEFAULT '',
+      deuna_qr_url TEXT NOT NULL DEFAULT '',
+      whatsapp TEXT NOT NULL DEFAULT '593979243134',
+      transfer_minutes INTEGER NOT NULL DEFAULT 30,
+      payphone_fee_percent REAL NOT NULL DEFAULT 5.75,
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ticketing_transfer_reference
+      ON ticketing_orders(establishment_id, transfer_reference)
+      WHERE transfer_reference IS NOT NULL AND transfer_reference != '';
+  `);
+  db.prepare('INSERT OR IGNORE INTO ticketing_payment_settings (establishment_id) VALUES (?)').run(establishment.id);
   addColumnIfMissing(db, 'ticketing_events', 'hero_display_mode', "TEXT NOT NULL DEFAULT 'cover'");
+  const addedTransferQr = addColumnIfMissing(db, 'ticketing_events', 'transfer_qr_url', "TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, 'ticketing_events', 'sales_enabled', 'INTEGER NOT NULL DEFAULT 1');
   const addedPaymentEnabled = addColumnIfMissing(db, 'ticketing_events', 'payment_enabled', 'INTEGER NOT NULL DEFAULT 1');
   const addedPastState = addColumnIfMissing(db, 'ticketing_events', 'is_past', 'INTEGER NOT NULL DEFAULT 0');
@@ -397,5 +423,9 @@ export function initTicketingDb(db) {
     establishment.id
   );
 
+  if (addedTransferQr) {
+    db.prepare('UPDATE ticketing_events SET transfer_qr_url = ? WHERE establishment_id = ? AND slug = ?')
+      .run('/protickets/deuna-mago.png', establishment.id, 'las-leyendas-de-mago-de-oz-imbabura');
+  }
   return establishment;
 }
