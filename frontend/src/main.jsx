@@ -37,6 +37,7 @@ import ProducalzaApp from './ProducalzaApp.jsx';
 import RenjiApp, { RenjiPublicRegistration } from './RenjiApp.jsx';
 import LocalAttendancePage from './LocalAttendancePage.jsx';
 import ProTicketsApp, { ProTicketsPublicSite } from './ProTicketsApp.jsx';
+import { MarjoriePromoterApp, MarjoriePromotersAdmin, MarjorieReferralPage, MarjorieRegistration } from './MarjoriePromotersApp.jsx';
 import './styles.css';
 
 const emptyPromoter = {
@@ -844,6 +845,14 @@ function App() {
     return <RegisterPage />;
   }
 
+  if (window.location.pathname === '/marjorie/registro') {
+    return <MarjorieRegistration />;
+  }
+
+  if (/^\/r\/MB-[^/]+$/i.test(window.location.pathname)) {
+    return <MarjorieReferralPage code={decodeURIComponent(window.location.pathname.split('/').pop())} />;
+  }
+
   if (window.location.pathname === '/renji-registro') {
     return <RenjiPublicRegistration />;
   }
@@ -865,6 +874,14 @@ function App() {
 
   if (user?.role === 'promoter') {
     return <PromoterAppPremium user={user} onLogout={() => {
+      clearToken();
+      saveToken(null);
+      saveUser(null);
+    }} />;
+  }
+
+  if (user?.role === 'marjorie_promoter') {
+    return <MarjoriePromoterApp user={user} onLogout={() => {
       clearToken();
       saveToken(null);
       saveUser(null);
@@ -931,7 +948,7 @@ function Login({ onLogin }) {
     event.preventDefault();
     setError('');
     try {
-      const paths = ['/auth/login', '/ticketing/validator/login', '/auth/promoter-login'];
+      const paths = ['/auth/login', '/ticketing/validator/login', '/marjorie/auth/login', '/auth/promoter-login'];
       let data = null;
       let lastError = null;
 
@@ -1008,6 +1025,7 @@ function Login({ onLogin }) {
         </form>
         <div className="login-secondary-actions">
           <a href="/registro">Quiero registrarme como promotor</a>
+          <a href="/marjorie/registro">Promotoras Marjorie Botas</a>
           <a href="/verificar">Verificar codigo de promotor</a>
         </div>
       </section>
@@ -1143,6 +1161,11 @@ function AdminApp({ user, onLogout }) {
     const defaultEstablishment = establishments.find((item) => item.name === 'GEMASHOW') || establishments[0];
     const establishmentId = nextEstablishmentId || defaultEstablishment?.id || '';
     const nextEstablishment = establishments.find((item) => String(item.id) === String(establishmentId));
+    if (nextEstablishment?.theme === 'marjorie' && !['marjorie-promoters', 'branches', 'establishments'].includes(view)) {
+      setView('marjorie-promoters');
+    } else if (nextEstablishment?.theme !== 'marjorie' && view === 'marjorie-promoters') {
+      setView('dashboard');
+    }
     if (['production', 'clothing', 'ticketing'].includes(nextEstablishment?.module_type)) {
       if (view !== 'establishments') {
         setView(nextEstablishment.module_type === 'production'
@@ -1228,6 +1251,7 @@ function AdminApp({ user, onLogout }) {
   const isProductionBusiness = currentEstablishment?.module_type === 'production';
   const isClothingBusiness = currentEstablishment?.module_type === 'clothing';
   const isTicketingBusiness = currentEstablishment?.module_type === 'ticketing';
+  const isMarjorieBusiness = currentEstablishment?.theme === 'marjorie';
   const canSwitchBusiness = user?.role === 'supreme' && data.establishments.length > 1;
   const nav = isProductionBusiness ? [
     ...(user?.role === 'supreme' ? [['establishments', 'Negocios', Building2]] : []),
@@ -1238,6 +1262,10 @@ function AdminApp({ user, onLogout }) {
   ] : isTicketingBusiness ? [
     ...(user?.role === 'supreme' ? [['establishments', 'Negocios', Building2]] : []),
     ['ticketing', 'ProTickets', Ticket]
+  ] : isMarjorieBusiness ? [
+    ...(user?.role === 'supreme' ? [['establishments', 'Negocios', Building2]] : []),
+    ['marjorie-promoters', 'Promotoras', UsersRound],
+    ['branches', 'Locales', Building2]
   ] : [
     ...(user?.role === 'supreme' ? [['establishments', 'Negocios', Building2]] : []),
     ['dashboard', 'Panel', BarChart3],
@@ -1348,7 +1376,8 @@ function AdminApp({ user, onLogout }) {
                 user={{ ...user, establishment_id: Number(selectedEstablishmentId) }}
               />
             )}
-            {view === 'dashboard' && !isProductionBusiness && !isClothingBusiness && !isTicketingBusiness && <Dashboard stats={data.dashboard} sales={data.sales} />}
+            {view === 'dashboard' && !isProductionBusiness && !isClothingBusiness && !isTicketingBusiness && !isMarjorieBusiness && <Dashboard stats={data.dashboard} sales={data.sales} />}
+            {view === 'marjorie-promoters' && isMarjorieBusiness && <MarjoriePromotersAdmin embedded />}
             {view === 'branches' && isCommercialBusiness && (
               <Branches branches={data.branches} establishmentId={selectedEstablishmentId} onRefresh={refresh} />
             )}

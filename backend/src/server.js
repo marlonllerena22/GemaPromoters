@@ -14,6 +14,7 @@ import {
 } from './producalza-routes.js';
 import { registerRenjiRoutes } from './renji-routes.js';
 import { registerTicketingRoutes } from './ticketing-routes.js';
+import { registerMarjoriePromotersRoutes } from './marjorie-promoters-routes.js';
 
 dotenv.config();
 initDb();
@@ -2938,6 +2939,7 @@ app.post('/api/verify', (req, res) => {
 registerProducalzaRoutes(app, db, getRequestEstablishmentId);
 registerRenjiRoutes(app, db, getRequestEstablishmentId);
 registerTicketingRoutes(app, db);
+registerMarjoriePromotersRoutes(app, db);
 
 recalculateAllCommissions();
 
