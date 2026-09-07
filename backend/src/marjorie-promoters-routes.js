@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import nodemailer from 'nodemailer';
 import QRCode from 'qrcode';
 import { createToken, requireAuth } from './auth.js';
 
@@ -63,8 +64,50 @@ function statusLabel(status) {
   return ({ pending: 'Pendiente', active: 'Activa', review: 'En revision', suspended: 'Suspendida', revoked: 'Revocada', rejected: 'Rechazada' })[status] || status;
 }
 
+function safePromoter(promoter) {
+  const { password_hash: _passwordHash, ...safe } = promoter;
+  return safe;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
+  })[character]);
+}
+
 export function registerMarjoriePromotersRoutes(app, db) {
   const publicUrl = () => String(process.env.PUBLIC_APP_URL || 'http://localhost:5173').replace(/\/$/, '');
+
+  async function sendApprovalEmail(promoter) {
+    if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
+      return { sent: false, reason: 'SMTP no configurado' };
+    }
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT || 587),
+      secure: String(process.env.SMTP_SECURE || '').toLowerCase() === 'true',
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+    });
+    const loginUrl = publicUrl();
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: promoter.email,
+      subject: 'Tu cuenta de promotora Marjorie Botas fue aprobada',
+      text: `Hola ${promoter.name},\n\nTu registro fue aprobado y tu cuenta ya esta activa.\n\nUsuario: ${promoter.email}\nCodigo de promotora: ${promoter.code}\nContrasena: utiliza la que creaste al registrarte.\n\nIngresa aqui: ${loginUrl}\n\nTambien puedes iniciar sesion usando tu codigo de promotora como usuario.`,
+      html: `<div style="font-family:Arial,sans-serif;background:#fff8f2;color:#3f2924;padding:28px;border:1px solid #ead8cb;border-radius:8px">
+        <h2 style="margin:0 0 12px;color:#a5211c">Bienvenida a Marjorie Botas</h2>
+        <p>Hola <strong>${escapeHtml(promoter.name)}</strong>, tu registro fue aprobado y tu cuenta ya esta activa.</p>
+        <div style="background:#fff;border:1px solid #e5cfc0;padding:16px;border-radius:6px">
+          <p><strong>Usuario:</strong> ${escapeHtml(promoter.email)}</p>
+          <p><strong>Codigo de promotora:</strong> ${escapeHtml(promoter.code)}</p>
+          <p><strong>Contrasena:</strong> utiliza la que creaste al registrarte.</p>
+        </div>
+        <p><a href="${escapeHtml(loginUrl)}" style="display:inline-block;background:#a5211c;color:#fff;text-decoration:none;padding:11px 18px;border-radius:5px">Ingresar a PROMOTERS</a></p>
+        <p style="color:#75625b;font-size:13px">Tambien puedes iniciar sesion usando tu codigo de promotora como usuario.</p>
+      </div>`
+    });
+    return { sent: true };
+  }
 
   function audit(promoterId, actor, action, entityType, entityId = null, details = '') {
     db.prepare(`INSERT INTO marjorie_promoter_audit
@@ -208,7 +251,7 @@ export function registerMarjoriePromotersRoutes(app, db) {
           : { name: 'Inicial', next: 'Plata', remaining: 5 - cyclePairs, progress: Math.round((cyclePairs / 5) * 100) };
     const payableCut = findPayableCut(promoter, sales, bonuses, payments, targetDate);
     return {
-      ...promoter,
+      ...safePromoter(promoter),
       status_label: statusLabel(promoter.status),
       cycle,
       level,
@@ -399,7 +442,7 @@ export function registerMarjoriePromotersRoutes(app, db) {
 
   app.get('/api/marjorie/admin/promoters', requireMarjorieAdmin, (_req, res) => {
     res.json(db.prepare('SELECT * FROM marjorie_promoters ORDER BY CASE status WHEN \'pending\' THEN 0 ELSE 1 END, registered_at DESC').all()
-      .map((row) => { const detail = promoterPayload(row); return { ...row, status_label: detail.status_label, cycle_pairs: detail.cycle_pairs, pending_total: detail.pending_total, next_cut: detail.payable_cut?.due_date, performance_alert: detail.performance_alert }; }));
+      .map((row) => { const detail = promoterPayload(row); return { ...safePromoter(row), status_label: detail.status_label, cycle_pairs: detail.cycle_pairs, pending_total: detail.pending_total, next_cut: detail.payable_cut?.due_date, performance_alert: detail.performance_alert }; }));
   });
 
   app.get('/api/marjorie/admin/promoters/:id', requireMarjorieAdmin, (req, res) => {
@@ -423,14 +466,21 @@ export function registerMarjoriePromotersRoutes(app, db) {
     res.json(promoterPayload(db.prepare('SELECT * FROM marjorie_promoters WHERE id = ?').get(promoter.id)));
   });
 
-  app.post('/api/marjorie/admin/promoters/:id/approve', requireMarjorieAdmin, (req, res) => {
+  app.post('/api/marjorie/admin/promoters/:id/approve', requireMarjorieAdmin, async (req, res) => {
     const promoter = db.prepare('SELECT * FROM marjorie_promoters WHERE id = ?').get(req.params.id);
     if (!promoter) return res.status(404).json({ message: 'Promotora no encontrada' });
     if (promoter.status === 'rejected' || promoter.status === 'revoked') return res.status(409).json({ message: 'Cambia primero el estado de esta solicitud' });
     const code = promoter.code || `MB-${String(promoter.id).padStart(4, '0')}`;
     db.prepare(`UPDATE marjorie_promoters SET code = ?, status = 'active', activated_at = COALESCE(activated_at, date('now','localtime')), updated_at = datetime('now','localtime') WHERE id = ?`).run(code, promoter.id);
     audit(promoter.id, req.user.username || req.user.role, 'approve', 'promoter', promoter.id, code);
-    res.json(promoterPayload(db.prepare('SELECT * FROM marjorie_promoters WHERE id = ?').get(promoter.id)));
+    const approved = db.prepare('SELECT * FROM marjorie_promoters WHERE id = ?').get(promoter.id);
+    let email = { sent: false, reason: 'No se pudo enviar el correo' };
+    try {
+      email = await sendApprovalEmail(approved);
+    } catch (error) {
+      email = { sent: false, reason: error.message };
+    }
+    res.json({ ...promoterPayload(approved), email_sent: Boolean(email.sent), email_reason: email.reason || null });
   });
 
   app.post('/api/marjorie/admin/sales', requireMarjorieAdmin, (req, res) => {

@@ -32,6 +32,11 @@
 .mb-register-page label, .mb-member-app label, .mba-app label { display: grid; gap: 7px; color: #594d44; font-size: 13px; font-weight: 750; }
 .mb-register-page input, .mb-member-app input, .mb-member-app select, .mb-member-app textarea, .mba-app input, .mba-app select, .mba-app textarea { width: 100%; min-height: 44px; padding: 10px 12px; color: var(--mb-ink); background: #fff; border: 1px solid #d9cec1; border-radius: 6px; outline: 0; }
 .mb-register-page input:focus, .mb-member-app input:focus, .mb-member-app select:focus, .mb-member-app textarea:focus, .mba-app input:focus, .mba-app select:focus, .mba-app textarea:focus { border-color: var(--mb-camel); box-shadow: 0 0 0 3px rgba(173, 122, 62, .12); }
+.mb-password-field { position: relative; display: block; }
+.mb-password-field input { padding-right: 46px; }
+.mb-password-field button { position: absolute; top: 50%; right: 5px; width: 36px; height: 36px; padding: 0; display: grid; place-items: center; transform: translateY(-50%); color: #74635a; background: transparent; border: 0; border-radius: 4px; cursor: pointer; }
+.mb-password-field button:hover { color: var(--mb-red); background: #f8eee8; }
+.mb-password-field button svg { width: 19px; height: 19px; }
 .mb-photo-input { position: relative; min-height: 86px; }
 .mb-photo-input input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .mb-photo-input span { height: 52px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px dashed #c5ae94; border-radius: 6px; cursor: pointer; }

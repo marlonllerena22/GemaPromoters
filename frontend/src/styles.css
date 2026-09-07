@@ -682,6 +682,36 @@ input[type="file"] {
   color: #ffffff;
 }
 
+.login-password-field {
+  display: block;
+  position: relative;
+}
+
+.login-password-field input {
+  padding-right: 48px;
+  width: 100%;
+}
+
+.login-password-field button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #d8d3ea;
+  display: flex;
+  height: 38px;
+  justify-content: center;
+  padding: 0;
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 40px;
+}
+
+.login-password-field button:hover {
+  color: #ffffff;
+}
+
 .login-panel .remember-control {
   align-items: center;
   color: #d8d3ea;

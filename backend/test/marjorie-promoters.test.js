@@ -70,11 +70,16 @@ test('registration, approval, QR, sales, bonuses, payments and reversals remain 
   const approval = await request('/marjorie/admin/promoters/1/approve', { method: 'POST', token: adminToken });
   assert.equal(approval.status, 200);
   assert.equal(approval.data.code, 'MB-0001');
+  assert.equal(approval.data.email_sent, false);
+  assert.equal(approval.data.password_hash, undefined);
+  const adminList = await request('/marjorie/admin/promoters', { token: adminToken });
+  assert.equal(adminList.data[0].password_hash, undefined);
   db.prepare("UPDATE marjorie_promoters SET activated_at = '2026-08-07' WHERE id = 1").run();
 
   const login = await request('/marjorie/auth/login', { method: 'POST', body: JSON.stringify({ username: 'MB-0001', password: registration.password }) });
   const me = await request('/marjorie/me', { token: login.data.token });
   assert.equal(me.status, 200);
+  assert.equal(me.data.password_hash, undefined);
   assert.equal(me.data.branches.length, 4);
   assert.match(me.data.qr_url, /MB-0001\/qr$/);
 

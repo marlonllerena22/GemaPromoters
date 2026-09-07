@@ -942,6 +942,7 @@ function Login({ onLogin }) {
   })();
   const [form, setForm] = useState({ username: savedCredentials.username || '', password: savedCredentials.password || '' });
   const [rememberMe, setRememberMe] = useState(Boolean(savedCredentials.username && savedCredentials.password));
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
 
   async function submit(event) {
@@ -1003,11 +1004,16 @@ function Login({ onLogin }) {
           </label>
           <label>
             Contrasena
-            <input
-              type="password"
-              value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-            />
+            <span className="login-password-field">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+              />
+              <button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'} title={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}>
+                {showPassword ? <EyeOff size={19} /> : <Eye size={19} />}
+              </button>
+            </span>
           </label>
           <label className="remember-control">
             <input
