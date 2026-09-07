@@ -1,3 +1,6 @@
+import crypto from 'node:crypto';
+import { PRODUCALZA_INITIAL_INVENTORY } from './producalza-inventory-seed.js';
+
 export function initProducalzaDb(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS production_users (
@@ -555,6 +558,60 @@ export function initProducalzaDb(db) {
       FOREIGN KEY (establishment_id) REFERENCES establishments(id)
     );
 
+    CREATE TABLE IF NOT EXISTS production_inventory_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      source_key TEXT NOT NULL,
+      code TEXT NOT NULL,
+      qr_token TEXT NOT NULL UNIQUE,
+      category TEXT NOT NULL,
+      name TEXT NOT NULL,
+      color TEXT,
+      unit TEXT NOT NULL DEFAULT 'unidades',
+      photo_url TEXT,
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      UNIQUE(establishment_id, source_key),
+      UNIQUE(establishment_id, code)
+    );
+
+    CREATE TABLE IF NOT EXISTS production_inventory_variants (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      item_id INTEGER NOT NULL,
+      variant_label TEXT NOT NULL,
+      quantity INTEGER NOT NULL DEFAULT 0 CHECK (quantity >= 0),
+      position INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (item_id) REFERENCES production_inventory_items(id) ON DELETE CASCADE,
+      UNIQUE(item_id, variant_label)
+    );
+
+    CREATE TABLE IF NOT EXISTS production_inventory_movements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      item_id INTEGER NOT NULL,
+      variant_id INTEGER NOT NULL,
+      movement_type TEXT NOT NULL CHECK (movement_type IN ('initial', 'in', 'out', 'adjustment')),
+      quantity INTEGER NOT NULL CHECK (quantity > 0),
+      previous_quantity INTEGER NOT NULL DEFAULT 0,
+      new_quantity INTEGER NOT NULL DEFAULT 0,
+      responsible_person TEXT,
+      purpose TEXT,
+      notes TEXT,
+      created_by_user_id INTEGER,
+      created_by TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (item_id) REFERENCES production_inventory_items(id),
+      FOREIGN KEY (variant_id) REFERENCES production_inventory_variants(id),
+      FOREIGN KEY (created_by_user_id) REFERENCES production_users(id)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_production_clients_business
       ON production_clients(establishment_id, name);
     CREATE INDEX IF NOT EXISTS idx_production_orders_business
@@ -591,9 +648,16 @@ export function initProducalzaDb(db) {
       ON production_local_monthly_reports(establishment_id, report_month, local_name);
     CREATE INDEX IF NOT EXISTS idx_production_local_payroll_business
       ON production_local_payroll_cards(establishment_id, report_month, local_name);
+    CREATE INDEX IF NOT EXISTS idx_production_inventory_items_business
+      ON production_inventory_items(establishment_id, category, name, status);
+    CREATE INDEX IF NOT EXISTS idx_production_inventory_variants_item
+      ON production_inventory_variants(establishment_id, item_id, position);
+    CREATE INDEX IF NOT EXISTS idx_production_inventory_movements_business
+      ON production_inventory_movements(establishment_id, created_at, item_id);
   `);
 
   addColumnIfMissing(db, 'production_users', 'is_local_secretary', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'production_users', 'is_warehouse', 'INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'production_local_finances', 'finance_group', "TEXT NOT NULL DEFAULT 'various'");
   addColumnIfMissing(db, 'production_local_finances', 'payee', 'TEXT');
   addColumnIfMissing(db, 'production_local_finances', 'pairs', 'INTEGER NOT NULL DEFAULT 0');
@@ -694,8 +758,10 @@ export function initProducalzaDb(db) {
 
   seedLocalStores(db, establishment.id);
   seedLocalSecretary(db, establishment.id);
+  seedWarehouseUser(db, establishment.id);
   seedLocalStaff(db, establishment.id);
   seedLocalReportSettings(db, establishment.id);
+  seedWarehouseInventory(db, establishment.id);
   normalizeLocalStoreReferences(db);
 
   db.prepare('DELETE FROM production_monthly_report_rows WHERE establishment_id = ?').run(establishment.id);
@@ -896,6 +962,84 @@ function seedLocalSecretary(db, establishmentId) {
        is_local_secretary = 1,
        status = 'active'`
   ).run(establishmentId);
+}
+
+function seedWarehouseUser(db, establishmentId) {
+  db.prepare(
+    `INSERT INTO production_users
+     (establishment_id, name, username, password, role, can_view_all_orders, is_local_secretary, is_warehouse, status)
+     VALUES (?, 'Bodega Producalza', 'bodega', 'bodega123', 'vendor', 0, 0, 1, 'active')
+     ON CONFLICT(username) DO UPDATE SET
+       establishment_id = excluded.establishment_id,
+       name = excluded.name,
+       role = 'vendor',
+       can_view_all_orders = 0,
+       is_local_secretary = 0,
+       is_warehouse = 1,
+       status = 'active'`
+  ).run(establishmentId);
+}
+
+function seedWarehouseInventory(db, establishmentId) {
+  const insertItem = db.prepare(
+    `INSERT OR IGNORE INTO production_inventory_items
+     (establishment_id, source_key, code, qr_token, category, name, color, unit, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')`
+  );
+  const findItem = db.prepare(
+    `SELECT id FROM production_inventory_items
+     WHERE establishment_id = ? AND source_key = ?`
+  );
+  const insertVariant = db.prepare(
+    `INSERT OR IGNORE INTO production_inventory_variants
+     (establishment_id, item_id, variant_label, quantity, position)
+     VALUES (?, ?, ?, ?, ?)`
+  );
+  const findVariant = db.prepare(
+    `SELECT id, quantity FROM production_inventory_variants
+     WHERE item_id = ? AND variant_label = ?`
+  );
+  const insertMovement = db.prepare(
+    `INSERT INTO production_inventory_movements
+     (establishment_id, item_id, variant_id, movement_type, quantity,
+      previous_quantity, new_quantity, responsible_person, purpose, created_by)
+     VALUES (?, ?, ?, 'initial', ?, 0, ?, 'Carga inicial', 'Inventario de septiembre 2026', 'Sistema')`
+  );
+
+  db.transaction(() => {
+    for (const item of PRODUCALZA_INITIAL_INVENTORY) {
+      const token = crypto
+        .createHash('sha256')
+        .update(`${establishmentId}:${item.sourceKey}`)
+        .digest('hex')
+        .slice(0, 24);
+      const result = insertItem.run(
+        establishmentId,
+        item.sourceKey,
+        item.code,
+        token,
+        item.category,
+        item.name,
+        item.color,
+        item.unit
+      );
+      if (!result.changes) continue;
+      const storedItem = findItem.get(establishmentId, item.sourceKey);
+      for (const variant of item.variants) {
+        insertVariant.run(establishmentId, storedItem.id, variant.label, variant.quantity, variant.position);
+        const storedVariant = findVariant.get(storedItem.id, variant.label);
+        if (variant.quantity > 0) {
+          insertMovement.run(
+            establishmentId,
+            storedItem.id,
+            storedVariant.id,
+            variant.quantity,
+            variant.quantity
+          );
+        }
+      }
+    }
+  })();
 }
 
 function seedLocalStaff(db, establishmentId) {

@@ -1,6 +1,8 @@
 import { createToken, requireAuth, requireProductionAdmin, requireProductionUser } from './auth.js';
 import { createProductionOrderPdf } from './production-pdf.js';
 import { LOCAL_REPORTS_IMPORT_TAG, localReportsSummary, parseLocalReportsWorkbook } from './local-reports-import.js';
+import QRCode from 'qrcode';
+import crypto from 'node:crypto';
 
 const ORDER_STATUSES = ['draft', 'received', 'reviewed', 'in_production', 'finished', 'delivered', 'cancelled'];
 const MODEL_STATUSES = ['received', 'reviewed', 'in_production', 'cut', 'stitched', 'assembled', 'finished', 'delivered', 'cancelled'];
@@ -269,7 +271,8 @@ export function productionLoginResponse(user) {
       productionUserId: user.id,
       establishmentId: user.establishment_id,
       canViewAllOrders: Boolean(user.can_view_all_orders),
-      isLocalSecretary: Boolean(user.is_local_secretary)
+      isLocalSecretary: Boolean(user.is_local_secretary),
+      isWarehouse: Boolean(user.is_warehouse)
     }),
     user: {
       id: user.id,
@@ -279,7 +282,8 @@ export function productionLoginResponse(user) {
       establishment_id: user.establishment_id,
       establishment_display_name: user.establishment_name || 'PRODUCALZA',
       can_view_all_orders: Boolean(user.can_view_all_orders),
-      is_local_secretary: Boolean(user.is_local_secretary)
+      is_local_secretary: Boolean(user.is_local_secretary),
+      is_warehouse: Boolean(user.is_warehouse)
     }
   };
 }
@@ -307,6 +311,60 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
 
   function isLocalSecretary(req) {
     return Boolean(req.user?.isLocalSecretary || req.user?.is_local_secretary);
+  }
+
+  function isWarehouseUser(req) {
+    return Boolean(req.user?.isWarehouse || req.user?.is_warehouse);
+  }
+
+  function requireWarehouseWrite(req, res, next) {
+    requireProductionUser(req, res, () => {
+      if (!isWarehouseUser(req)) {
+        return res.status(403).json({ message: 'Solo el usuario de bodega puede modificar el inventario' });
+      }
+      return next();
+    });
+  }
+
+  function requireInventoryRead(req, res, next) {
+    requireProductionUser(req, res, () => {
+      if (!isProductionAdmin(req) && !isWarehouseUser(req)) {
+        return res.status(403).json({ message: 'Acceso exclusivo de administracion y bodega' });
+      }
+      return next();
+    });
+  }
+
+  function ecuadorDateTime() {
+    return new Intl.DateTimeFormat('sv-SE', {
+      timeZone: 'America/Guayaquil',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    }).format(new Date());
+  }
+
+  function publicAppUrl() {
+    return String(process.env.PUBLIC_APP_URL || 'http://localhost:5173').replace(/\/$/, '');
+  }
+
+  function inventoryItem(item) {
+    if (!item) return null;
+    const variants = db.prepare(
+      `SELECT id, variant_label, quantity, position
+       FROM production_inventory_variants
+       WHERE establishment_id = ? AND item_id = ?
+       ORDER BY position, id`
+    ).all(item.establishment_id, item.id);
+    return {
+      ...item,
+      variants,
+      total_quantity: variants.reduce((total, variant) => total + Number(variant.quantity || 0), 0)
+    };
   }
 
   function canAccessProductionReports(req) {
@@ -1227,7 +1285,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const id = business.id;
     const users = isProductionAdmin(req)
       ? db.prepare(
-        `SELECT id, name, username, role, can_view_all_orders, is_local_secretary, status, created_at
+        `SELECT id, name, username, role, can_view_all_orders, is_local_secretary, is_warehouse, status, created_at
          FROM production_users WHERE establishment_id = ? ORDER BY name`
       ).all(id)
       : [];
@@ -1238,6 +1296,309 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       sizes: SIZES,
       order_statuses: ORDER_STATUSES,
       model_statuses: MODEL_STATUSES
+    });
+  });
+
+  app.get('/api/producalza/inventory', requireInventoryRead, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const search = String(req.query.search || '').trim();
+    const category = String(req.query.category || '').trim();
+    const status = req.query.status === 'inactive' ? 'inactive' : 'active';
+    const params = [business.id, status];
+    const conditions = ['items.establishment_id = ?', 'items.status = ?'];
+    if (category) {
+      conditions.push('items.category = ?');
+      params.push(category);
+    }
+    if (search) {
+      conditions.push(`(items.code LIKE ? OR items.name LIKE ? OR items.color LIKE ? OR items.category LIKE ?)`);
+      const pattern = `%${search}%`;
+      params.push(pattern, pattern, pattern, pattern);
+    }
+    const items = db.prepare(
+      `SELECT items.*,
+              COALESCE(SUM(variants.quantity), 0) AS total_quantity
+       FROM production_inventory_items AS items
+       LEFT JOIN production_inventory_variants AS variants ON variants.item_id = items.id
+       WHERE ${conditions.join(' AND ')}
+       GROUP BY items.id
+       ORDER BY items.category, items.name, items.color, items.id`
+    ).all(...params).map(inventoryItem);
+    const categories = db.prepare(
+      `SELECT items.category, COUNT(DISTINCT items.id) AS item_count,
+              COALESCE(SUM(variants.quantity), 0) AS total_quantity
+       FROM production_inventory_items AS items
+       LEFT JOIN production_inventory_variants AS variants ON variants.item_id = items.id
+       WHERE items.establishment_id = ? AND items.status = 'active'
+       GROUP BY items.category ORDER BY items.category`
+    ).all(business.id);
+    const summary = db.prepare(
+      `SELECT COUNT(DISTINCT items.id) AS item_count,
+              COALESCE(SUM(variants.quantity), 0) AS total_quantity
+       FROM production_inventory_items AS items
+       LEFT JOIN production_inventory_variants AS variants ON variants.item_id = items.id
+       WHERE items.establishment_id = ? AND items.status = 'active'`
+    ).get(business.id);
+    res.json({
+      items,
+      categories,
+      summary,
+      can_manage_inventory: isWarehouseUser(req)
+    });
+  });
+
+  app.get('/api/producalza/inventory-history', requireInventoryRead, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const itemId = Number(req.query.item_id || 0);
+    const dateFrom = String(req.query.date_from || '').trim();
+    const dateTo = String(req.query.date_to || '').trim();
+    const params = [business.id];
+    const conditions = ['movements.establishment_id = ?'];
+    if (itemId) {
+      conditions.push('movements.item_id = ?');
+      params.push(itemId);
+    }
+    if (dateFrom) {
+      conditions.push('date(movements.created_at) >= date(?)');
+      params.push(dateFrom);
+    }
+    if (dateTo) {
+      conditions.push('date(movements.created_at) <= date(?)');
+      params.push(dateTo);
+    }
+    res.json(db.prepare(
+      `SELECT movements.*, items.code, items.name, items.color, items.category,
+              variants.variant_label
+       FROM production_inventory_movements AS movements
+       JOIN production_inventory_items AS items ON items.id = movements.item_id
+       JOIN production_inventory_variants AS variants ON variants.id = movements.variant_id
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY movements.created_at DESC, movements.id DESC
+       LIMIT 500`
+    ).all(...params));
+  });
+
+  app.get('/api/producalza/inventory/qr/:token.png', async (req, res) => {
+    const item = db.prepare(
+      `SELECT qr_token FROM production_inventory_items
+       WHERE qr_token = ? AND status = 'active'`
+    ).get(String(req.params.token || ''));
+    if (!item) return res.status(404).end();
+    try {
+      const png = await QRCode.toBuffer(
+        `${publicAppUrl()}/bodega/material/${encodeURIComponent(item.qr_token)}`,
+        { width: 420, margin: 1, errorCorrectionLevel: 'M', color: { dark: '#101a16', light: '#ffffff' } }
+      );
+      res.type('png').send(png);
+    } catch {
+      res.status(500).json({ message: 'No se pudo generar el codigo QR' });
+    }
+  });
+
+  app.get('/api/producalza/inventory/by-token/:token', requireInventoryRead, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const item = db.prepare(
+      `SELECT * FROM production_inventory_items
+       WHERE establishment_id = ? AND qr_token = ? AND status = 'active'`
+    ).get(business.id, String(req.params.token || ''));
+    if (!item) return res.status(404).json({ message: 'Material no encontrado' });
+    res.json({ ...inventoryItem(item), can_manage_inventory: isWarehouseUser(req) });
+  });
+
+  app.get('/api/producalza/inventory/:id', requireInventoryRead, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const item = db.prepare(
+      `SELECT * FROM production_inventory_items
+       WHERE establishment_id = ? AND id = ?`
+    ).get(business.id, req.params.id);
+    if (!item) return res.status(404).json({ message: 'Material no encontrado' });
+    res.json({ ...inventoryItem(item), can_manage_inventory: isWarehouseUser(req) });
+  });
+
+  app.post('/api/producalza/inventory', requireWarehouseWrite, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const name = String(req.body.name || '').trim();
+    const category = String(req.body.category || '').trim();
+    const color = String(req.body.color || '').trim();
+    const unit = String(req.body.unit || 'unidades').trim() || 'unidades';
+    const rawVariants = Array.isArray(req.body.variants) ? req.body.variants : [];
+    const variants = rawVariants
+      .map((variant, index) => ({
+        label: String(variant.label || variant.variant_label || '').trim(),
+        quantity: Math.max(0, Math.round(Number(variant.quantity || 0))),
+        position: index
+      }))
+      .filter((variant, index, list) => variant.label && list.findIndex((item) => item.label.toLowerCase() === variant.label.toLowerCase()) === index);
+    if (!name || !category || !variants.length) {
+      return res.status(400).json({ message: 'Nombre, categoria y al menos una talla o variante son obligatorios' });
+    }
+    const latest = db.prepare(
+      `SELECT code FROM production_inventory_items
+       WHERE establishment_id = ? ORDER BY id DESC LIMIT 1`
+    ).get(business.id);
+    const nextNumber = Math.max(1, Number(String(latest?.code || '').match(/(\d+)$/)?.[1] || 0) + 1);
+    const code = `BOD-${String(nextNumber).padStart(4, '0')}`;
+    const qrToken = crypto.randomBytes(16).toString('hex');
+    const createdAt = ecuadorDateTime();
+    let itemId;
+    db.transaction(() => {
+      const result = db.prepare(
+        `INSERT INTO production_inventory_items
+         (establishment_id, source_key, code, qr_token, category, name, color, unit, photo_url, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        business.id,
+        `manual-${qrToken}`,
+        code,
+        qrToken,
+        category,
+        name,
+        color,
+        unit,
+        String(req.body.photo_url || ''),
+        createdAt,
+        createdAt
+      );
+      itemId = Number(result.lastInsertRowid);
+      const insertVariant = db.prepare(
+        `INSERT INTO production_inventory_variants
+         (establishment_id, item_id, variant_label, quantity, position, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      );
+      const insertMovement = db.prepare(
+        `INSERT INTO production_inventory_movements
+         (establishment_id, item_id, variant_id, movement_type, quantity, previous_quantity,
+          new_quantity, responsible_person, purpose, created_by_user_id, created_by, created_at)
+         VALUES (?, ?, ?, 'initial', ?, 0, ?, ?, 'Creacion del material', ?, ?, ?)`
+      );
+      for (const variant of variants) {
+        const resultVariant = insertVariant.run(
+          business.id, itemId, variant.label, variant.quantity, variant.position, createdAt, createdAt
+        );
+        if (variant.quantity > 0) {
+          insertMovement.run(
+            business.id,
+            itemId,
+            resultVariant.lastInsertRowid,
+            variant.quantity,
+            variant.quantity,
+            req.user?.username || 'Bodega',
+            req.user?.productionUserId || null,
+            req.user?.username || 'bodega',
+            createdAt
+          );
+        }
+      }
+    })();
+    audit(req, 'create', 'inventory_item', itemId, `${code} - ${name}`);
+    const item = db.prepare('SELECT * FROM production_inventory_items WHERE id = ?').get(itemId);
+    res.status(201).json(inventoryItem(item));
+  });
+
+  app.patch('/api/producalza/inventory/:id', requireWarehouseWrite, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const current = db.prepare(
+      `SELECT * FROM production_inventory_items
+       WHERE establishment_id = ? AND id = ?`
+    ).get(business.id, req.params.id);
+    if (!current) return res.status(404).json({ message: 'Material no encontrado' });
+    const name = String(req.body.name ?? current.name).trim();
+    const category = String(req.body.category ?? current.category).trim();
+    if (!name || !category) return res.status(400).json({ message: 'Nombre y categoria son obligatorios' });
+    const photoUrl = req.body.photo_url === null ? null : String(req.body.photo_url ?? current.photo_url ?? '');
+    if (photoUrl.length > 12_000_000) return res.status(400).json({ message: 'La foto es demasiado grande' });
+    db.prepare(
+      `UPDATE production_inventory_items
+       SET name = ?, category = ?, color = ?, unit = ?, photo_url = ?, status = ?, updated_at = ?
+       WHERE establishment_id = ? AND id = ?`
+    ).run(
+      name,
+      category,
+      String(req.body.color ?? current.color ?? '').trim(),
+      String(req.body.unit ?? current.unit ?? 'unidades').trim() || 'unidades',
+      photoUrl,
+      req.body.status === 'inactive' ? 'inactive' : current.status,
+      ecuadorDateTime(),
+      business.id,
+      current.id
+    );
+    audit(req, 'update', 'inventory_item', current.id, `${current.code} - ${name}`);
+    res.json(inventoryItem(db.prepare('SELECT * FROM production_inventory_items WHERE id = ?').get(current.id)));
+  });
+
+  app.post('/api/producalza/inventory/:id/movements', requireWarehouseWrite, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const item = db.prepare(
+      `SELECT * FROM production_inventory_items
+       WHERE establishment_id = ? AND id = ? AND status = 'active'`
+    ).get(business.id, req.params.id);
+    if (!item) return res.status(404).json({ message: 'Material no encontrado' });
+    const movementType = req.body.movement_type === 'out' ? 'out' : 'in';
+    const quantity = Math.round(Number(req.body.quantity || 0));
+    const responsiblePerson = String(req.body.responsible_person || '').trim();
+    const purpose = String(req.body.purpose || '').trim();
+    const notes = String(req.body.notes || '').trim();
+    let variant = null;
+    const variantId = Number(req.body.variant_id || 0);
+    if (variantId) {
+      variant = db.prepare(
+        `SELECT * FROM production_inventory_variants
+         WHERE establishment_id = ? AND item_id = ? AND id = ?`
+      ).get(business.id, item.id, variantId);
+    }
+    if (!variant) return res.status(400).json({ message: 'Selecciona una talla o variante valida' });
+    if (quantity <= 0) return res.status(400).json({ message: 'La cantidad debe ser mayor a cero' });
+    if (!responsiblePerson || !purpose) {
+      return res.status(400).json({ message: 'Indica quien realizo el movimiento y para que se utilizo' });
+    }
+    const previousQuantity = Number(variant.quantity || 0);
+    if (movementType === 'out' && quantity > previousQuantity) {
+      return res.status(400).json({ message: `Stock insuficiente. Disponible: ${previousQuantity}` });
+    }
+    const newQuantity = movementType === 'out' ? previousQuantity - quantity : previousQuantity + quantity;
+    const createdAt = ecuadorDateTime();
+    let movementId;
+    db.transaction(() => {
+      db.prepare(
+        `UPDATE production_inventory_variants
+         SET quantity = ?, updated_at = ? WHERE id = ?`
+      ).run(newQuantity, createdAt, variant.id);
+      const result = db.prepare(
+        `INSERT INTO production_inventory_movements
+         (establishment_id, item_id, variant_id, movement_type, quantity, previous_quantity,
+          new_quantity, responsible_person, purpose, notes, created_by_user_id, created_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        business.id,
+        item.id,
+        variant.id,
+        movementType,
+        quantity,
+        previousQuantity,
+        newQuantity,
+        responsiblePerson,
+        purpose,
+        notes,
+        req.user?.productionUserId || null,
+        req.user?.username || 'bodega',
+        createdAt
+      );
+      movementId = Number(result.lastInsertRowid);
+      db.prepare(
+        `UPDATE production_inventory_items SET updated_at = ? WHERE id = ?`
+      ).run(createdAt, item.id);
+    })();
+    audit(req, movementType, 'inventory_movement', movementId, `${item.code} ${variant.variant_label}: ${quantity}`);
+    res.status(201).json({
+      movement: db.prepare('SELECT * FROM production_inventory_movements WHERE id = ?').get(movementId),
+      item: inventoryItem(db.prepare('SELECT * FROM production_inventory_items WHERE id = ?').get(item.id))
     });
   });
 
@@ -1933,7 +2294,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const business = ensureProductionBusiness(req, res);
     if (!business) return;
     res.json(db.prepare(
-      `SELECT id, name, username, role, can_view_all_orders, is_local_secretary, status, created_at
+      `SELECT id, name, username, role, can_view_all_orders, is_local_secretary, is_warehouse, status, created_at
        FROM production_users WHERE establishment_id = ? ORDER BY name`
     ).all(business.id));
   });
@@ -1944,23 +2305,26 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const name = String(req.body.name || '').trim();
     const username = String(req.body.username || '').trim();
     const password = String(req.body.password || '').trim();
-    const role = req.body.role === 'admin' ? 'admin' : 'vendor';
+    const isWarehouse = Boolean(req.body.is_warehouse);
+    const isLocal = !isWarehouse && Boolean(req.body.is_local_secretary);
+    const role = isWarehouse ? 'vendor' : req.body.role === 'admin' ? 'admin' : 'vendor';
     if (!name || !username || password.length < 6) {
       return res.status(400).json({ message: 'Nombre, usuario y una contrasena de al menos 6 caracteres son obligatorios' });
     }
     try {
       const result = db.prepare(
         `INSERT INTO production_users
-         (establishment_id, name, username, password, role, can_view_all_orders, is_local_secretary, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+         (establishment_id, name, username, password, role, can_view_all_orders, is_local_secretary, is_warehouse, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         business.id,
         name,
         username,
         password,
         role,
-        req.body.can_view_all_orders ? 1 : 0,
-        req.body.is_local_secretary ? 1 : 0,
+        isWarehouse ? 0 : req.body.can_view_all_orders ? 1 : 0,
+        isLocal ? 1 : 0,
+        isWarehouse ? 1 : 0,
         req.body.status === 'inactive' ? 'inactive' : 'active'
       );
       audit(req, 'create', 'production_user', result.lastInsertRowid, name);
@@ -1977,17 +2341,20 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       'SELECT * FROM production_users WHERE id = ? AND establishment_id = ?'
     ).get(req.params.id, business.id);
     if (!current) return res.status(404).json({ message: 'Usuario no encontrado' });
+    const isWarehouse = Boolean(req.body.is_warehouse);
+    const isLocal = !isWarehouse && Boolean(req.body.is_local_secretary);
     const result = db.prepare(
       `UPDATE production_users
-       SET name = ?, username = ?, password = ?, role = ?, can_view_all_orders = ?, is_local_secretary = ?, status = ?
+       SET name = ?, username = ?, password = ?, role = ?, can_view_all_orders = ?, is_local_secretary = ?, is_warehouse = ?, status = ?
        WHERE id = ? AND establishment_id = ?`
     ).run(
       String(req.body.name || current.name).trim(),
       String(req.body.username || current.username).trim(),
       String(req.body.password || current.password).trim(),
-      req.body.role === 'admin' ? 'admin' : 'vendor',
-      req.body.can_view_all_orders ? 1 : 0,
-      req.body.is_local_secretary ? 1 : 0,
+      isWarehouse ? 'vendor' : req.body.role === 'admin' ? 'admin' : 'vendor',
+      isWarehouse ? 0 : req.body.can_view_all_orders ? 1 : 0,
+      isLocal ? 1 : 0,
+      isWarehouse ? 1 : 0,
       req.body.status === 'inactive' ? 'inactive' : 'active',
       current.id,
       business.id

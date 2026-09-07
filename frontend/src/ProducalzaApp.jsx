@@ -1,6 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { BrowserQRCodeReader } from '@zxing/browser';
 import {
   Boxes,
+  Camera,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -16,9 +18,12 @@ import {
   LogOut,
   MessageCircle,
   PackageCheck,
+  PackageMinus,
+  PackagePlus,
   Pencil,
   Plus,
   Printer,
+  QrCode,
   Save,
   Search,
   Settings2,
@@ -87,6 +92,7 @@ const emptyUser = {
   role: 'vendor',
   can_view_all_orders: false,
   is_local_secretary: false,
+  is_warehouse: false,
   status: 'active'
 };
 
@@ -950,7 +956,9 @@ function fileToDataUrl(file) {
 }
 
 export default function ProducalzaApp({ user, onLogout, embedded = false, establishmentId = '' }) {
-  const [view, setView] = useState('dashboard');
+  const isWarehouse = Boolean(user?.is_warehouse || user?.isWarehouse);
+  const inventoryPathToken = window.location.pathname.match(/^\/bodega\/material\/([^/]+)/)?.[1] || '';
+  const [view, setView] = useState(isWarehouse || inventoryPathToken ? 'inventory' : 'dashboard');
   const [bootstrap, setBootstrap] = useState(null);
   const [dashboard, setDashboard] = useState(null);
   const [clients, setClients] = useState([]);
@@ -978,6 +986,13 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
     setLoading(true);
     setError('');
     try {
+      if (isWarehouse) {
+        const nextBootstrap = await api(scope('/producalza/bootstrap'));
+        setBootstrap(nextBootstrap);
+        setUsers([]);
+        setView('inventory');
+        return;
+      }
       const [
         nextBootstrap,
         nextDashboard,
@@ -1023,7 +1038,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
 
   useEffect(() => {
     loadBase();
-  }, [establishmentId]);
+  }, [establishmentId, isWarehouse]);
 
   async function refresh(message) {
     await loadBase();
@@ -1128,7 +1143,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
     };
   }, [printState]);
 
-  const nav = [
+  const fullNav = [
     ['dashboard', 'Panel', Boxes],
     ['orders', 'Pedidos', ClipboardList],
     ['new-order', 'Crear pedido', FilePlus2],
@@ -1139,8 +1154,10 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
     ...(isLocalSecretary ? [['local-attendance', 'Empleadas', Clock]] : []),
     ...(isAdmin ? [['payroll', 'Roles', DollarSign]] : []),
     ...(isAdmin ? [['guide-templates', 'Guias', Tags]] : []),
+    ...(isAdmin ? [['inventory', 'Bodega', Boxes]] : []),
     ...(isAdmin ? [['users', 'Usuarios', UserPlus]] : [])
   ];
+  const nav = isWarehouse ? [['inventory', 'Bodega', Boxes]] : fullNav;
 
   const currentLabel = nav.find(([key]) => key === view)?.[1]
     || (view === 'order-detail'
@@ -1300,6 +1317,16 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
           setError={setError}
         />
       )}
+      {view === 'inventory' && (isAdmin || isWarehouse) && (
+        <WarehouseInventory
+          scope={scope}
+          canManage={isWarehouse}
+          initialToken={inventoryPathToken}
+          onPrint={(items) => setPrintState({ type: 'inventory-labels', items })}
+          setError={setError}
+          setNotice={setNotice}
+        />
+      )}
       {view === 'users' && isAdmin && (
         <UsersView users={users} scope={scope} onRefresh={refresh} setError={setError} />
       )}
@@ -1334,7 +1361,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
               <div className="prod-brand-mark">P</div>
               <div>
                 <strong>PRODUCALZA</strong>
-                <span>{isLocalSecretary ? 'Locales y produccion' : 'Pedidos y produccion'}</span>
+                <span>{isWarehouse ? 'Inventario de bodega' : isLocalSecretary ? 'Locales y produccion' : 'Pedidos y produccion'}</span>
               </div>
             </div>
             <nav>
@@ -1367,7 +1394,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
               </div>
               <div className="prod-user-chip">
                 <strong>{user?.name || user?.username}</strong>
-                <span>{isAdmin ? 'Administrador' : isLocalSecretary ? 'Secretaria locales' : 'Vendedor'}</span>
+                <span>{isAdmin ? 'Administrador' : isWarehouse ? 'Bodega' : isLocalSecretary ? 'Secretaria locales' : 'Vendedor'}</span>
               </div>
             </header>
             {content}
@@ -4279,6 +4306,445 @@ function GuideTemplatesView({ templates, scope, onRefresh, setError }) {
   );
 }
 
+function inventoryDateTime(value) {
+  if (!value) return '';
+  const normalized = String(value).includes('T') ? String(value) : `${String(value).replace(' ', 'T')}-05:00`;
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat('es-EC', {
+    timeZone: 'America/Guayaquil',
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  }).format(date);
+}
+
+function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError, setNotice }) {
+  const [data, setData] = useState({ items: [], categories: [], summary: {} });
+  const [search, setSearch] = useState('');
+  const [category, setCategory] = useState('');
+  const [selected, setSelected] = useState(null);
+  const [selectedLabels, setSelectedLabels] = useState([]);
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [cameraError, setCameraError] = useState('');
+  const videoRef = useRef(null);
+  const scannerControlsRef = useRef(null);
+  const initialTokenHandled = useRef(false);
+  const [movement, setMovement] = useState({
+    movement_type: 'out',
+    variant_id: '',
+    quantity: 1,
+    responsible_person: '',
+    purpose: '',
+    notes: ''
+  });
+  const [editForm, setEditForm] = useState({ name: '', category: '', color: '', unit: 'unidades', photo_url: '' });
+  const [createForm, setCreateForm] = useState({
+    name: '',
+    category: 'Modelos',
+    color: '',
+    unit: 'unidades',
+    selected_variants: [],
+    variant_quantities: {},
+    custom_variants: '',
+    photo_url: ''
+  });
+
+  async function loadInventory() {
+    setLoading(true);
+    try {
+      const query = new URLSearchParams();
+      if (search.trim()) query.set('search', search.trim());
+      if (category) query.set('category', category);
+      const response = await api(scope(`/producalza/inventory?${query.toString()}`));
+      setData(response);
+      if (selected) {
+        const current = response.items.find((item) => Number(item.id) === Number(selected.id));
+        if (current) setSelected(current);
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadHistory(itemId = '') {
+    try {
+      const query = itemId ? `?item_id=${encodeURIComponent(itemId)}` : '';
+      setHistory(await api(scope(`/producalza/inventory-history${query}`)));
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function openItem(item) {
+    setSelected(item);
+    setEditForm({
+      name: item.name || '',
+      category: item.category || '',
+      color: item.color || '',
+      unit: item.unit || 'unidades',
+      photo_url: item.photo_url || ''
+    });
+    setMovement((current) => ({ ...current, variant_id: item.variants?.[0]?.id || '', quantity: 1 }));
+    await loadHistory(item.id);
+  }
+
+  async function openItemToken(token) {
+    try {
+      const item = await api(scope(`/producalza/inventory/by-token/${encodeURIComponent(token)}`));
+      stopScanner();
+      await openItem(item);
+      window.history.replaceState({}, '', '/');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  useEffect(() => {
+    const timer = window.setTimeout(loadInventory, 180);
+    return () => window.clearTimeout(timer);
+  }, [search, category]);
+
+  useEffect(() => {
+    if (initialToken && !initialTokenHandled.current) {
+      initialTokenHandled.current = true;
+      openItemToken(initialToken);
+    } else {
+      loadHistory();
+    }
+    return () => stopScanner();
+  }, []);
+
+  function stopScanner() {
+    scannerControlsRef.current?.stop?.();
+    scannerControlsRef.current = null;
+    const stream = videoRef.current?.srcObject;
+    stream?.getTracks?.().forEach((track) => track.stop());
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setScanning(false);
+  }
+
+  async function startScanner() {
+    stopScanner();
+    setCameraError('');
+    setScanning(true);
+    try {
+      const reader = new BrowserQRCodeReader(undefined, {
+        delayBetweenScanAttempts: 80,
+        delayBetweenScanSuccess: 1200
+      });
+      scannerControlsRef.current = await reader.decodeFromConstraints(
+        {
+          audio: false,
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
+        },
+        videoRef.current,
+        (result) => {
+          if (!result) return;
+          const raw = String(result.getText() || '').trim();
+          const token = raw.match(/\/bodega\/material\/([^/?#]+)/)?.[1] || raw;
+          if (token) openItemToken(decodeURIComponent(token));
+        }
+      );
+    } catch (err) {
+      setScanning(false);
+      setCameraError(err?.name === 'NotAllowedError'
+        ? 'Permite el acceso a la camara para escanear el material.'
+        : 'No se pudo abrir la camara. Tambien puedes buscar el codigo escrito.');
+    }
+  }
+
+  async function saveMovement(event) {
+    event.preventDefault();
+    if (!selected) return;
+    setSaving(true);
+    try {
+      const response = await api(scope(`/producalza/inventory/${selected.id}/movements`), {
+        method: 'POST',
+        body: JSON.stringify(movement)
+      });
+      await openItem(response.item);
+      await loadInventory();
+      setMovement((current) => ({ ...current, quantity: 1, purpose: '', notes: '' }));
+      setNotice(movement.movement_type === 'out' ? 'Salida registrada y stock actualizado' : 'Entrada registrada y stock actualizado');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveItem() {
+    if (!selected) return;
+    setSaving(true);
+    try {
+      const item = await api(scope(`/producalza/inventory/${selected.id}`), {
+        method: 'PATCH',
+        body: JSON.stringify(editForm)
+      });
+      await openItem(item);
+      await loadInventory();
+      setNotice('Ficha del material actualizada');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function setItemPhoto(file, target = 'edit') {
+    if (!file) return;
+    try {
+      const photoUrl = await resizeGuideImage(file);
+      if (target === 'create') setCreateForm((current) => ({ ...current, photo_url: photoUrl }));
+      else setEditForm((current) => ({ ...current, photo_url: photoUrl }));
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function createItem(event) {
+    event.preventDefault();
+    const customLabels = createForm.custom_variants.split(',').map((label) => label.trim()).filter(Boolean);
+    const labels = [...new Set([...createForm.selected_variants, ...customLabels])];
+    if (!labels.length) {
+      setError('Selecciona al menos una talla disponible.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const item = await api(scope('/producalza/inventory'), {
+        method: 'POST',
+        body: JSON.stringify({
+          ...createForm,
+          variants: labels.map((label) => ({ label, quantity: Number(createForm.variant_quantities[label] || 0) }))
+        })
+      });
+      setCreateForm({ name: '', category: category || 'Modelos', color: '', unit: 'unidades', selected_variants: [], variant_quantities: {}, custom_variants: '', photo_url: '' });
+      setShowCreate(false);
+      await loadInventory();
+      await openItem(item);
+      setNotice('Material creado');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function toggleLabel(itemId) {
+    setSelectedLabels((current) => current.includes(itemId)
+      ? current.filter((id) => id !== itemId)
+      : [...current, itemId]);
+  }
+
+  function toggleNewVariant(label) {
+    setCreateForm((current) => ({
+      ...current,
+      selected_variants: current.selected_variants.includes(label)
+        ? current.selected_variants.filter((item) => item !== label)
+        : [...current.selected_variants, label]
+    }));
+  }
+
+  const printableItems = data.items.filter((item) => selectedLabels.includes(item.id));
+  const categoryOptions = [...new Set([...(data.categories || []).map((item) => item.category), editForm.category, createForm.category].filter(Boolean))];
+
+  return (
+    <div className="prod-inventory-page">
+      <section className="prod-inventory-hero">
+        <div>
+          <span>BODEGA PRODUCALZA</span>
+          <h2>Inventario de materiales</h2>
+          <p>Consulta el stock por material y talla. Todos los movimientos quedan registrados en horario de Ecuador.</p>
+        </div>
+        <div className="prod-inventory-hero-actions">
+          <button className="prod-secondary-button" type="button" onClick={scanning ? stopScanner : startScanner}>
+            <Camera size={18} />{scanning ? 'Cerrar camara' : 'Escanear QR'}
+          </button>
+          <button
+            className="prod-secondary-button"
+            type="button"
+            disabled={!printableItems.length}
+            onClick={() => onPrint(printableItems)}
+          >
+            <Printer size={18} />Imprimir etiquetas ({printableItems.length})
+          </button>
+          {canManage && (
+            <button className="prod-primary-button" type="button" onClick={() => setShowCreate((value) => !value)}>
+              <Plus size={18} />Nuevo material
+            </button>
+          )}
+        </div>
+      </section>
+
+      {scanning && (
+        <section className="prod-panel prod-inventory-scanner">
+          <div className="prod-panel-title"><div><span>CAMARA</span><h2>Apunta al codigo QR</h2></div></div>
+          <video ref={videoRef} autoPlay muted playsInline />
+          {cameraError && <div className="alert error">{cameraError}</div>}
+        </section>
+      )}
+
+      {showCreate && canManage && (
+        <form className="prod-panel prod-inventory-create" onSubmit={createItem}>
+          <div className="prod-panel-title"><div><span>NUEVO</span><h2>Agregar material</h2></div></div>
+          <div className="prod-inventory-edit-grid">
+            <label>Nombre o referencia<input required value={createForm.name} onChange={(event) => setCreateForm({ ...createForm, name: event.target.value })} /></label>
+            <label>Categoria<input list="inventory-categories" required value={createForm.category} onChange={(event) => setCreateForm({ ...createForm, category: event.target.value })} /></label>
+            <label>Color<input value={createForm.color} onChange={(event) => setCreateForm({ ...createForm, color: event.target.value })} /></label>
+            <label>Unidad<input value={createForm.unit} onChange={(event) => setCreateForm({ ...createForm, unit: event.target.value })} /></label>
+            <fieldset className="wide prod-inventory-size-picker">
+              <legend>Tallas disponibles</legend>
+              <div>
+                {Array.from({ length: 17 }, (_, index) => String(index + 27)).map((size) => (
+                  <button type="button" className={createForm.selected_variants.includes(size) ? 'active' : ''} key={size} onClick={() => toggleNewVariant(size)}>{size}</button>
+                ))}
+                <button type="button" className={createForm.selected_variants.includes('Sin talla') ? 'active' : ''} onClick={() => toggleNewVariant('Sin talla')}>Sin talla</button>
+              </div>
+              <small>{createForm.selected_variants.length ? `${createForm.selected_variants.length} seleccionadas` : 'Selecciona todas las tallas que maneja este material.'}</small>
+              {createForm.selected_variants.length > 0 && (
+                <div className="prod-inventory-initial-qty">
+                  {createForm.selected_variants.map((label) => (
+                    <label key={label}><span>{label}</span><input type="number" min="0" value={createForm.variant_quantities[label] || 0} onChange={(event) => setCreateForm({ ...createForm, variant_quantities: { ...createForm.variant_quantities, [label]: event.target.value } })} /></label>
+                  ))}
+                </div>
+              )}
+            </fieldset>
+            <label className="wide">Otras variantes opcionales<input placeholder="Ejemplo: 34-35, Grande" value={createForm.custom_variants} onChange={(event) => setCreateForm({ ...createForm, custom_variants: event.target.value })} /></label>
+            <label className="prod-inventory-photo-picker"><ImageIcon size={18} />Foto del material<input type="file" accept="image/*" onChange={(event) => setItemPhoto(event.target.files?.[0], 'create')} /></label>
+          </div>
+          {createForm.photo_url && <img className="prod-inventory-photo-preview" src={createForm.photo_url} alt="Vista previa" />}
+          <div className="prod-form-actions"><button className="prod-primary-button" disabled={saving}><Save size={17} />Guardar material</button></div>
+        </form>
+      )}
+
+      <datalist id="inventory-categories">{categoryOptions.map((item) => <option value={item} key={item} />)}</datalist>
+
+      <section className="prod-inventory-summary">
+        <article><span>Materiales</span><strong>{Number(data.summary?.item_count || 0)}</strong></article>
+        <article><span>Unidades registradas</span><strong>{Number(data.summary?.total_quantity || 0)}</strong></article>
+        {(data.categories || []).map((item) => (
+          <button type="button" className={category === item.category ? 'active' : ''} key={item.category} onClick={() => setCategory(category === item.category ? '' : item.category)}>
+            <span>{item.category}</span><strong>{Number(item.total_quantity || 0)}</strong><small>{item.item_count} materiales</small>
+          </button>
+        ))}
+      </section>
+
+      <section className="prod-inventory-toolbar">
+        <label><Search size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar material, color o codigo" /></label>
+        <select value={category} onChange={(event) => setCategory(event.target.value)}>
+          <option value="">Todas las categorias</option>
+          {(data.categories || []).map((item) => <option value={item.category} key={item.category}>{item.category}</option>)}
+        </select>
+      </section>
+
+      <div className={`prod-inventory-layout ${selected ? 'has-detail' : ''}`}>
+        <section className="prod-inventory-list">
+          {loading && <div className="prod-empty">Cargando inventario...</div>}
+          {!loading && data.items.map((item) => (
+            <article className={selected?.id === item.id ? 'selected' : ''} key={item.id}>
+              <label className="prod-inventory-label-check" title="Seleccionar etiqueta">
+                <input type="checkbox" checked={selectedLabels.includes(item.id)} onChange={() => toggleLabel(item.id)} />
+              </label>
+              <button className="prod-inventory-card-main" type="button" onClick={() => openItem(item)}>
+                <div className="prod-inventory-thumb">
+                  {item.photo_url ? <img src={item.photo_url} alt={item.name} /> : <ImageIcon size={28} />}
+                </div>
+                <div className="prod-inventory-card-copy">
+                  <span>{item.category} · {item.code}</span>
+                  <h3>{item.name}</h3>
+                  <p>{item.color || 'Sin color especificado'}</p>
+                  <div>{item.variants.map((variant) => <small key={variant.id}>{variant.variant_label}: <b>{variant.quantity}</b></small>)}</div>
+                </div>
+                <strong className="prod-inventory-total">{item.total_quantity}<small>{item.unit}</small></strong>
+              </button>
+            </article>
+          ))}
+          {!loading && !data.items.length && <div className="prod-empty">No se encontraron materiales con esos filtros.</div>}
+        </section>
+
+        {selected && (
+          <aside className="prod-panel prod-inventory-detail">
+            <button className="prod-inventory-detail-close" type="button" onClick={() => setSelected(null)}><X size={18} /></button>
+            <div className="prod-inventory-detail-head">
+              <div className="prod-inventory-detail-photo">
+                {editForm.photo_url ? <img src={editForm.photo_url} alt={selected.name} /> : <ImageIcon size={38} />}
+              </div>
+              <div><span>{selected.code}</span><h2>{selected.name}</h2><p>{selected.category}{selected.color ? ` · ${selected.color}` : ''}</p></div>
+            </div>
+
+            <div className="prod-inventory-stock-grid">
+              {selected.variants.map((variant) => (
+                <div key={variant.id}><span>{variant.variant_label}</span><strong>{variant.quantity}</strong></div>
+              ))}
+            </div>
+
+            {canManage ? (
+              <form className="prod-inventory-movement" onSubmit={saveMovement}>
+                <h3>Registrar movimiento</h3>
+                <div className="prod-inventory-movement-type">
+                  <button type="button" className={movement.movement_type === 'out' ? 'active out' : ''} onClick={() => setMovement({ ...movement, movement_type: 'out' })}><PackageMinus size={18} />Salida</button>
+                  <button type="button" className={movement.movement_type === 'in' ? 'active in' : ''} onClick={() => setMovement({ ...movement, movement_type: 'in' })}><PackagePlus size={18} />Entrada</button>
+                </div>
+                <div className="prod-form-grid two">
+                  <label>Talla o variante<select required value={movement.variant_id} onChange={(event) => setMovement({ ...movement, variant_id: event.target.value })}>{selected.variants.map((variant) => <option key={variant.id} value={variant.id}>{variant.variant_label} · disponible {variant.quantity}</option>)}</select></label>
+                  <label>Cantidad<input required type="number" min="1" value={movement.quantity} onChange={(event) => setMovement({ ...movement, quantity: event.target.value })} /></label>
+                  <label className="wide">Quien agrega o retira<input required value={movement.responsible_person} onChange={(event) => setMovement({ ...movement, responsible_person: event.target.value })} /></label>
+                  <label className="wide">Para que o motivo<input required value={movement.purpose} onChange={(event) => setMovement({ ...movement, purpose: event.target.value })} /></label>
+                  <label className="wide">Detalle adicional<textarea rows="2" value={movement.notes} onChange={(event) => setMovement({ ...movement, notes: event.target.value })} /></label>
+                </div>
+                <button className="prod-primary-button" disabled={saving}><Save size={17} />Registrar {movement.movement_type === 'out' ? 'salida' : 'entrada'}</button>
+              </form>
+            ) : (
+              <div className="prod-inventory-readonly"><Check size={18} />Vista de consulta. Los movimientos se registran desde el usuario de Bodega.</div>
+            )}
+
+            <div className="prod-inventory-qr-box">
+              <img src={`/api/producalza/inventory/qr/${selected.qr_token}.png`} alt={`QR ${selected.code}`} />
+              <div><QrCode size={20} /><strong>Etiqueta QR</strong><span>Selecciona este material y usa Imprimir etiquetas.</span></div>
+            </div>
+
+            {canManage && (
+              <details className="prod-inventory-edit">
+                <summary><Pencil size={16} />Editar ficha y foto</summary>
+                <div className="prod-form-grid two">
+                  <label>Nombre<input value={editForm.name} onChange={(event) => setEditForm({ ...editForm, name: event.target.value })} /></label>
+                  <label>Categoria<input list="inventory-categories" value={editForm.category} onChange={(event) => setEditForm({ ...editForm, category: event.target.value })} /></label>
+                  <label>Color<input value={editForm.color} onChange={(event) => setEditForm({ ...editForm, color: event.target.value })} /></label>
+                  <label>Unidad<input value={editForm.unit} onChange={(event) => setEditForm({ ...editForm, unit: event.target.value })} /></label>
+                </div>
+                <div className="prod-inventory-photo-actions">
+                  <label className="prod-secondary-button"><Upload size={17} />{editForm.photo_url ? 'Reemplazar foto' : 'Agregar foto'}<input type="file" accept="image/*" onChange={(event) => setItemPhoto(event.target.files?.[0])} /></label>
+                  {editForm.photo_url && <button className="prod-secondary-button" type="button" onClick={() => setEditForm({ ...editForm, photo_url: null })}><Trash2 size={16} />Quitar foto</button>}
+                  <button className="prod-primary-button" type="button" disabled={saving} onClick={saveItem}><Save size={17} />Guardar cambios</button>
+                </div>
+              </details>
+            )}
+
+            <div className="prod-inventory-history">
+              <h3>Historial del material</h3>
+              {history.slice(0, 30).map((item) => (
+                <article key={item.id} className={item.movement_type}>
+                  <div><strong>{item.movement_type === 'out' ? 'Salida' : item.movement_type === 'in' ? 'Entrada' : 'Carga inicial'} · {item.variant_label}</strong><span>{inventoryDateTime(item.created_at)}</span></div>
+                  <b>{item.movement_type === 'out' ? '-' : '+'}{item.quantity}</b>
+                  <p>{item.responsible_person || 'Sistema'} · {item.purpose || 'Inventario inicial'}</p>
+                  {item.notes && <small>{item.notes}</small>}
+                </article>
+              ))}
+            </div>
+          </aside>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function UsersView({ users, scope, onRefresh, setError }) {
   const [form, setForm] = useState(emptyUser);
   const [editingId, setEditingId] = useState(null);
@@ -4313,7 +4779,8 @@ function UsersView({ users, scope, onRefresh, setError }) {
           <label>Rol<select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}><option value="vendor">Vendedor</option><option value="admin">Administrador</option></select></label>
           <label>Estado<select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}><option value="active">Activo</option><option value="inactive">Inactivo</option></select></label>
           <label className="prod-check-line"><input type="checkbox" checked={Boolean(form.can_view_all_orders)} onChange={(event) => setForm({ ...form, can_view_all_orders: event.target.checked })} />Puede ver pedidos de otros vendedores</label>
-          <label className="prod-check-line"><input type="checkbox" checked={Boolean(form.is_local_secretary)} onChange={(event) => setForm({ ...form, is_local_secretary: event.target.checked, role: 'vendor', can_view_all_orders: false })} />Secretaria de locales Marjorie/Sebastians</label>
+          <label className="prod-check-line"><input type="checkbox" checked={Boolean(form.is_local_secretary)} onChange={(event) => setForm({ ...form, is_local_secretary: event.target.checked, is_warehouse: false, role: 'vendor', can_view_all_orders: false })} />Secretaria de locales Marjorie/Sebastians</label>
+          <label className="prod-check-line"><input type="checkbox" checked={Boolean(form.is_warehouse)} onChange={(event) => setForm({ ...form, is_warehouse: event.target.checked, is_local_secretary: false, role: 'vendor', can_view_all_orders: false })} />Usuario exclusivo de bodega</label>
         </div>
         <div className="prod-form-actions">
           {editingId && <button className="prod-secondary-button" onClick={() => { setEditingId(null); setForm(emptyUser); }}>Cancelar</button>}
@@ -4325,7 +4792,7 @@ function UsersView({ users, scope, onRefresh, setError }) {
         <div className="prod-user-list">
           {users.map((item) => (
             <article key={item.id}>
-              <div><strong>{item.name}</strong><span>@{item.username} · {item.role === 'admin' ? 'Administrador' : item.is_local_secretary ? 'Secretaria locales' : 'Vendedor'}</span><small>{item.status === 'active' ? 'Activo' : 'Inactivo'}{item.can_view_all_orders ? ' · Ve todos los pedidos' : ''}{item.is_local_secretary ? ' · Solo locales' : ''}</small></div>
+              <div><strong>{item.name}</strong><span>@{item.username} · {item.role === 'admin' ? 'Administrador' : item.is_warehouse ? 'Bodega' : item.is_local_secretary ? 'Secretaria locales' : 'Vendedor'}</span><small>{item.status === 'active' ? 'Activo' : 'Inactivo'}{item.can_view_all_orders ? ' · Ve todos los pedidos' : ''}{item.is_local_secretary ? ' · Solo locales' : ''}{item.is_warehouse ? ' · Solo inventario' : ''}</small></div>
               <button className="prod-icon-button" onClick={() => edit(item)}><Pencil size={16} /></button>
             </article>
           ))}
@@ -6955,7 +7422,32 @@ function expandOrderGuides(order) {
   return guides;
 }
 
+function InventoryLabelsPrint({ items }) {
+  const pages = [];
+  for (let index = 0; index < items.length; index += 12) pages.push(items.slice(index, index + 12));
+  return (
+    <div className="prod-print-root print-inventory-labels">
+      {pages.map((page, pageIndex) => (
+        <article className="prod-inventory-label-page" key={pageIndex}>
+          {page.map((item) => (
+            <div className="prod-inventory-print-label" key={item.id}>
+              <img src={`/api/producalza/inventory/qr/${item.qr_token}.png`} alt="" />
+              <div>
+                <span>PRODUCALZA · BODEGA</span>
+                <strong>{item.name}</strong>
+                <p>{item.color || item.category}</p>
+                <b>{item.code}</b>
+              </div>
+            </div>
+          ))}
+        </article>
+      ))}
+    </div>
+  );
+}
+
 function PrintLayouts({ state, guideTemplates }) {
+  if (state?.type === 'inventory-labels') return <InventoryLabelsPrint items={state.items || []} />;
   if (!state?.order) return null;
   const { order, type, modelId, guideTemplateKey } = state;
   const models = modelId ? order.models.filter((model) => model.id === modelId) : order.models;
