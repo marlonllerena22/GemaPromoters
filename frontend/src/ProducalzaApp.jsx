@@ -1355,13 +1355,13 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
           {content}
         </div>
       ) : (
-        <main className="prod-shell">
+        <main className={`prod-shell ${isWarehouse ? 'prod-warehouse-shell' : ''}`}>
           <aside className="prod-sidebar">
             <div className="prod-brand">
-              <div className="prod-brand-mark">P</div>
+              <div className="prod-brand-mark">{isWarehouse ? 'B' : 'P'}</div>
               <div>
-                <strong>PRODUCALZA</strong>
-                <span>{isWarehouse ? 'Inventario de bodega' : isLocalSecretary ? 'Locales y produccion' : 'Pedidos y produccion'}</span>
+                <strong>{isWarehouse ? 'BODEGA' : 'PRODUCALZA'}</strong>
+                <span>{isWarehouse ? 'PRODUCALZA · Inventario' : isLocalSecretary ? 'Locales y produccion' : 'Pedidos y produccion'}</span>
               </div>
             </div>
             <nav>
@@ -1389,8 +1389,8 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
           <section className="prod-main">
             <header className="prod-topbar">
               <div>
-                <span>PRODUCALZA</span>
-                <h1>{currentLabel}</h1>
+                <span>{isWarehouse ? 'BODEGA PRODUCALZA' : 'PRODUCALZA'}</span>
+                <h1>{isWarehouse ? 'Inventario' : currentLabel}</h1>
               </div>
               <div className="prod-user-chip">
                 <strong>{user?.name || user?.username}</strong>
@@ -4420,6 +4420,20 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
     return () => stopScanner();
   }, []);
 
+  useEffect(() => {
+    if (!selected) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setSelected(null);
+    };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [selected]);
+
   function stopScanner() {
     scannerControlsRef.current?.stop?.();
     scannerControlsRef.current = null;
@@ -4644,7 +4658,7 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
         </select>
       </section>
 
-      <div className={`prod-inventory-layout ${selected ? 'has-detail' : ''}`}>
+      <div className="prod-inventory-layout">
         <section className="prod-inventory-list">
           {loading && <div className="prod-empty">Cargando inventario...</div>}
           {!loading && data.items.map((item) => (
@@ -4670,7 +4684,8 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
         </section>
 
         {selected && (
-          <aside className="prod-panel prod-inventory-detail">
+          <div className="prod-inventory-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null); }}>
+          <aside className="prod-panel prod-inventory-detail" role="dialog" aria-modal="true" aria-label={`Material ${selected.name}`} onMouseDown={(event) => event.stopPropagation()}>
             <button className="prod-inventory-detail-close" type="button" onClick={() => setSelected(null)}><X size={18} /></button>
             <div className="prod-inventory-detail-head">
               <div className="prod-inventory-detail-photo">
@@ -4678,6 +4693,23 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
               </div>
               <div><span>{selected.code}</span><h2>{selected.name}</h2><p>{selected.category}{selected.color ? ` · ${selected.color}` : ''}</p></div>
             </div>
+
+            {canManage && (
+              <details className="prod-inventory-edit" open>
+                <summary><Pencil size={16} />Editar ficha y foto</summary>
+                <div className="prod-form-grid two">
+                  <label>Nombre<input value={editForm.name} onChange={(event) => setEditForm({ ...editForm, name: event.target.value })} /></label>
+                  <label>Categoria<input list="inventory-categories" value={editForm.category} onChange={(event) => setEditForm({ ...editForm, category: event.target.value })} /></label>
+                  <label>Color<input value={editForm.color} onChange={(event) => setEditForm({ ...editForm, color: event.target.value })} /></label>
+                  <label>Unidad<input value={editForm.unit} onChange={(event) => setEditForm({ ...editForm, unit: event.target.value })} /></label>
+                </div>
+                <div className="prod-inventory-photo-actions">
+                  <label className="prod-secondary-button"><Upload size={17} />{editForm.photo_url ? 'Reemplazar foto' : 'Agregar foto'}<input type="file" accept="image/*" onChange={(event) => setItemPhoto(event.target.files?.[0])} /></label>
+                  {editForm.photo_url && <button className="prod-secondary-button" type="button" onClick={() => setEditForm({ ...editForm, photo_url: null })}><Trash2 size={16} />Quitar foto</button>}
+                  <button className="prod-primary-button" type="button" disabled={saving} onClick={saveItem}><Save size={17} />Guardar cambios</button>
+                </div>
+              </details>
+            )}
 
             <div className="prod-inventory-stock-grid">
               {selected.variants.map((variant) => (
@@ -4710,23 +4742,6 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
               <div><QrCode size={20} /><strong>Etiqueta QR</strong><span>Selecciona este material y usa Imprimir etiquetas.</span></div>
             </div>
 
-            {canManage && (
-              <details className="prod-inventory-edit">
-                <summary><Pencil size={16} />Editar ficha y foto</summary>
-                <div className="prod-form-grid two">
-                  <label>Nombre<input value={editForm.name} onChange={(event) => setEditForm({ ...editForm, name: event.target.value })} /></label>
-                  <label>Categoria<input list="inventory-categories" value={editForm.category} onChange={(event) => setEditForm({ ...editForm, category: event.target.value })} /></label>
-                  <label>Color<input value={editForm.color} onChange={(event) => setEditForm({ ...editForm, color: event.target.value })} /></label>
-                  <label>Unidad<input value={editForm.unit} onChange={(event) => setEditForm({ ...editForm, unit: event.target.value })} /></label>
-                </div>
-                <div className="prod-inventory-photo-actions">
-                  <label className="prod-secondary-button"><Upload size={17} />{editForm.photo_url ? 'Reemplazar foto' : 'Agregar foto'}<input type="file" accept="image/*" onChange={(event) => setItemPhoto(event.target.files?.[0])} /></label>
-                  {editForm.photo_url && <button className="prod-secondary-button" type="button" onClick={() => setEditForm({ ...editForm, photo_url: null })}><Trash2 size={16} />Quitar foto</button>}
-                  <button className="prod-primary-button" type="button" disabled={saving} onClick={saveItem}><Save size={17} />Guardar cambios</button>
-                </div>
-              </details>
-            )}
-
             <div className="prod-inventory-history">
               <h3>Historial del material</h3>
               {history.slice(0, 30).map((item) => (
@@ -4739,6 +4754,7 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
               ))}
             </div>
           </aside>
+          </div>
         )}
       </div>
     </div>
