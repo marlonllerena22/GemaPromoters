@@ -668,7 +668,7 @@ function ensureMarjorieEstablishment() {
       .run('Marjorie Promotoras', 'Marjorie Botas', 'commercial', 'MARJ', 'marjorie', '/marjorie-botas-logo.png', 'marjorie', 'marjorie123', 'active', 0);
     establishment = db.prepare('SELECT * FROM establishments WHERE id = ?').get(result.lastInsertRowid);
   } else {
-    db.prepare("UPDATE establishments SET business_type = 'commercial', promoter_sales_enabled = 0, code_prefix = COALESCE(NULLIF(code_prefix, ''), 'MARJ'), theme = COALESCE(NULLIF(theme, ''), 'marjorie'), logo_url = COALESCE(NULLIF(logo_url, ''), '/marjorie-botas-logo.png') WHERE id = ?").run(establishment.id);
+    db.prepare("UPDATE establishments SET business_type = 'commercial', module_type = 'promoters', promoter_sales_enabled = 0, code_prefix = COALESCE(NULLIF(code_prefix, ''), 'MARJ'), theme = 'marjorie', logo_url = COALESCE(NULLIF(logo_url, ''), '/marjorie-botas-logo.png') WHERE id = ?").run(establishment.id);
     db.prepare("UPDATE establishments SET admin_username = 'marjorie' WHERE id = ? AND (admin_username IS NULL OR admin_username = '' OR admin_username = 'marjoriepromotoras')").run(establishment.id);
     db.prepare("UPDATE establishments SET admin_password = 'marjorie123' WHERE id = ? AND (admin_password IS NULL OR admin_password = '' OR admin_password = 'marjoriepromotoras123')").run(establishment.id);
     establishment = db.prepare('SELECT * FROM establishments WHERE id = ?').get(establishment.id);
