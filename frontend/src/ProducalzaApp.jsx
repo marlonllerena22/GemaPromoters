@@ -4371,6 +4371,7 @@ function WarehouseStockInventory({ scope, canManage, initialToken, onPrint, setE
     category: 'Plantas',
     color: '',
     unit: 'unidades',
+    price: '',
     selected_variants: [],
     variant_quantities: {},
     custom_variants: '',
@@ -4621,7 +4622,7 @@ function WarehouseStockInventory({ scope, canManage, initialToken, onPrint, setE
           variants: labels.map((label) => ({ label, quantity: Number(createForm.variant_quantities[label] || 0) }))
         })
       });
-      setCreateForm({ name: '', category: category || 'Plantas', color: '', unit: 'unidades', selected_variants: [], variant_quantities: {}, custom_variants: '', photo_url: '' });
+      setCreateForm({ name: '', category: category || 'Plantas', color: '', unit: 'unidades', price: '', selected_variants: [], variant_quantities: {}, custom_variants: '', photo_url: '' });
       setShowCreate(false);
       await loadInventory();
       await openItem(item);
@@ -4729,6 +4730,7 @@ function WarehouseStockInventory({ scope, canManage, initialToken, onPrint, setE
             <WarehouseCategoryField value={createForm.category} options={categoryOptions} onChange={(value) => setCreateForm({ ...createForm, category: value })} />
             <label>Color<input value={createForm.color} onChange={(event) => setCreateForm({ ...createForm, color: event.target.value })} /></label>
             <label>Unidad<input value={createForm.unit} onChange={(event) => setCreateForm({ ...createForm, unit: event.target.value })} /></label>
+            <label>Precio (USD)<input type="number" min="0" step="0.01" inputMode="decimal" placeholder="Opcional" value={createForm.price} onChange={(event) => setCreateForm({ ...createForm, price: event.target.value })} /></label>
             <fieldset className="wide prod-inventory-size-picker">
               <legend>Tallas disponibles</legend>
               <div>

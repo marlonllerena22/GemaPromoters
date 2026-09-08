@@ -107,13 +107,25 @@
   border: 1px solid #d8e0dc;
   padding: 16px;
 }
-.prod-warehouse-price-name { display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere; min-width: 0; }
-.prod-warehouse-price-name svg { color: #62806d; flex-shrink: 0; }
+.prod-warehouse-price-material { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.prod-warehouse-price-material > img, .prod-warehouse-price-placeholder {
+  width: 58px;
+  height: 58px;
+  flex: 0 0 58px;
+  border-radius: 7px;
+  object-fit: cover;
+  background: #edf3ef;
+}
+.prod-warehouse-price-placeholder { display: grid; place-items: center; color: #62806d; }
+.prod-warehouse-price-material > div { display: grid; gap: 3px; min-width: 0; }
+.prod-warehouse-price-material small, .prod-warehouse-price-material span { color: #68766e; font-size: 12px; overflow-wrap: anywhere; }
+.prod-warehouse-price-material strong { color: #173f2d; overflow-wrap: anywhere; }
 .prod-warehouse-price-value { font-size: 22px; color: #173f2d; }
+.prod-warehouse-price-value.empty { color: #758077; font-size: 15px; }
 .prod-warehouse-price-actions { display: flex; gap: 8px; }
-.prod-warehouse-price-delete { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; border-top: 1px solid #e4e9e6; padding-top: 12px; }
-.prod-warehouse-price-delete button { padding: 8px 12px; background: #f4f6f5; border: 1px solid #cbd8cf; }
-.prod-warehouse-price-form { margin-top: 16px; }
+.prod-warehouse-price-form { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: end; gap: 12px; border-top: 1px solid #e4e9e6; padding-top: 14px; }
+.prod-warehouse-price-form > label { display: grid; gap: 6px; flex: 1 1 240px; font-weight: 700; }
+.prod-warehouse-price-form .prod-form-actions { margin: 0; }
 @media (max-width: 640px) {
   .prod-warehouse-tabs button { flex: 1; }
   .prod-warehouse-photo-column { flex-basis: 80px; padding: 8px 4px; }
@@ -125,6 +137,5 @@
   .prod-warehouse-price-list > article { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 12px; }
   .prod-warehouse-price-actions { grid-column: 1 / -1; }
   .prod-warehouse-price-actions > button { flex: 1; justify-content: center; }
-  .prod-warehouse-price-form .prod-form-grid.two { grid-template-columns: 1fr; }
+  .prod-warehouse-price-form .prod-form-actions { width: 100%; }
 }
-

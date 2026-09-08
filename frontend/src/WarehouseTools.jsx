@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { DollarSign, Pencil, Plus, Save, Search, Trash2, X } from 'lucide-react';
+import { DollarSign, Pencil, Save, Search, X } from 'lucide-react';
 import { api } from './api.js';
 import './warehouse.css';
 
@@ -62,11 +62,9 @@ export function WarehousePrices({ scope, canManage, setNotice }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [deleteId, setDeleteId] = useState(null);
-  const [form, setForm] = useState({ name: '', price: '' });
-  const nameRef = useRef(null);
+  const [price, setPrice] = useState('');
+  const priceRef = useRef(null);
 
   async function load() {
     setLoading(true);
@@ -76,17 +74,16 @@ export function WarehousePrices({ scope, canManage, setNotice }) {
   }
   useEffect(() => { load(); }, []);
   useEffect(() => {
-    if (showForm) {
-      nameRef.current?.focus();
-      nameRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    if (editingId) {
+      priceRef.current?.focus();
+      priceRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     }
-  }, [showForm, editingId]);
+  }, [editingId]);
 
-  function openForm(row = null) {
-    setEditingId(row?.id || null);
-    setForm({ name: row?.name || '', price: row ? String(row.price) : '' });
+  function openPriceEditor(row) {
+    setEditingId(row.id);
+    setPrice(row.price === null ? '' : String(row.price));
     setError('');
-    setShowForm(true);
   }
 
   async function save(event) {
@@ -94,70 +91,45 @@ export function WarehousePrices({ scope, canManage, setNotice }) {
     setSaving(true);
     setError('');
     try {
-      await api(scope(`/producalza/warehouse-prices${editingId ? '/' + editingId : ''}`), {
-        method: editingId ? 'PUT' : 'POST',
-        body: JSON.stringify(form)
+      await api(scope(`/producalza/warehouse-prices/${editingId}`), {
+        method: 'PUT',
+        body: JSON.stringify({ price })
       });
-      setShowForm(false);
+      setEditingId(null);
       await load();
-      setNotice(editingId ? 'Precio actualizado' : 'Modelo agregado a precios');
+      setNotice('Precio actualizado');
     } catch (err) { setError(err.message); }
     finally { setSaving(false); }
   }
 
-  async function remove(row) {
-    setSaving(true);
-    setError('');
-    try {
-      await api(scope(`/producalza/warehouse-prices/${row.id}`), { method: 'DELETE' });
-      setDeleteId(null);
-      if (editingId === row.id) setShowForm(false);
-      await load();
-      setNotice('Modelo eliminado de precios');
-    } catch (err) { setError(err.message); }
-    finally { setSaving(false); }
-  }
-
-  const filtered = rows.filter((row) => row.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
+  const filtered = rows.filter((row) => [row.name, row.code, row.category, row.color]
+    .some((value) => String(value || '').toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())));
   const money = (value) => new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD' }).format(value);
   return (
     <div className="prod-warehouse-prices">
       <section className="prod-inventory-hero">
-        <div><span>BODEGA PRODUCALZA</span><h2>Precios de modelos</h2><p>Consulta y actualiza el precio de cada modelo.</p></div>
-        {canManage && <button className="prod-primary-button" type="button" disabled={saving} onClick={() => openForm()}><Plus size={18} />Agregar modelo</button>}
+        <div><span>BODEGA PRODUCALZA</span><h2>Precios de materiales</h2><p>Estos son los mismos materiales de Bodega. Aqui solo registras su precio.</p></div>
       </section>
       {error && <div className="alert error" role="alert">{error}</div>}
-      {showForm && canManage && (
-        <form className="prod-panel prod-warehouse-price-form" onSubmit={save}>
-          <div className="prod-panel-title"><h3>{editingId ? 'Editar precio' : 'Agregar modelo'}</h3></div>
-          <div className="prod-form-grid two">
-            <label>Modelo<input ref={nameRef} required maxLength={160} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
-            <label>Precio (USD)<input required type="number" min="0" step="0.01" inputMode="decimal" placeholder="0.00" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value })} /></label>
-          </div>
-          <div className="prod-form-actions">
-            <button type="button" className="prod-secondary-button" disabled={saving} onClick={() => setShowForm(false)}>Cancelar</button>
-            <button className="prod-primary-button" disabled={saving}><Save size={17} />Guardar precio</button>
-          </div>
-        </form>
-      )}
-      <label className="prod-warehouse-price-search"><Search size={18} /><input aria-label="Buscar modelo en precios" placeholder="Buscar modelo" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
+      <label className="prod-warehouse-price-search"><Search size={18} /><input aria-label="Buscar material en precios" placeholder="Buscar material, codigo, categoria o color" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
       <div className="prod-warehouse-price-list">
         {loading ? <div className="prod-empty">Cargando precios...</div> : filtered.map((row) => (
           <article key={row.id}>
-            <div className="prod-warehouse-price-name"><DollarSign size={20} /><strong>{row.name}</strong></div>
-            <b className="prod-warehouse-price-value">{money(row.price)}</b>
+            <div className="prod-warehouse-price-material">
+              {row.photo_url ? <img src={row.photo_url} alt="" /> : <span className="prod-warehouse-price-placeholder"><DollarSign size={20} /></span>}
+              <div><small>{row.category}{row.code ? ` · ${row.code}` : ''}</small><strong>{row.name}</strong>{row.color && <span>{row.color}</span>}</div>
+            </div>
+            <b className={`prod-warehouse-price-value${row.price === null ? ' empty' : ''}`}>{row.price === null ? 'Sin precio' : money(row.price)}</b>
             {canManage && <div className="prod-warehouse-price-actions">
-              <button type="button" className="prod-secondary-button" aria-label={`Editar precio de ${row.name}`} disabled={saving} onClick={() => openForm(row)}><Pencil size={16} />Editar</button>
-              <button type="button" className="prod-secondary-button" aria-label={`Eliminar precio de ${row.name}`} disabled={saving} onClick={() => setDeleteId(row.id)}><Trash2 size={16} />Eliminar</button>
+              <button type="button" className="prod-secondary-button" aria-label={`Editar precio de ${row.name}`} disabled={saving} onClick={() => openPriceEditor(row)}><Pencil size={16} />{row.price === null ? 'Asignar precio' : 'Editar precio'}</button>
             </div>}
-            {deleteId === row.id && <div className="prod-warehouse-price-delete">
-              <span>Eliminar {row.name} del catalogo de precios?</span>
-              <button type="button" disabled={saving} onClick={() => setDeleteId(null)}>Cancelar</button>
-              <button type="button" disabled={saving} onClick={() => remove(row)}>Si, eliminar</button>
-            </div>}
+            {editingId === row.id && canManage && <form className="prod-warehouse-price-form" onSubmit={save}>
+              <label>Precio de {row.name} (USD)<input ref={priceRef} required type="number" min="0" step="0.01" inputMode="decimal" placeholder="0.00" value={price} onChange={(event) => setPrice(event.target.value)} /></label>
+              <div className="prod-form-actions"><button type="button" className="prod-secondary-button" disabled={saving} onClick={() => setEditingId(null)}>Cancelar</button><button className="prod-primary-button" disabled={saving}><Save size={17} />Guardar precio</button></div>
+            </form>}
           </article>
         ))}
-        {!loading && !filtered.length && <div className="prod-empty">{rows.length ? 'No hay modelos con esa busqueda.' : 'Todavia no hay precios registrados.'}</div>}
+        {!loading && !filtered.length && <div className="prod-empty">{rows.length ? 'No hay materiales con esa busqueda.' : 'Todavia no hay materiales en Bodega.'}</div>}
       </div>
     </div>
   );

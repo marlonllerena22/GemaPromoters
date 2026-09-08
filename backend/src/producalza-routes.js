@@ -377,6 +377,14 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     };
   }
 
+  function warehousePriceCents(value) {
+    const raw = String(value ?? '').trim();
+    if (!raw) return null;
+    const cents = Math.round(Number(raw) * 100);
+    if (!/^\d+(\.\d{1,2})?$/.test(raw) || !Number.isSafeInteger(cents)) return false;
+    return cents;
+  }
+
   function canAccessProductionReports(req) {
     return isProductionAdmin(req) || isLocalSecretary(req);
   }
@@ -1309,14 +1317,40 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     });
   });
 
-  const warehousePrice = (row) => ({ id: row.id, name: row.name, price: row.price_cents / 100 });
+  const warehousePrice = (row) => ({
+    id: row.item_id,
+    price_id: row.price_id || null,
+    code: row.code,
+    category: row.category,
+    name: row.name,
+    color: row.color,
+    unit: row.unit,
+    photo_url: row.photo_url || '',
+    price: row.price_cents === null || row.price_cents === undefined ? null : row.price_cents / 100
+  });
+
+  function warehousePriceForItem(businessId, itemId) {
+    return db.prepare(`
+      SELECT items.id AS item_id, items.code, items.category, items.name, items.color, items.unit, items.photo_url,
+             prices.id AS price_id, prices.price_cents
+      FROM production_inventory_items AS items
+      LEFT JOIN production_warehouse_prices AS prices
+        ON prices.establishment_id = items.establishment_id AND prices.inventory_item_id = items.id
+      WHERE items.establishment_id = ? AND items.id = ? AND items.status = 'active'
+    `).get(businessId, itemId);
+  }
 
   app.get('/api/producalza/warehouse-prices', requireInventoryRead, (req, res) => {
     const business = ensureProductionBusiness(req, res);
     if (!business) return;
     const rows = db.prepare(`
-      SELECT * FROM production_warehouse_prices WHERE establishment_id = ?
-      ORDER BY name COLLATE NOCASE, id
+      SELECT items.id AS item_id, items.code, items.category, items.name, items.color, items.unit, items.photo_url,
+             prices.id AS price_id, prices.price_cents
+      FROM production_inventory_items AS items
+      LEFT JOIN production_warehouse_prices AS prices
+        ON prices.establishment_id = items.establishment_id AND prices.inventory_item_id = items.id
+      WHERE items.establishment_id = ? AND items.status = 'active'
+      ORDER BY items.category COLLATE NOCASE, items.name COLLATE NOCASE, items.color COLLATE NOCASE, items.id
     `).all(business.id);
     res.json(rows.map(warehousePrice));
   });
@@ -1324,51 +1358,49 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
   function saveWarehousePrice(req, res) {
     const business = ensureProductionBusiness(req, res);
     if (!business) return;
-    const current = req.params.id ? db.prepare(`
-      SELECT * FROM production_warehouse_prices WHERE establishment_id = ? AND id = ?
-    `).get(business.id, req.params.id) : null;
-    if (req.params.id && !current) return res.status(404).json({ message: 'Modelo no encontrado en precios' });
-    const name = String(req.body.name || '').trim().replace(/\s+/g, ' ');
-    const rawPrice = String(req.body.price ?? '').trim();
-    const cents = Math.round(Number(rawPrice) * 100);
-    if (!name || name.length > 160 || !/^\d+(\.\d{1,2})?$/.test(rawPrice) || !Number.isSafeInteger(cents)) {
-      return res.status(400).json({ message: 'Indica el modelo y un precio valido con hasta dos decimales' });
+    const item = db.prepare(`
+      SELECT * FROM production_inventory_items
+      WHERE establishment_id = ? AND id = ? AND status = 'active'
+    `).get(business.id, req.params.id);
+    if (!item) return res.status(404).json({ message: 'Material no encontrado en bodega' });
+    const cents = warehousePriceCents(req.body.price);
+    if (cents === null || cents === false) {
+      return res.status(400).json({ message: 'Indica un precio valido con hasta dos decimales' });
     }
-    const duplicate = db.prepare(`
-      SELECT id FROM production_warehouse_prices
-      WHERE establishment_id = ? AND lower(name) = lower(?) AND id != ?
-    `).get(business.id, name, current?.id || 0);
-    if (duplicate) return res.status(409).json({ message: 'Este modelo ya tiene un precio. Edita el registro existente.' });
+    const current = db.prepare(`
+      SELECT * FROM production_warehouse_prices
+      WHERE establishment_id = ? AND inventory_item_id = ?
+    `).get(business.id, item.id);
     const now = ecuadorDateTime();
-    let id = current?.id;
     if (current) {
       db.prepare(`
         UPDATE production_warehouse_prices SET name = ?, price_cents = ?, updated_at = ?
         WHERE establishment_id = ? AND id = ?
-      `).run(name, cents, now, business.id, id);
+      `).run(item.name, cents, now, business.id, current.id);
     } else {
-      id = Number(db.prepare(`
-        INSERT INTO production_warehouse_prices (establishment_id, name, price_cents, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(business.id, name, cents, now, now).lastInsertRowid);
+      db.prepare(`
+        INSERT INTO production_warehouse_prices (establishment_id, inventory_item_id, name, price_cents, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(business.id, item.id, item.name, cents, now, now);
     }
-    audit(req, current ? 'update' : 'create', 'warehouse_price', id, name);
-    res.status(current ? 200 : 201).json(warehousePrice(
-      db.prepare('SELECT * FROM production_warehouse_prices WHERE id = ?').get(id)
-    ));
+    audit(req, current ? 'update' : 'create', 'warehouse_price', item.id, item.name);
+    res.json(warehousePrice(warehousePriceForItem(business.id, item.id)));
   }
 
-  app.post('/api/producalza/warehouse-prices', requireWarehouseWrite, saveWarehousePrice);
   app.put('/api/producalza/warehouse-prices/:id', requireWarehouseWrite, saveWarehousePrice);
   app.delete('/api/producalza/warehouse-prices/:id', requireWarehouseWrite, (req, res) => {
     const business = ensureProductionBusiness(req, res);
     if (!business) return;
-    const current = db.prepare(`
-      SELECT * FROM production_warehouse_prices WHERE establishment_id = ? AND id = ?
+    const item = db.prepare(`
+      SELECT id, name FROM production_inventory_items
+      WHERE establishment_id = ? AND id = ? AND status = 'active'
     `).get(business.id, req.params.id);
-    if (!current) return res.status(404).json({ message: 'Modelo no encontrado en precios' });
-    db.prepare('DELETE FROM production_warehouse_prices WHERE establishment_id = ? AND id = ?').run(business.id, current.id);
-    audit(req, 'delete', 'warehouse_price', current.id, current.name);
+    if (!item) return res.status(404).json({ message: 'Material no encontrado en bodega' });
+    db.prepare(`
+      DELETE FROM production_warehouse_prices
+      WHERE establishment_id = ? AND inventory_item_id = ?
+    `).run(business.id, item.id);
+    audit(req, 'delete', 'warehouse_price', item.id, item.name);
     res.json({ ok: true });
   });
 
@@ -1499,6 +1531,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     const category = inventoryCategory(req.body.category, business.id);
     const color = String(req.body.color || '').trim();
     const unit = String(req.body.unit || 'unidades').trim() || 'unidades';
+    const priceCents = warehousePriceCents(req.body.price);
     const rawVariants = Array.isArray(req.body.variants) ? req.body.variants : [];
     const variants = rawVariants
       .map((variant, index) => ({
@@ -1509,6 +1542,9 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       .filter((variant, index, list) => variant.label && list.findIndex((item) => item.label.toLowerCase() === variant.label.toLowerCase()) === index);
     if (!name || !category || !variants.length) {
       return res.status(400).json({ message: 'Nombre, categoria y al menos una talla o variante son obligatorios' });
+    }
+    if (priceCents === false) {
+      return res.status(400).json({ message: 'El precio debe tener hasta dos decimales' });
     }
     const latest = db.prepare(
       `SELECT code FROM production_inventory_items
@@ -1538,6 +1574,13 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
         createdAt
       );
       itemId = Number(result.lastInsertRowid);
+      if (priceCents !== null) {
+        db.prepare(`
+          INSERT INTO production_warehouse_prices
+           (establishment_id, inventory_item_id, name, price_cents, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(business.id, itemId, name, priceCents, createdAt, createdAt);
+      }
       const insertVariant = db.prepare(
         `INSERT INTO production_inventory_variants
          (establishment_id, item_id, variant_label, quantity, position, created_at, updated_at)
@@ -1605,6 +1648,11 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       business.id,
       current.id
     );
+    db.prepare(`
+      UPDATE production_warehouse_prices
+      SET name = ?, updated_at = ?
+      WHERE establishment_id = ? AND inventory_item_id = ?
+    `).run(name, ecuadorDateTime(), business.id, current.id);
     audit(req, 'update', 'inventory_item', current.id, `${current.code} - ${name}`);
     res.json(inventoryItem(db.prepare('SELECT * FROM production_inventory_items WHERE id = ?').get(current.id)));
   });

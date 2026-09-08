@@ -660,15 +660,18 @@ export function initProducalzaDb(db) {
     CREATE TABLE IF NOT EXISTS production_warehouse_prices (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       establishment_id INTEGER NOT NULL,
+      inventory_item_id INTEGER,
       name TEXT NOT NULL,
       price_cents INTEGER NOT NULL CHECK (price_cents >= 0),
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
-      FOREIGN KEY (establishment_id) REFERENCES establishments(id)
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (inventory_item_id) REFERENCES production_inventory_items(id)
     );
     CREATE INDEX IF NOT EXISTS idx_production_warehouse_prices_business
       ON production_warehouse_prices(establishment_id, name);
   `);
+  addColumnIfMissing(db, 'production_warehouse_prices', 'inventory_item_id', 'INTEGER');
   addColumnIfMissing(db, 'production_inventory_items', 'alerts_disabled', 'INTEGER NOT NULL DEFAULT 0 CHECK (alerts_disabled IN (0, 1))');
   addColumnIfMissing(db, 'production_users', 'is_local_secretary', 'INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'production_users', 'is_warehouse', 'INTEGER NOT NULL DEFAULT 0');
@@ -781,6 +784,40 @@ export function initProducalzaDb(db) {
     UPDATE production_inventory_items SET category = 'Plantas'
     WHERE establishment_id = ? AND lower(trim(category)) IN ('modelo', 'modelos')
   `).run(establishment.id);
+  // Preserve any old price records whose name uniquely identifies an existing material.
+  db.prepare(`
+    UPDATE production_warehouse_prices AS prices
+    SET inventory_item_id = (
+      SELECT items.id
+      FROM production_inventory_items AS items
+      WHERE items.establishment_id = prices.establishment_id
+        AND lower(trim(items.name)) = lower(trim(prices.name))
+    )
+    WHERE prices.establishment_id = ?
+      AND prices.inventory_item_id IS NULL
+      AND 1 = (
+        SELECT COUNT(*)
+        FROM production_inventory_items AS items
+        WHERE items.establishment_id = prices.establishment_id
+          AND lower(trim(items.name)) = lower(trim(prices.name))
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM production_warehouse_prices AS linked
+        WHERE linked.establishment_id = prices.establishment_id
+          AND linked.inventory_item_id = (
+            SELECT items.id
+            FROM production_inventory_items AS items
+            WHERE items.establishment_id = prices.establishment_id
+              AND lower(trim(items.name)) = lower(trim(prices.name))
+          )
+      )
+  `).run(establishment.id);
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_production_warehouse_prices_inventory_item
+      ON production_warehouse_prices(establishment_id, inventory_item_id)
+      WHERE inventory_item_id IS NOT NULL;
+  `);
   normalizeLocalStoreReferences(db);
 
   db.prepare('DELETE FROM production_monthly_report_rows WHERE establishment_id = ?').run(establishment.id);
