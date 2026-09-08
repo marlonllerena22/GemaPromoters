@@ -4330,13 +4330,13 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
   const [showCreate, setShowCreate] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [cameraError, setCameraError] = useState('');
+  const [cameraReady, setCameraReady] = useState(false);
   const videoRef = useRef(null);
   const scannerControlsRef = useRef(null);
   const initialTokenHandled = useRef(false);
   const [movement, setMovement] = useState({
     movement_type: 'out',
-    variant_id: '',
-    quantity: 1,
+    quantities: {},
     responsible_person: '',
     purpose: '',
     notes: ''
@@ -4390,7 +4390,7 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
       unit: item.unit || 'unidades',
       photo_url: item.photo_url || ''
     });
-    setMovement((current) => ({ ...current, variant_id: item.variants?.[0]?.id || '', quantity: 1 }));
+    setMovement((current) => ({ ...current, quantities: {} }));
     await loadHistory(item.id);
   }
 
@@ -4434,57 +4434,97 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
     };
   }, [selected]);
 
+  useEffect(() => {
+    if (!scanning) return undefined;
+    let cancelled = false;
+
+    async function connectScanner() {
+      const video = videoRef.current;
+      if (!video) return;
+      try {
+        const reader = new BrowserQRCodeReader(undefined, {
+          delayBetweenScanAttempts: 80,
+          delayBetweenScanSuccess: 1200
+        });
+        const controls = await reader.decodeFromConstraints(
+          {
+            audio: false,
+            video: {
+              facingMode: { ideal: 'environment' },
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+            }
+          },
+          video,
+          (result) => {
+            if (!result) return;
+            const raw = String(result.getText() || '').trim();
+            const token = raw.match(/\/bodega\/material\/([^/?#]+)/)?.[1] || raw;
+            if (token) openItemToken(decodeURIComponent(token));
+          }
+        );
+        if (cancelled) controls?.stop?.();
+        else {
+          scannerControlsRef.current = controls;
+          setCameraReady(true);
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setScanning(false);
+        setCameraReady(false);
+        setCameraError(err?.name === 'NotAllowedError'
+          ? 'Permite el acceso a la camara para escanear el material.'
+          : 'No se pudo abrir la camara. Tambien puedes buscar el codigo escrito.');
+      }
+    }
+
+    connectScanner();
+    return () => {
+      cancelled = true;
+      scannerControlsRef.current?.stop?.();
+      scannerControlsRef.current = null;
+    };
+  }, [scanning]);
+
   function stopScanner() {
     scannerControlsRef.current?.stop?.();
     scannerControlsRef.current = null;
     const stream = videoRef.current?.srcObject;
     stream?.getTracks?.().forEach((track) => track.stop());
     if (videoRef.current) videoRef.current.srcObject = null;
+    setCameraReady(false);
     setScanning(false);
   }
 
-  async function startScanner() {
+  function startScanner() {
     stopScanner();
     setCameraError('');
+    setCameraReady(false);
     setScanning(true);
-    try {
-      const reader = new BrowserQRCodeReader(undefined, {
-        delayBetweenScanAttempts: 80,
-        delayBetweenScanSuccess: 1200
-      });
-      scannerControlsRef.current = await reader.decodeFromConstraints(
-        {
-          audio: false,
-          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
-        },
-        videoRef.current,
-        (result) => {
-          if (!result) return;
-          const raw = String(result.getText() || '').trim();
-          const token = raw.match(/\/bodega\/material\/([^/?#]+)/)?.[1] || raw;
-          if (token) openItemToken(decodeURIComponent(token));
-        }
-      );
-    } catch (err) {
-      setScanning(false);
-      setCameraError(err?.name === 'NotAllowedError'
-        ? 'Permite el acceso a la camara para escanear el material.'
-        : 'No se pudo abrir la camara. Tambien puedes buscar el codigo escrito.');
-    }
   }
 
   async function saveMovement(event) {
     event.preventDefault();
     if (!selected) return;
+    const movements = selected.variants
+      .map((variant) => ({
+        variant_id: variant.id,
+        quantity: Math.round(Number(movement.quantities[variant.id] || 0))
+      }))
+      .filter((item) => item.quantity > 0);
+    if (!movements.length) {
+      setError('Escribe una cantidad en al menos una talla.');
+      return;
+    }
     setSaving(true);
     try {
       const response = await api(scope(`/producalza/inventory/${selected.id}/movements`), {
         method: 'POST',
-        body: JSON.stringify(movement)
+        body: JSON.stringify({ ...movement, movements })
       });
       await openItem(response.item);
       await loadInventory();
-      setMovement((current) => ({ ...current, quantity: 1, purpose: '', notes: '' }));
+      setMovement((current) => ({ ...current, quantities: {}, purpose: '', notes: '' }));
       setNotice(movement.movement_type === 'out' ? 'Salida registrada y stock actualizado' : 'Entrada registrada y stock actualizado');
     } catch (err) {
       setError(err.message);
@@ -4600,7 +4640,20 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
       {scanning && (
         <section className="prod-panel prod-inventory-scanner">
           <div className="prod-panel-title"><div><span>CAMARA</span><h2>Apunta al codigo QR</h2></div></div>
-          <video ref={videoRef} autoPlay muted playsInline />
+          <div className={`prod-inventory-camera-frame${cameraReady ? ' ready' : ''}`}>
+            <video
+              ref={videoRef}
+              autoPlay
+              muted
+              playsInline
+              onCanPlay={(event) => {
+                event.currentTarget.play().catch(() => {});
+              }}
+              onPlaying={() => setCameraReady(true)}
+            />
+            {!cameraReady && <span>Abriendo camara...</span>}
+            <i aria-hidden="true" />
+          </div>
           {cameraError && <div className="alert error">{cameraError}</div>}
         </section>
       )}
@@ -4724,9 +4777,28 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
                   <button type="button" className={movement.movement_type === 'out' ? 'active out' : ''} onClick={() => setMovement({ ...movement, movement_type: 'out' })}><PackageMinus size={18} />Salida</button>
                   <button type="button" className={movement.movement_type === 'in' ? 'active in' : ''} onClick={() => setMovement({ ...movement, movement_type: 'in' })}><PackagePlus size={18} />Entrada</button>
                 </div>
+                <div className="prod-inventory-movement-variants">
+                  {selected.variants.map((variant) => (
+                    <label key={variant.id}>
+                      <span><b>{variant.variant_label}</b><small>Disponible: {variant.quantity}</small></span>
+                      <input
+                        type="number"
+                        min="0"
+                        max={movement.movement_type === 'out' ? variant.quantity : undefined}
+                        disabled={movement.movement_type === 'out' && Number(variant.quantity) <= 0}
+                        inputMode="numeric"
+                        placeholder="0"
+                        value={movement.quantities[variant.id] || ''}
+                        onChange={(event) => setMovement({
+                          ...movement,
+                          quantities: { ...movement.quantities, [variant.id]: event.target.value }
+                        })}
+                        aria-label={`${movement.movement_type === 'out' ? 'Retirar' : 'Agregar'} talla ${variant.variant_label}`}
+                      />
+                    </label>
+                  ))}
+                </div>
                 <div className="prod-form-grid two">
-                  <label>Talla o variante<select required value={movement.variant_id} onChange={(event) => setMovement({ ...movement, variant_id: event.target.value })}>{selected.variants.map((variant) => <option key={variant.id} value={variant.id}>{variant.variant_label} · disponible {variant.quantity}</option>)}</select></label>
-                  <label>Cantidad<input required type="number" min="1" value={movement.quantity} onChange={(event) => setMovement({ ...movement, quantity: event.target.value })} /></label>
                   <label className="wide">Quien agrega o retira<input required value={movement.responsible_person} onChange={(event) => setMovement({ ...movement, responsible_person: event.target.value })} /></label>
                   <label className="wide">Para que o motivo<input required value={movement.purpose} onChange={(event) => setMovement({ ...movement, purpose: event.target.value })} /></label>
                   <label className="wide">Detalle adicional<textarea rows="2" value={movement.notes} onChange={(event) => setMovement({ ...movement, notes: event.target.value })} /></label>

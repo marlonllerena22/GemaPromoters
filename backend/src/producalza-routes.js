@@ -1541,63 +1541,89 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     ).get(business.id, req.params.id);
     if (!item) return res.status(404).json({ message: 'Material no encontrado' });
     const movementType = req.body.movement_type === 'out' ? 'out' : 'in';
-    const quantity = Math.round(Number(req.body.quantity || 0));
     const responsiblePerson = String(req.body.responsible_person || '').trim();
     const purpose = String(req.body.purpose || '').trim();
     const notes = String(req.body.notes || '').trim();
-    let variant = null;
-    const variantId = Number(req.body.variant_id || 0);
-    if (variantId) {
-      variant = db.prepare(
-        `SELECT * FROM production_inventory_variants
-         WHERE establishment_id = ? AND item_id = ? AND id = ?`
-      ).get(business.id, item.id, variantId);
-    }
-    if (!variant) return res.status(400).json({ message: 'Selecciona una talla o variante valida' });
-    if (quantity <= 0) return res.status(400).json({ message: 'La cantidad debe ser mayor a cero' });
     if (!responsiblePerson || !purpose) {
       return res.status(400).json({ message: 'Indica quien realizo el movimiento y para que se utilizo' });
     }
-    const previousQuantity = Number(variant.quantity || 0);
-    if (movementType === 'out' && quantity > previousQuantity) {
-      return res.status(400).json({ message: `Stock insuficiente. Disponible: ${previousQuantity}` });
+
+    const requestedMovements = Array.isArray(req.body.movements)
+      ? req.body.movements
+      : [{ variant_id: req.body.variant_id, quantity: req.body.quantity }];
+    const quantitiesByVariant = new Map();
+    for (const requested of requestedMovements) {
+      const variantId = Number(requested?.variant_id || 0);
+      const quantity = Math.round(Number(requested?.quantity || 0));
+      if (!variantId || quantity <= 0) continue;
+      quantitiesByVariant.set(variantId, (quantitiesByVariant.get(variantId) || 0) + quantity);
     }
-    const newQuantity = movementType === 'out' ? previousQuantity - quantity : previousQuantity + quantity;
+    if (!quantitiesByVariant.size) {
+      return res.status(400).json({ message: 'Escribe una cantidad mayor a cero en al menos una talla' });
+    }
+
+    const variants = [];
+    for (const [variantId, quantity] of quantitiesByVariant) {
+      const variant = db.prepare(
+        `SELECT * FROM production_inventory_variants
+         WHERE establishment_id = ? AND item_id = ? AND id = ?`
+      ).get(business.id, item.id, variantId);
+      if (!variant) return res.status(400).json({ message: 'Una de las tallas seleccionadas no es valida' });
+      const previousQuantity = Number(variant.quantity || 0);
+      if (movementType === 'out' && quantity > previousQuantity) {
+        return res.status(400).json({
+          message: `Stock insuficiente en talla ${variant.variant_label}. Disponible: ${previousQuantity}`
+        });
+      }
+      variants.push({
+        ...variant,
+        movementQuantity: quantity,
+        previousQuantity,
+        newQuantity: movementType === 'out' ? previousQuantity - quantity : previousQuantity + quantity
+      });
+    }
+
     const createdAt = ecuadorDateTime();
-    let movementId;
+    const movementIds = [];
     db.transaction(() => {
-      db.prepare(
+      const updateVariant = db.prepare(
         `UPDATE production_inventory_variants
          SET quantity = ?, updated_at = ? WHERE id = ?`
-      ).run(newQuantity, createdAt, variant.id);
-      const result = db.prepare(
+      );
+      const insertMovement = db.prepare(
         `INSERT INTO production_inventory_movements
          (establishment_id, item_id, variant_id, movement_type, quantity, previous_quantity,
           new_quantity, responsible_person, purpose, notes, created_by_user_id, created_by, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(
-        business.id,
-        item.id,
-        variant.id,
-        movementType,
-        quantity,
-        previousQuantity,
-        newQuantity,
-        responsiblePerson,
-        purpose,
-        notes,
-        req.user?.productionUserId || null,
-        req.user?.username || 'bodega',
-        createdAt
       );
-      movementId = Number(result.lastInsertRowid);
+      for (const variant of variants) {
+        updateVariant.run(variant.newQuantity, createdAt, variant.id);
+        const result = insertMovement.run(
+          business.id,
+          item.id,
+          variant.id,
+          movementType,
+          variant.movementQuantity,
+          variant.previousQuantity,
+          variant.newQuantity,
+          responsiblePerson,
+          purpose,
+          notes,
+          req.user?.productionUserId || null,
+          req.user?.username || 'bodega',
+          createdAt
+        );
+        movementIds.push(Number(result.lastInsertRowid));
+      }
       db.prepare(
         `UPDATE production_inventory_items SET updated_at = ? WHERE id = ?`
       ).run(createdAt, item.id);
     })();
-    audit(req, movementType, 'inventory_movement', movementId, `${item.code} ${variant.variant_label}: ${quantity}`);
+    const detail = variants.map((variant) => `${variant.variant_label}: ${variant.movementQuantity}`).join(', ');
+    audit(req, movementType, 'inventory_movement', movementIds[0], `${item.code} ${detail}`);
     res.status(201).json({
-      movement: db.prepare('SELECT * FROM production_inventory_movements WHERE id = ?').get(movementId),
+      movement: db.prepare('SELECT * FROM production_inventory_movements WHERE id = ?').get(movementIds[0]),
+      movements: movementIds.map((id) => db.prepare('SELECT * FROM production_inventory_movements WHERE id = ?').get(id)),
       item: inventoryItem(db.prepare('SELECT * FROM production_inventory_items WHERE id = ?').get(item.id))
     });
   });

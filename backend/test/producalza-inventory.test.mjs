@@ -169,6 +169,44 @@ try {
   assert.equal(createdItem.variants.length, 2);
   assert.equal(createdItem.total_quantity, 5);
 
+  const bulkMovementResponse = await fetch(`${baseUrl}/inventory/${createdItem.id}/movements`, {
+    method: 'POST',
+    headers: warehouseHeaders,
+    body: JSON.stringify({
+      movement_type: 'out',
+      movements: [
+        { variant_id: createdItem.variants[0].id, quantity: 1 },
+        { variant_id: createdItem.variants[1].id, quantity: 2 }
+      ],
+      responsible_person: 'Prueba Bodega',
+      purpose: 'Salida de varias tallas'
+    })
+  });
+  assert.equal(bulkMovementResponse.status, 201);
+  const bulkMovement = await bulkMovementResponse.json();
+  assert.equal(bulkMovement.movements.length, 2);
+  assert.equal(bulkMovement.item.variants[0].quantity, 1);
+  assert.equal(bulkMovement.item.variants[1].quantity, 1);
+
+  const rejectedBulkResponse = await fetch(`${baseUrl}/inventory/${createdItem.id}/movements`, {
+    method: 'POST',
+    headers: warehouseHeaders,
+    body: JSON.stringify({
+      movement_type: 'out',
+      movements: [
+        { variant_id: createdItem.variants[0].id, quantity: 1 },
+        { variant_id: createdItem.variants[1].id, quantity: 5 }
+      ],
+      responsible_person: 'Prueba Bodega',
+      purpose: 'Validar operacion completa'
+    })
+  });
+  assert.equal(rejectedBulkResponse.status, 400);
+  const afterRejectedBulk = await fetch(`${baseUrl}/inventory/${createdItem.id}`, { headers: warehouseHeaders });
+  const unchangedItem = await afterRejectedBulk.json();
+  assert.equal(unchangedItem.variants[0].quantity, 1);
+  assert.equal(unchangedItem.variants[1].quantity, 1);
+
   const qrResponse = await fetch(`${baseUrl}/inventory/qr/${createdItem.qr_token}.png`);
   assert.equal(qrResponse.status, 200);
   assert.match(qrResponse.headers.get('content-type') || '', /^image\/png/);
