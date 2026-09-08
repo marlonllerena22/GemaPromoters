@@ -85,7 +85,7 @@ const rows = [
 export const PRODUCALZA_INITIAL_INVENTORY = rows.map(([category, name, color, labels, quantities], index) => ({
   sourceKey: `inventory-pdf-2026-${index + 1}`,
   code: `BOD-${String(index + 1).padStart(4, '0')}`,
-  category,
+  category: category === 'Modelos' ? 'Plantas' : category,
   name,
   color,
   unit: 'unidades',

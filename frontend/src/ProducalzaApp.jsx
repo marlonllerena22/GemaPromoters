@@ -38,6 +38,7 @@ import {
   X
 } from 'lucide-react';
 import { api, downloadApiFile } from './api.js';
+import { WarehouseCategoryField, WarehousePhotoViewer, WarehousePrices } from './WarehouseTools.jsx';
 
 const SIZES = [34, 35, 36, 37, 38, 39, 40, 41, 42, 43];
 const ORDER_STATUS_LABELS = {
@@ -4319,14 +4320,28 @@ function inventoryDateTime(value) {
   }).format(date);
 }
 
-function inventoryStockClass(quantity) {
+function inventoryStockClass(quantity, alertsDisabled = false) {
+  if (alertsDisabled) return '';
   const value = Number(quantity || 0);
   if (value <= 2) return 'stock-low';
   if (value === 3) return 'stock-warning';
   return '';
 }
 
-function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError, setNotice }) {
+function WarehouseInventory(props) {
+  const [section, setSection] = useState('inventory');
+  return (
+    <div className="prod-warehouse-area">
+      <nav className="prod-warehouse-tabs" aria-label="Apartados de bodega">
+        <button type="button" aria-pressed={section === 'inventory'} onClick={() => setSection('inventory')}><Boxes size={18} />Inventario</button>
+        <button type="button" aria-pressed={section === 'prices'} onClick={() => setSection('prices')}><DollarSign size={18} />Precios</button>
+      </nav>
+      {section === 'inventory' ? <WarehouseStockInventory {...props} /> : <WarehousePrices {...props} />}
+    </div>
+  );
+}
+
+function WarehouseStockInventory({ scope, canManage, initialToken, onPrint, setError, setNotice }) {
   const [data, setData] = useState({ items: [], categories: [], summary: {} });
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
@@ -4336,6 +4351,7 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [expandedPhoto, setExpandedPhoto] = useState(null);
   const [scanning, setScanning] = useState(false);
   const [cameraError, setCameraError] = useState('');
   const [cameraReady, setCameraReady] = useState(false);
@@ -4352,7 +4368,7 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
   const [editForm, setEditForm] = useState({ name: '', category: '', color: '', unit: 'unidades', photo_url: '' });
   const [createForm, setCreateForm] = useState({
     name: '',
-    category: 'Modelos',
+    category: 'Plantas',
     color: '',
     unit: 'unidades',
     selected_variants: [],
@@ -4541,6 +4557,24 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
     }
   }
 
+  async function toggleItemAlerts(disabled) {
+    if (!selected) return;
+    setSaving(true);
+    try {
+      const item = await api(scope(`/producalza/inventory/${selected.id}`), {
+        method: 'PATCH',
+        body: JSON.stringify({ alerts_disabled: disabled })
+      });
+      setSelected(item);
+      setData((current) => ({ ...current, items: current.items.map((row) => row.id === item.id ? item : row) }));
+      setNotice(disabled ? 'Alertas desactivadas para este material y todas sus tallas' : 'Alertas activadas para este material');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function saveItem() {
     if (!selected) return;
     setSaving(true);
@@ -4587,7 +4621,7 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
           variants: labels.map((label) => ({ label, quantity: Number(createForm.variant_quantities[label] || 0) }))
         })
       });
-      setCreateForm({ name: '', category: category || 'Modelos', color: '', unit: 'unidades', selected_variants: [], variant_quantities: {}, custom_variants: '', photo_url: '' });
+      setCreateForm({ name: '', category: category || 'Plantas', color: '', unit: 'unidades', selected_variants: [], variant_quantities: {}, custom_variants: '', photo_url: '' });
       setShowCreate(false);
       await loadInventory();
       await openItem(item);
@@ -4615,10 +4649,10 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
   }
 
   const printableItems = data.items.filter((item) => selectedLabels.includes(item.id));
-  const lowStockAlerts = data.items.flatMap((item) => item.variants
+  const lowStockAlerts = data.items.filter((item) => !item.alerts_disabled).flatMap((item) => item.variants
     .filter((variant) => Number(variant.quantity) > 0 && Number(variant.quantity) <= 2)
     .map((variant) => ({ item, variant })));
-  const categoryOptions = [...new Set([...(data.categories || []).map((item) => item.category), editForm.category, createForm.category].filter(Boolean))];
+  const categoryOptions = [...new Set(['Plantas', 'Plantas niñas', 'Suelas', 'Tacos', ...(data.categories || []).map((item) => item.category)])].sort((a, b) => a.localeCompare(b, 'es'));
 
   return (
     <div className="prod-inventory-page">
@@ -4641,8 +4675,8 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
             <Printer size={18} />Imprimir etiquetas ({printableItems.length})
           </button>
           {canManage && (
-            <button className="prod-primary-button" type="button" onClick={() => setShowCreate((value) => !value)}>
-              <Plus size={18} />Nuevo material
+            <button className="prod-primary-button" type="button" aria-expanded={showCreate} aria-controls="warehouse-create-material" onClick={() => setShowCreate((value) => !value)}>
+              {showCreate ? <X size={18} /> : <Plus size={18} />}{showCreate ? 'Cerrar formulario' : 'Agregar material'}
             </button>
           )}
         </div>
@@ -4688,11 +4722,11 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
       )}
 
       {showCreate && canManage && (
-        <form className="prod-panel prod-inventory-create" onSubmit={createItem}>
+        <form id="warehouse-create-material" className="prod-panel prod-inventory-create" onSubmit={createItem}>
           <div className="prod-panel-title"><div><span>NUEVO</span><h2>Agregar material</h2></div></div>
           <div className="prod-inventory-edit-grid">
             <label>Nombre o referencia<input required value={createForm.name} onChange={(event) => setCreateForm({ ...createForm, name: event.target.value })} /></label>
-            <label>Categoria<input list="inventory-categories" required value={createForm.category} onChange={(event) => setCreateForm({ ...createForm, category: event.target.value })} /></label>
+            <WarehouseCategoryField value={createForm.category} options={categoryOptions} onChange={(value) => setCreateForm({ ...createForm, category: value })} />
             <label>Color<input value={createForm.color} onChange={(event) => setCreateForm({ ...createForm, color: event.target.value })} /></label>
             <label>Unidad<input value={createForm.unit} onChange={(event) => setCreateForm({ ...createForm, unit: event.target.value })} /></label>
             <fieldset className="wide prod-inventory-size-picker">
@@ -4716,11 +4750,9 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
             <label className="prod-inventory-photo-picker"><ImageIcon size={18} />Foto del material<input type="file" accept="image/*" onChange={(event) => setItemPhoto(event.target.files?.[0], 'create')} /></label>
           </div>
           {createForm.photo_url && <img className="prod-inventory-photo-preview" src={createForm.photo_url} alt="Vista previa" />}
-          <div className="prod-form-actions"><button className="prod-primary-button" disabled={saving}><Save size={17} />Guardar material</button></div>
+          <div className="prod-form-actions"><button type="button" className="prod-secondary-button" disabled={saving} onClick={() => setShowCreate(false)}>Cancelar</button><button className="prod-primary-button" disabled={saving}><Save size={17} />Guardar material</button></div>
         </form>
       )}
-
-      <datalist id="inventory-categories">{categoryOptions.map((item) => <option value={item} key={item} />)}</datalist>
 
       <section className="prod-inventory-summary">
         <article><span>Materiales</span><strong>{Number(data.summary?.item_count || 0)}</strong></article>
@@ -4748,15 +4780,18 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
               <label className="prod-inventory-label-check" title="Seleccionar etiqueta">
                 <input type="checkbox" checked={selectedLabels.includes(item.id)} onChange={() => toggleLabel(item.id)} />
               </label>
-              <button className="prod-inventory-card-main" type="button" onClick={() => openItem(item)}>
-                <div className="prod-inventory-thumb">
+              <div className="prod-warehouse-photo-column">
+                <button className="prod-inventory-thumb" type="button" aria-label={`Abrir material ${item.name}`} onClick={() => openItem(item)}>
                   {item.photo_url ? <img src={item.photo_url} alt={item.name} /> : <ImageIcon size={28} />}
-                </div>
+                </button>
+                <button className="prod-warehouse-expand-photo" type="button" disabled={!item.photo_url} aria-label={`Ampliar foto de ${item.name}`} onClick={() => setExpandedPhoto(item)}>Ampliar foto</button>
+              </div>
+              <button className="prod-inventory-card-main" type="button" onClick={() => openItem(item)}>
                 <div className="prod-inventory-card-copy">
                   <span>{item.category} · {item.code}</span>
                   <h3>{item.name}</h3>
                   <p>{item.color || 'Sin color especificado'}</p>
-                  <div>{item.variants.map((variant) => <small className={inventoryStockClass(variant.quantity)} key={variant.id}>{variant.variant_label}: <b>{variant.quantity}</b></small>)}</div>
+                  <div>{item.variants.map((variant) => <small className={inventoryStockClass(variant.quantity, item.alerts_disabled)} key={variant.id}>{variant.variant_label}: <b>{variant.quantity}</b></small>)}</div>
                 </div>
                 <strong className="prod-inventory-total">{item.total_quantity}<small>{item.unit}</small></strong>
               </button>
@@ -4776,12 +4811,17 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
               <div><span>{selected.code}</span><h2>{selected.name}</h2><p>{selected.category}{selected.color ? ` · ${selected.color}` : ''}</p></div>
             </div>
 
+            {canManage && <label className="prod-warehouse-alert-toggle">
+              <input type="checkbox" checked={Boolean(selected.alerts_disabled)} disabled={saving} onChange={(event) => toggleItemAlerts(event.target.checked)} />
+              <span>Desactivar alertas de este material y todas sus tallas<small>Oculta los avisos y colores de stock bajo. Se guarda al marcar.</small></span>
+            </label>}
+
             {canManage && (
               <details className="prod-inventory-edit" open>
                 <summary><Pencil size={16} />Editar ficha y foto</summary>
                 <div className="prod-form-grid two">
                   <label>Nombre<input value={editForm.name} onChange={(event) => setEditForm({ ...editForm, name: event.target.value })} /></label>
-                  <label>Categoria<input list="inventory-categories" value={editForm.category} onChange={(event) => setEditForm({ ...editForm, category: event.target.value })} /></label>
+                  <WarehouseCategoryField key={selected.id} value={editForm.category} options={categoryOptions} onChange={(value) => setEditForm({ ...editForm, category: value })} />
                   <label>Color<input value={editForm.color} onChange={(event) => setEditForm({ ...editForm, color: event.target.value })} /></label>
                   <label>Unidad<input value={editForm.unit} onChange={(event) => setEditForm({ ...editForm, unit: event.target.value })} /></label>
                 </div>
@@ -4795,7 +4835,7 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
 
             <div className="prod-inventory-stock-grid">
               {selected.variants.map((variant) => (
-                <div className={inventoryStockClass(variant.quantity)} key={variant.id}><span>{variant.variant_label}</span><strong>{variant.quantity}</strong></div>
+                <div className={inventoryStockClass(variant.quantity, selected.alerts_disabled)} key={variant.id}><span>{variant.variant_label}</span><strong>{variant.quantity}</strong></div>
               ))}
             </div>
 
@@ -4808,7 +4848,7 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
                 </div>
                 <div className="prod-inventory-movement-variants">
                   {selected.variants.map((variant) => (
-                    <label className={inventoryStockClass(variant.quantity)} key={variant.id}>
+                    <label className={inventoryStockClass(variant.quantity, selected.alerts_disabled)} key={variant.id}>
                       <span><b>{variant.variant_label}</b><small>Disponible: {variant.quantity}</small></span>
                       <input
                         type="number"
@@ -4858,6 +4898,7 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
           </div>
         )}
       </div>
+      {expandedPhoto && <WarehousePhotoViewer photo={expandedPhoto} onClose={() => setExpandedPhoto(null)} />}
     </div>
   );
 }

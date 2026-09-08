@@ -656,6 +656,20 @@ export function initProducalzaDb(db) {
       ON production_inventory_movements(establishment_id, created_at, item_id);
   `);
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS production_warehouse_prices (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      price_cents INTEGER NOT NULL CHECK (price_cents >= 0),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_production_warehouse_prices_business
+      ON production_warehouse_prices(establishment_id, name);
+  `);
+  addColumnIfMissing(db, 'production_inventory_items', 'alerts_disabled', 'INTEGER NOT NULL DEFAULT 0 CHECK (alerts_disabled IN (0, 1))');
   addColumnIfMissing(db, 'production_users', 'is_local_secretary', 'INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'production_users', 'is_warehouse', 'INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'production_local_finances', 'finance_group', "TEXT NOT NULL DEFAULT 'various'");
@@ -762,6 +776,11 @@ export function initProducalzaDb(db) {
   seedLocalStaff(db, establishment.id);
   seedLocalReportSettings(db, establishment.id);
   seedWarehouseInventory(db, establishment.id);
+  // Reclassify existing materials without replacing their IDs, QR codes or stock.
+  db.prepare(`
+    UPDATE production_inventory_items SET category = 'Plantas'
+    WHERE establishment_id = ? AND lower(trim(category)) IN ('modelo', 'modelos')
+  `).run(establishment.id);
   normalizeLocalStoreReferences(db);
 
   db.prepare('DELETE FROM production_monthly_report_rows WHERE establishment_id = ?').run(establishment.id);

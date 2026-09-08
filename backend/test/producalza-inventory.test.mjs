@@ -33,7 +33,7 @@ try {
     `SELECT category FROM production_inventory_items
      WHERE establishment_id = ? GROUP BY category ORDER BY category`
   ).all(business.id).map((row) => row.category);
-  assert.deepEqual(categories, ['Modelos', 'Plantas', 'Plantas niñas', 'Suelas', 'Tacos']);
+  assert.deepEqual(categories, ['Plantas', 'Plantas niñas', 'Suelas', 'Tacos']);
 
   const s070 = db.prepare(
     `SELECT items.color, variants.variant_label, variants.quantity
@@ -63,7 +63,19 @@ try {
   });
 
   const beforeSecondInit = summary.total_quantity;
+  const legacyItem = db.prepare('SELECT * FROM production_inventory_items WHERE establishment_id = ? LIMIT 1').get(business.id);
+  const legacyVariants = db.prepare('SELECT * FROM production_inventory_variants WHERE item_id = ?').all(legacyItem.id);
+  const legacyHistory = db.prepare('SELECT * FROM production_inventory_movements WHERE item_id = ?').all(legacyItem.id);
+  db.prepare("UPDATE production_inventory_items SET category = ' Modelo ', photo_url = 'foto-conservada', alerts_disabled = 1 WHERE id = ?").run(legacyItem.id);
   initDb();
+  const migratedItem = db.prepare('SELECT * FROM production_inventory_items WHERE id = ?').get(legacyItem.id);
+  assert.equal(migratedItem.category, 'Plantas');
+  assert.equal(migratedItem.qr_token, legacyItem.qr_token);
+  assert.equal(migratedItem.code, legacyItem.code);
+  assert.equal(migratedItem.photo_url, 'foto-conservada');
+  assert.equal(migratedItem.alerts_disabled, 1);
+  assert.deepEqual(db.prepare('SELECT * FROM production_inventory_variants WHERE item_id = ?').all(legacyItem.id), legacyVariants);
+  assert.deepEqual(db.prepare('SELECT * FROM production_inventory_movements WHERE item_id = ?').all(legacyItem.id), legacyHistory);
   const afterSecondInit = db.prepare(
     `SELECT COALESCE(SUM(variants.quantity), 0) AS total_quantity
      FROM production_inventory_items AS items
@@ -212,7 +224,57 @@ try {
   assert.match(qrResponse.headers.get('content-type') || '', /^image\/png/);
   assert.ok((await qrResponse.arrayBuffer()).byteLength > 1000);
 
-  console.log('Inventory verified: seed, permissions, movements, photos, multiple sizes and QR labels.');
+  const request = async (route, method = 'GET', body, headers = warehouseHeaders) => {
+    const response = await fetch(baseUrl + route, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    return { status: response.status, data: await response.json() };
+  };
+  const muted = await request(`/inventory/${createdItem.id}`, 'PATCH', { alerts_disabled: true });
+  assert.equal(muted.status, 200);
+  assert.equal(muted.data.alerts_disabled, 1);
+  assert.equal((await request(`/inventory/${createdItem.id}`)).data.alerts_disabled, 1);
+  assert.equal((await request(`/inventory/${createdItem.id}`, 'PATCH', { color: 'Cafe' })).data.alerts_disabled, 1);
+  assert.equal((await request(`/inventory/${createdItem.id}`, 'PATCH', { alerts_disabled: 'false' })).status, 400);
+  assert.equal((await request(`/inventory/${createdItem.id}`, 'PATCH', { alerts_disabled: false }, adminHeaders)).status, 403);
+  assert.equal((await request(`/inventory/${createdItem.id}`, 'PATCH', { alerts_disabled: false })).data.alerts_disabled, 0);
+
+  const newCategories = (await request('/inventory')).data.categories.map((row) => row.category);
+  assert.ok(newCategories.includes('Pruebas'));
+  assert.ok(!newCategories.some((name) => /^modelos?$/i.test(name)));
+  const reclassified = await request(`/inventory/${createdItem.id}`, 'PATCH', { category: 'Modelos' });
+  assert.equal(reclassified.data.category, 'Plantas');
+  assert.equal(reclassified.data.total_quantity, unchangedItem.total_quantity);
+
+  const inventorySnapshot = () => ({
+    items: db.prepare('SELECT * FROM production_inventory_items ORDER BY id').all(),
+    variants: db.prepare('SELECT * FROM production_inventory_variants ORDER BY id').all(),
+    movements: db.prepare('SELECT * FROM production_inventory_movements ORDER BY id').all()
+  });
+  const beforePrices = inventorySnapshot();
+  assert.deepEqual((await request('/warehouse-prices')).data, []);
+  assert.equal((await request('/warehouse-prices', 'POST', { name: 'Modelo precio', price: '12.35' }, adminHeaders)).status, 403);
+  assert.equal((await request('/warehouse-prices', 'GET', undefined, { Authorization: `Bearer ${sellerToken}` })).status, 403);
+  for (const price of ['', null, -1, '1.005', 'Infinity', 'no es precio']) {
+    assert.equal((await request('/warehouse-prices', 'POST', { name: 'Invalido', price })).status, 400);
+  }
+  const priceCreated = await request('/warehouse-prices', 'POST', { name: 'Modelo precio', price: '12.35', quantity: 999 });
+  assert.equal(priceCreated.status, 201);
+  assert.deepEqual(priceCreated.data, { id: priceCreated.data.id, name: 'Modelo precio', price: 12.35 });
+  assert.equal(db.prepare('SELECT price_cents FROM production_warehouse_prices WHERE id = ?').get(priceCreated.data.id).price_cents, 1235);
+  assert.equal((await request('/warehouse-prices', 'POST', { name: 'modelo precio', price: 20 })).status, 409);
+  const otherBusiness = db.prepare("SELECT id FROM establishments WHERE name = 'GEMASHOW'").get();
+  const otherPriceId = Number(db.prepare(`INSERT INTO production_warehouse_prices
+    (establishment_id, name, price_cents, created_at, updated_at) VALUES (?, 'Otro negocio', 900, '2026-09-08', '2026-09-08')`).run(otherBusiness.id).lastInsertRowid);
+  assert.equal((await request(`/warehouse-prices/${otherPriceId}`, 'PUT', { name: 'No cambiar', price: 1 })).status, 404);
+  assert.equal((await request(`/warehouse-prices/${otherPriceId}`, 'DELETE')).status, 404);
+  const priceUpdated = await request(`/warehouse-prices/${priceCreated.data.id}`, 'PUT', { name: 'Modelo actualizado', price: '14.90' });
+  assert.equal(priceUpdated.data.price, 14.9);
+  assert.deepEqual((await request('/warehouse-prices', 'GET', undefined, adminHeaders)).data, [priceUpdated.data]);
+  assert.equal((await request(`/warehouse-prices/${priceCreated.data.id}`, 'DELETE', undefined, adminHeaders)).status, 403);
+  assert.equal((await request(`/warehouse-prices/${priceCreated.data.id}`, 'DELETE')).status, 200);
+  assert.deepEqual((await request('/warehouse-prices')).data, []);
+  assert.deepEqual(inventorySnapshot(), beforePrices, 'Price catalog changes must never touch stock or inventory history');
+
+  console.log('Inventory verified: category migration preserves data, alerts persist, catalog is isolated, permissions, movements, photos and QR labels.');
 } finally {
   if (server) await new Promise((resolve) => server.close(resolve));
   db.close();

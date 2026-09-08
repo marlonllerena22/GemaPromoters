@@ -1,0 +1,130 @@
+/* Warehouse-only controls: categories, photo viewer and independent prices. */
+.prod-warehouse-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #d8e0dc;
+  padding-bottom: 12px;
+}
+.prod-warehouse-tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 20px;
+  background: #fff;
+  border: 1px solid #cbd8cf;
+  color: #244934;
+  font-weight: 800;
+}
+.prod-warehouse-tabs button[aria-pressed="true"] {
+  background: #173f2d;
+  border-color: #173f2d;
+  color: #fff;
+}
+.prod-warehouse-category, .prod-warehouse-category label {
+  display: grid;
+  gap: 7px;
+}
+.prod-warehouse-category { align-content: start; }
+.prod-warehouse-category input, .prod-warehouse-category select { width: 100%; min-width: 0; }
+.prod-warehouse-photo-column {
+  flex: 0 0 94px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 10px 6px;
+}
+.prod-warehouse-photo-column .prod-inventory-thumb { border: 0; padding: 0; }
+.prod-warehouse-expand-photo {
+  border: 0;
+  background: transparent;
+  color: #245c40;
+  padding: 5px 2px;
+  min-height: 32px;
+  font-size: 11px;
+  font-weight: 800;
+  text-decoration: underline;
+}
+.prod-warehouse-expand-photo:disabled { color: #8d9892; cursor: default; text-decoration: none; }
+.prod-warehouse-area .prod-inventory-card-main { grid-template-columns: minmax(0, 1fr) auto; }
+.prod-warehouse-alert-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: #f2f5f3;
+  border: 1px solid #d7e0da;
+  padding: 13px;
+  margin: 14px 0;
+  color: #273f31;
+  font-size: 13px;
+}
+.prod-warehouse-alert-toggle input { width: 20px; height: 20px; flex-shrink: 0; margin: 0; }
+.prod-warehouse-alert-toggle small { display: block; font-size: 11px; color: #66736c; margin-top: 4px; }
+.prod-warehouse-photo-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(5, 13, 9, .88);
+}
+.prod-warehouse-photo-dialog {
+  width: min(1000px, 100%);
+  max-height: calc(100dvh - 40px);
+  display: flex;
+  flex-direction: column;
+  background: #101a14;
+  color: #fff;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.prod-warehouse-photo-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; }
+.prod-warehouse-photo-dialog header strong { overflow-wrap: anywhere; }
+.prod-warehouse-photo-dialog button { background: #fff; color: #173f2d; display: flex; border: 0; padding: 8px; flex-shrink: 0; }
+.prod-warehouse-photo-dialog > img { width: 100%; min-height: 0; max-height: calc(100dvh - 120px); object-fit: contain; }
+.prod-warehouse-price-search {
+  background: #fff;
+  border: 1px solid #d8e0dc;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin: 16px 0;
+}
+.prod-warehouse-price-search input { width: 100%; border: 0; outline-offset: 2px; }
+.prod-warehouse-price-list { display: grid; gap: 10px; }
+.prod-warehouse-price-list > article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 16px;
+  background: #fff;
+  border: 1px solid #d8e0dc;
+  padding: 16px;
+}
+.prod-warehouse-price-name { display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere; min-width: 0; }
+.prod-warehouse-price-name svg { color: #62806d; flex-shrink: 0; }
+.prod-warehouse-price-value { font-size: 22px; color: #173f2d; }
+.prod-warehouse-price-actions { display: flex; gap: 8px; }
+.prod-warehouse-price-delete { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; border-top: 1px solid #e4e9e6; padding-top: 12px; }
+.prod-warehouse-price-delete button { padding: 8px 12px; background: #f4f6f5; border: 1px solid #cbd8cf; }
+.prod-warehouse-price-form { margin-top: 16px; }
+@media (max-width: 640px) {
+  .prod-warehouse-tabs button { flex: 1; }
+  .prod-warehouse-photo-column { flex-basis: 80px; padding: 8px 4px; }
+  .prod-warehouse-area .prod-inventory-label-check { padding: 8px; }
+  .prod-warehouse-area .prod-inventory-card-main { grid-template-columns: minmax(0, 1fr); padding-left: 2px; }
+  .prod-warehouse-area .prod-inventory-total { grid-column: 1; }
+  .prod-warehouse-photo-backdrop { padding: 8px; }
+  .prod-warehouse-photo-dialog { max-height: calc(100dvh - 16px); }
+  .prod-warehouse-price-list > article { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 12px; }
+  .prod-warehouse-price-actions { grid-column: 1 / -1; }
+  .prod-warehouse-price-actions > button { flex: 1; justify-content: center; }
+  .prod-warehouse-price-form .prod-form-grid.two { grid-template-columns: 1fr; }
+}
+
