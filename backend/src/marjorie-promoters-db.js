@@ -122,6 +122,12 @@ export function initMarjoriePromotersDb(db) {
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
     );
 
+    CREATE TABLE IF NOT EXISTS marjorie_promoter_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_marjorie_promoters_status ON marjorie_promoters(status, registered_at);
     CREATE INDEX IF NOT EXISTS idx_marjorie_sales_promoter_date ON marjorie_promoter_sales(promoter_id, sale_date);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_marjorie_sales_external
@@ -130,5 +136,8 @@ export function initMarjoriePromotersDb(db) {
     CREATE INDEX IF NOT EXISTS idx_marjorie_bonuses_promoter_cycle ON marjorie_promoter_bonuses(promoter_id, cycle_start);
     CREATE INDEX IF NOT EXISTS idx_marjorie_payments_promoter_date ON marjorie_promoter_payments(promoter_id, paid_at);
     CREATE INDEX IF NOT EXISTS idx_marjorie_requests_status ON marjorie_content_requests(status, desired_date);
+
+    INSERT OR IGNORE INTO marjorie_promoter_settings (key, value)
+    VALUES ('customer_discount_percent', '0');
   `);
 }

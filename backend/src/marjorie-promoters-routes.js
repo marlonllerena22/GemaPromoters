@@ -154,6 +154,12 @@ export function registerMarjoriePromotersRoutes(app, db) {
       ORDER BY CASE WHEN name LIKE '%Norte%' THEN 1 WHEN name LIKE '%Sur%' THEN 2 WHEN name LIKE '%Valle%' THEN 3 ELSE 4 END, name`).all();
   }
 
+  function promoterDiscountPercent() {
+    const row = db.prepare("SELECT value FROM marjorie_promoter_settings WHERE key = 'customer_discount_percent'").get();
+    const value = Number(row?.value || 0);
+    return Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : 0;
+  }
+
   function effectivePairs(row) {
     return row.is_paid && row.is_delivered && !row.is_voided ? Math.max(0, Number(row.pairs) - Number(row.returned_pairs || 0)) : 0;
   }
@@ -333,7 +339,14 @@ export function registerMarjoriePromotersRoutes(app, db) {
     const promoter = db.prepare("SELECT * FROM marjorie_promoters WHERE UPPER(code) = UPPER(?)").get(clean(req.params.code, 40));
     if (!promoter) return res.status(404).json({ valid: false, message: 'Codigo no registrado' });
     const detail = promoterPayload(promoter);
-    res.json({ valid: promoter.status === 'active', code: promoter.code, status: promoter.status, cycle_points: detail.cycle_pairs, cycle_pairs: detail.cycle_pairs });
+    res.json({
+      valid: promoter.status === 'active',
+      code: promoter.code,
+      status: promoter.status,
+      discount_percent: promoter.status === 'active' ? promoterDiscountPercent() : 0,
+      cycle_points: detail.cycle_pairs,
+      cycle_pairs: detail.cycle_pairs
+    });
   });
 
   app.post('/api/integrations/marjorie/sales', requireInventoryIntegration, (req, res) => {
@@ -367,7 +380,7 @@ export function registerMarjoriePromotersRoutes(app, db) {
       audit(promoter.id, `integration:${source}`, 'create', 'sale', id, externalId);
     }
     const detail = promoterPayload(promoter);
-    res.status(existing ? 200 : 201).json({ ok: true, id, promoter_code: promoter.code, cycle_points: detail.cycle_pairs, cycle_pairs: detail.cycle_pairs, commission: detail.cycle_commission, pending_payment: detail.pending_total });
+    res.status(existing ? 200 : 201).json({ ok: true, id, promoter_code: promoter.code, discount_percent: promoterDiscountPercent(), cycle_points: detail.cycle_pairs, cycle_pairs: detail.cycle_pairs, commission: detail.cycle_commission, pending_payment: detail.pending_total });
   });
 
   app.get('/api/marjorie/me', requireMember, (req, res) => res.json({ ...promoterPayload(req.marjoriePromoter), branches: realBranches() }));
@@ -449,6 +462,24 @@ export function registerMarjoriePromotersRoutes(app, db) {
     const promoter = db.prepare('SELECT * FROM marjorie_promoters WHERE id = ?').get(req.params.id);
     if (!promoter) return res.status(404).json({ message: 'Promotora no encontrada' });
     res.json({ ...promoterPayload(promoter), branches: realBranches(), requests: db.prepare('SELECT * FROM marjorie_content_requests WHERE promoter_id = ? ORDER BY id DESC').all(promoter.id), audit: db.prepare('SELECT * FROM marjorie_promoter_audit WHERE promoter_id = ? ORDER BY id DESC LIMIT 100').all(promoter.id) });
+  });
+
+  app.get('/api/marjorie/admin/settings', requireMarjorieAdmin, (_req, res) => {
+    res.json({ discount_percent: promoterDiscountPercent() });
+  });
+
+  app.put('/api/marjorie/admin/settings', requireMarjorieAdmin, (req, res) => {
+    const raw = String(req.body.discount_percent ?? '').trim();
+    const discountPercent = Number(raw);
+    if (!/^\d+(\.\d{1,2})?$/.test(raw) || !Number.isFinite(discountPercent) || discountPercent > 100) {
+      return res.status(400).json({ message: 'El descuento debe estar entre 0 y 100, con hasta dos decimales' });
+    }
+    db.prepare(`INSERT INTO marjorie_promoter_settings (key, value, updated_at)
+      VALUES ('customer_discount_percent', ?, datetime('now','localtime'))
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`)
+      .run(String(discountPercent));
+    audit(null, req.user.username || req.user.role, 'update', 'settings', null, `Descuento general ${discountPercent}%`);
+    res.json({ discount_percent: promoterDiscountPercent() });
   });
 
   app.patch('/api/marjorie/admin/promoters/:id', requireMarjorieAdmin, (req, res) => {

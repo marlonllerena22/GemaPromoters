@@ -31,7 +31,20 @@ La credencial se configura de forma privada en Render. Nunca debe incluirse en e
 GET /api/integrations/marjorie/promoters/MB-0001
 ```
 
-La respuesta indica si el codigo esta activo y devuelve los pares/puntos validos del ciclo.
+La respuesta indica si el codigo esta activo, devuelve el descuento general configurado por administracion y los pares validos del ciclo:
+
+```json
+{
+  "valid": true,
+  "code": "MB-0001",
+  "status": "active",
+  "discount_percent": 10,
+  "cycle_points": 4,
+  "cycle_pairs": 4
+}
+```
+
+El inventario solo debe aplicar `discount_percent` cuando `valid` sea `true`. El descuento es para la compra del cliente; la comision de la promotora se calcula por separado dentro de PROMOTERS.
 
 ### Crear o actualizar una venta
 
@@ -50,6 +63,7 @@ Content-Type: application/json
   "customer_whatsapp": "0999999999",
   "pairs": 2,
   "returned_pairs": 0,
+  "discount_percent": 10,
   "sale_date": "2026-09-06",
   "is_paid": true,
   "is_delivered": true,
@@ -70,3 +84,14 @@ La venta solo suma para comision cuando esta pagada, entregada, no anulada y con
 4. Al quedar pagada y entregada, facturacion envia la venta a PROMOTERS.
 5. Una anulacion o devolucion vuelve a enviar el mismo `sale_id` con el estado actualizado.
 6. PROMOTERS recalcula pares, nivel, comision retroactiva y ajustes pendientes.
+
+El sistema de inventario es quien confirma la venta y coordina los dos avisos posteriores:
+
+- Envia a Azure los datos necesarios para emitir la factura.
+- Envia a PROMOTERS el codigo, la venta y su estado para acreditar la comision.
+
+Si uno de los dos servicios no responde, inventario debe reintentar ese envio sin repetir la venta. PROMOTERS evita duplicados usando `source + sale_id`.
+
+## Configuracion administrativa
+
+El administrador de Promotoras Marjorie puede cambiar el descuento general desde `Configuracion`. Todos los codigos activos reciben ese mismo porcentaje en la API. Cambiar el descuento no modifica ventas anteriores.
