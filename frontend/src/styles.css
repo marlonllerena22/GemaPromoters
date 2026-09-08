@@ -6990,6 +6990,82 @@ td {
   color: #17241e;
 }
 
+.prod-inventory-low-alert {
+  align-items: center;
+  background: #fff5f4;
+  border: 1px solid #e6b5b2;
+  border-left: 5px solid #a52f36;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(210px, auto) minmax(0, 1fr);
+  padding: 13px 15px;
+}
+
+.prod-inventory-low-alert-title {
+  align-items: center;
+  color: #8e2f35;
+  display: flex;
+  gap: 10px;
+}
+
+.prod-inventory-low-alert-title div {
+  display: grid;
+  gap: 2px;
+}
+
+.prod-inventory-low-alert-title span {
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.prod-inventory-low-alert-title strong {
+  color: #46282a;
+  font-size: 13px;
+}
+
+.prod-inventory-low-alert-list {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.prod-inventory-low-alert-list button {
+  background: #ffffff;
+  border: 1px solid #e4cbc9;
+  color: #392729;
+  display: grid;
+  flex: 0 0 auto;
+  gap: 1px;
+  grid-template-columns: minmax(115px, auto) 30px;
+  padding: 7px 8px;
+  text-align: left;
+}
+
+.prod-inventory-low-alert-list button span,
+.prod-inventory-low-alert-list button small {
+  grid-column: 1;
+}
+
+.prod-inventory-low-alert-list button span {
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.prod-inventory-low-alert-list button small {
+  color: #765e60;
+  font-size: 10px;
+}
+
+.prod-inventory-low-alert-list button b {
+  align-self: center;
+  color: #a52f36;
+  font-size: 18px;
+  grid-column: 2;
+  grid-row: 1 / 3;
+  text-align: center;
+}
+
 .prod-inventory-camera-frame {
   background: #07100c;
   aspect-ratio: 4 / 3;
@@ -7321,6 +7397,37 @@ td {
   border-radius: 4px;
   color: #46554d;
   padding: 4px 6px;
+}
+
+.prod-inventory-card-copy small.stock-low,
+.prod-inventory-stock-grid div.stock-low,
+.prod-inventory-movement-variants label.stock-low {
+  background: #fff0ef;
+  border-color: #c94b52;
+  color: #9f252d;
+}
+
+.prod-inventory-card-copy small.stock-warning,
+.prod-inventory-stock-grid div.stock-warning,
+.prod-inventory-movement-variants label.stock-warning {
+  background: #fff8df;
+  border-color: #d6a514;
+  color: #7d5c00;
+}
+
+.prod-inventory-stock-grid div.stock-low,
+.prod-inventory-stock-grid div.stock-warning {
+  border-bottom-width: 3px;
+}
+
+.prod-inventory-movement-variants label.stock-low b,
+.prod-inventory-movement-variants label.stock-low small {
+  color: #9f252d;
+}
+
+.prod-inventory-movement-variants label.stock-warning b,
+.prod-inventory-movement-variants label.stock-warning small {
+  color: #7d5c00;
 }
 
 .prod-inventory-total {
@@ -7690,6 +7797,11 @@ td {
   .prod-inventory-camera-frame {
     aspect-ratio: 3 / 4;
     max-height: min(68dvh, 560px);
+  }
+
+  .prod-inventory-low-alert {
+    align-items: stretch;
+    grid-template-columns: 1fr;
   }
 
   .prod-inventory-movement-variants {

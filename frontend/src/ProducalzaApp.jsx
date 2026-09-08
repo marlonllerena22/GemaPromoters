@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { BrowserQRCodeReader } from '@zxing/browser';
 import {
+  AlertTriangle,
   Boxes,
   Camera,
   Check,
@@ -4318,6 +4319,13 @@ function inventoryDateTime(value) {
   }).format(date);
 }
 
+function inventoryStockClass(quantity) {
+  const value = Number(quantity || 0);
+  if (value <= 2) return 'stock-low';
+  if (value === 3) return 'stock-warning';
+  return '';
+}
+
 function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError, setNotice }) {
   const [data, setData] = useState({ items: [], categories: [], summary: {} });
   const [search, setSearch] = useState('');
@@ -4607,6 +4615,9 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
   }
 
   const printableItems = data.items.filter((item) => selectedLabels.includes(item.id));
+  const lowStockAlerts = data.items.flatMap((item) => item.variants
+    .filter((variant) => Number(variant.quantity) > 0 && Number(variant.quantity) <= 2)
+    .map((variant) => ({ item, variant })));
   const categoryOptions = [...new Set([...(data.categories || []).map((item) => item.category), editForm.category, createForm.category].filter(Boolean))];
 
   return (
@@ -4636,6 +4647,24 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
           )}
         </div>
       </section>
+
+      {lowStockAlerts.length > 0 && (
+        <section className="prod-inventory-low-alert" aria-label="Alertas de stock bajo">
+          <div className="prod-inventory-low-alert-title">
+            <AlertTriangle size={20} />
+            <div><span>STOCK BAJO</span><strong>{lowStockAlerts.length} {lowStockAlerts.length === 1 ? 'talla necesita' : 'tallas necesitan'} reposicion</strong></div>
+          </div>
+          <div className="prod-inventory-low-alert-list">
+            {lowStockAlerts.map(({ item, variant }) => (
+              <button type="button" key={`${item.id}-${variant.id}`} onClick={() => openItem(item)}>
+                <span>{item.name}{item.color ? ` · ${item.color}` : ''}</span>
+                <small>Talla {variant.variant_label}</small>
+                <b>{variant.quantity}</b>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       {scanning && (
         <section className="prod-panel prod-inventory-scanner">
@@ -4727,7 +4756,7 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
                   <span>{item.category} · {item.code}</span>
                   <h3>{item.name}</h3>
                   <p>{item.color || 'Sin color especificado'}</p>
-                  <div>{item.variants.map((variant) => <small key={variant.id}>{variant.variant_label}: <b>{variant.quantity}</b></small>)}</div>
+                  <div>{item.variants.map((variant) => <small className={inventoryStockClass(variant.quantity)} key={variant.id}>{variant.variant_label}: <b>{variant.quantity}</b></small>)}</div>
                 </div>
                 <strong className="prod-inventory-total">{item.total_quantity}<small>{item.unit}</small></strong>
               </button>
@@ -4766,7 +4795,7 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
 
             <div className="prod-inventory-stock-grid">
               {selected.variants.map((variant) => (
-                <div key={variant.id}><span>{variant.variant_label}</span><strong>{variant.quantity}</strong></div>
+                <div className={inventoryStockClass(variant.quantity)} key={variant.id}><span>{variant.variant_label}</span><strong>{variant.quantity}</strong></div>
               ))}
             </div>
 
@@ -4779,7 +4808,7 @@ function WarehouseInventory({ scope, canManage, initialToken, onPrint, setError,
                 </div>
                 <div className="prod-inventory-movement-variants">
                   {selected.variants.map((variant) => (
-                    <label key={variant.id}>
+                    <label className={inventoryStockClass(variant.quantity)} key={variant.id}>
                       <span><b>{variant.variant_label}</b><small>Disponible: {variant.quantity}</small></span>
                       <input
                         type="number"
