@@ -118,9 +118,9 @@ async function defaultGenerate({ images, prompt, size }) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('OPENAI_API_KEY no configurada');
   const form = new FormData();
-  form.append('model', process.env.OPENAI_IMAGE_MODEL || 'gpt-image-2.5-sunburst');
+  form.append('model', process.env.OPENAI_IMAGE_MODEL || 'gpt-image-2');
   form.append('prompt', prompt);
-  form.append('quality', 'high');
+  form.append('quality', process.env.OPENAI_IMAGE_QUALITY || 'medium');
   form.append('size', size);
   form.append('output_format', 'webp');
   images.forEach((image, index) => {

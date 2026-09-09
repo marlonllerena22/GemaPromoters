@@ -37,7 +37,9 @@ services:
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_IMAGE_MODEL
-        value: gpt-image-2.5-sunburst
+        value: gpt-image-2
+      - key: OPENAI_IMAGE_QUALITY
+        value: medium
       - key: CONTENT_STUDIO_ADMIN_USER
         value: contenido
       - key: CONTENT_STUDIO_ADMIN_PASSWORD
