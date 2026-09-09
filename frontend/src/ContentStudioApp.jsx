@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Check, Download, Image as ImageIcon, LayoutGrid, LogOut,
-  Plus, Settings, Sparkles, Trash2, Upload, WandSparkles, X
+  Check, ChevronRight, Crown, Download, EyeOff, Gem, Home, Image as ImageIcon,
+  LayoutGrid, LogOut, Plus, Settings, Share2, ShoppingBag, Sparkles, Tag,
+  Trash2, Upload, UserRound, WandSparkles, X
 } from 'lucide-react';
 import { api } from './api.js';
 import './content-studio.css';
 
-const PRESET_ICONS = { editorial: '01', catalog: '02', social: '03', detail: '04' };
+const PRESET_ICONS = { editorial: UserRound, catalog: ShoppingBag, social: Share2, detail: Gem };
 const PRESET_NAMES = { editorial: 'Editorial', catalog: 'Catálogo', social: 'Post social', detail: 'Detalle' };
 const emptyForm = { preset: 'editorial', logo_id: 'none', social_format: 'post', social_style: 'editorial' };
 
@@ -146,9 +147,8 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
           </button>
           <nav>
             <button className={tab === 'create' ? 'active' : ''} onClick={() => setTab('create')}><Sparkles size={17} /> Crear</button>
-            {canManageLogos && <button className={tab === 'logos' ? 'active' : ''} onClick={() => setTab('logos')}><ImageIcon size={17} /> Logos</button>}
-            <button className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}><LayoutGrid size={17} /> Mis diseños</button>
-            {user?.role === 'supreme' && <button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}><Settings size={17} /> Plan</button>}
+            <button className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}><LayoutGrid size={17} /> Historial</button>
+            <button className={tab === 'profile' ? 'active' : ''} onClick={() => setTab('profile')}><UserRound size={17} /> Perfil</button>
           </nav>
           <button className="cs-logout" type="button" onClick={onLogout}><LogOut size={17} /> Salir</button>
         </header>
@@ -157,7 +157,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
       <div className="cs-page">
         {embedded && (
           <div className="cs-embedded-nav">
-            {[['create', 'Crear', Sparkles], ...(canManageLogos ? [['logos', 'Logos', ImageIcon]] : []), ['history', 'Mis diseños', LayoutGrid], ...(user?.role === 'supreme' ? [['settings', 'Plan', Settings]] : [])].map(([key, label, Icon]) => (
+            {[['create', 'Crear', Sparkles], ['history', 'Historial', LayoutGrid], ['profile', 'Perfil', UserRound]].map(([key, label, Icon]) => (
               <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}><Icon size={17} /> {label}</button>
             ))}
           </div>
@@ -171,17 +171,25 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
             chooseProduct={chooseProduct} selectedPreset={selectedPreset}
             generate={generate} generating={generating} result={result}
             generationProgress={generationProgress} newCreation={newCreation} usagePercent={usagePercent}
+            goToHistory={() => setTab('history')} goToProfile={() => setTab('profile')}
           />
         )}
-        {tab === 'logos' && canManageLogos && <LogosView data={data} scopeBody={scopeBody} reload={load} setError={setError} />}
         {tab === 'history' && <HistoryView data={data} scopeBody={scopeBody} reload={load} setError={setError} />}
-        {tab === 'settings' && user?.role === 'supreme' && <SettingsView data={data} scopeBody={scopeBody} onSaved={(settings) => setData((current) => ({ ...current, settings }))} setError={setError} user={user} />}
+        {tab === 'profile' && <ProfileView data={data} scopeBody={scopeBody} reload={load} setError={setError} canManageLogos={canManageLogos} user={user} onSaved={(settings) => setData((current) => ({ ...current, settings }))} />}
       </div>
+
+      {!embedded && (
+        <nav className="cs-mobile-nav" aria-label="Navegación principal">
+          <button className={tab === 'create' ? 'active' : ''} onClick={() => setTab('create')}><Home size={21} /><span>Crear</span></button>
+          <button className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}><LayoutGrid size={21} /><span>Historial</span></button>
+          <button className={tab === 'profile' ? 'active' : ''} onClick={() => setTab('profile')}><UserRound size={21} /><span>Perfil</span></button>
+        </nav>
+      )}
     </div>
   );
 }
 
-function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct, selectedPreset, generate, generating, generationProgress, result, newCreation, usagePercent }) {
+function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct, selectedPreset, generate, generating, generationProgress, result, newCreation, usagePercent, goToHistory, goToProfile }) {
   if (result) {
     return (
       <section className="cs-result-page">
@@ -199,39 +207,63 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
       </section>
     );
   }
+  const available = Math.max(0, Number(data.settings?.monthly_limit || 0) - Number(data.usage || 0));
+  const firstLogo = data.logos?.[0];
   return (
     <form onSubmit={generate}>
-      <section className="cs-hero">
-        <div><span className="cs-eyebrow">Tu equipo creativo, en un clic</span><h1>Convierte una foto sencilla <br />en contenido que vende.</h1><p>Sube el producto, elige el resultado y nosotros cuidamos el realismo, el estilo y los detalles.</p></div>
-        <div className="cs-plan-card"><div><span>{data.settings?.plan_name} · {data.subscription?.active ? 'Plan activo' : 'Plan inactivo'}</span><strong>{data.usage} de {data.settings?.monthly_limit}</strong><small>creaciones este mes</small></div><div className="cs-progress"><i style={{ width: `${usagePercent}%` }} /></div></div>
+      <section className="cs-hero cs-create-heading">
+        <div><span className="cs-eyebrow">Estudio creativo con IA</span><h1>Crear contenido</h1><p>Convierte tus productos en imágenes profesionales listas para publicar.</p></div>
+        <button className="cs-credit-card" type="button" onClick={goToHistory}>
+          <span><Crown size={22} /></span>
+          <div><strong>Créditos: {available}</strong><small>{data.usage} de {data.settings?.monthly_limit} creaciones utilizadas</small><i><b style={{ width: `${usagePercent}%` }} /></i></div>
+          <ChevronRight size={20} />
+        </button>
       </section>
 
       <div className="cs-workspace">
         <div className="cs-main-column">
-          <section className="cs-card">
-            <div className="cs-step-title"><span>1</span><div><h2>Sube tu producto</h2><p>Una foto clara desde cualquier celular funciona.</p></div></div>
+          <section className="cs-card cs-upload-card">
             <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => chooseProduct(event.target.files?.[0])} />
-            {productImage ? (
-              <div className="cs-product-preview"><img src={productImage} alt="Producto" /><button type="button" onClick={() => inputRef.current?.click()}><Upload size={17} /> Cambiar foto</button></div>
-            ) : (
-              <button className="cs-upload" type="button" onClick={() => inputRef.current?.click()}><span><Upload size={24} /></span><strong>Subir foto del producto</strong><small>JPG, PNG o WEBP</small></button>
-            )}
+            <button className={`cs-upload-showcase ${productImage ? 'has-image' : ''}`} type="button" onClick={() => inputRef.current?.click()}>
+              <span className="cs-upload-art">
+                {productImage ? <img src={productImage} alt="Producto seleccionado" /> : <><i /><ShoppingBag size={72} /><small>Cualquier producto funciona</small></>}
+              </span>
+              <span className="cs-upload-copy">
+                <small>Paso 1</small><strong>{productImage ? 'Tu producto está listo' : 'Sube la foto de tu producto'}</strong>
+                <em>JPG, PNG o WEBP</em>
+                <b><Upload size={20} /> {productImage ? 'Cambiar foto' : 'Subir foto'}</b>
+                <i>{productImage ? 'Puedes cambiarla antes de crear' : 'Una foto clara desde cualquier celular funciona'}</i>
+              </span>
+            </button>
           </section>
 
-          <section className="cs-card">
-            <div className="cs-step-title"><span>2</span><div><h2>¿Qué quieres crear?</h2><p>Elige una opción. No necesitas escribir prompts.</p></div></div>
+          <section className="cs-card cs-content-card">
+            <div className="cs-card-heading"><div><span className="cs-eyebrow">Paso 2</span><h2>Crear en base a</h2></div><p>Elige el tipo de contenido que necesitas</p></div>
             <div className="cs-preset-grid">
-              {data.presets.map((preset) => <button type="button" key={preset.id} className={form.preset === preset.id ? 'selected' : ''} onClick={() => setForm({ ...form, preset: preset.id })}><b>{PRESET_ICONS[preset.id]}</b><div><strong>{preset.name}</strong><small>{preset.description}</small></div>{form.preset === preset.id && <Check size={18} />}</button>)}
+              {data.presets.map((preset) => {
+                const PresetIcon = PRESET_ICONS[preset.id] || Sparkles;
+                return <button type="button" key={preset.id} className={`cs-preset-card cs-preset-${preset.id} ${form.preset === preset.id ? 'selected' : ''}`} onClick={() => setForm({ ...form, preset: preset.id })}>
+                  <span className="cs-preset-thumb">{productImage ? <img src={productImage} alt="" /> : <PresetIcon size={48} strokeWidth={1.35} />}</span>
+                  <span className="cs-preset-copy"><i><PresetIcon size={17} /></i><strong>{preset.name}</strong><small>{preset.description}</small></span>
+                  <ChevronRight size={19} />
+                </button>;
+              })}
             </div>
             {form.preset === 'social' && <div className="cs-social-options"><div><strong>Formato</strong><div className="cs-choice-row">{(data.social_formats || []).map((format) => <button type="button" key={format.id} className={form.social_format === format.id ? 'selected' : ''} onClick={() => setForm({ ...form, social_format: format.id })}><span>{format.id === 'post' ? '▣' : '▯'}</span><div><b>{format.id === 'post' ? 'Post' : 'Historia'}</b><small>{format.width} × {format.height}</small></div><Check size={16} /></button>)}</div></div><div><strong>Estilo del diseño</strong><div className="cs-social-style-grid">{(data.social_styles || []).map((style) => <button type="button" key={style.id} className={form.social_style === style.id ? 'selected' : ''} onClick={() => setForm({ ...form, social_style: style.id })}><b>{style.name}</b><small>{style.description}</small>{form.social_style === style.id && <Check size={16} />}</button>)}</div></div></div>}
           </section>
 
-          <section className="cs-card">
-            <div className="cs-step-title"><span>3</span><div><h2>Define la marca</h2><p>Elige la marca y aplicaremos automáticamente su identidad y su logo.</p></div></div>
-            <div className="cs-brand-picker">
-              <button type="button" className={form.logo_id === 'none' ? 'selected cs-no-logo' : 'cs-no-logo'} onClick={() => setForm({ ...form, logo_id: 'none' })}><ImageIcon size={35} /><span>Sin logo</span>{form.logo_id === 'none' && <b><Check size={16} /></b>}</button>
-              {(data.logos || []).map((logo) => <button type="button" key={logo.id} className={Number(form.logo_id) === Number(logo.id) ? 'selected' : ''} onClick={() => setForm({ ...form, logo_id: logo.id })}><img src={logo.image_data} alt={`Logo ${logo.name}`} /><span>{logo.name}</span>{Number(form.logo_id) === Number(logo.id) && <b><Check size={16} /></b>}</button>)}
+          <section className="cs-card cs-brand-section">
+            <div className="cs-card-heading"><div><span className="cs-eyebrow">Paso 3</span><h2>¿Quieres incluir tu marca?</h2></div><p>Tú decides cómo generar tu contenido</p></div>
+            <div className="cs-brand-mode">
+              <button type="button" className={form.logo_id !== 'none' ? 'selected' : ''} onClick={() => firstLogo && setForm({ ...form, logo_id: firstLogo.id })}>
+                <span><Tag size={23} /></span><div><strong>Con marca / logo</strong><small>Incluye tu logo en la imagen</small></div><i>{form.logo_id !== 'none' && <Check size={15} />}</i>
+              </button>
+              <button type="button" className={form.logo_id === 'none' ? 'selected' : ''} onClick={() => setForm({ ...form, logo_id: 'none' })}>
+                <span><EyeOff size={23} /></span><div><strong>Sin marca / logo</strong><small>Genera una imagen limpia</small></div><i>{form.logo_id === 'none' && <Check size={15} />}</i>
+              </button>
             </div>
+            {form.logo_id !== 'none' && <div className="cs-available-brands"><div><strong>Selecciona una marca</strong><button type="button" onClick={goToProfile}><Settings size={15} /> Administrar logos</button></div><div className="cs-brand-picker">{(data.logos || []).map((logo) => <button type="button" key={logo.id} className={Number(form.logo_id) === Number(logo.id) ? 'selected' : ''} onClick={() => setForm({ ...form, logo_id: logo.id })}><img src={logo.image_data} alt={`Logo ${logo.name}`} /><span>{logo.name}</span>{Number(form.logo_id) === Number(logo.id) && <b><Check size={16} /></b>}</button>)}</div></div>}
+            {!firstLogo && <button className="cs-add-first-brand" type="button" onClick={goToProfile}><Plus size={17} /> Agregar tu primer logo desde Perfil</button>}
           </section>
         </div>
 
@@ -239,13 +271,32 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
           <div className="cs-summary-visual">{productImage ? <img src={productImage} alt="Vista previa" /> : <ImageIcon size={36} />}</div>
           <span>Tu creación</span><h3>{selectedPreset?.name}</h3><p>{selectedPreset?.description}</p>
           <ul><li><Check size={15} /> Producto fiel al original</li><li><Check size={15} /> Acabado fotográfico realista</li><li><Check size={15} /> Alta calidad para publicar</li></ul>
-          <button className="cs-generate" disabled={!productImage || generating || !data.generation_available}>{generating ? <><i /> Creando tu imagen...</> : <><WandSparkles size={19} /> Crear imagen profesional</>}</button>
+          <button className="cs-generate" disabled={!productImage || generating || !data.generation_available}>{generating ? <><i /> Creando tu imagen...</> : <>Continuar <ChevronRight size={19} /></>}</button>
           {generating && <div className="cs-generation-progress" role="status" aria-live="polite"><div><i style={{ width: `${generationProgress.percent}%` }} /></div><span>{generationProgress.label}</span><strong>{generationProgress.percent}%</strong><small>Puedes dejar esta página abierta mientras terminamos.</small></div>}
           {!data.generation_available && <small className="cs-api-note">{data.subscription?.active ? 'La interfaz está lista. Falta conectar la clave de OpenAI en el servidor.' : 'Tu plan necesita estar activo para crear imágenes.'}</small>}
         </aside>
       </div>
     </form>
   );
+}
+
+function ProfileView({ data, scopeBody, reload, setError, canManageLogos, user, onSaved }) {
+  const available = Math.max(0, Number(data.settings?.monthly_limit || 0) - Number(data.usage || 0));
+  return <section className="cs-profile-page">
+    <div className="cs-profile-hero">
+      <div><span className="cs-eyebrow">Perfil y configuración</span><h1>Tu espacio creativo</h1><p>Administra las marcas que puedes usar y revisa la información de tu plan.</p></div>
+      <div className="cs-profile-plan"><span><Crown size={22} /></span><div><small>{data.settings?.plan_name}</small><strong>{available} créditos disponibles</strong><em>{data.subscription?.active ? 'Plan activo' : 'Plan inactivo'}</em></div></div>
+    </div>
+    {canManageLogos ? <LogosView data={data} scopeBody={scopeBody} reload={reload} setError={setError} /> : <ReadOnlyLogos data={data} />}
+    {user?.role === 'supreme' && <div className="cs-profile-settings"><SettingsView data={data} scopeBody={scopeBody} onSaved={onSaved} setError={setError} user={user} /></div>}
+  </section>;
+}
+
+function ReadOnlyLogos({ data }) {
+  return <section className="cs-library cs-readonly-logos">
+    <div className="cs-section-heading"><span className="cs-eyebrow">Identidad visual</span><h1>Marcas disponibles</h1><p>Estas son las marcas que puedes elegir al crear una imagen.</p></div>
+    {data.logos?.length ? <div className="cs-brand-profile-grid">{data.logos.map((logo) => <article key={logo.id}><img src={logo.image_data} alt={logo.name} /><strong>{logo.name}</strong></article>)}</div> : <div className="cs-empty-large"><ImageIcon size={36} /><h3>No hay logos guardados</h3><p>Puedes seguir creando contenido sin marca.</p></div>}
+  </section>;
 }
 
 function LogosView({ data, scopeBody, reload, setError }) {
@@ -259,7 +310,7 @@ function LogosView({ data, scopeBody, reload, setError }) {
     catch (err) { setError(err.message); } finally { setSaving(false); }
   }
   async function remove(id) { try { await api(`/content-studio/logos/${id}${scopeBody.establishment_id ? `?establishment_id=${scopeBody.establishment_id}` : ''}`, { method: 'DELETE' }); await reload(); } catch (err) { setError(err.message); } }
-  return <section className="cs-library"><div className="cs-section-heading"><span className="cs-eyebrow">Identidad visual</span><h1>Logos de tus marcas</h1><p>Agrega o elimina las marcas disponibles al crear contenido. También puedes generar cualquier diseño sin logo.</p></div><div className="cs-library-layout"><form className="cs-reference-form cs-card" onSubmit={save}><h2>Agregar logo</h2><input ref={logoInputRef} type="file" hidden accept="image/png,image/jpeg,image/webp" onClick={(event) => { event.currentTarget.value = ''; }} onChange={(event) => selectFile(event.target.files?.[0])} /><button className="cs-ref-upload" type="button" onClick={() => logoInputRef.current?.click()}>{draft.image ? <img src={draft.image} alt="Logo seleccionado" /> : <><Upload size={23} /><strong>Seleccionar logo</strong><small>JPG, PNG o WEBP</small></>}</button>{draft.image && <button className="cs-change-reference" type="button" onClick={() => logoInputRef.current?.click()}><Upload size={16} /> Cambiar logo</button>}<label>Nombre de la marca<input required value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Ej. Marjorie Botas" /></label><button className="cs-primary" disabled={saving || !draft.image || !draft.name.trim()}>{saving ? 'Guardando...' : <><Plus size={18} /> Guardar logo</>}</button></form><div className="cs-reference-list">{data.logos?.length ? data.logos.map((logo) => <article key={logo.id}><img src={logo.image_data} alt={logo.name} /><div><span>Marca</span><strong>{logo.name}</strong><p>Disponible para nuevas creaciones</p></div><button title="Eliminar logo" type="button" onClick={() => remove(logo.id)}><Trash2 size={17} /></button></article>) : <div className="cs-empty-large"><ImageIcon size={36} /><h3>No hay logos guardados</h3><p>Puedes crear sin logo o agregar una marca desde este formulario.</p></div>}</div></div></section>;
+  return <section className="cs-library"><div className="cs-section-heading"><span className="cs-eyebrow">Tus marcas</span><h1>Marcas y logos</h1><p>Agrega o elimina los logos que aparecerán como opciones al crear contenido.</p></div><div className="cs-library-layout"><form className="cs-reference-form cs-card" onSubmit={save}><h2>Agregar una marca</h2><input ref={logoInputRef} type="file" hidden accept="image/png,image/jpeg,image/webp" onClick={(event) => { event.currentTarget.value = ''; }} onChange={(event) => selectFile(event.target.files?.[0])} /><button className="cs-ref-upload" type="button" onClick={() => logoInputRef.current?.click()}>{draft.image ? <img src={draft.image} alt="Logo seleccionado" /> : <><Upload size={23} /><strong>Seleccionar logo</strong><small>JPG, PNG o WEBP</small></>}</button>{draft.image && <button className="cs-change-reference" type="button" onClick={() => logoInputRef.current?.click()}><Upload size={16} /> Cambiar logo</button>}<label>Nombre de la marca<input required value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Ej. Marjorie Botas" /></label><button className="cs-primary" disabled={saving || !draft.image || !draft.name.trim()}>{saving ? 'Guardando...' : <><Plus size={18} /> Guardar logo</>}</button></form><div className="cs-reference-list">{data.logos?.length ? data.logos.map((logo) => <article key={logo.id}><img src={logo.image_data} alt={logo.name} /><div><span>Marca</span><strong>{logo.name}</strong><p>Disponible para nuevas creaciones</p></div><button title="Eliminar logo" type="button" onClick={() => remove(logo.id)}><Trash2 size={17} /></button></article>) : <div className="cs-empty-large"><ImageIcon size={36} /><h3>No hay logos guardados</h3><p>Puedes crear sin logo o agregar una marca desde este formulario.</p></div>}</div></div></section>;
 }
 
 function HistoryView({ data, scopeBody, reload, setError }) {
