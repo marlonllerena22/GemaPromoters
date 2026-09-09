@@ -1,34 +1,12 @@
 import { requireAuth } from './auth.js';
-import fs from 'node:fs';
-
-const BRANDS = {
-  marjorie: {
-    id: 'marjorie',
-    name: 'Marjorie Botas',
-    logoUrl: '/content-studio/brands/marjorie-botas.jpg',
-    logoFile: new URL('../assets/content-studio/marjorie-botas.jpg', import.meta.url),
-    direction: 'elegant, warm and artisanal, with restrained red accents and a premium footwear campaign finish'
-  },
-  sebastians: {
-    id: 'sebastians',
-    name: "Sebastian's",
-    logoUrl: '/content-studio/brands/sebastians.jpg',
-    logoFile: new URL('../assets/content-studio/sebastians.jpg', import.meta.url),
-    direction: 'modern, refined and minimal, with disciplined blue accents and a contemporary premium finish'
-  }
-};
-
-const BRAND_LOGOS = Object.fromEntries(Object.values(BRANDS).map((brand) => [
-  brand.id,
-  `data:image/jpeg;base64,${fs.readFileSync(brand.logoFile).toString('base64')}`
-]));
+import sharp from 'sharp';
 
 const PRESETS = {
   editorial: {
     name: 'Editorial con modelo',
     description: 'Una modelo real usando el producto con un outfit coherente.',
     size: '1024x1536',
-    direction: `Create a high-end editorial fashion photograph with a believable adult female model naturally wearing the exact product. Build a tasteful outfit around the product. Use realistic anatomy, natural skin texture, correct scale, convincing contact shadows and commercial fashion lighting. The uploaded product must remain visually faithful in shape, construction, color, material, sole, stitching and distinctive details.`
+    direction: `Create a high-end editorial fashion photograph with a believable adult female model naturally wearing, carrying, holding or using the exact uploaded product in the way appropriate for that object. Build a tasteful scene or outfit around it. Use realistic anatomy, natural skin texture, correct scale, convincing contact shadows and commercial fashion lighting. Never add advertising copy or decorative text. The uploaded product must remain visually faithful in shape, construction, color, material and distinctive details.`
   },
   catalog: {
     name: 'Catálogo de producto',
@@ -40,14 +18,25 @@ const PRESETS = {
     name: 'Post para redes',
     description: 'Pieza comercial con texto y detalles del producto.',
     size: '1024x1024',
-    direction: `Create a polished social media advertising post for a professional retail brand. Keep the uploaded product completely faithful and clearly visible. Use an editorial grid, elegant hierarchy, ample breathing room and a realistic premium product photograph. Render only the exact short Spanish copy explicitly provided, spelled correctly. Do not invent prices, discounts, logos or claims.`
+    direction: `Create a polished social media advertising design around the exact uploaded product. Combine a photorealistic commercial product image with strong graphic design, clean typography, deliberate hierarchy and generous breathing room. Invent one short, memorable Spanish headline appropriate to the visible product and render it correctly. You may add one very short supporting line, but never invent prices, discounts, contact details, technical specifications or unverifiable claims.`
   },
   detail: {
     name: 'Detalle premium',
     description: 'Acercamiento a materiales, textura y acabados.',
     size: '1536x1024',
-    direction: `Create a luxury close-up campaign photograph focused on the uploaded product's real craftsmanship, material and finishing. Preserve the exact product design and show credible macro texture, stitching and construction. Use subtle depth of field, realistic premium light and an uncluttered composition.`
+    direction: `Create a luxury product-detail campaign composition focused on the uploaded object's real craftsmanship and finish. Preserve the exact product design. Show one elegant hero view plus two or three carefully framed macro detail views when the composition allows it, revealing only details truly visible in the source photo. Use credible texture, subtle depth of field, realistic premium light and an uncluttered layout without text.`
   }
+};
+
+const SOCIAL_FORMATS = {
+  post: { label: 'Post 1080 × 1350', width: 1080, height: 1350, size: '1024x1536', instruction: 'Compose for a vertical 4:5 feed post. Keep all text and key product details inside a generous central safe area.' },
+  story: { label: 'Historia 1080 × 1920', width: 1080, height: 1920, size: '1024x1536', instruction: 'Compose for a tall 9:16 story. Keep all text and key product details inside the central safe area, away from the top and bottom interface zones.' }
+};
+
+const SOCIAL_STYLES = {
+  editorial: 'Fashion-editorial advertising: refined magazine composition, sophisticated headline, product feature callouts only when clearly visible, premium spacing and tasteful type.',
+  playful: 'Playful bold advertising: one witty short Spanish headline, oversized expressive typography, energetic but controlled composition, clever scale and a polished modern campaign feel.',
+  product: 'Product-focused advertising: strong product hero, concise benefit-led Spanish headline based only on what is visibly true, clean graphic blocks and optional close-up callouts.'
 };
 
 const MOODS = {
@@ -115,24 +104,24 @@ function activeSubscription(user) {
   return ['paid', 'trial'].includes(user.subscription_status) && (!paidUntil || paidUntil >= today);
 }
 
-function buildPrompt(body, preset, referenceCount, hasBrandLogo = false) {
+function buildPrompt(body, preset, hasBrandLogo = false) {
   const details = [
     body.brand_name && `Brand: ${clean(body.brand_name)}.`,
-    body.headline && `Exact visible headline: "${clean(body.headline, 80)}".`,
     body.brand_direction && `Brand art direction: ${clean(body.brand_direction, 220)}.`
   ].filter(Boolean).join(' ');
-  const referenceInstruction = referenceCount
-    ? `The next ${referenceCount} image${referenceCount === 1 ? '' : 's'} after the product are style references. Borrow only their broad visual language: lighting, mood, framing, color discipline and level of realism. Do not copy a reference composition, person, logo, text, trade dress or protected character. Never replace the product with an item from a reference.`
-    : '';
   const logoInstruction = hasBrandLogo
     ? `The final input image is the official brand logo. Reproduce that supplied logo faithfully, legibly and only once in the finished commercial image. Keep its original wording, symbol, proportions and colors; do not redraw, translate or invent brand marks.`
-    : '';
+    : `Do not add a logo, brand name or invented brand mark.`;
+  const socialFormat = SOCIAL_FORMATS[body.social_format] || SOCIAL_FORMATS.post;
+  const socialInstruction = preset === PRESETS.social
+    ? `${socialFormat.instruction} ${SOCIAL_STYLES[body.social_style] || SOCIAL_STYLES.editorial}`
+    : `Do not include headlines, captions, labels or advertising copy. When an official logo is supplied, it is the only permitted visible lettering.`;
   return [
     `The first image is the source-of-truth product photo. Create one original professional commercial image.`,
     preset.direction,
-    `Art direction: ${MOODS[body.mood] || MOODS.light}.`,
+    `Art direction: ${MOODS.light}.`,
     details,
-    referenceInstruction,
+    socialInstruction,
     logoInstruction,
     `The result must look photographed by a professional team, not synthetic. Avoid plastic textures, excessive glow, impossible reflections, warped geometry, duplicated parts, extra accessories, fake logos, gibberish and watermarks. Do not alter the product design. Return one finished image only.`
   ].filter(Boolean).join('\n\n');
@@ -162,6 +151,16 @@ async function defaultGenerate({ images, prompt, size }) {
   return { imageData: `data:image/webp;base64,${encoded}`, revisedPrompt: data.data?.[0]?.revised_prompt || '' };
 }
 
+async function resizeSocialOutput(imageData, format) {
+  const encoded = String(imageData || '').split(',')[1];
+  if (!encoded) throw new Error('La imagen generada no se pudo preparar');
+  const output = await sharp(Buffer.from(encoded, 'base64'))
+    .resize(format.width, format.height, { fit: 'cover', position: 'centre' })
+    .webp({ quality: 92 })
+    .toBuffer();
+  return `data:image/webp;base64,${output.toString('base64')}`;
+}
+
 function generationRow(row) {
   const processing = row?.status === 'failed' && row?.error_message === '__processing__';
   return {
@@ -184,18 +183,43 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     const userCondition = req.contentStudioUser ? 'AND content_studio_user_id = ?' : 'AND content_studio_user_id IS NULL';
     const userParams = req.contentStudioUser ? [req.contentStudioUser.id] : [];
     const usage = db.prepare(`SELECT COUNT(*) AS total FROM content_studio_generations WHERE establishment_id = ? ${userCondition} AND status = 'completed' AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')`).get(establishmentId, ...userParams).total;
-    const references = db.prepare('SELECT id, name, category, image_data, notes, created_at FROM content_studio_references WHERE establishment_id = ? ORDER BY created_at DESC, id DESC').all(establishmentId);
+    const logos = db.prepare('SELECT id, name, image_data, created_at FROM content_studio_logos WHERE establishment_id = ? ORDER BY created_at ASC, id ASC').all(establishmentId);
     const generations = db.prepare(`SELECT * FROM content_studio_generations WHERE establishment_id = ? ${userCondition} AND deleted_at IS NULL ORDER BY created_at DESC, id DESC LIMIT 24`).all(establishmentId, ...userParams).map(generationRow);
     const subscriptionActive = activeSubscription(req.contentStudioUser);
     res.json({
       establishment: { id: establishmentId, name: req.contentStudioEstablishment.display_name || req.contentStudioEstablishment.name },
       settings, usage, generation_available: subscriptionActive && (Boolean(process.env.OPENAI_API_KEY) || Boolean(options.generateImage)),
-      can_manage_references: !req.contentStudioUser,
+      can_manage_references: false,
+      can_manage_logos: !req.contentStudioUser,
       subscription: req.contentStudioUser ? { status: req.contentStudioUser.subscription_status, active: subscriptionActive, paid_until: req.contentStudioUser.paid_until } : { status: 'internal', active: true, paid_until: null },
-      brands: Object.values(BRANDS).map(({ id, name, logoUrl }) => ({ id, name, logo_url: logoUrl })),
+      logos,
+      social_formats: Object.entries(SOCIAL_FORMATS).map(([id, item]) => ({ id, label: item.label, width: item.width, height: item.height })),
+      social_styles: [
+        { id: 'editorial', name: 'Editorial de moda', description: 'Elegante, con composición de revista y detalles visuales.' },
+        { id: 'playful', name: 'Divertido y audaz', description: 'Texto grande, creativo y con personalidad.' },
+        { id: 'product', name: 'Producto y beneficios', description: 'Producto protagonista con mensajes comerciales breves.' }
+      ],
       presets: Object.entries(PRESETS).map(([id, item]) => ({ id, name: item.name, description: item.description, aspect_ratio: item.size })),
-      references, generations
+      references: [], generations
     });
+  });
+
+  app.post('/api/content-studio/logos', guard, (req, res) => {
+    if (req.contentStudioUser) return res.status(403).json({ message: 'Los logos los administra Estudio Creativo' });
+    const image = String(req.body.image || '');
+    const name = clean(req.body.name, 80);
+    if (!name || !validDataImage(image)) return res.status(400).json({ message: 'Nombre e imagen válida son obligatorios' });
+    if (dataImageBytes(image) > 5 * 1024 * 1024) return res.status(413).json({ message: 'El logo no puede superar 5 MB' });
+    const result = db.prepare('INSERT INTO content_studio_logos (establishment_id, name, image_data, created_by) VALUES (?, ?, ?, ?)')
+      .run(req.contentStudioEstablishment.id, name, image, req.user.username || req.user.role);
+    res.status(201).json(db.prepare('SELECT id, name, image_data, created_at FROM content_studio_logos WHERE id = ?').get(result.lastInsertRowid));
+  });
+
+  app.delete('/api/content-studio/logos/:id', guard, (req, res) => {
+    if (req.contentStudioUser) return res.status(403).json({ message: 'Los logos los administra Estudio Creativo' });
+    const result = db.prepare('DELETE FROM content_studio_logos WHERE id = ? AND establishment_id = ?').run(req.params.id, req.contentStudioEstablishment.id);
+    if (!result.changes) return res.status(404).json({ message: 'Logo no encontrado' });
+    res.json({ ok: true });
   });
 
   app.post('/api/content-studio/references', guard, (req, res) => {
@@ -235,17 +259,19 @@ export function registerContentStudioRoutes(app, db, options = {}) {
   app.post('/api/content-studio/generate', guard, (req, res) => {
     const productImage = String(req.body.product_image || '');
     const preset = PRESETS[req.body.preset];
-    const brand = BRANDS[req.body.brand_id];
+    const logoId = Number(req.body.logo_id || 0);
+    const logo = logoId ? db.prepare('SELECT id, name, image_data FROM content_studio_logos WHERE id = ? AND establishment_id = ?').get(logoId, req.contentStudioEstablishment.id) : null;
+    const socialFormat = SOCIAL_FORMATS[req.body.social_format] || SOCIAL_FORMATS.post;
+    const generationSize = req.body.preset === 'social' ? socialFormat.size : preset?.size;
+    const outputRatio = req.body.preset === 'social' ? `${socialFormat.width}x${socialFormat.height}` : preset?.size;
     if (!validDataImage(productImage)) return res.status(400).json({ message: 'Sube una foto válida del producto' });
     if (dataImageBytes(productImage) > 8 * 1024 * 1024) return res.status(413).json({ message: 'La foto del producto no puede superar 8 MB' });
     if (!preset) return res.status(400).json({ message: 'Selecciona un tipo de contenido' });
-    if (!brand) return res.status(400).json({ message: 'Selecciona Marjorie Botas o Sebastian\'s' });
+    if (logoId && !logo) return res.status(400).json({ message: 'El logo seleccionado ya no está disponible' });
     const establishmentSettings = db.prepare('SELECT * FROM content_studio_settings WHERE establishment_id = ?').get(req.contentStudioEstablishment.id);
     const settings = planSettings(req, establishmentSettings);
     if (!activeSubscription(req.contentStudioUser)) return res.status(403).json({ message: 'Tu plan no está activo. Contacta al administrador para renovarlo.' });
-    const referenceIds = [...new Set((Array.isArray(req.body.reference_ids) ? req.body.reference_ids : []).map(Number).filter(Boolean))].slice(0, 4);
-    const references = referenceIds.length ? db.prepare(`SELECT id, image_data FROM content_studio_references WHERE establishment_id = ? AND id IN (${referenceIds.map(() => '?').join(',')})`).all(req.contentStudioEstablishment.id, ...referenceIds) : [];
-    const prompt = buildPrompt({ ...req.body, brand_name: brand.name, brand_direction: brand.direction }, preset, references.length, true);
+    const prompt = buildPrompt({ ...req.body, brand_name: logo?.name || '', brand_direction: logo ? 'Use the visual character and colors of the supplied official logo with restraint.' : 'Create a neutral premium identity around the product.' }, preset, Boolean(logo));
     const studioUserId = req.contentStudioUser?.id || null;
     const userCondition = studioUserId ? 'AND content_studio_user_id = ?' : 'AND content_studio_user_id IS NULL';
     const userParams = studioUserId ? [studioUserId] : [];
@@ -258,7 +284,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
       const inserted = db.prepare(`INSERT INTO content_studio_generations
         (establishment_id, content_studio_user_id, preset, product_name, brand_name, material, color, headline, mood, aspect_ratio, reference_ids_json, status, error_message, created_by)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'failed', '__processing__', ?)`)
-        .run(req.contentStudioEstablishment.id, studioUserId, req.body.preset, '', brand.name, '', '', clean(req.body.headline, 80), 'light', preset.size, JSON.stringify(references.map((item) => item.id)), req.user.username || req.user.role);
+        .run(req.contentStudioEstablishment.id, studioUserId, req.body.preset, '', logo?.name || '', '', '', '', req.body.preset === 'social' ? clean(req.body.social_style, 40) || 'editorial' : 'light', outputRatio, '[]', req.user.username || req.user.role);
       return inserted.lastInsertRowid;
     })();
     if (!reservation) return res.status(429).json({ message: 'Se alcanzó el límite mensual del plan' });
@@ -267,9 +293,10 @@ export function registerContentStudioRoutes(app, db, options = {}) {
 
     void Promise.resolve().then(async () => {
       try {
-        const generated = await generateImage({ images: [productImage, ...references.map((item) => item.image_data), BRAND_LOGOS[brand.id]], prompt, size: preset.size, preset: req.body.preset });
+        const generated = await generateImage({ images: [productImage, ...(logo ? [logo.image_data] : [])], prompt, size: generationSize, preset: req.body.preset });
+        const outputImage = req.body.preset === 'social' ? await resizeSocialOutput(generated.imageData, socialFormat) : generated.imageData;
         db.prepare("UPDATE content_studio_generations SET output_image_data = ?, revised_prompt = ?, status = 'completed', error_message = NULL WHERE id = ?")
-          .run(generated.imageData, generated.revisedPrompt || '', reservation);
+          .run(outputImage, generated.revisedPrompt || '', reservation);
       } catch (error) {
         db.prepare("UPDATE content_studio_generations SET status = 'failed', error_message = ? WHERE id = ?")
           .run(clean(error.message, 500), reservation);

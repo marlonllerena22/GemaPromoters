@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  ArrowLeft, Check, Download, Image as ImageIcon, Images, LayoutGrid, LogOut,
+  Check, Download, Image as ImageIcon, LayoutGrid, LogOut,
   Plus, Settings, Sparkles, Trash2, Upload, WandSparkles, X
 } from 'lucide-react';
 import { api } from './api.js';
@@ -8,8 +8,7 @@ import './content-studio.css';
 
 const PRESET_ICONS = { editorial: '01', catalog: '02', social: '03', detail: '04' };
 const PRESET_NAMES = { editorial: 'Editorial', catalog: 'Catálogo', social: 'Post social', detail: 'Detalle' };
-const CATEGORY_NAMES = { general: 'General', editorial: 'Editorial', catalog: 'Catálogo', social: 'Post social', detail: 'Detalle' };
-const emptyForm = { preset: 'editorial', brand_id: 'marjorie', reference_ids: [] };
+const emptyForm = { preset: 'editorial', logo_id: 'none', social_format: 'post', social_style: 'editorial' };
 
 const wait = (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 
@@ -73,7 +72,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
   async function load() {
     const response = await api(`/content-studio/bootstrap${scopeQuery}`);
     setData(response);
-    setForm((current) => ({ ...current, brand_id: response.brands?.some((brand) => brand.id === current.brand_id) ? current.brand_id : response.brands?.[0]?.id || 'marjorie' }));
+    setForm((current) => ({ ...current, logo_id: current.logo_id === 'none' || response.logos?.some((logo) => Number(logo.id) === Number(current.logo_id)) ? current.logo_id : 'none' }));
   }
 
   useEffect(() => {
@@ -82,22 +81,13 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
   }, [scopeId]);
 
   const selectedPreset = data?.presets?.find((item) => item.id === form.preset);
-  const recommendedRefs = useMemo(() => (data?.references || []).filter((item) => item.category === 'general' || item.category === form.preset), [data?.references, form.preset]);
   const usagePercent = Math.min(100, ((data?.usage || 0) / (data?.settings?.monthly_limit || 1)) * 100);
-  const canManageReferences = data?.can_manage_references !== false;
+  const canManageLogos = data?.can_manage_logos === true;
 
   async function chooseProduct(file) {
     setError('');
     try { setProductImage(await imageFileToData(file)); setResult(null); }
     catch (err) { setError(err.message); }
-  }
-
-  function toggleReference(id) {
-    setForm((current) => {
-      const exists = current.reference_ids.includes(id);
-      if (!exists && current.reference_ids.length >= 4) return current;
-      return { ...current, reference_ids: exists ? current.reference_ids.filter((item) => item !== id) : [...current.reference_ids, id] };
-    });
   }
 
   async function generate(event) {
@@ -140,7 +130,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
   function newCreation() {
     setProductImage('');
     setResult(null);
-    setForm((current) => ({ ...emptyForm, brand_id: current.brand_id }));
+    setForm((current) => ({ ...emptyForm, logo_id: current.logo_id }));
     setTab('create');
   }
 
@@ -156,7 +146,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
           </button>
           <nav>
             <button className={tab === 'create' ? 'active' : ''} onClick={() => setTab('create')}><Sparkles size={17} /> Crear</button>
-            {canManageReferences && <button className={tab === 'references' ? 'active' : ''} onClick={() => setTab('references')}><Images size={17} /> Referencias</button>}
+            {canManageLogos && <button className={tab === 'logos' ? 'active' : ''} onClick={() => setTab('logos')}><ImageIcon size={17} /> Logos</button>}
             <button className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}><LayoutGrid size={17} /> Mis diseños</button>
             {user?.role === 'supreme' && <button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}><Settings size={17} /> Plan</button>}
           </nav>
@@ -167,7 +157,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
       <div className="cs-page">
         {embedded && (
           <div className="cs-embedded-nav">
-            {[['create', 'Crear', Sparkles], ...(canManageReferences ? [['references', 'Referencias', Images]] : []), ['history', 'Mis diseños', LayoutGrid], ...(user?.role === 'supreme' ? [['settings', 'Plan', Settings]] : [])].map(([key, label, Icon]) => (
+            {[['create', 'Crear', Sparkles], ...(canManageLogos ? [['logos', 'Logos', ImageIcon]] : []), ['history', 'Mis diseños', LayoutGrid], ...(user?.role === 'supreme' ? [['settings', 'Plan', Settings]] : [])].map(([key, label, Icon]) => (
               <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}><Icon size={17} /> {label}</button>
             ))}
           </div>
@@ -178,12 +168,12 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
         {tab === 'create' && (
           <CreateView
             data={data} form={form} setForm={setForm} productImage={productImage} inputRef={inputRef}
-            chooseProduct={chooseProduct} selectedPreset={selectedPreset} recommendedRefs={recommendedRefs}
-            toggleReference={toggleReference} generate={generate} generating={generating} result={result}
-            generationProgress={generationProgress} newCreation={newCreation} usagePercent={usagePercent} setTab={setTab} canManageReferences={canManageReferences}
+            chooseProduct={chooseProduct} selectedPreset={selectedPreset}
+            generate={generate} generating={generating} result={result}
+            generationProgress={generationProgress} newCreation={newCreation} usagePercent={usagePercent}
           />
         )}
-        {tab === 'references' && canManageReferences && <ReferencesView data={data} scopeBody={scopeBody} reload={load} setError={setError} />}
+        {tab === 'logos' && canManageLogos && <LogosView data={data} scopeBody={scopeBody} reload={load} setError={setError} />}
         {tab === 'history' && <HistoryView data={data} scopeBody={scopeBody} reload={load} setError={setError} />}
         {tab === 'settings' && user?.role === 'supreme' && <SettingsView data={data} scopeBody={scopeBody} onSaved={(settings) => setData((current) => ({ ...current, settings }))} setError={setError} user={user} />}
       </div>
@@ -191,7 +181,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
   );
 }
 
-function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct, selectedPreset, recommendedRefs, toggleReference, generate, generating, generationProgress, result, newCreation, usagePercent, setTab, canManageReferences }) {
+function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct, selectedPreset, generate, generating, generationProgress, result, newCreation, usagePercent }) {
   if (result) {
     return (
       <section className="cs-result-page">
@@ -203,7 +193,7 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
             <button className="cs-primary" onClick={() => downloadDataImage(result.output_image_data, `${result.brand_name || 'contenido'}-${result.id}.webp`)}><Download size={18} /> Descargar</button>
             <button className="cs-secondary" onClick={newCreation}><Plus size={18} /> Nueva creación</button>
           </div>
-          <div className="cs-result-meta"><span>{result.brand_name}</span><span>{PRESET_NAMES[result.preset]}</span><span>{result.aspect_ratio}</span><span>{result.reference_ids?.length || 0} referencias</span></div>
+          <div className="cs-result-meta">{result.brand_name && <span>{result.brand_name}</span>}<span>{PRESET_NAMES[result.preset]}</span><span>{result.aspect_ratio}</span></div>
         </div>
         <div className="cs-result-image"><img src={result.output_image_data} alt="Contenido generado" /></div>
       </section>
@@ -231,21 +221,17 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
           <section className="cs-card">
             <div className="cs-step-title"><span>2</span><div><h2>¿Qué quieres crear?</h2><p>Elige una opción. No necesitas escribir prompts.</p></div></div>
             <div className="cs-preset-grid">
-              {data.presets.map((preset) => <button type="button" key={preset.id} className={form.preset === preset.id ? 'selected' : ''} onClick={() => setForm({ ...form, preset: preset.id, reference_ids: [] })}><b>{PRESET_ICONS[preset.id]}</b><div><strong>{preset.name}</strong><small>{preset.description}</small></div>{form.preset === preset.id && <Check size={18} />}</button>)}
+              {data.presets.map((preset) => <button type="button" key={preset.id} className={form.preset === preset.id ? 'selected' : ''} onClick={() => setForm({ ...form, preset: preset.id })}><b>{PRESET_ICONS[preset.id]}</b><div><strong>{preset.name}</strong><small>{preset.description}</small></div>{form.preset === preset.id && <Check size={18} />}</button>)}
             </div>
+            {form.preset === 'social' && <div className="cs-social-options"><div><strong>Formato</strong><div className="cs-choice-row">{(data.social_formats || []).map((format) => <button type="button" key={format.id} className={form.social_format === format.id ? 'selected' : ''} onClick={() => setForm({ ...form, social_format: format.id })}><span>{format.id === 'post' ? '▣' : '▯'}</span><div><b>{format.id === 'post' ? 'Post' : 'Historia'}</b><small>{format.width} × {format.height}</small></div><Check size={16} /></button>)}</div></div><div><strong>Estilo del diseño</strong><div className="cs-social-style-grid">{(data.social_styles || []).map((style) => <button type="button" key={style.id} className={form.social_style === style.id ? 'selected' : ''} onClick={() => setForm({ ...form, social_style: style.id })}><b>{style.name}</b><small>{style.description}</small>{form.social_style === style.id && <Check size={16} />}</button>)}</div></div></div>}
           </section>
 
           <section className="cs-card">
             <div className="cs-step-title"><span>3</span><div><h2>Define la marca</h2><p>Elige la marca y aplicaremos automáticamente su identidad y su logo.</p></div></div>
             <div className="cs-brand-picker">
-              {(data.brands || []).map((brand) => <button type="button" key={brand.id} className={form.brand_id === brand.id ? 'selected' : ''} onClick={() => setForm({ ...form, brand_id: brand.id })}><img src={brand.logo_url} alt={`Logo ${brand.name}`} /><span>{brand.name}</span>{form.brand_id === brand.id && <b><Check size={16} /></b>}</button>)}
+              <button type="button" className={form.logo_id === 'none' ? 'selected cs-no-logo' : 'cs-no-logo'} onClick={() => setForm({ ...form, logo_id: 'none' })}><ImageIcon size={35} /><span>Sin logo</span>{form.logo_id === 'none' && <b><Check size={16} /></b>}</button>
+              {(data.logos || []).map((logo) => <button type="button" key={logo.id} className={Number(form.logo_id) === Number(logo.id) ? 'selected' : ''} onClick={() => setForm({ ...form, logo_id: logo.id })}><img src={logo.image_data} alt={`Logo ${logo.name}`} /><span>{logo.name}</span>{Number(form.logo_id) === Number(logo.id) && <b><Check size={16} /></b>}</button>)}
             </div>
-          </section>
-
-          <section className="cs-card">
-            <div className="cs-step-title"><span>4</span><div><h2>Inspírate en tu biblioteca <em>Opcional</em></h2><p>Usaremos el estilo y el realismo, sin copiar la foto.</p></div></div>
-            {recommendedRefs.length ? <div className="cs-ref-picker">{recommendedRefs.map((reference) => { const selected = form.reference_ids.map(Number).includes(Number(reference.id)); return <button type="button" aria-pressed={selected} key={reference.id} className={selected ? 'selected' : ''} onClick={() => toggleReference(Number(reference.id))}><img src={reference.image_data} alt={reference.name} /><span>{reference.name}</span>{selected && <b><Check size={15} /></b>}</button>; })}</div> : <div className="cs-empty-ref"><Images size={21} /><span><strong>{canManageReferences ? 'Añade tus primeras referencias' : 'Referencias en preparación'}</strong><small>{canManageReferences ? 'Guarda los estilos que representan a tu marca.' : 'El administrador publicará estilos para tus creaciones.'}</small></span></div>}
-            <div className="cs-ref-foot"><span>{form.reference_ids.length}/4 seleccionadas</span>{canManageReferences && <button type="button" onClick={() => setTab('references')}>Administrar biblioteca</button>}</div>
           </section>
         </div>
 
@@ -262,18 +248,18 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
   );
 }
 
-function ReferencesView({ data, scopeBody, reload, setError }) {
-  const [draft, setDraft] = useState({ name: '', category: 'general', notes: '', image: '' });
+function LogosView({ data, scopeBody, reload, setError }) {
+  const [draft, setDraft] = useState({ name: '', image: '' });
   const [saving, setSaving] = useState(false);
-  const referenceInputRef = useRef(null);
-  async function selectFile(file) { try { const image = await imageFileToData(file, 1400, 0.86); setDraft((current) => ({ ...current, image })); } catch (err) { setError(err.message); } }
+  const logoInputRef = useRef(null);
+  async function selectFile(file) { try { const image = await imageFileToData(file, 1400, 0.9); setDraft((current) => ({ ...current, image })); } catch (err) { setError(err.message); } }
   async function save(event) {
     event.preventDefault(); setSaving(true);
-    try { await api('/content-studio/references', { method: 'POST', body: JSON.stringify({ ...scopeBody, ...draft }) }); setDraft({ name: '', category: 'general', notes: '', image: '' }); await reload(); }
+    try { await api('/content-studio/logos', { method: 'POST', body: JSON.stringify({ ...scopeBody, ...draft }) }); setDraft({ name: '', image: '' }); await reload(); }
     catch (err) { setError(err.message); } finally { setSaving(false); }
   }
-  async function remove(id) { try { await api(`/content-studio/references/${id}${scopeBody.establishment_id ? `?establishment_id=${scopeBody.establishment_id}` : ''}`, { method: 'DELETE' }); await reload(); } catch (err) { setError(err.message); } }
-  return <section className="cs-library"><div className="cs-section-heading"><span className="cs-eyebrow">Dirección visual</span><h1>Biblioteca de referencias</h1><p>Guarda fotos que representen la luz, encuadre y calidad que buscas. Nunca se usarán para copiar productos, personas o marcas.</p></div><div className="cs-library-layout"><form className="cs-reference-form cs-card" onSubmit={save}><h2>Nueva referencia</h2><input ref={referenceInputRef} type="file" hidden accept="image/png,image/jpeg,image/webp" onClick={(event) => { event.currentTarget.value = ''; }} onChange={(event) => selectFile(event.target.files?.[0])} /><button className="cs-ref-upload" type="button" onClick={() => referenceInputRef.current?.click()}>{draft.image ? <img src={draft.image} alt="Referencia seleccionada" /> : <><Upload size={23} /><strong>Seleccionar una foto</strong><small>JPG, PNG o WEBP</small></>}</button>{draft.image && <button className="cs-change-reference" type="button" onClick={() => referenceInputRef.current?.click()}><Upload size={16} /> Cambiar foto</button>}<label>Nombre<input required value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Ej. Luz natural editorial" /></label><label>Úsala para<select value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })}>{Object.entries(CATEGORY_NAMES).map(([key, label]) => <option value={key} key={key}>{label}</option>)}</select></label><label>Qué te gusta de ella <small>Opcional</small><textarea value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} placeholder="Ej. La luz suave y el fondo neutro" /></label><button className="cs-primary" disabled={saving || !draft.image}>{saving ? 'Guardando...' : <><Plus size={18} /> Guardar referencia</>}</button></form><div className="cs-reference-list">{data.references.length ? data.references.map((reference) => <article key={reference.id}><img src={reference.image_data} alt={reference.name} /><div><span>{CATEGORY_NAMES[reference.category]}</span><strong>{reference.name}</strong><p>{reference.notes || 'Referencia visual guardada'}</p></div><button title="Eliminar" type="button" onClick={() => remove(reference.id)}><Trash2 size={17} /></button></article>) : <div className="cs-empty-large"><Images size={36} /><h3>Tu biblioteca está vacía</h3><p>Sube referencias para mantener una identidad visual constante.</p></div>}</div></div></section>;
+  async function remove(id) { try { await api(`/content-studio/logos/${id}${scopeBody.establishment_id ? `?establishment_id=${scopeBody.establishment_id}` : ''}`, { method: 'DELETE' }); await reload(); } catch (err) { setError(err.message); } }
+  return <section className="cs-library"><div className="cs-section-heading"><span className="cs-eyebrow">Identidad visual</span><h1>Logos de tus marcas</h1><p>Agrega o elimina las marcas disponibles al crear contenido. También puedes generar cualquier diseño sin logo.</p></div><div className="cs-library-layout"><form className="cs-reference-form cs-card" onSubmit={save}><h2>Agregar logo</h2><input ref={logoInputRef} type="file" hidden accept="image/png,image/jpeg,image/webp" onClick={(event) => { event.currentTarget.value = ''; }} onChange={(event) => selectFile(event.target.files?.[0])} /><button className="cs-ref-upload" type="button" onClick={() => logoInputRef.current?.click()}>{draft.image ? <img src={draft.image} alt="Logo seleccionado" /> : <><Upload size={23} /><strong>Seleccionar logo</strong><small>JPG, PNG o WEBP</small></>}</button>{draft.image && <button className="cs-change-reference" type="button" onClick={() => logoInputRef.current?.click()}><Upload size={16} /> Cambiar logo</button>}<label>Nombre de la marca<input required value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Ej. Marjorie Botas" /></label><button className="cs-primary" disabled={saving || !draft.image || !draft.name.trim()}>{saving ? 'Guardando...' : <><Plus size={18} /> Guardar logo</>}</button></form><div className="cs-reference-list">{data.logos?.length ? data.logos.map((logo) => <article key={logo.id}><img src={logo.image_data} alt={logo.name} /><div><span>Marca</span><strong>{logo.name}</strong><p>Disponible para nuevas creaciones</p></div><button title="Eliminar logo" type="button" onClick={() => remove(logo.id)}><Trash2 size={17} /></button></article>) : <div className="cs-empty-large"><ImageIcon size={36} /><h3>No hay logos guardados</h3><p>Puedes crear sin logo o agregar una marca desde este formulario.</p></div>}</div></div></section>;
 }
 
 function HistoryView({ data, scopeBody, reload, setError }) {

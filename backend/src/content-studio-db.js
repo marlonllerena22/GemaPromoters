@@ -1,4 +1,10 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+
+const DEFAULT_LOGOS = [
+  ['Marjorie Botas', new URL('../assets/content-studio/marjorie-botas.jpg', import.meta.url)],
+  ["Sebastian's", new URL('../assets/content-studio/sebastians.jpg', import.meta.url)]
+];
 
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
@@ -33,6 +39,16 @@ export function initContentStudioDb(db) {
       category TEXT NOT NULL DEFAULT 'general',
       image_data TEXT NOT NULL,
       notes TEXT,
+      created_by TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS content_studio_logos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      image_data TEXT NOT NULL,
       created_by TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       FOREIGN KEY (establishment_id) REFERENCES establishments(id)
@@ -83,6 +99,8 @@ export function initContentStudioDb(db) {
 
     CREATE INDEX IF NOT EXISTS idx_content_studio_refs_scope
       ON content_studio_references(establishment_id, category, created_at);
+    CREATE INDEX IF NOT EXISTS idx_content_studio_logos_scope
+      ON content_studio_logos(establishment_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_content_studio_generations_scope
       ON content_studio_generations(establishment_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_content_studio_users_scope
@@ -94,6 +112,10 @@ export function initContentStudioDb(db) {
   }
   if (!generationColumns.some((column) => column.name === 'content_studio_user_id')) {
     db.exec('ALTER TABLE content_studio_generations ADD COLUMN content_studio_user_id INTEGER');
+  }
+  const settingsColumns = db.prepare('PRAGMA table_info(content_studio_settings)').all();
+  if (!settingsColumns.some((column) => column.name === 'logos_seeded')) {
+    db.exec('ALTER TABLE content_studio_settings ADD COLUMN logos_seeded INTEGER NOT NULL DEFAULT 0');
   }
 }
 
@@ -128,6 +150,19 @@ export function ensureContentStudioEstablishment(db) {
      (establishment_id, plan_name, monthly_limit, brand_name, brand_tone)
      VALUES (?, 'Profesional', 80, ?, 'premium')`
   ).run(establishment.id, establishment.display_name || establishment.name);
+
+  const settings = db.prepare('SELECT logos_seeded FROM content_studio_settings WHERE establishment_id = ?').get(establishment.id);
+  if (!settings?.logos_seeded) {
+    const insertLogo = db.prepare('INSERT INTO content_studio_logos (establishment_id, name, image_data, created_by) VALUES (?, ?, ?, ?)');
+    const seedLogos = db.transaction(() => {
+      for (const [name, file] of DEFAULT_LOGOS) {
+        const imageData = `data:image/jpeg;base64,${fs.readFileSync(file).toString('base64')}`;
+        insertLogo.run(establishment.id, name, imageData, 'system');
+      }
+      db.prepare('UPDATE content_studio_settings SET logos_seeded = 1 WHERE establishment_id = ?').run(establishment.id);
+    });
+    seedLogos();
+  }
 
   const demoUsername = process.env.CONTENT_STUDIO_DEMO_USER || 'cliente.demo';
   const existingDemo = db.prepare('SELECT id FROM content_studio_users WHERE username = ?').get(demoUsername);
