@@ -1,4 +1,5 @@
 import { requireAuth } from './auth.js';
+import { hashContentStudioPassword } from './content-studio-db.js';
 import sharp from 'sharp';
 
 const PRESETS = {
@@ -212,6 +213,30 @@ export function registerContentStudioRoutes(app, db, options = {}) {
       presets: Object.entries(PRESETS).map(([id, item]) => ({ id, name: item.name, description: item.description, aspect_ratio: item.size })),
       references: [], generations
     });
+  });
+
+  app.post('/api/content-studio/users', guard, (req, res) => {
+    if (req.contentStudioUser) return res.status(403).json({ message: 'Solo el administrador puede crear cuentas' });
+    const name = clean(req.body.name, 100);
+    const businessName = clean(req.body.business_name, 100) || name;
+    const username = clean(req.body.username, 80).toLowerCase();
+    const password = String(req.body.password || '');
+    const monthlyLimit = Math.max(1, Math.min(10000, Number(req.body.monthly_limit) || 25));
+    const durationDays = Math.max(1, Math.min(365, Number(req.body.duration_days) || 15));
+    const planName = clean(req.body.plan_name, 60) || 'Emprendedor';
+    if (!name || !username || password.length < 8) return res.status(400).json({ message: 'Nombre, usuario y contraseña de al menos 8 caracteres son obligatorios' });
+    if (db.prepare('SELECT id FROM content_studio_users WHERE LOWER(username) = ?').get(username)) {
+      return res.status(409).json({ message: 'Ese nombre de usuario ya existe' });
+    }
+    const result = db.prepare(
+      `INSERT INTO content_studio_users
+       (establishment_id, name, business_name, username, password_hash, plan_name, monthly_limit, subscription_status, paid_at, paid_until, brand_tone, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'paid', date('now', 'localtime'), date('now', 'localtime', ?), 'premium', 'active')`
+    ).run(req.contentStudioEstablishment.id, name, businessName, username, hashContentStudioPassword(password), planName, monthlyLimit, `+${durationDays} days`);
+    res.status(201).json(db.prepare(
+      `SELECT id, name, business_name, username, plan_name, monthly_limit, subscription_status, paid_at, paid_until, status, created_at
+       FROM content_studio_users WHERE id = ?`
+    ).get(result.lastInsertRowid));
   });
 
   app.post('/api/content-studio/logos', guard, (req, res) => {

@@ -6,7 +6,7 @@ const DEFAULT_LOGOS = [
   ["Sebastian's", new URL('../assets/content-studio/sebastians.jpg', import.meta.url)]
 ];
 
-function hashPassword(password) {
+export function hashContentStudioPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
   return `scrypt$${salt}$${crypto.scryptSync(password, salt, 64).toString('hex')}`;
 }
@@ -171,7 +171,7 @@ export function ensureContentStudioEstablishment(db) {
       `INSERT INTO content_studio_users
        (establishment_id, name, business_name, username, password_hash, plan_name, monthly_limit, subscription_status, paid_at, paid_until, brand_tone, status)
        VALUES (?, 'Cliente Demo', 'Negocio Demo', ?, ?, 'Profesional', 80, 'paid', date('now', 'localtime'), date('now', 'localtime', '+1 year'), 'premium', 'active')`
-    ).run(establishment.id, demoUsername, hashPassword(process.env.CONTENT_STUDIO_DEMO_PASSWORD || 'contenido2026'));
+    ).run(establishment.id, demoUsername, hashContentStudioPassword(process.env.CONTENT_STUDIO_DEMO_PASSWORD || 'contenido2026'));
   }
   return establishment;
 }

@@ -4,7 +4,7 @@ import Database from 'better-sqlite3';
 import express from 'express';
 import sharp from 'sharp';
 import { createToken } from '../src/auth.js';
-import { initContentStudioDb } from '../src/content-studio-db.js';
+import { initContentStudioDb, verifyContentStudioPassword } from '../src/content-studio-db.js';
 import { buildPrompt, PRESETS, registerContentStudioRoutes } from '../src/content-studio-routes.js';
 
 process.env.JWT_SECRET = 'content-studio-test-secret';
@@ -85,6 +85,7 @@ test('a paid client gets its own plan, usage, history and brand management', asy
   const clientLogo = await request('/logos', { token: clientToken, method: 'POST', body: JSON.stringify({ name: 'Marca del cliente', image: sampleImage }) });
   assert.equal(clientLogo.status, 201);
   assert.equal((await request(`/logos/${clientLogo.data.id}`, { token: clientToken, method: 'DELETE' })).status, 200);
+  assert.equal((await request('/users', { token: clientToken, method: 'POST', body: JSON.stringify({ name: 'Otra persona', username: 'otra', password: 'Password25!' }) })).status, 403);
   const generated = await request('/generate', { token: clientToken, method: 'POST', body: JSON.stringify({ preset: 'catalog', logo_id: 1, product_image: sampleImage }) });
   assert.equal(generated.status, 202);
   const completed = await waitForGeneration(generated.data.generation.id, clientToken);
@@ -103,6 +104,16 @@ test('a paid client gets its own plan, usage, history and brand management', asy
 test('logos, exact social dimensions, history, limits and business isolation work together', async (t) => {
   const { db, server, request, calls, supreme, waitForGeneration } = fixture();
   t.after(() => { server.close(); db.close(); });
+
+  const createdUser = await request('/users', {
+    method: 'POST', body: JSON.stringify({ name: 'Norma Llamuca', business_name: 'Norma Llamuca', username: 'norma.llamuca', password: 'NormaFoto25!', plan_name: 'Emprendedor', monthly_limit: 25, duration_days: 15 })
+  });
+  assert.equal(createdUser.status, 201);
+  assert.equal(createdUser.data.monthly_limit, 25);
+  assert.equal(createdUser.data.subscription_status, 'paid');
+  const storedUser = db.prepare('SELECT password_hash FROM content_studio_users WHERE id = ?').get(createdUser.data.id);
+  assert.equal(verifyContentStudioPassword('NormaFoto25!', storedUser.password_hash), true);
+  assert.equal((await request('/users', { method: 'POST', body: JSON.stringify({ name: 'Norma', username: 'norma.llamuca', password: 'OtraClave25!' }) })).status, 409);
 
   const createdLogo = await request('/logos', {
     method: 'POST', body: JSON.stringify({ name: 'Marca nueva', image: sampleImage })
