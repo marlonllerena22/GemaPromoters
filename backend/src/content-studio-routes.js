@@ -7,7 +7,7 @@ const PRESETS = {
     name: 'Editorial con modelo',
     description: 'Una modelo real usando el producto con un outfit coherente.',
     size: '1024x1536',
-    direction: `Create a high-end editorial fashion photograph with a believable adult female model naturally wearing, carrying, holding or using the exact uploaded product in the way appropriate for that object. Build a tasteful scene or outfit around it. Use realistic anatomy, natural skin texture, correct scale, convincing contact shadows and commercial fashion lighting. Never add advertising copy or decorative text. The uploaded product must remain visually faithful in shape, construction, color, material and distinctive details.`
+    direction: `Create a high-end editorial fashion photograph with a believable adult female model naturally wearing, carrying, holding or using the exact uploaded product in the way appropriate for that object. Build a tasteful scene or outfit around it. Use realistic anatomy, natural skin texture, correct scale, convincing contact shadows and commercial fashion lighting. Never add advertising copy or decorative text. Keep the successful natural proportions between the person and product. The uploaded product must remain visually faithful in shape, construction, color, material and distinctive details.`
   },
   catalog: {
     name: 'Catálogo de producto',
@@ -107,25 +107,92 @@ function activeSubscription(user) {
 
 function buildPrompt(body, preset, hasBrandLogo = false) {
   const details = [
-    body.brand_name && `Brand: ${clean(body.brand_name)}.`,
+    body.brand_name && !hasBrandLogo && `Brand: ${clean(body.brand_name)}.`,
     body.brand_direction && `Brand art direction: ${clean(body.brand_direction, 220)}.`
   ].filter(Boolean).join(' ');
   const logoInstruction = hasBrandLogo
-    ? `The final input image is the official brand logo. Reproduce that supplied logo faithfully, legibly and only once in the finished commercial image. Keep its original wording, symbol, proportions and colors; do not redraw, translate or invent brand marks.`
+    ? `The official brand logo will be composited by the application after this generation. Do not draw, imitate, spell, transform or include any logo or brand mark in the scene. Leave a small, visually calm area near the upper-left edge where the exact official logo can be placed later.`
     : `Do not add a logo, brand name or invented brand mark.`;
   const socialFormat = SOCIAL_FORMATS[body.social_format] || SOCIAL_FORMATS.post;
   const socialInstruction = preset === PRESETS.social
     ? `${socialFormat.instruction} ${SOCIAL_STYLES[body.social_style] || SOCIAL_STYLES.editorial}`
-    : `Do not include headlines, captions, labels or advertising copy. When an official logo is supplied, it is the only permitted visible lettering.`;
+    : `Do not include headlines, captions, labels, brand names or advertising copy.`;
+  const fidelityInstruction = `Treat the source photo as the only authority for the product's geometry and construction. Preserve the exact silhouette, toe, heel, sole, panels, seams, stitching, studs, straps, handles, fasteners, closures and hardware that are actually visible. Never move, add, remove, enlarge, duplicate or expose a zipper or closure on another side. For a pair of shoes, preserve which side of each shoe faces the camera: a zipper visible only on the inward or rear shoe must stay on that shoe and must not be copied onto the outward or front hero shoe. Keep decorative studs and diagonal seams on the same visible side shown in the source.`;
   return [
     `The first image is the source-of-truth product photo. Create one original professional commercial image.`,
     preset.direction,
+    fidelityInstruction,
     `Art direction: ${MOODS.light}.`,
     details,
     socialInstruction,
     logoInstruction,
     `The result must look photographed by a professional team, not synthetic. Avoid plastic textures, excessive glow, impossible reflections, warped geometry, duplicated parts, extra accessories, fake logos, gibberish and watermarks. Do not alter the product design. Return one finished image only.`
   ].filter(Boolean).join('\n\n');
+}
+
+function dataImageBuffer(value, message) {
+  const encoded = String(value || '').split(',')[1];
+  if (!encoded) throw new Error(message);
+  return Buffer.from(encoded, 'base64');
+}
+
+async function logoWithoutFlatBackground(logoBuffer) {
+  const { data, info } = await sharp(logoBuffer).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const corners = [
+    0,
+    (info.width - 1) * 4,
+    (info.height - 1) * info.width * 4,
+    ((info.height * info.width) - 1) * 4
+  ];
+  const background = [0, 1, 2].map((channel) => Math.round(corners.reduce((sum, offset) => sum + data[offset + channel], 0) / corners.length));
+  const cornersAgree = corners.every((offset) => Math.max(
+    Math.abs(data[offset] - background[0]),
+    Math.abs(data[offset + 1] - background[1]),
+    Math.abs(data[offset + 2] - background[2])
+  ) < 28);
+  if (!cornersAgree) return logoBuffer;
+
+  let visiblePixels = 0;
+  for (let offset = 0; offset < data.length; offset += 4) {
+    const distance = Math.max(
+      Math.abs(data[offset] - background[0]),
+      Math.abs(data[offset + 1] - background[1]),
+      Math.abs(data[offset + 2] - background[2])
+    );
+    if (distance <= 20) data[offset + 3] = 0;
+    else if (distance < 52) data[offset + 3] = Math.round(data[offset + 3] * ((distance - 20) / 32));
+    if (data[offset + 3] > 12) visiblePixels += 1;
+  }
+  if (visiblePixels < Math.max(1, info.width * info.height * 0.005)) return logoBuffer;
+  return sharp(data, { raw: info }).png().toBuffer();
+}
+
+async function overlayOfficialLogo(imageData, logoData) {
+  const source = dataImageBuffer(imageData, 'La imagen generada no se pudo preparar');
+  const logoSource = dataImageBuffer(logoData, 'El logo seleccionado no se pudo preparar');
+  const metadata = await sharp(source).metadata();
+  const width = metadata.width || 1024;
+  const height = metadata.height || 1024;
+  const cleanedLogo = await logoWithoutFlatBackground(logoSource);
+  const logo = await sharp(cleanedLogo)
+    .trim({ background: { r: 0, g: 0, b: 0, alpha: 0 } })
+    .resize({
+      width: Math.max(1, Math.round(width * 0.16)),
+      height: Math.max(1, Math.round(height * 0.09)),
+      fit: 'inside',
+      withoutEnlargement: false
+    })
+    .png()
+    .toBuffer();
+  const output = await sharp(source)
+    .composite([{
+      input: logo,
+      left: Math.max(0, Math.round(width * 0.045)),
+      top: Math.max(0, Math.round(height * 0.055))
+    }])
+    .webp({ quality: 94 })
+    .toBuffer();
+  return `data:image/webp;base64,${output.toString('base64')}`;
 }
 
 async function defaultGenerate({ images, prompt, size }) {
@@ -153,9 +220,7 @@ async function defaultGenerate({ images, prompt, size }) {
 }
 
 async function resizeSocialOutput(imageData, format) {
-  const encoded = String(imageData || '').split(',')[1];
-  if (!encoded) throw new Error('La imagen generada no se pudo preparar');
-  const source = Buffer.from(encoded, 'base64');
+  const source = dataImageBuffer(imageData, 'La imagen generada no se pudo preparar');
   const background = await sharp(source)
     .resize(format.width, format.height, { fit: 'cover', position: 'centre' })
     .blur(24)
@@ -304,7 +369,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     const establishmentSettings = db.prepare('SELECT * FROM content_studio_settings WHERE establishment_id = ?').get(req.contentStudioEstablishment.id);
     const settings = planSettings(req, establishmentSettings);
     if (!activeSubscription(req.contentStudioUser)) return res.status(403).json({ message: 'Tu plan no está activo. Contacta al administrador para renovarlo.' });
-    const prompt = buildPrompt({ ...req.body, brand_name: logo?.name || '', brand_direction: logo ? 'Use the visual character and colors of the supplied official logo with restraint.' : 'Create a neutral premium identity around the product.' }, preset, Boolean(logo));
+    const prompt = buildPrompt({ ...req.body, brand_name: logo?.name || '', brand_direction: logo ? 'Use restrained neutral commercial styling; the application will apply the official logo after generation.' : 'Create a neutral premium identity around the product.' }, preset, Boolean(logo));
     const studioUserId = req.contentStudioUser?.id || null;
     const userCondition = studioUserId ? 'AND content_studio_user_id = ?' : 'AND content_studio_user_id IS NULL';
     const userParams = studioUserId ? [studioUserId] : [];
@@ -326,8 +391,9 @@ export function registerContentStudioRoutes(app, db, options = {}) {
 
     void Promise.resolve().then(async () => {
       try {
-        const generated = await generateImage({ images: [productImage, ...(logo ? [logo.image_data] : [])], prompt, size: generationSize, preset: req.body.preset });
-        const outputImage = req.body.preset === 'social' ? await resizeSocialOutput(generated.imageData, socialFormat) : generated.imageData;
+        const generated = await generateImage({ images: [productImage], prompt, size: generationSize, preset: req.body.preset });
+        const sizedImage = req.body.preset === 'social' ? await resizeSocialOutput(generated.imageData, socialFormat) : generated.imageData;
+        const outputImage = logo ? await overlayOfficialLogo(sizedImage, logo.image_data) : sizedImage;
         db.prepare("UPDATE content_studio_generations SET output_image_data = ?, revised_prompt = ?, status = 'completed', error_message = NULL WHERE id = ?")
           .run(outputImage, generated.revisedPrompt || '', reservation);
       } catch (error) {
@@ -358,4 +424,4 @@ export function registerContentStudioRoutes(app, db, options = {}) {
   });
 }
 
-export { PRESETS, buildPrompt };
+export { PRESETS, buildPrompt, overlayOfficialLogo };

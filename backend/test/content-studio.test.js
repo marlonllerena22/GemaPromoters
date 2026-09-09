@@ -5,7 +5,7 @@ import express from 'express';
 import sharp from 'sharp';
 import { createToken } from '../src/auth.js';
 import { initContentStudioDb, verifyContentStudioPassword } from '../src/content-studio-db.js';
-import { buildPrompt, PRESETS, registerContentStudioRoutes } from '../src/content-studio-routes.js';
+import { buildPrompt, overlayOfficialLogo, PRESETS, registerContentStudioRoutes } from '../src/content-studio-routes.js';
 
 process.env.JWT_SECRET = 'content-studio-test-secret';
 const sampleImage = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEElEQVR4nGM42Z0NRwzEcQDckhvxhhMR2AAAAABJRU5ErkJggg==';
@@ -48,10 +48,10 @@ function fixture() {
     return { status: response.status, data: await response.json() };
   }
   async function waitForGeneration(id, token) {
-    for (let attempt = 0; attempt < 20; attempt += 1) {
+    for (let attempt = 0; attempt < 120; attempt += 1) {
       const result = await request(`/generations/${id}`, { token });
       if (result.data.generation?.status !== 'processing') return result;
-      await new Promise((resolve) => setTimeout(resolve, 5));
+      await new Promise((resolve) => setTimeout(resolve, 10));
     }
     throw new Error('La generación de prueba no terminó');
   }
@@ -64,6 +64,9 @@ test('prompt accepts any product, keeps editorial text-free and prepares social 
   assert.match(editorial, /source-of-truth product/i);
   assert.match(editorial, /wearing, carrying, holding or using/i);
   assert.match(editorial, /Do not include headlines/i);
+  assert.match(editorial, /zipper visible only on the inward or rear shoe/i);
+  assert.match(editorial, /composited by the application/i);
+  assert.doesNotMatch(editorial, /Brand: Marjorie Botas/i);
   assert.match(story, /tall 9:16 story/i);
   assert.match(story, /witty short Spanish headline/i);
   assert.match(story, /Do not add a logo/i);
@@ -91,7 +94,8 @@ test('a paid client gets its own plan, usage, history and brand management', asy
   const completed = await waitForGeneration(generated.data.generation.id, clientToken);
   assert.equal(completed.data.generation.status, 'completed');
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].images.length, 2);
+  assert.equal(calls[0].images.length, 1);
+  assert.doesNotMatch(calls[0].prompt, /Reproduce that supplied logo/i);
   assert.equal(db.prepare('SELECT content_studio_user_id FROM content_studio_generations WHERE id = ?').get(generated.data.generation.id).content_studio_user_id, 1);
 
   const adminBootstrap = await request('/bootstrap');
@@ -129,7 +133,7 @@ test('logos, exact social dimensions, history, limits and business isolation wor
   assert.equal(first.status, 202);
   const firstCompleted = await waitForGeneration(first.data.generation.id);
   assert.equal(firstCompleted.data.usage, 1);
-  assert.equal(calls[0].images.length, 2);
+  assert.equal(calls[0].images.length, 1);
   assert.equal(first.data.generation.reference_ids.length, 0);
 
   const second = await request('/generate', { method: 'POST', body: JSON.stringify({ preset: 'social', logo_id: 2, social_format: 'story', social_style: 'playful', product_image: sampleImage }) });
@@ -155,4 +159,23 @@ test('logos, exact social dimensions, history, limits and business isolation wor
   const otherScope = await request('/bootstrap?establishment_id=2', { token: supreme });
   assert.equal(otherScope.status, 200);
   assert.equal(otherScope.data.logos.length, 1);
+});
+
+test('the official logo is composited after generation without changing the canvas proportions', async () => {
+  const canvas = await sharp({
+    create: { width: 600, height: 900, channels: 3, background: { r: 235, g: 225, b: 215 } }
+  }).webp().toBuffer();
+  const logo = await sharp({
+    create: { width: 300, height: 120, channels: 3, background: { r: 0, g: 0, b: 0 } }
+  }).composite([{ input: Buffer.from('<svg width="300" height="120"><text x="30" y="78" fill="#ef3b24" font-size="58">MARCA</text></svg>') }]).png().toBuffer();
+  const result = await overlayOfficialLogo(
+    `data:image/webp;base64,${canvas.toString('base64')}`,
+    `data:image/png;base64,${logo.toString('base64')}`
+  );
+  const output = Buffer.from(result.split(',')[1], 'base64');
+  const metadata = await sharp(output).metadata();
+  const stats = await sharp(output).stats();
+  assert.equal(metadata.width, 600);
+  assert.equal(metadata.height, 900);
+  assert.ok(stats.channels[0].min < 235);
 });
