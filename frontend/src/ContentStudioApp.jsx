@@ -9,7 +9,18 @@ import './content-studio.css';
 const PRESET_ICONS = { editorial: '01', catalog: '02', social: '03', detail: '04' };
 const PRESET_NAMES = { editorial: 'Editorial', catalog: 'Catálogo', social: 'Post social', detail: 'Detalle' };
 const CATEGORY_NAMES = { general: 'General', editorial: 'Editorial', catalog: 'Catálogo', social: 'Post social', detail: 'Detalle' };
-const emptyForm = { preset: 'editorial', mood: 'light', product_name: '', brand_name: '', material: '', color: '', headline: '', reference_ids: [] };
+const emptyForm = { preset: 'editorial', brand_id: 'marjorie', reference_ids: [] };
+
+const wait = (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+
+function progressForElapsed(seconds) {
+  if (seconds < 4) return { percent: 12, label: 'Preparando tus imágenes' };
+  if (seconds < 15) return { percent: 28, label: 'Analizando el producto y la marca' };
+  if (seconds < 35) return { percent: 48, label: 'Creando la composición' };
+  if (seconds < 65) return { percent: 68, label: 'Cuidando el realismo y los detalles' };
+  if (seconds < 100) return { percent: 84, label: 'Aplicando el acabado profesional' };
+  return { percent: 94, label: 'Terminando tu imagen' };
+}
 
 async function imageFileToData(file, maxSide = 1800, quality = 0.9) {
   if (!file?.type?.startsWith('image/')) throw new Error('Selecciona un archivo de imagen');
@@ -51,6 +62,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState({ percent: 0, label: '' });
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const inputRef = useRef(null);
@@ -61,7 +73,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
   async function load() {
     const response = await api(`/content-studio/bootstrap${scopeQuery}`);
     setData(response);
-    setForm((current) => ({ ...current, brand_name: current.brand_name || response.settings?.brand_name || '' }));
+    setForm((current) => ({ ...current, brand_id: response.brands?.some((brand) => brand.id === current.brand_id) ? current.brand_id : response.brands?.[0]?.id || 'marjorie' }));
   }
 
   useEffect(() => {
@@ -93,22 +105,42 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
     setError('');
     if (!productImage) { setError('Primero sube la foto del producto'); return; }
     setGenerating(true);
+    setGenerationProgress({ percent: 7, label: 'Enviando tu foto de forma segura' });
     try {
       const response = await api('/content-studio/generate', {
         method: 'POST', body: JSON.stringify({ ...scopeBody, ...form, product_image: productImage })
       });
-      setResult(response.generation);
-      setData((current) => ({ ...current, usage: response.usage, generations: [response.generation, ...current.generations].slice(0, 24) }));
+      const generationId = response.generation?.id;
+      if (!generationId) throw new Error('No se pudo iniciar la creación');
+      const startedAt = Date.now();
+      let completed;
+      for (let attempt = 0; attempt < 150; attempt += 1) {
+        await wait(2500);
+        const elapsed = Math.round((Date.now() - startedAt) / 1000);
+        setGenerationProgress(progressForElapsed(elapsed));
+        const statusResponse = await api(`/content-studio/generations/${generationId}${scopeQuery}`);
+        if (statusResponse.generation?.status === 'failed') {
+          throw new Error(statusResponse.generation.error_message || 'No se pudo crear la imagen');
+        }
+        if (statusResponse.generation?.status === 'completed') {
+          completed = statusResponse;
+          break;
+        }
+      }
+      if (!completed) throw new Error('La creación está tardando más de lo esperado. Puedes revisarla en Mis diseños en unos minutos.');
+      setGenerationProgress({ percent: 100, label: 'Tu imagen está lista' });
+      setResult(completed.generation);
+      setData((current) => ({ ...current, usage: completed.usage, generations: [completed.generation, ...current.generations.filter((item) => item.id !== completed.generation.id)].slice(0, 24) }));
       setNotice('Tu imagen profesional está lista');
       window.setTimeout(() => setNotice(''), 3000);
     } catch (err) { setError(err.message); }
-    finally { setGenerating(false); }
+    finally { setGenerating(false); window.setTimeout(() => setGenerationProgress({ percent: 0, label: '' }), 700); }
   }
 
   function newCreation() {
     setProductImage('');
     setResult(null);
-    setForm((current) => ({ ...emptyForm, brand_name: current.brand_name }));
+    setForm((current) => ({ ...emptyForm, brand_id: current.brand_id }));
     setTab('create');
   }
 
@@ -126,7 +158,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
             <button className={tab === 'create' ? 'active' : ''} onClick={() => setTab('create')}><Sparkles size={17} /> Crear</button>
             {canManageReferences && <button className={tab === 'references' ? 'active' : ''} onClick={() => setTab('references')}><Images size={17} /> Referencias</button>}
             <button className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}><LayoutGrid size={17} /> Mis diseños</button>
-            <button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}><Settings size={17} /> Marca</button>
+            {user?.role === 'supreme' && <button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}><Settings size={17} /> Plan</button>}
           </nav>
           <button className="cs-logout" type="button" onClick={onLogout}><LogOut size={17} /> Salir</button>
         </header>
@@ -135,7 +167,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
       <div className="cs-page">
         {embedded && (
           <div className="cs-embedded-nav">
-            {[['create', 'Crear', Sparkles], ...(canManageReferences ? [['references', 'Referencias', Images]] : []), ['history', 'Mis diseños', LayoutGrid], ['settings', 'Marca', Settings]].map(([key, label, Icon]) => (
+            {[['create', 'Crear', Sparkles], ...(canManageReferences ? [['references', 'Referencias', Images]] : []), ['history', 'Mis diseños', LayoutGrid], ...(user?.role === 'supreme' ? [['settings', 'Plan', Settings]] : [])].map(([key, label, Icon]) => (
               <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}><Icon size={17} /> {label}</button>
             ))}
           </div>
@@ -148,18 +180,18 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
             data={data} form={form} setForm={setForm} productImage={productImage} inputRef={inputRef}
             chooseProduct={chooseProduct} selectedPreset={selectedPreset} recommendedRefs={recommendedRefs}
             toggleReference={toggleReference} generate={generate} generating={generating} result={result}
-            newCreation={newCreation} usagePercent={usagePercent} setTab={setTab} canManageReferences={canManageReferences}
+            generationProgress={generationProgress} newCreation={newCreation} usagePercent={usagePercent} setTab={setTab} canManageReferences={canManageReferences}
           />
         )}
         {tab === 'references' && canManageReferences && <ReferencesView data={data} scopeBody={scopeBody} reload={load} setError={setError} />}
         {tab === 'history' && <HistoryView data={data} scopeBody={scopeBody} reload={load} setError={setError} />}
-        {tab === 'settings' && <SettingsView data={data} scopeBody={scopeBody} onSaved={(settings) => setData((current) => ({ ...current, settings }))} setError={setError} user={user} />}
+        {tab === 'settings' && user?.role === 'supreme' && <SettingsView data={data} scopeBody={scopeBody} onSaved={(settings) => setData((current) => ({ ...current, settings }))} setError={setError} user={user} />}
       </div>
     </div>
   );
 }
 
-function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct, selectedPreset, recommendedRefs, toggleReference, generate, generating, result, newCreation, usagePercent, setTab, canManageReferences }) {
+function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct, selectedPreset, recommendedRefs, toggleReference, generate, generating, generationProgress, result, newCreation, usagePercent, setTab, canManageReferences }) {
   if (result) {
     return (
       <section className="cs-result-page">
@@ -168,10 +200,10 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
           <h1>Lista para publicar.</h1>
           <p>Descárgala en alta calidad o crea una nueva versión con otro estilo.</p>
           <div className="cs-result-actions">
-            <button className="cs-primary" onClick={() => downloadDataImage(result.output_image_data, `${result.product_name || 'contenido'}-${result.id}.webp`)}><Download size={18} /> Descargar</button>
+            <button className="cs-primary" onClick={() => downloadDataImage(result.output_image_data, `${result.brand_name || 'contenido'}-${result.id}.webp`)}><Download size={18} /> Descargar</button>
             <button className="cs-secondary" onClick={newCreation}><Plus size={18} /> Nueva creación</button>
           </div>
-          <div className="cs-result-meta"><span>{PRESET_NAMES[result.preset]}</span><span>{result.aspect_ratio}</span><span>{result.reference_ids?.length || 0} referencias</span></div>
+          <div className="cs-result-meta"><span>{result.brand_name}</span><span>{PRESET_NAMES[result.preset]}</span><span>{result.aspect_ratio}</span><span>{result.reference_ids?.length || 0} referencias</span></div>
         </div>
         <div className="cs-result-image"><img src={result.output_image_data} alt="Contenido generado" /></div>
       </section>
@@ -204,22 +236,15 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
           </section>
 
           <section className="cs-card">
-            <div className="cs-step-title"><span>3</span><div><h2>Define el estilo</h2><p>Solo necesitamos algunos datos sencillos.</p></div></div>
-            <div className="cs-moods">
-              {[['light', 'Minimal claro'], ['warm', 'Cálido premium'], ['urban', 'Urbano editorial'], ['color', 'Color de marca']].map(([key, label]) => <button type="button" key={key} className={form.mood === key ? 'selected' : ''} onClick={() => setForm({ ...form, mood: key })}><i className={`mood-${key}`} />{label}</button>)}
-            </div>
-            <div className="cs-fields">
-              <label>Nombre del producto<input value={form.product_name} onChange={(e) => setForm({ ...form, product_name: e.target.value })} placeholder="Ej. Bota Ámbar" /></label>
-              <label>Marca<input value={form.brand_name} onChange={(e) => setForm({ ...form, brand_name: e.target.value })} placeholder="Ej. Marjorie Botas" /></label>
-              <label>Material<input value={form.material} onChange={(e) => setForm({ ...form, material: e.target.value })} placeholder="Ej. Cuero natural" /></label>
-              <label>Color<input value={form.color} onChange={(e) => setForm({ ...form, color: e.target.value })} placeholder="Ej. Café miel" /></label>
-              {form.preset === 'social' && <label className="wide">Texto principal<input value={form.headline} maxLength={80} onChange={(e) => setForm({ ...form, headline: e.target.value })} placeholder="Ej. Hechas para acompañarte" /><small>Escribe exactamente lo que debe aparecer.</small></label>}
+            <div className="cs-step-title"><span>3</span><div><h2>Define la marca</h2><p>Elige la marca y aplicaremos automáticamente su identidad y su logo.</p></div></div>
+            <div className="cs-brand-picker">
+              {(data.brands || []).map((brand) => <button type="button" key={brand.id} className={form.brand_id === brand.id ? 'selected' : ''} onClick={() => setForm({ ...form, brand_id: brand.id })}><img src={brand.logo_url} alt={`Logo ${brand.name}`} /><span>{brand.name}</span>{form.brand_id === brand.id && <b><Check size={16} /></b>}</button>)}
             </div>
           </section>
 
           <section className="cs-card">
             <div className="cs-step-title"><span>4</span><div><h2>Inspírate en tu biblioteca <em>Opcional</em></h2><p>Usaremos el estilo y el realismo, sin copiar la foto.</p></div></div>
-            {recommendedRefs.length ? <div className="cs-ref-picker">{recommendedRefs.map((reference) => <button type="button" key={reference.id} className={form.reference_ids.includes(reference.id) ? 'selected' : ''} onClick={() => toggleReference(reference.id)}><img src={reference.image_data} alt={reference.name} /><span>{reference.name}</span>{form.reference_ids.includes(reference.id) && <b><Check size={15} /></b>}</button>)}</div> : <div className="cs-empty-ref"><Images size={21} /><span><strong>{canManageReferences ? 'Añade tus primeras referencias' : 'Referencias en preparación'}</strong><small>{canManageReferences ? 'Guarda los estilos que representan a tu marca.' : 'El administrador publicará estilos para tus creaciones.'}</small></span></div>}
+            {recommendedRefs.length ? <div className="cs-ref-picker">{recommendedRefs.map((reference) => { const selected = form.reference_ids.map(Number).includes(Number(reference.id)); return <button type="button" aria-pressed={selected} key={reference.id} className={selected ? 'selected' : ''} onClick={() => toggleReference(Number(reference.id))}><img src={reference.image_data} alt={reference.name} /><span>{reference.name}</span>{selected && <b><Check size={15} /></b>}</button>; })}</div> : <div className="cs-empty-ref"><Images size={21} /><span><strong>{canManageReferences ? 'Añade tus primeras referencias' : 'Referencias en preparación'}</strong><small>{canManageReferences ? 'Guarda los estilos que representan a tu marca.' : 'El administrador publicará estilos para tus creaciones.'}</small></span></div>}
             <div className="cs-ref-foot"><span>{form.reference_ids.length}/4 seleccionadas</span>{canManageReferences && <button type="button" onClick={() => setTab('references')}>Administrar biblioteca</button>}</div>
           </section>
         </div>
@@ -229,6 +254,7 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
           <span>Tu creación</span><h3>{selectedPreset?.name}</h3><p>{selectedPreset?.description}</p>
           <ul><li><Check size={15} /> Producto fiel al original</li><li><Check size={15} /> Acabado fotográfico realista</li><li><Check size={15} /> Alta calidad para publicar</li></ul>
           <button className="cs-generate" disabled={!productImage || generating || !data.generation_available}>{generating ? <><i /> Creando tu imagen...</> : <><WandSparkles size={19} /> Crear imagen profesional</>}</button>
+          {generating && <div className="cs-generation-progress" role="status" aria-live="polite"><div><i style={{ width: `${generationProgress.percent}%` }} /></div><span>{generationProgress.label}</span><strong>{generationProgress.percent}%</strong><small>Puedes dejar esta página abierta mientras terminamos.</small></div>}
           {!data.generation_available && <small className="cs-api-note">{data.subscription?.active ? 'La interfaz está lista. Falta conectar la clave de OpenAI en el servidor.' : 'Tu plan necesita estar activo para crear imágenes.'}</small>}
         </aside>
       </div>
@@ -239,6 +265,7 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
 function ReferencesView({ data, scopeBody, reload, setError }) {
   const [draft, setDraft] = useState({ name: '', category: 'general', notes: '', image: '' });
   const [saving, setSaving] = useState(false);
+  const referenceInputRef = useRef(null);
   async function selectFile(file) { try { const image = await imageFileToData(file, 1400, 0.86); setDraft((current) => ({ ...current, image })); } catch (err) { setError(err.message); } }
   async function save(event) {
     event.preventDefault(); setSaving(true);
@@ -246,12 +273,12 @@ function ReferencesView({ data, scopeBody, reload, setError }) {
     catch (err) { setError(err.message); } finally { setSaving(false); }
   }
   async function remove(id) { try { await api(`/content-studio/references/${id}${scopeBody.establishment_id ? `?establishment_id=${scopeBody.establishment_id}` : ''}`, { method: 'DELETE' }); await reload(); } catch (err) { setError(err.message); } }
-  return <section className="cs-library"><div className="cs-section-heading"><span className="cs-eyebrow">Dirección visual</span><h1>Biblioteca de referencias</h1><p>Guarda fotos que representen la luz, encuadre y calidad que buscas. Nunca se usarán para copiar productos, personas o marcas.</p></div><div className="cs-library-layout"><form className="cs-reference-form cs-card" onSubmit={save}><h2>Nueva referencia</h2><label className="cs-ref-upload">{draft.image ? <img src={draft.image} alt="Referencia" /> : <><Upload size={23} /><strong>Subir una foto</strong><small>Pinterest, campaña o inspiración propia</small></>}<input type="file" hidden accept="image/*" onChange={(e) => selectFile(e.target.files?.[0])} /></label><label>Nombre<input required value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Ej. Luz natural editorial" /></label><label>Úsala para<select value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })}>{Object.entries(CATEGORY_NAMES).map(([key, label]) => <option value={key} key={key}>{label}</option>)}</select></label><label>Qué te gusta de ella <small>Opcional</small><textarea value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} placeholder="Ej. La luz suave y el fondo neutro" /></label><button className="cs-primary" disabled={saving || !draft.image}>{saving ? 'Guardando...' : <><Plus size={18} /> Guardar referencia</>}</button></form><div className="cs-reference-list">{data.references.length ? data.references.map((reference) => <article key={reference.id}><img src={reference.image_data} alt={reference.name} /><div><span>{CATEGORY_NAMES[reference.category]}</span><strong>{reference.name}</strong><p>{reference.notes || 'Referencia visual guardada'}</p></div><button title="Eliminar" onClick={() => remove(reference.id)}><Trash2 size={17} /></button></article>) : <div className="cs-empty-large"><Images size={36} /><h3>Tu biblioteca está vacía</h3><p>Sube referencias para mantener una identidad visual constante.</p></div>}</div></div></section>;
+  return <section className="cs-library"><div className="cs-section-heading"><span className="cs-eyebrow">Dirección visual</span><h1>Biblioteca de referencias</h1><p>Guarda fotos que representen la luz, encuadre y calidad que buscas. Nunca se usarán para copiar productos, personas o marcas.</p></div><div className="cs-library-layout"><form className="cs-reference-form cs-card" onSubmit={save}><h2>Nueva referencia</h2><input ref={referenceInputRef} type="file" hidden accept="image/png,image/jpeg,image/webp" onClick={(event) => { event.currentTarget.value = ''; }} onChange={(event) => selectFile(event.target.files?.[0])} /><button className="cs-ref-upload" type="button" onClick={() => referenceInputRef.current?.click()}>{draft.image ? <img src={draft.image} alt="Referencia seleccionada" /> : <><Upload size={23} /><strong>Seleccionar una foto</strong><small>JPG, PNG o WEBP</small></>}</button>{draft.image && <button className="cs-change-reference" type="button" onClick={() => referenceInputRef.current?.click()}><Upload size={16} /> Cambiar foto</button>}<label>Nombre<input required value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Ej. Luz natural editorial" /></label><label>Úsala para<select value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })}>{Object.entries(CATEGORY_NAMES).map(([key, label]) => <option value={key} key={key}>{label}</option>)}</select></label><label>Qué te gusta de ella <small>Opcional</small><textarea value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} placeholder="Ej. La luz suave y el fondo neutro" /></label><button className="cs-primary" disabled={saving || !draft.image}>{saving ? 'Guardando...' : <><Plus size={18} /> Guardar referencia</>}</button></form><div className="cs-reference-list">{data.references.length ? data.references.map((reference) => <article key={reference.id}><img src={reference.image_data} alt={reference.name} /><div><span>{CATEGORY_NAMES[reference.category]}</span><strong>{reference.name}</strong><p>{reference.notes || 'Referencia visual guardada'}</p></div><button title="Eliminar" type="button" onClick={() => remove(reference.id)}><Trash2 size={17} /></button></article>) : <div className="cs-empty-large"><Images size={36} /><h3>Tu biblioteca está vacía</h3><p>Sube referencias para mantener una identidad visual constante.</p></div>}</div></div></section>;
 }
 
 function HistoryView({ data, scopeBody, reload, setError }) {
   async function remove(id) { try { await api(`/content-studio/generations/${id}${scopeBody.establishment_id ? `?establishment_id=${scopeBody.establishment_id}` : ''}`, { method: 'DELETE' }); await reload(); } catch (err) { setError(err.message); } }
-  return <section><div className="cs-section-heading"><span className="cs-eyebrow">Tus resultados</span><h1>Mis diseños</h1><p>Todo tu contenido terminado, listo para volver a descargar.</p></div>{data.generations.filter((item) => item.status === 'completed').length ? <div className="cs-history-grid">{data.generations.filter((item) => item.status === 'completed').map((item) => <article key={item.id}><img src={item.output_image_data} alt={item.product_name || 'Diseño'} /><div><span>{PRESET_NAMES[item.preset]}</span><strong>{item.product_name || 'Creación sin nombre'}</strong><small>{new Date(`${item.created_at.replace(' ', 'T')}`).toLocaleDateString('es-EC')}</small></div><div className="cs-history-actions"><button onClick={() => downloadDataImage(item.output_image_data, `${item.product_name || 'contenido'}-${item.id}.webp`)}><Download size={17} /></button><button onClick={() => remove(item.id)}><Trash2 size={17} /></button></div></article>)}</div> : <div className="cs-empty-large"><LayoutGrid size={38} /><h3>Aquí aparecerán tus diseños</h3><p>Crea tu primera imagen profesional para verla en esta galería.</p></div>}</section>;
+  return <section><div className="cs-section-heading"><span className="cs-eyebrow">Tus resultados</span><h1>Mis diseños</h1><p>Todo tu contenido terminado, listo para volver a descargar.</p></div>{data.generations.filter((item) => item.status === 'completed').length ? <div className="cs-history-grid">{data.generations.filter((item) => item.status === 'completed').map((item) => <article key={item.id}><img src={item.output_image_data} alt={item.brand_name || 'Diseño'} /><div><span>{PRESET_NAMES[item.preset]}</span><strong>{item.brand_name || 'Creación'}</strong><small>{new Date(`${item.created_at.replace(' ', 'T')}`).toLocaleDateString('es-EC')}</small></div><div className="cs-history-actions"><button onClick={() => downloadDataImage(item.output_image_data, `${item.brand_name || 'contenido'}-${item.id}.webp`)}><Download size={17} /></button><button onClick={() => remove(item.id)}><Trash2 size={17} /></button></div></article>)}</div> : <div className="cs-empty-large"><LayoutGrid size={38} /><h3>Aquí aparecerán tus diseños</h3><p>Crea tu primera imagen profesional para verla en esta galería.</p></div>}</section>;
 }
 
 function SettingsView({ data, scopeBody, onSaved, setError, user }) {

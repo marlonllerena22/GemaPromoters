@@ -1,4 +1,27 @@
 import { requireAuth } from './auth.js';
+import fs from 'node:fs';
+
+const BRANDS = {
+  marjorie: {
+    id: 'marjorie',
+    name: 'Marjorie Botas',
+    logoUrl: '/content-studio/brands/marjorie-botas.jpg',
+    logoFile: new URL('../assets/content-studio/marjorie-botas.jpg', import.meta.url),
+    direction: 'elegant, warm and artisanal, with restrained red accents and a premium footwear campaign finish'
+  },
+  sebastians: {
+    id: 'sebastians',
+    name: "Sebastian's",
+    logoUrl: '/content-studio/brands/sebastians.jpg',
+    logoFile: new URL('../assets/content-studio/sebastians.jpg', import.meta.url),
+    direction: 'modern, refined and minimal, with disciplined blue accents and a contemporary premium finish'
+  }
+};
+
+const BRAND_LOGOS = Object.fromEntries(Object.values(BRANDS).map((brand) => [
+  brand.id,
+  `data:image/jpeg;base64,${fs.readFileSync(brand.logoFile).toString('base64')}`
+]));
 
 const PRESETS = {
   editorial: {
@@ -92,17 +115,17 @@ function activeSubscription(user) {
   return ['paid', 'trial'].includes(user.subscription_status) && (!paidUntil || paidUntil >= today);
 }
 
-function buildPrompt(body, preset, referenceCount) {
+function buildPrompt(body, preset, referenceCount, hasBrandLogo = false) {
   const details = [
     body.brand_name && `Brand: ${clean(body.brand_name)}.`,
-    body.product_name && `Product name: ${clean(body.product_name)}.`,
-    body.material && `Verified material: ${clean(body.material)}.`,
-    body.color && `Verified color: ${clean(body.color)}.`,
     body.headline && `Exact visible headline: "${clean(body.headline, 80)}".`,
-    body.brand_tone && `Brand personality: ${clean(body.brand_tone, 80)}.`
+    body.brand_direction && `Brand art direction: ${clean(body.brand_direction, 220)}.`
   ].filter(Boolean).join(' ');
   const referenceInstruction = referenceCount
-    ? `The images after the first input are style references. Borrow only their broad visual language: lighting, mood, framing, color discipline and level of realism. Do not copy a reference composition, person, logo, text, trade dress or protected character. Never replace the product with an item from a reference.`
+    ? `The next ${referenceCount} image${referenceCount === 1 ? '' : 's'} after the product are style references. Borrow only their broad visual language: lighting, mood, framing, color discipline and level of realism. Do not copy a reference composition, person, logo, text, trade dress or protected character. Never replace the product with an item from a reference.`
+    : '';
+  const logoInstruction = hasBrandLogo
+    ? `The final input image is the official brand logo. Reproduce that supplied logo faithfully, legibly and only once in the finished commercial image. Keep its original wording, symbol, proportions and colors; do not redraw, translate or invent brand marks.`
     : '';
   return [
     `The first image is the source-of-truth product photo. Create one original professional commercial image.`,
@@ -110,6 +133,7 @@ function buildPrompt(body, preset, referenceCount) {
     `Art direction: ${MOODS[body.mood] || MOODS.light}.`,
     details,
     referenceInstruction,
+    logoInstruction,
     `The result must look photographed by a professional team, not synthetic. Avoid plastic textures, excessive glow, impossible reflections, warped geometry, duplicated parts, extra accessories, fake logos, gibberish and watermarks. Do not alter the product design. Return one finished image only.`
   ].filter(Boolean).join('\n\n');
 }
@@ -139,7 +163,14 @@ async function defaultGenerate({ images, prompt, size }) {
 }
 
 function generationRow(row) {
-  return { ...row, reference_ids: safeJson(row.reference_ids_json), reference_ids_json: undefined };
+  const processing = row?.status === 'failed' && row?.error_message === '__processing__';
+  return {
+    ...row,
+    status: processing ? 'processing' : row.status,
+    error_message: processing ? null : row.error_message,
+    reference_ids: safeJson(row.reference_ids_json),
+    reference_ids_json: undefined
+  };
 }
 
 export function registerContentStudioRoutes(app, db, options = {}) {
@@ -161,6 +192,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
       settings, usage, generation_available: subscriptionActive && (Boolean(process.env.OPENAI_API_KEY) || Boolean(options.generateImage)),
       can_manage_references: !req.contentStudioUser,
       subscription: req.contentStudioUser ? { status: req.contentStudioUser.subscription_status, active: subscriptionActive, paid_until: req.contentStudioUser.paid_until } : { status: 'internal', active: true, paid_until: null },
+      brands: Object.values(BRANDS).map(({ id, name, logoUrl }) => ({ id, name, logo_url: logoUrl })),
       presets: Object.entries(PRESETS).map(([id, item]) => ({ id, name: item.name, description: item.description, aspect_ratio: item.size })),
       references, generations
     });
@@ -200,18 +232,20 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     res.json(db.prepare('SELECT * FROM content_studio_settings WHERE establishment_id = ?').get(req.contentStudioEstablishment.id));
   });
 
-  app.post('/api/content-studio/generate', guard, async (req, res) => {
+  app.post('/api/content-studio/generate', guard, (req, res) => {
     const productImage = String(req.body.product_image || '');
     const preset = PRESETS[req.body.preset];
+    const brand = BRANDS[req.body.brand_id];
     if (!validDataImage(productImage)) return res.status(400).json({ message: 'Sube una foto válida del producto' });
     if (dataImageBytes(productImage) > 8 * 1024 * 1024) return res.status(413).json({ message: 'La foto del producto no puede superar 8 MB' });
     if (!preset) return res.status(400).json({ message: 'Selecciona un tipo de contenido' });
+    if (!brand) return res.status(400).json({ message: 'Selecciona Marjorie Botas o Sebastian\'s' });
     const establishmentSettings = db.prepare('SELECT * FROM content_studio_settings WHERE establishment_id = ?').get(req.contentStudioEstablishment.id);
     const settings = planSettings(req, establishmentSettings);
     if (!activeSubscription(req.contentStudioUser)) return res.status(403).json({ message: 'Tu plan no está activo. Contacta al administrador para renovarlo.' });
     const referenceIds = [...new Set((Array.isArray(req.body.reference_ids) ? req.body.reference_ids : []).map(Number).filter(Boolean))].slice(0, 4);
     const references = referenceIds.length ? db.prepare(`SELECT id, image_data FROM content_studio_references WHERE establishment_id = ? AND id IN (${referenceIds.map(() => '?').join(',')})`).all(req.contentStudioEstablishment.id, ...referenceIds) : [];
-    const prompt = buildPrompt({ ...req.body, brand_name: req.body.brand_name || settings.brand_name, brand_tone: settings.brand_tone }, preset, references.length);
+    const prompt = buildPrompt({ ...req.body, brand_name: brand.name, brand_direction: brand.direction }, preset, references.length, true);
     const studioUserId = req.contentStudioUser?.id || null;
     const userCondition = studioUserId ? 'AND content_studio_user_id = ?' : 'AND content_studio_user_id IS NULL';
     const userParams = studioUserId ? [studioUserId] : [];
@@ -224,22 +258,35 @@ export function registerContentStudioRoutes(app, db, options = {}) {
       const inserted = db.prepare(`INSERT INTO content_studio_generations
         (establishment_id, content_studio_user_id, preset, product_name, brand_name, material, color, headline, mood, aspect_ratio, reference_ids_json, status, error_message, created_by)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'failed', '__processing__', ?)`)
-        .run(req.contentStudioEstablishment.id, studioUserId, req.body.preset, clean(req.body.product_name), clean(req.body.brand_name || settings.brand_name), clean(req.body.material), clean(req.body.color), clean(req.body.headline, 80), clean(req.body.mood) || 'light', preset.size, JSON.stringify(references.map((item) => item.id)), req.user.username || req.user.role);
+        .run(req.contentStudioEstablishment.id, studioUserId, req.body.preset, '', brand.name, '', '', clean(req.body.headline, 80), 'light', preset.size, JSON.stringify(references.map((item) => item.id)), req.user.username || req.user.role);
       return inserted.lastInsertRowid;
     })();
     if (!reservation) return res.status(429).json({ message: 'Se alcanzó el límite mensual del plan' });
-    try {
-      const generated = await generateImage({ images: [productImage, ...references.map((item) => item.image_data)], prompt, size: preset.size, preset: req.body.preset });
-      db.prepare("UPDATE content_studio_generations SET output_image_data = ?, revised_prompt = ?, status = 'completed', error_message = NULL WHERE id = ?")
-        .run(generated.imageData, generated.revisedPrompt || '', reservation);
-      const usage = db.prepare(`SELECT COUNT(*) AS total FROM content_studio_generations WHERE establishment_id = ? ${userCondition} AND status = 'completed' AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')`).get(req.contentStudioEstablishment.id, ...userParams).total;
-      res.status(201).json({ generation: generationRow(db.prepare('SELECT * FROM content_studio_generations WHERE id = ?').get(reservation)), usage, monthly_limit: settings.monthly_limit });
-    } catch (error) {
-      db.prepare("UPDATE content_studio_generations SET status = 'failed', error_message = ? WHERE id = ?")
-        .run(clean(error.message, 500), reservation);
-      const configurationError = /OPENAI_API_KEY/.test(error.message);
-      res.status(configurationError ? 503 : 502).json({ message: configurationError ? 'Falta configurar la clave de OpenAI en el servidor' : `No se pudo crear la imagen: ${clean(error.message, 220)}` });
-    }
+    const queued = generationRow(db.prepare('SELECT * FROM content_studio_generations WHERE id = ?').get(reservation));
+    res.status(202).json({ generation: queued, usage: Number(db.prepare(`SELECT COUNT(*) AS total FROM content_studio_generations WHERE establishment_id = ? ${userCondition} AND status = 'completed' AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')`).get(req.contentStudioEstablishment.id, ...userParams).total), monthly_limit: settings.monthly_limit });
+
+    void Promise.resolve().then(async () => {
+      try {
+        const generated = await generateImage({ images: [productImage, ...references.map((item) => item.image_data), BRAND_LOGOS[brand.id]], prompt, size: preset.size, preset: req.body.preset });
+        db.prepare("UPDATE content_studio_generations SET output_image_data = ?, revised_prompt = ?, status = 'completed', error_message = NULL WHERE id = ?")
+          .run(generated.imageData, generated.revisedPrompt || '', reservation);
+      } catch (error) {
+        db.prepare("UPDATE content_studio_generations SET status = 'failed', error_message = ? WHERE id = ?")
+          .run(clean(error.message, 500), reservation);
+      }
+    });
+  });
+
+  app.get('/api/content-studio/generations/:id', guard, (req, res) => {
+    const userCondition = req.contentStudioUser ? 'AND content_studio_user_id = ?' : 'AND content_studio_user_id IS NULL';
+    const userParams = req.contentStudioUser ? [req.contentStudioUser.id] : [];
+    const row = db.prepare(`SELECT * FROM content_studio_generations WHERE id = ? AND establishment_id = ? ${userCondition} AND deleted_at IS NULL`)
+      .get(req.params.id, req.contentStudioEstablishment.id, ...userParams);
+    if (!row) return res.status(404).json({ message: 'Creación no encontrada' });
+    const generation = generationRow(row);
+    const usage = db.prepare(`SELECT COUNT(*) AS total FROM content_studio_generations WHERE establishment_id = ? ${userCondition} AND status = 'completed' AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')`)
+      .get(req.contentStudioEstablishment.id, ...userParams).total;
+    res.json({ generation, usage });
   });
 
   app.delete('/api/content-studio/generations/:id', guard, (req, res) => {

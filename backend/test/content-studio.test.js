@@ -45,7 +45,15 @@ function fixture() {
     });
     return { status: response.status, data: await response.json() };
   }
-  return { db, server, request, calls, supreme, clientToken };
+  async function waitForGeneration(id, token) {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const result = await request(`/generations/${id}`, { token });
+      if (result.data.generation?.status !== 'processing') return result;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    throw new Error('La generación de prueba no terminó');
+  }
+  return { db, server, request, calls, supreme, clientToken, waitForGeneration };
 }
 
 test('prompt keeps the product as source of truth and references as style only', () => {
@@ -57,7 +65,7 @@ test('prompt keeps the product as source of truth and references as style only',
 });
 
 test('a paid client gets its own plan, usage and history without admin access to references', async (t) => {
-  const { db, server, request, calls, clientToken } = fixture();
+  const { db, server, request, calls, clientToken, waitForGeneration } = fixture();
   t.after(() => { server.close(); db.close(); });
   const bootstrap = await request('/bootstrap', { token: clientToken });
   assert.equal(bootstrap.status, 200);
@@ -69,9 +77,12 @@ test('a paid client gets its own plan, usage and history without admin access to
 
   const forbiddenReference = await request('/references', { token: clientToken, method: 'POST', body: JSON.stringify({ name: 'No permitida', image: sampleImage }) });
   assert.equal(forbiddenReference.status, 403);
-  const generated = await request('/generate', { token: clientToken, method: 'POST', body: JSON.stringify({ preset: 'catalog', product_image: sampleImage }) });
-  assert.equal(generated.status, 201);
+  const generated = await request('/generate', { token: clientToken, method: 'POST', body: JSON.stringify({ preset: 'catalog', brand_id: 'marjorie', product_image: sampleImage }) });
+  assert.equal(generated.status, 202);
+  const completed = await waitForGeneration(generated.data.generation.id, clientToken);
+  assert.equal(completed.data.generation.status, 'completed');
   assert.equal(calls.length, 1);
+  assert.equal(calls[0].images.length, 2);
   assert.equal(db.prepare('SELECT content_studio_user_id FROM content_studio_generations WHERE id = ?').get(generated.data.generation.id).content_studio_user_id, 1);
 
   const adminBootstrap = await request('/bootstrap');
@@ -82,7 +93,7 @@ test('a paid client gets its own plan, usage and history without admin access to
 });
 
 test('references, generation history, plan limit and business isolation work together', async (t) => {
-  const { db, server, request, calls, supreme } = fixture();
+  const { db, server, request, calls, supreme, waitForGeneration } = fixture();
   t.after(() => { server.close(); db.close(); });
 
   const createdReference = await request('/references', {
@@ -92,16 +103,18 @@ test('references, generation history, plan limit and business isolation work tog
 
   const foreignReference = db.prepare("INSERT INTO content_studio_references (establishment_id, name, category, image_data) VALUES (2, 'Ajena', 'general', ?)").run(sampleImage).lastInsertRowid;
   const first = await request('/generate', {
-    method: 'POST', body: JSON.stringify({ preset: 'editorial', mood: 'warm', product_image: sampleImage, reference_ids: [createdReference.data.id, Number(foreignReference)], product_name: 'Bota Ámbar' })
+    method: 'POST', body: JSON.stringify({ preset: 'editorial', brand_id: 'marjorie', product_image: sampleImage, reference_ids: [createdReference.data.id, Number(foreignReference)] })
   });
-  assert.equal(first.status, 201);
-  assert.equal(first.data.usage, 1);
-  assert.equal(calls[0].images.length, 2);
+  assert.equal(first.status, 202);
+  const firstCompleted = await waitForGeneration(first.data.generation.id);
+  assert.equal(firstCompleted.data.usage, 1);
+  assert.equal(calls[0].images.length, 3);
   assert.equal(first.data.generation.reference_ids.length, 1);
 
-  const second = await request('/generate', { method: 'POST', body: JSON.stringify({ preset: 'catalog', product_image: sampleImage }) });
-  assert.equal(second.status, 201);
-  const limit = await request('/generate', { method: 'POST', body: JSON.stringify({ preset: 'detail', product_image: sampleImage }) });
+  const second = await request('/generate', { method: 'POST', body: JSON.stringify({ preset: 'catalog', brand_id: 'sebastians', product_image: sampleImage }) });
+  assert.equal(second.status, 202);
+  await waitForGeneration(second.data.generation.id);
+  const limit = await request('/generate', { method: 'POST', body: JSON.stringify({ preset: 'detail', brand_id: 'marjorie', product_image: sampleImage }) });
   assert.equal(limit.status, 429);
 
   assert.equal((await request(`/generations/${first.data.generation.id}`, { method: 'DELETE' })).status, 200);
