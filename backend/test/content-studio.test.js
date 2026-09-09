@@ -23,6 +23,7 @@ function fixture() {
   initContentStudioDb(db);
   db.prepare("INSERT INTO content_studio_settings (establishment_id, plan_name, monthly_limit, brand_name) VALUES (1, 'Prueba', 2, 'Marca Uno')").run();
   db.prepare("INSERT INTO content_studio_settings (establishment_id, plan_name, monthly_limit, brand_name) VALUES (2, 'Prueba', 2, 'Marca Dos')").run();
+  db.prepare("INSERT INTO content_studio_users (id, establishment_id, name, business_name, username, password_hash, plan_name, monthly_limit, subscription_status, paid_until, status) VALUES (1, 1, 'Cliente', 'Zapatería Demo', 'cliente.demo', 'hash', 'Profesional', 80, 'paid', '2099-12-31', 'active')").run();
   const calls = [];
   const app = express();
   app.use(express.json({ limit: '20mb' }));
@@ -36,6 +37,7 @@ function fixture() {
   const base = `http://127.0.0.1:${server.address().port}/api/content-studio`;
   const token = createToken({ role: 'admin', username: 'studio', establishmentId: 1 });
   const supreme = createToken({ role: 'supreme', username: 'root' });
+  const clientToken = createToken({ role: 'content_studio_user', username: 'cliente.demo', contentStudioUserId: 1, establishmentId: 1 });
   async function request(path, options = {}) {
     const response = await fetch(`${base}${path}`, {
       ...options,
@@ -43,7 +45,7 @@ function fixture() {
     });
     return { status: response.status, data: await response.json() };
   }
-  return { db, server, request, calls, supreme };
+  return { db, server, request, calls, supreme, clientToken };
 }
 
 test('prompt keeps the product as source of truth and references as style only', () => {
@@ -52,6 +54,31 @@ test('prompt keeps the product as source of truth and references as style only',
   assert.match(prompt, /Borrow only their broad visual language/i);
   assert.match(prompt, /Do not copy a reference composition/i);
   assert.match(prompt, /Camina diferente/);
+});
+
+test('a paid client gets its own plan, usage and history without admin access to references', async (t) => {
+  const { db, server, request, calls, clientToken } = fixture();
+  t.after(() => { server.close(); db.close(); });
+  const bootstrap = await request('/bootstrap', { token: clientToken });
+  assert.equal(bootstrap.status, 200);
+  assert.equal(bootstrap.data.settings.plan_name, 'Profesional');
+  assert.equal(bootstrap.data.settings.brand_name, 'Zapatería Demo');
+  assert.equal(bootstrap.data.subscription.status, 'paid');
+  assert.equal(bootstrap.data.subscription.active, true);
+  assert.equal(bootstrap.data.can_manage_references, false);
+
+  const forbiddenReference = await request('/references', { token: clientToken, method: 'POST', body: JSON.stringify({ name: 'No permitida', image: sampleImage }) });
+  assert.equal(forbiddenReference.status, 403);
+  const generated = await request('/generate', { token: clientToken, method: 'POST', body: JSON.stringify({ preset: 'catalog', product_image: sampleImage }) });
+  assert.equal(generated.status, 201);
+  assert.equal(calls.length, 1);
+  assert.equal(db.prepare('SELECT content_studio_user_id FROM content_studio_generations WHERE id = ?').get(generated.data.generation.id).content_studio_user_id, 1);
+
+  const adminBootstrap = await request('/bootstrap');
+  assert.equal(adminBootstrap.data.generations.length, 0);
+  const clientBootstrap = await request('/bootstrap', { token: clientToken });
+  assert.equal(clientBootstrap.data.generations.length, 1);
+  assert.equal(clientBootstrap.data.usage, 1);
 });
 
 test('references, generation history, plan limit and business isolation work together', async (t) => {

@@ -52,6 +52,9 @@ Credenciales iniciales:
 - Administrador Estudio Creativo:
   - Usuario: `contenido`
   - Contrasena inicial: `contenido123`
+- Cliente de demostracion con plan Profesional pagado:
+  - Usuario: `cliente.demo`
+  - Contrasena inicial: `contenido2026`
 
 Puedes cambiarlas en `backend/.env`.
 
@@ -156,8 +159,10 @@ Estudio Creativo funciona como un negocio independiente dentro de PROMOTERS. Per
 - Detalle premium de materiales y acabados.
 - Biblioteca privada de referencias por tipo de contenido; la IA toma la direccion visual sin copiar la foto.
 - Historial descargable, identidad de marca y limite mensual por plan.
+- Usuario cliente de demostracion con plan Profesional activo durante un ano y 80 creaciones mensuales.
 
 La clave de OpenAI permanece solo en el backend. Configura `OPENAI_API_KEY` en el entorno de produccion. El modelo predeterminado es `gpt-image-2.5-sunburst` y se puede cambiar con `OPENAI_IMAGE_MODEL`.
+El plan del usuario de demostracion se activa directamente en la base de datos; PayPhone todavia no participa en el flujo.
 
 ## Acceso de promotores
 

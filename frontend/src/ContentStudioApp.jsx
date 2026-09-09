@@ -72,6 +72,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
   const selectedPreset = data?.presets?.find((item) => item.id === form.preset);
   const recommendedRefs = useMemo(() => (data?.references || []).filter((item) => item.category === 'general' || item.category === form.preset), [data?.references, form.preset]);
   const usagePercent = Math.min(100, ((data?.usage || 0) / (data?.settings?.monthly_limit || 1)) * 100);
+  const canManageReferences = data?.can_manage_references !== false;
 
   async function chooseProduct(file) {
     setError('');
@@ -123,7 +124,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
           </button>
           <nav>
             <button className={tab === 'create' ? 'active' : ''} onClick={() => setTab('create')}><Sparkles size={17} /> Crear</button>
-            <button className={tab === 'references' ? 'active' : ''} onClick={() => setTab('references')}><Images size={17} /> Referencias</button>
+            {canManageReferences && <button className={tab === 'references' ? 'active' : ''} onClick={() => setTab('references')}><Images size={17} /> Referencias</button>}
             <button className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}><LayoutGrid size={17} /> Mis diseños</button>
             <button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}><Settings size={17} /> Marca</button>
           </nav>
@@ -134,7 +135,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
       <div className="cs-page">
         {embedded && (
           <div className="cs-embedded-nav">
-            {[['create', 'Crear', Sparkles], ['references', 'Referencias', Images], ['history', 'Mis diseños', LayoutGrid], ['settings', 'Marca', Settings]].map(([key, label, Icon]) => (
+            {[['create', 'Crear', Sparkles], ...(canManageReferences ? [['references', 'Referencias', Images]] : []), ['history', 'Mis diseños', LayoutGrid], ['settings', 'Marca', Settings]].map(([key, label, Icon]) => (
               <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}><Icon size={17} /> {label}</button>
             ))}
           </div>
@@ -147,10 +148,10 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
             data={data} form={form} setForm={setForm} productImage={productImage} inputRef={inputRef}
             chooseProduct={chooseProduct} selectedPreset={selectedPreset} recommendedRefs={recommendedRefs}
             toggleReference={toggleReference} generate={generate} generating={generating} result={result}
-            newCreation={newCreation} usagePercent={usagePercent} setTab={setTab}
+            newCreation={newCreation} usagePercent={usagePercent} setTab={setTab} canManageReferences={canManageReferences}
           />
         )}
-        {tab === 'references' && <ReferencesView data={data} scopeBody={scopeBody} reload={load} setError={setError} />}
+        {tab === 'references' && canManageReferences && <ReferencesView data={data} scopeBody={scopeBody} reload={load} setError={setError} />}
         {tab === 'history' && <HistoryView data={data} scopeBody={scopeBody} reload={load} setError={setError} />}
         {tab === 'settings' && <SettingsView data={data} scopeBody={scopeBody} onSaved={(settings) => setData((current) => ({ ...current, settings }))} setError={setError} user={user} />}
       </div>
@@ -158,7 +159,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
   );
 }
 
-function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct, selectedPreset, recommendedRefs, toggleReference, generate, generating, result, newCreation, usagePercent, setTab }) {
+function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct, selectedPreset, recommendedRefs, toggleReference, generate, generating, result, newCreation, usagePercent, setTab, canManageReferences }) {
   if (result) {
     return (
       <section className="cs-result-page">
@@ -180,7 +181,7 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
     <form onSubmit={generate}>
       <section className="cs-hero">
         <div><span className="cs-eyebrow">Tu equipo creativo, en un clic</span><h1>Convierte una foto sencilla <br />en contenido que vende.</h1><p>Sube el producto, elige el resultado y nosotros cuidamos el realismo, el estilo y los detalles.</p></div>
-        <div className="cs-plan-card"><div><span>{data.settings?.plan_name}</span><strong>{data.usage} de {data.settings?.monthly_limit}</strong><small>creaciones este mes</small></div><div className="cs-progress"><i style={{ width: `${usagePercent}%` }} /></div></div>
+        <div className="cs-plan-card"><div><span>{data.settings?.plan_name} · {data.subscription?.active ? 'Plan activo' : 'Plan inactivo'}</span><strong>{data.usage} de {data.settings?.monthly_limit}</strong><small>creaciones este mes</small></div><div className="cs-progress"><i style={{ width: `${usagePercent}%` }} /></div></div>
       </section>
 
       <div className="cs-workspace">
@@ -218,8 +219,8 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
 
           <section className="cs-card">
             <div className="cs-step-title"><span>4</span><div><h2>Inspírate en tu biblioteca <em>Opcional</em></h2><p>Usaremos el estilo y el realismo, sin copiar la foto.</p></div></div>
-            {recommendedRefs.length ? <div className="cs-ref-picker">{recommendedRefs.map((reference) => <button type="button" key={reference.id} className={form.reference_ids.includes(reference.id) ? 'selected' : ''} onClick={() => toggleReference(reference.id)}><img src={reference.image_data} alt={reference.name} /><span>{reference.name}</span>{form.reference_ids.includes(reference.id) && <b><Check size={15} /></b>}</button>)}</div> : <button type="button" className="cs-empty-ref" onClick={() => setTab('references')}><Images size={21} /><span><strong>Añade tus primeras referencias</strong><small>Guarda los estilos que representan a tu marca.</small></span></button>}
-            <div className="cs-ref-foot"><span>{form.reference_ids.length}/4 seleccionadas</span><button type="button" onClick={() => setTab('references')}>Administrar biblioteca</button></div>
+            {recommendedRefs.length ? <div className="cs-ref-picker">{recommendedRefs.map((reference) => <button type="button" key={reference.id} className={form.reference_ids.includes(reference.id) ? 'selected' : ''} onClick={() => toggleReference(reference.id)}><img src={reference.image_data} alt={reference.name} /><span>{reference.name}</span>{form.reference_ids.includes(reference.id) && <b><Check size={15} /></b>}</button>)}</div> : <div className="cs-empty-ref"><Images size={21} /><span><strong>{canManageReferences ? 'Añade tus primeras referencias' : 'Referencias en preparación'}</strong><small>{canManageReferences ? 'Guarda los estilos que representan a tu marca.' : 'El administrador publicará estilos para tus creaciones.'}</small></span></div>}
+            <div className="cs-ref-foot"><span>{form.reference_ids.length}/4 seleccionadas</span>{canManageReferences && <button type="button" onClick={() => setTab('references')}>Administrar biblioteca</button>}</div>
           </section>
         </div>
 
@@ -228,7 +229,7 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
           <span>Tu creación</span><h3>{selectedPreset?.name}</h3><p>{selectedPreset?.description}</p>
           <ul><li><Check size={15} /> Producto fiel al original</li><li><Check size={15} /> Acabado fotográfico realista</li><li><Check size={15} /> Alta calidad para publicar</li></ul>
           <button className="cs-generate" disabled={!productImage || generating || !data.generation_available}>{generating ? <><i /> Creando tu imagen...</> : <><WandSparkles size={19} /> Crear imagen profesional</>}</button>
-          {!data.generation_available && <small className="cs-api-note">La interfaz está lista. Falta conectar la clave de OpenAI en el servidor.</small>}
+          {!data.generation_available && <small className="cs-api-note">{data.subscription?.active ? 'La interfaz está lista. Falta conectar la clave de OpenAI en el servidor.' : 'Tu plan necesita estar activo para crear imágenes.'}</small>}
         </aside>
       </div>
     </form>

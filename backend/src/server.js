@@ -16,6 +16,7 @@ import { registerRenjiRoutes } from './renji-routes.js';
 import { registerTicketingRoutes } from './ticketing-routes.js';
 import { registerMarjoriePromotersRoutes } from './marjorie-promoters-routes.js';
 import { registerContentStudioRoutes } from './content-studio-routes.js';
+import { findContentStudioUserForLogin } from './content-studio-db.js';
 
 dotenv.config();
 initDb();
@@ -532,6 +533,29 @@ app.post('/api/auth/login', (req, res) => {
         establishment_name: owner.name,
         establishment_display_name: owner.display_name || owner.name,
         establishment_module_type: owner.module_type || 'promoters'
+      }
+    });
+  }
+
+  const contentStudioUser = findContentStudioUserForLogin(db, username, password);
+  if (contentStudioUser) {
+    return res.json({
+      token: createToken({
+        role: 'content_studio_user',
+        username: contentStudioUser.username,
+        contentStudioUserId: contentStudioUser.id,
+        establishmentId: contentStudioUser.establishment_id
+      }),
+      user: {
+        id: contentStudioUser.id,
+        username: contentStudioUser.username,
+        role: 'content_studio_user',
+        name: contentStudioUser.name,
+        business_name: contentStudioUser.business_name,
+        establishment_id: contentStudioUser.establishment_id,
+        establishment_name: contentStudioUser.establishment_name,
+        establishment_display_name: contentStudioUser.establishment_display_name,
+        establishment_module_type: 'content_studio'
       }
     });
   }

@@ -56,16 +56,40 @@ function resolveScope(db, req) {
 
 function studioAuth(db) {
   return (req, res, next) => requireAuth(req, res, () => {
-    if (!['admin', 'supreme'].includes(req.user?.role)) {
+    if (!['admin', 'supreme', 'content_studio_user'].includes(req.user?.role)) {
       return res.status(403).json({ message: 'Acceso exclusivo de Estudio Creativo' });
     }
     const establishment = resolveScope(db, req);
     if (!establishment) {
       return res.status(403).json({ message: 'Este negocio no tiene habilitado Estudio Creativo' });
     }
+    if (req.user.role === 'content_studio_user') {
+      const studioUser = db.prepare("SELECT * FROM content_studio_users WHERE id = ? AND establishment_id = ? AND status = 'active'")
+        .get(req.user.contentStudioUserId, establishment.id);
+      if (!studioUser) return res.status(403).json({ message: 'Usuario de Estudio Creativo no disponible' });
+      req.contentStudioUser = studioUser;
+    }
     req.contentStudioEstablishment = establishment;
     next();
   });
+}
+
+function planSettings(req, establishmentSettings) {
+  if (!req.contentStudioUser) return establishmentSettings;
+  return {
+    establishment_id: req.contentStudioUser.establishment_id,
+    plan_name: req.contentStudioUser.plan_name,
+    monthly_limit: req.contentStudioUser.monthly_limit,
+    brand_name: req.contentStudioUser.business_name,
+    brand_tone: req.contentStudioUser.brand_tone
+  };
+}
+
+function activeSubscription(user) {
+  if (!user) return true;
+  const paidUntil = String(user.paid_until || '').slice(0, 10);
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Guayaquil' });
+  return ['paid', 'trial'].includes(user.subscription_status) && (!paidUntil || paidUntil >= today);
 }
 
 function buildPrompt(body, preset, referenceCount) {
@@ -124,19 +148,26 @@ export function registerContentStudioRoutes(app, db, options = {}) {
 
   app.get('/api/content-studio/bootstrap', guard, (req, res) => {
     const establishmentId = req.contentStudioEstablishment.id;
-    const settings = db.prepare('SELECT * FROM content_studio_settings WHERE establishment_id = ?').get(establishmentId);
-    const usage = db.prepare("SELECT COUNT(*) AS total FROM content_studio_generations WHERE establishment_id = ? AND status = 'completed' AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')").get(establishmentId).total;
+    const establishmentSettings = db.prepare('SELECT * FROM content_studio_settings WHERE establishment_id = ?').get(establishmentId);
+    const settings = planSettings(req, establishmentSettings);
+    const userCondition = req.contentStudioUser ? 'AND content_studio_user_id = ?' : 'AND content_studio_user_id IS NULL';
+    const userParams = req.contentStudioUser ? [req.contentStudioUser.id] : [];
+    const usage = db.prepare(`SELECT COUNT(*) AS total FROM content_studio_generations WHERE establishment_id = ? ${userCondition} AND status = 'completed' AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')`).get(establishmentId, ...userParams).total;
     const references = db.prepare('SELECT id, name, category, image_data, notes, created_at FROM content_studio_references WHERE establishment_id = ? ORDER BY created_at DESC, id DESC').all(establishmentId);
-    const generations = db.prepare('SELECT * FROM content_studio_generations WHERE establishment_id = ? AND deleted_at IS NULL ORDER BY created_at DESC, id DESC LIMIT 24').all(establishmentId).map(generationRow);
+    const generations = db.prepare(`SELECT * FROM content_studio_generations WHERE establishment_id = ? ${userCondition} AND deleted_at IS NULL ORDER BY created_at DESC, id DESC LIMIT 24`).all(establishmentId, ...userParams).map(generationRow);
+    const subscriptionActive = activeSubscription(req.contentStudioUser);
     res.json({
       establishment: { id: establishmentId, name: req.contentStudioEstablishment.display_name || req.contentStudioEstablishment.name },
-      settings, usage, generation_available: Boolean(process.env.OPENAI_API_KEY) || Boolean(options.generateImage),
+      settings, usage, generation_available: subscriptionActive && (Boolean(process.env.OPENAI_API_KEY) || Boolean(options.generateImage)),
+      can_manage_references: !req.contentStudioUser,
+      subscription: req.contentStudioUser ? { status: req.contentStudioUser.subscription_status, active: subscriptionActive, paid_until: req.contentStudioUser.paid_until } : { status: 'internal', active: true, paid_until: null },
       presets: Object.entries(PRESETS).map(([id, item]) => ({ id, name: item.name, description: item.description, aspect_ratio: item.size })),
       references, generations
     });
   });
 
   app.post('/api/content-studio/references', guard, (req, res) => {
+    if (req.contentStudioUser) return res.status(403).json({ message: 'La biblioteca de referencias la administra Estudio Creativo' });
     const image = String(req.body.image || '');
     const name = clean(req.body.name, 80);
     const category = ['editorial', 'catalog', 'social', 'detail', 'general'].includes(req.body.category) ? req.body.category : 'general';
@@ -148,12 +179,19 @@ export function registerContentStudioRoutes(app, db, options = {}) {
   });
 
   app.delete('/api/content-studio/references/:id', guard, (req, res) => {
+    if (req.contentStudioUser) return res.status(403).json({ message: 'La biblioteca de referencias la administra Estudio Creativo' });
     const result = db.prepare('DELETE FROM content_studio_references WHERE id = ? AND establishment_id = ?').run(req.params.id, req.contentStudioEstablishment.id);
     if (!result.changes) return res.status(404).json({ message: 'Referencia no encontrada' });
     res.json({ ok: true });
   });
 
   app.put('/api/content-studio/settings', guard, (req, res) => {
+    if (req.contentStudioUser) {
+      db.prepare("UPDATE content_studio_users SET business_name = ?, brand_tone = ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
+        .run(clean(req.body.brand_name, 100) || req.contentStudioUser.business_name, clean(req.body.brand_tone, 80) || 'premium', req.contentStudioUser.id);
+      const user = db.prepare('SELECT * FROM content_studio_users WHERE id = ?').get(req.contentStudioUser.id);
+      return res.json(planSettings({ contentStudioUser: user }, null));
+    }
     const current = db.prepare('SELECT * FROM content_studio_settings WHERE establishment_id = ?').get(req.contentStudioEstablishment.id);
     const monthlyLimit = req.user.role === 'supreme' ? Math.max(1, Math.min(10000, Number(req.body.monthly_limit) || current.monthly_limit)) : current.monthly_limit;
     const planName = req.user.role === 'supreme' ? clean(req.body.plan_name, 60) || current.plan_name : current.plan_name;
@@ -168,20 +206,25 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     if (!validDataImage(productImage)) return res.status(400).json({ message: 'Sube una foto válida del producto' });
     if (dataImageBytes(productImage) > 8 * 1024 * 1024) return res.status(413).json({ message: 'La foto del producto no puede superar 8 MB' });
     if (!preset) return res.status(400).json({ message: 'Selecciona un tipo de contenido' });
-    const settings = db.prepare('SELECT * FROM content_studio_settings WHERE establishment_id = ?').get(req.contentStudioEstablishment.id);
+    const establishmentSettings = db.prepare('SELECT * FROM content_studio_settings WHERE establishment_id = ?').get(req.contentStudioEstablishment.id);
+    const settings = planSettings(req, establishmentSettings);
+    if (!activeSubscription(req.contentStudioUser)) return res.status(403).json({ message: 'Tu plan no está activo. Contacta al administrador para renovarlo.' });
     const referenceIds = [...new Set((Array.isArray(req.body.reference_ids) ? req.body.reference_ids : []).map(Number).filter(Boolean))].slice(0, 4);
     const references = referenceIds.length ? db.prepare(`SELECT id, image_data FROM content_studio_references WHERE establishment_id = ? AND id IN (${referenceIds.map(() => '?').join(',')})`).all(req.contentStudioEstablishment.id, ...referenceIds) : [];
     const prompt = buildPrompt({ ...req.body, brand_name: req.body.brand_name || settings.brand_name, brand_tone: settings.brand_tone }, preset, references.length);
+    const studioUserId = req.contentStudioUser?.id || null;
+    const userCondition = studioUserId ? 'AND content_studio_user_id = ?' : 'AND content_studio_user_id IS NULL';
+    const userParams = studioUserId ? [studioUserId] : [];
     const reservation = db.transaction(() => {
       const occupied = db.prepare(`SELECT COUNT(*) AS total FROM content_studio_generations
-        WHERE establishment_id = ? AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')
+        WHERE establishment_id = ? ${userCondition} AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')
           AND (status = 'completed' OR (status = 'failed' AND error_message = '__processing__' AND created_at >= datetime('now', '-30 minutes')))`)
-        .get(req.contentStudioEstablishment.id).total;
+        .get(req.contentStudioEstablishment.id, ...userParams).total;
       if (occupied >= settings.monthly_limit) return null;
       const inserted = db.prepare(`INSERT INTO content_studio_generations
-        (establishment_id, preset, product_name, brand_name, material, color, headline, mood, aspect_ratio, reference_ids_json, status, error_message, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'failed', '__processing__', ?)`)
-        .run(req.contentStudioEstablishment.id, req.body.preset, clean(req.body.product_name), clean(req.body.brand_name || settings.brand_name), clean(req.body.material), clean(req.body.color), clean(req.body.headline, 80), clean(req.body.mood) || 'light', preset.size, JSON.stringify(references.map((item) => item.id)), req.user.username || req.user.role);
+        (establishment_id, content_studio_user_id, preset, product_name, brand_name, material, color, headline, mood, aspect_ratio, reference_ids_json, status, error_message, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'failed', '__processing__', ?)`)
+        .run(req.contentStudioEstablishment.id, studioUserId, req.body.preset, clean(req.body.product_name), clean(req.body.brand_name || settings.brand_name), clean(req.body.material), clean(req.body.color), clean(req.body.headline, 80), clean(req.body.mood) || 'light', preset.size, JSON.stringify(references.map((item) => item.id)), req.user.username || req.user.role);
       return inserted.lastInsertRowid;
     })();
     if (!reservation) return res.status(429).json({ message: 'Se alcanzó el límite mensual del plan' });
@@ -189,7 +232,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
       const generated = await generateImage({ images: [productImage, ...references.map((item) => item.image_data)], prompt, size: preset.size, preset: req.body.preset });
       db.prepare("UPDATE content_studio_generations SET output_image_data = ?, revised_prompt = ?, status = 'completed', error_message = NULL WHERE id = ?")
         .run(generated.imageData, generated.revisedPrompt || '', reservation);
-      const usage = db.prepare("SELECT COUNT(*) AS total FROM content_studio_generations WHERE establishment_id = ? AND status = 'completed' AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')").get(req.contentStudioEstablishment.id).total;
+      const usage = db.prepare(`SELECT COUNT(*) AS total FROM content_studio_generations WHERE establishment_id = ? ${userCondition} AND status = 'completed' AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')`).get(req.contentStudioEstablishment.id, ...userParams).total;
       res.status(201).json({ generation: generationRow(db.prepare('SELECT * FROM content_studio_generations WHERE id = ?').get(reservation)), usage, monthly_limit: settings.monthly_limit });
     } catch (error) {
       db.prepare("UPDATE content_studio_generations SET status = 'failed', error_message = ? WHERE id = ?")
@@ -200,7 +243,9 @@ export function registerContentStudioRoutes(app, db, options = {}) {
   });
 
   app.delete('/api/content-studio/generations/:id', guard, (req, res) => {
-    const result = db.prepare("UPDATE content_studio_generations SET deleted_at = datetime('now', 'localtime'), output_image_data = NULL WHERE id = ? AND establishment_id = ? AND deleted_at IS NULL").run(req.params.id, req.contentStudioEstablishment.id);
+    const userCondition = req.contentStudioUser ? 'AND content_studio_user_id = ?' : 'AND content_studio_user_id IS NULL';
+    const userParams = req.contentStudioUser ? [req.contentStudioUser.id] : [];
+    const result = db.prepare(`UPDATE content_studio_generations SET deleted_at = datetime('now', 'localtime'), output_image_data = NULL WHERE id = ? AND establishment_id = ? ${userCondition} AND deleted_at IS NULL`).run(req.params.id, req.contentStudioEstablishment.id, ...userParams);
     if (!result.changes) return res.status(404).json({ message: 'Creación no encontrada' });
     res.json({ ok: true });
   });

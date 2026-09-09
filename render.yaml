@@ -42,6 +42,10 @@ services:
         value: contenido
       - key: CONTENT_STUDIO_ADMIN_PASSWORD
         sync: false
+      - key: CONTENT_STUDIO_DEMO_USER
+        value: cliente.demo
+      - key: CONTENT_STUDIO_DEMO_PASSWORD
+        sync: false
       - key: PAYPHONE_TOKEN
         sync: false
       - key: PAYPHONE_STORE_ID
