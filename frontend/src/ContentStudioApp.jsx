@@ -8,6 +8,12 @@ import { api } from './api.js';
 import './content-studio.css';
 
 const PRESET_ICONS = { editorial: UserRound, catalog: ShoppingBag, social: Share2, detail: Gem };
+const PRESET_GUIDES = {
+  editorial: '/content-studio/guides/editorial.jpg',
+  catalog: '/content-studio/guides/catalog.jpg',
+  social: '/content-studio/guides/social.jpg',
+  detail: '/content-studio/guides/detail.jpg'
+};
 const PRESET_NAMES = { editorial: 'Editorial', catalog: 'Catálogo', social: 'Post social', detail: 'Detalle' };
 const emptyForm = { preset: 'editorial', logo_id: 'none', social_format: 'post', social_style: 'editorial' };
 
@@ -243,7 +249,7 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
               {data.presets.map((preset) => {
                 const PresetIcon = PRESET_ICONS[preset.id] || Sparkles;
                 return <button type="button" key={preset.id} className={`cs-preset-card cs-preset-${preset.id} ${form.preset === preset.id ? 'selected' : ''}`} onClick={() => setForm({ ...form, preset: preset.id })}>
-                  <span className="cs-preset-thumb">{productImage ? <img src={productImage} alt="" /> : <PresetIcon size={48} strokeWidth={1.35} />}</span>
+                  <span className="cs-preset-thumb"><img src={PRESET_GUIDES[preset.id]} alt={`Ejemplo de ${preset.name}`} /></span>
                   <span className="cs-preset-copy"><i><PresetIcon size={17} /></i><strong>{preset.name}</strong><small>{preset.description}</small></span>
                   <ChevronRight size={19} />
                 </button>;

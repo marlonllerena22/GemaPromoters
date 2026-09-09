@@ -200,7 +200,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
       establishment: { id: establishmentId, name: req.contentStudioEstablishment.display_name || req.contentStudioEstablishment.name },
       settings, usage, generation_available: subscriptionActive && (Boolean(process.env.OPENAI_API_KEY) || Boolean(options.generateImage)),
       can_manage_references: false,
-      can_manage_logos: !req.contentStudioUser,
+      can_manage_logos: true,
       subscription: req.contentStudioUser ? { status: req.contentStudioUser.subscription_status, active: subscriptionActive, paid_until: req.contentStudioUser.paid_until } : { status: 'internal', active: true, paid_until: null },
       logos,
       social_formats: Object.entries(SOCIAL_FORMATS).map(([id, item]) => ({ id, label: item.label, width: item.width, height: item.height })),
@@ -215,7 +215,6 @@ export function registerContentStudioRoutes(app, db, options = {}) {
   });
 
   app.post('/api/content-studio/logos', guard, (req, res) => {
-    if (req.contentStudioUser) return res.status(403).json({ message: 'Los logos los administra Estudio Creativo' });
     const image = String(req.body.image || '');
     const name = clean(req.body.name, 80);
     if (!name || !validDataImage(image)) return res.status(400).json({ message: 'Nombre e imagen válida son obligatorios' });
@@ -226,7 +225,6 @@ export function registerContentStudioRoutes(app, db, options = {}) {
   });
 
   app.delete('/api/content-studio/logos/:id', guard, (req, res) => {
-    if (req.contentStudioUser) return res.status(403).json({ message: 'Los logos los administra Estudio Creativo' });
     const result = db.prepare('DELETE FROM content_studio_logos WHERE id = ? AND establishment_id = ?').run(req.params.id, req.contentStudioEstablishment.id);
     if (!result.changes) return res.status(404).json({ message: 'Logo no encontrado' });
     res.json({ ok: true });

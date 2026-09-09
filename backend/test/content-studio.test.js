@@ -69,7 +69,7 @@ test('prompt accepts any product, keeps editorial text-free and prepares social 
   assert.match(story, /Do not add a logo/i);
 });
 
-test('a paid client gets its own plan, usage and history without admin access to references', async (t) => {
+test('a paid client gets its own plan, usage, history and brand management', async (t) => {
   const { db, server, request, calls, clientToken, waitForGeneration } = fixture();
   t.after(() => { server.close(); db.close(); });
   const bootstrap = await request('/bootstrap', { token: clientToken });
@@ -81,9 +81,10 @@ test('a paid client gets its own plan, usage and history without admin access to
   assert.equal(bootstrap.data.can_manage_references, false);
 
   assert.equal(bootstrap.data.logos.length, 2);
-  assert.equal(bootstrap.data.can_manage_logos, false);
-  const forbiddenLogo = await request('/logos', { token: clientToken, method: 'POST', body: JSON.stringify({ name: 'No permitido', image: sampleImage }) });
-  assert.equal(forbiddenLogo.status, 403);
+  assert.equal(bootstrap.data.can_manage_logos, true);
+  const clientLogo = await request('/logos', { token: clientToken, method: 'POST', body: JSON.stringify({ name: 'Marca del cliente', image: sampleImage }) });
+  assert.equal(clientLogo.status, 201);
+  assert.equal((await request(`/logos/${clientLogo.data.id}`, { token: clientToken, method: 'DELETE' })).status, 200);
   const generated = await request('/generate', { token: clientToken, method: 'POST', body: JSON.stringify({ preset: 'catalog', logo_id: 1, product_image: sampleImage }) });
   assert.equal(generated.status, 202);
   const completed = await waitForGeneration(generated.data.generation.id, clientToken);
