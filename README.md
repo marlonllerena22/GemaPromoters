@@ -49,6 +49,9 @@ Credenciales iniciales:
 - Administrador ProTickets:
   - Usuario: `protickets`
   - Contrasena inicial: `protickets123`
+- Administrador Estudio Creativo:
+  - Usuario: `contenido`
+  - Contrasena inicial: `contenido123`
 
 Puedes cambiarlas en `backend/.env`.
 
@@ -142,6 +145,19 @@ El administrador ProTickets puede crear y editar eventos, cargar imagenes y bann
 El evento inicial `KRIS R EL TRAP DE KOLOMBIA` se crea publicado, pero sus localidades empiezan con stock `0`. Antes de vender, entra como administrador ProTickets, edita el evento y configura el stock real y el enlace Bendo.
 
 Para enviar entradas por correo configura `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` y `SMTP_FROM`. Para Google configura `GOOGLE_CLIENT_ID`. La confirmacion automatica de Bendo queda preparada en `/api/ticketing/payments/bendo/webhook`; debe ajustarse a la documentacion y credenciales finales que entregue Bendo. Mientras tanto, el administrador puede confirmar cada pago manualmente y el sistema emite las entradas en ese momento.
+
+## Estudio Creativo
+
+Estudio Creativo funciona como un negocio independiente dentro de PROMOTERS. Permite subir una foto de producto y crear contenido sin escribir prompts:
+
+- Editorial con modelo y outfit acorde al producto.
+- Fotografia limpia para catalogo.
+- Post para redes con texto comercial.
+- Detalle premium de materiales y acabados.
+- Biblioteca privada de referencias por tipo de contenido; la IA toma la direccion visual sin copiar la foto.
+- Historial descargable, identidad de marca y limite mensual por plan.
+
+La clave de OpenAI permanece solo en el backend. Configura `OPENAI_API_KEY` en el entorno de produccion. El modelo predeterminado es `gpt-image-2.5-sunburst` y se puede cambiar con `OPENAI_IMAGE_MODEL`.
 
 ## Acceso de promotores
 

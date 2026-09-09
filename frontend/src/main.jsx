@@ -38,6 +38,7 @@ import RenjiApp, { RenjiPublicRegistration } from './RenjiApp.jsx';
 import LocalAttendancePage from './LocalAttendancePage.jsx';
 import ProTicketsApp, { ProTicketsPublicSite } from './ProTicketsApp.jsx';
 import { MarjoriePromoterApp, MarjoriePromotersAdmin, MarjorieReferralPage, MarjorieRegistration } from './MarjoriePromotersApp.jsx';
+import ContentStudioApp from './ContentStudioApp.jsx';
 import './styles.css';
 
 const emptyPromoter = {
@@ -925,6 +926,18 @@ function App() {
     }} />;
   }
 
+  const isContentStudioSession =
+    user?.establishment_module_type === 'content_studio' ||
+    String(user?.establishment_name || '').toUpperCase() === 'ESTUDIO CREATIVO';
+
+  if (isContentStudioSession) {
+    return <ContentStudioApp user={user} onLogout={() => {
+      clearToken();
+      saveToken(null);
+      saveUser(null);
+    }} />;
+  }
+
   return <AdminApp user={user} onLogout={() => {
     clearToken();
     saveToken(null);
@@ -1172,13 +1185,15 @@ function AdminApp({ user, onLogout }) {
     } else if (nextEstablishment?.theme !== 'marjorie' && view === 'marjorie-promoters') {
       setView('dashboard');
     }
-    if (['production', 'clothing', 'ticketing'].includes(nextEstablishment?.module_type)) {
+    if (['production', 'clothing', 'ticketing', 'content_studio'].includes(nextEstablishment?.module_type)) {
       if (view !== 'establishments') {
         setView(nextEstablishment.module_type === 'production'
           ? 'production'
           : nextEstablishment.module_type === 'clothing'
             ? 'renji'
-            : 'ticketing');
+            : nextEstablishment.module_type === 'ticketing'
+              ? 'ticketing'
+              : 'content-studio');
       }
       if (establishmentId && String(establishmentId) !== String(selectedEstablishmentId)) {
         setSelectedEstablishmentId(String(establishmentId));
@@ -1201,7 +1216,7 @@ function AdminApp({ user, onLogout }) {
       setLoading(false);
       return;
     }
-    if (['production', 'renji', 'ticketing'].includes(view)) {
+    if (['production', 'renji', 'ticketing', 'content-studio'].includes(view)) {
       setView('dashboard');
     }
     if (nextEstablishment?.business_type === 'commercial' && view === 'events') {
@@ -1257,6 +1272,7 @@ function AdminApp({ user, onLogout }) {
   const isProductionBusiness = currentEstablishment?.module_type === 'production';
   const isClothingBusiness = currentEstablishment?.module_type === 'clothing';
   const isTicketingBusiness = currentEstablishment?.module_type === 'ticketing';
+  const isContentStudioBusiness = currentEstablishment?.module_type === 'content_studio';
   const isMarjorieBusiness = currentEstablishment?.theme === 'marjorie';
   const canSwitchBusiness = user?.role === 'supreme' && data.establishments.length > 1;
   const nav = isProductionBusiness ? [
@@ -1268,6 +1284,9 @@ function AdminApp({ user, onLogout }) {
   ] : isTicketingBusiness ? [
     ...(user?.role === 'supreme' ? [['establishments', 'Negocios', Building2]] : []),
     ['ticketing', 'ProTickets', Ticket]
+  ] : isContentStudioBusiness ? [
+    ...(user?.role === 'supreme' ? [['establishments', 'Negocios', Building2]] : []),
+    ['content-studio', 'Estudio Creativo', Sparkles]
   ] : isMarjorieBusiness ? [
     ...(user?.role === 'supreme' ? [['establishments', 'Negocios', Building2]] : []),
     ['marjorie-promoters', 'Promotoras', UsersRound],
@@ -1342,7 +1361,7 @@ function AdminApp({ user, onLogout }) {
               </select>
             </label>
           )}
-          {!isCommercialBusiness && !isProductionBusiness && !isClothingBusiness && !isTicketingBusiness && (
+          {!isCommercialBusiness && !isProductionBusiness && !isClothingBusiness && !isTicketingBusiness && !isContentStudioBusiness && (
             <label className="event-selector">
               Evento
               <select value={selectedEventId} onChange={(e) => loadAll(e.target.value)}>
@@ -1382,7 +1401,14 @@ function AdminApp({ user, onLogout }) {
                 user={{ ...user, establishment_id: Number(selectedEstablishmentId) }}
               />
             )}
-            {view === 'dashboard' && !isProductionBusiness && !isClothingBusiness && !isTicketingBusiness && !isMarjorieBusiness && <Dashboard stats={data.dashboard} sales={data.sales} />}
+            {view === 'content-studio' && isContentStudioBusiness && (
+              <ContentStudioApp
+                embedded
+                establishmentId={selectedEstablishmentId}
+                user={{ ...user, establishment_id: Number(selectedEstablishmentId) }}
+              />
+            )}
+            {view === 'dashboard' && !isProductionBusiness && !isClothingBusiness && !isTicketingBusiness && !isContentStudioBusiness && !isMarjorieBusiness && <Dashboard stats={data.dashboard} sales={data.sales} />}
             {view === 'marjorie-promoters' && isMarjorieBusiness && <MarjoriePromotersAdmin embedded />}
             {view === 'branches' && isCommercialBusiness && (
               <Branches branches={data.branches} establishmentId={selectedEstablishmentId} onRefresh={refresh} />
@@ -1548,11 +1574,11 @@ function Establishments({ establishments, onRefresh }) {
               value={form.module_type}
               onChange={(e) => {
                 const module_type = e.target.value;
-                const isSpecialModule = ['production', 'clothing', 'ticketing'].includes(module_type);
+                const isSpecialModule = ['production', 'clothing', 'ticketing', 'content_studio'].includes(module_type);
                 setForm({
                   ...form,
                   module_type,
-                  business_type: ['production', 'clothing'].includes(module_type) ? 'commercial' : 'event',
+                  business_type: ['production', 'clothing', 'content_studio'].includes(module_type) ? 'commercial' : 'event',
                   promoter_sales_enabled: isSpecialModule ? false : form.promoter_sales_enabled
                 });
               }}
@@ -1561,13 +1587,14 @@ function Establishments({ establishments, onRefresh }) {
               <option value="production">Produccion y pedidos</option>
               <option value="clothing">Ropa, stock y envios</option>
               <option value="ticketing">Ticketera publica</option>
+              <option value="content_studio">Creador de contenido con IA</option>
             </select>
           </label>
           <label>
             Tipo de negocio
             <select
               value={form.business_type}
-              disabled={['production', 'clothing', 'ticketing'].includes(form.module_type)}
+              disabled={['production', 'clothing', 'ticketing', 'content_studio'].includes(form.module_type)}
               onChange={(e) => {
                 const business_type = e.target.value;
                 setForm({
@@ -1603,6 +1630,8 @@ function Establishments({ establishments, onRefresh }) {
                 ? 'Ropa: clientes, prendas, inventario y guias'
                 : form.module_type === 'ticketing'
                   ? 'Ticketera: eventos publicos, pagos y entradas digitales'
+                  : form.module_type === 'content_studio'
+                    ? 'Estudio creativo: productos, referencias y contenido profesional con IA'
               : form.business_type === 'commercial'
                 ? 'Local comercial: ventas solo por administrador'
                 : 'Promotores pueden registrar ventas desde su cuenta'}

@@ -34,6 +34,14 @@ services:
         sync: false
       - key: MARJORIE_INVENTORY_API_KEY
         sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_IMAGE_MODEL
+        value: gpt-image-2.5-sunburst
+      - key: CONTENT_STUDIO_ADMIN_USER
+        value: contenido
+      - key: CONTENT_STUDIO_ADMIN_PASSWORD
+        sync: false
       - key: PAYPHONE_TOKEN
         sync: false
       - key: PAYPHONE_STORE_ID

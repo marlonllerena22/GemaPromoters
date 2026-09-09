@@ -15,6 +15,7 @@ import {
 import { registerRenjiRoutes } from './renji-routes.js';
 import { registerTicketingRoutes } from './ticketing-routes.js';
 import { registerMarjoriePromotersRoutes } from './marjorie-promoters-routes.js';
+import { registerContentStudioRoutes } from './content-studio-routes.js';
 
 dotenv.config();
 initDb();
@@ -680,7 +681,7 @@ app.post('/api/establishments', requireSupreme, (req, res) => {
   const name = String(req.body.name || '').trim();
   const displayName = String(req.body.display_name || '').trim();
   const businessType = req.body.business_type === 'commercial' ? 'commercial' : 'event';
-  const moduleType = ['production', 'clothing', 'ticketing'].includes(req.body.module_type)
+  const moduleType = ['production', 'clothing', 'ticketing', 'content_studio'].includes(req.body.module_type)
     ? req.body.module_type
     : 'promoters';
   const codePrefix = normalizeLookup(req.body.code_prefix || name).slice(0, 12) || 'PROMO';
@@ -715,7 +716,7 @@ app.put('/api/establishments/:id', requireSupreme, (req, res) => {
   const name = String(req.body.name || '').trim();
   const displayName = String(req.body.display_name || '').trim();
   const businessType = req.body.business_type === 'commercial' ? 'commercial' : 'event';
-  const moduleType = ['production', 'clothing', 'ticketing'].includes(req.body.module_type)
+  const moduleType = ['production', 'clothing', 'ticketing', 'content_studio'].includes(req.body.module_type)
     ? req.body.module_type
     : 'promoters';
   const codePrefix = normalizeLookup(req.body.code_prefix || name).slice(0, 12) || 'PROMO';
@@ -2940,6 +2941,7 @@ registerProducalzaRoutes(app, db, getRequestEstablishmentId);
 registerRenjiRoutes(app, db, getRequestEstablishmentId);
 registerTicketingRoutes(app, db);
 registerMarjoriePromotersRoutes(app, db);
+registerContentStudioRoutes(app, db);
 
 recalculateAllCommissions();
 
