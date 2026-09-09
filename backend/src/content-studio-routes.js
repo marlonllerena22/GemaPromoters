@@ -154,8 +154,18 @@ async function defaultGenerate({ images, prompt, size }) {
 async function resizeSocialOutput(imageData, format) {
   const encoded = String(imageData || '').split(',')[1];
   if (!encoded) throw new Error('La imagen generada no se pudo preparar');
-  const output = await sharp(Buffer.from(encoded, 'base64'))
+  const source = Buffer.from(encoded, 'base64');
+  const background = await sharp(source)
     .resize(format.width, format.height, { fit: 'cover', position: 'centre' })
+    .blur(24)
+    .modulate({ brightness: 0.82, saturation: 0.82 })
+    .toBuffer();
+  const foreground = await sharp(source)
+    .resize(format.width, format.height, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+    .png()
+    .toBuffer();
+  const output = await sharp(background)
+    .composite([{ input: foreground, gravity: 'centre' }])
     .webp({ quality: 92 })
     .toBuffer();
   return `data:image/webp;base64,${output.toString('base64')}`;
