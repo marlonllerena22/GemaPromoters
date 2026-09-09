@@ -72,19 +72,51 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const inputRef = useRef(null);
+  const activeGenerationRef = useRef(null);
+  const mountedRef = useRef(true);
 
   const scopeQuery = scopeId ? `?establishment_id=${scopeId}` : '';
   const scopeBody = scopeId ? { establishment_id: Number(scopeId) } : {};
+  const activeStorageKey = `content-studio-active-generation-${scopeId || 'current'}`;
+
+  function rememberedGenerationId() {
+    try { return Number(window.localStorage.getItem(activeStorageKey) || 0); }
+    catch { return 0; }
+  }
+
+  function rememberGeneration(id) {
+    try { window.localStorage.setItem(activeStorageKey, String(id)); }
+    catch { /* The server queue still works when browser storage is unavailable. */ }
+  }
+
+  function forgetGeneration() {
+    try { window.localStorage.removeItem(activeStorageKey); }
+    catch { /* No action needed. */ }
+  }
 
   async function load() {
     const response = await api(`/content-studio/bootstrap${scopeQuery}`);
     setData(response);
     setForm((current) => ({ ...current, logo_id: current.logo_id === 'none' || response.logos?.some((logo) => Number(logo.id) === Number(current.logo_id)) ? current.logo_id : 'none' }));
+    const remembered = response.generations?.find((item) => Number(item.id) === rememberedGenerationId());
+    if (remembered?.status === 'completed') {
+      setResult(remembered);
+      forgetGeneration();
+    } else if (remembered?.status === 'failed') {
+      forgetGeneration();
+    }
+    const pending = remembered?.status === 'processing' ? remembered : response.generations?.find((item) => item.status === 'processing');
+    if (pending) void monitorGeneration(pending).catch((err) => mountedRef.current && setError(err.message));
   }
 
   useEffect(() => {
+    mountedRef.current = true;
     setLoading(true);
     load().catch((err) => setError(err.message)).finally(() => setLoading(false));
+    return () => {
+      mountedRef.current = false;
+      activeGenerationRef.current = null;
+    };
   }, [scopeId]);
 
   const selectedPreset = data?.presets?.find((item) => item.id === form.preset);
@@ -97,6 +129,51 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
     catch (err) { setError(err.message); }
   }
 
+  async function monitorGeneration(generation, startedAtOverride) {
+    const generationId = Number(generation?.id || 0);
+    if (!generationId || activeGenerationRef.current === generationId) return;
+    activeGenerationRef.current = generationId;
+    setGenerating(true);
+    const parsedCreatedAt = generation?.created_at ? new Date(String(generation.created_at).replace(' ', 'T')).getTime() : NaN;
+    const startedAt = startedAtOverride || (Number.isFinite(parsedCreatedAt) ? parsedCreatedAt : Date.now());
+    setGenerationProgress(progressForElapsed(Math.max(0, Math.round((Date.now() - startedAt) / 1000))));
+    let terminal = false;
+    try {
+      let completed;
+      for (let attempt = 0; attempt < 240 && mountedRef.current && activeGenerationRef.current === generationId; attempt += 1) {
+        const statusResponse = await api(`/content-studio/generations/${generationId}${scopeQuery}`);
+        if (statusResponse.generation?.status === 'failed') {
+          terminal = true;
+          throw new Error(statusResponse.generation.error_message || 'No se pudo crear la imagen');
+        }
+        if (statusResponse.generation?.status === 'completed') {
+          terminal = true;
+          completed = statusResponse;
+          break;
+        }
+        await wait(2500);
+        if (mountedRef.current) {
+          const elapsed = Math.round((Date.now() - startedAt) / 1000);
+          setGenerationProgress(progressForElapsed(elapsed));
+        }
+      }
+      if (!mountedRef.current || activeGenerationRef.current !== generationId) return;
+      if (!completed) throw new Error('La creación sigue procesándose en el servidor. Puedes recargar o revisarla en Mis diseños más tarde.');
+      setGenerationProgress({ percent: 100, label: 'Tu imagen está lista' });
+      setResult(completed.generation);
+      setData((current) => ({ ...current, usage: completed.usage, generations: [completed.generation, ...current.generations.filter((item) => item.id !== completed.generation.id)].slice(0, 24) }));
+      setNotice('Tu imagen profesional está lista');
+      window.setTimeout(() => setNotice(''), 3000);
+    } finally {
+      if (terminal) forgetGeneration();
+      if (activeGenerationRef.current === generationId) activeGenerationRef.current = null;
+      if (mountedRef.current) {
+        setGenerating(false);
+        window.setTimeout(() => mountedRef.current && setGenerationProgress({ percent: 0, label: '' }), 700);
+      }
+    }
+  }
+
   async function generate(event) {
     event.preventDefault();
     setError('');
@@ -107,31 +184,16 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
       const response = await api('/content-studio/generate', {
         method: 'POST', body: JSON.stringify({ ...scopeBody, ...form, product_image: productImage })
       });
-      const generationId = response.generation?.id;
-      if (!generationId) throw new Error('No se pudo iniciar la creación');
-      const startedAt = Date.now();
-      let completed;
-      for (let attempt = 0; attempt < 150; attempt += 1) {
-        await wait(2500);
-        const elapsed = Math.round((Date.now() - startedAt) / 1000);
-        setGenerationProgress(progressForElapsed(elapsed));
-        const statusResponse = await api(`/content-studio/generations/${generationId}${scopeQuery}`);
-        if (statusResponse.generation?.status === 'failed') {
-          throw new Error(statusResponse.generation.error_message || 'No se pudo crear la imagen');
-        }
-        if (statusResponse.generation?.status === 'completed') {
-          completed = statusResponse;
-          break;
-        }
-      }
-      if (!completed) throw new Error('La creación está tardando más de lo esperado. Puedes revisarla en Mis diseños en unos minutos.');
-      setGenerationProgress({ percent: 100, label: 'Tu imagen está lista' });
-      setResult(completed.generation);
-      setData((current) => ({ ...current, usage: completed.usage, generations: [completed.generation, ...current.generations.filter((item) => item.id !== completed.generation.id)].slice(0, 24) }));
-      setNotice('Tu imagen profesional está lista');
-      window.setTimeout(() => setNotice(''), 3000);
-    } catch (err) { setError(err.message); }
-    finally { setGenerating(false); window.setTimeout(() => setGenerationProgress({ percent: 0, label: '' }), 700); }
+      const generation = response.generation;
+      if (!generation?.id) throw new Error('No se pudo iniciar la creación');
+      rememberGeneration(generation.id);
+      setData((current) => ({ ...current, generations: [generation, ...current.generations.filter((item) => item.id !== generation.id)].slice(0, 24) }));
+      await monitorGeneration(generation, Date.now());
+    } catch (err) {
+      setError(err.message);
+      setGenerating(false);
+      setGenerationProgress({ percent: 0, label: '' });
+    }
   }
 
   function newCreation() {
@@ -278,7 +340,7 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
           <span>Tu creación</span><h3>{selectedPreset?.name}</h3><p>{selectedPreset?.description}</p>
           <ul><li><Check size={15} /> Producto fiel al original</li><li><Check size={15} /> Acabado fotográfico realista</li><li><Check size={15} /> Alta calidad para publicar</li></ul>
           <button className="cs-generate" disabled={!productImage || generating || !data.generation_available}>{generating ? <><i /> Creando tu imagen...</> : <>Continuar <ChevronRight size={19} /></>}</button>
-          {generating && <div className="cs-generation-progress" role="status" aria-live="polite"><div><i style={{ width: `${generationProgress.percent}%` }} /></div><span>{generationProgress.label}</span><strong>{generationProgress.percent}%</strong><small>Puedes dejar esta página abierta mientras terminamos.</small></div>}
+          {generating && <div className="cs-generation-progress" role="status" aria-live="polite"><div><i style={{ width: `${generationProgress.percent}%` }} /></div><span>{generationProgress.label}</span><strong>{generationProgress.percent}%</strong><small>Puedes cambiar de sección o recargar la página: la creación continuará en el servidor.</small></div>}
           {!data.generation_available && <small className="cs-api-note">{data.subscription?.active ? 'La interfaz está lista. Falta conectar la clave de OpenAI en el servidor.' : 'Tu plan necesita estar activo para crear imágenes.'}</small>}
         </aside>
       </div>
@@ -321,7 +383,13 @@ function LogosView({ data, scopeBody, reload, setError }) {
 
 function HistoryView({ data, scopeBody, reload, setError }) {
   async function remove(id) { try { await api(`/content-studio/generations/${id}${scopeBody.establishment_id ? `?establishment_id=${scopeBody.establishment_id}` : ''}`, { method: 'DELETE' }); await reload(); } catch (err) { setError(err.message); } }
-  return <section><div className="cs-section-heading"><span className="cs-eyebrow">Tus resultados</span><h1>Mis diseños</h1><p>Todo tu contenido terminado, listo para volver a descargar.</p></div>{data.generations.filter((item) => item.status === 'completed').length ? <div className="cs-history-grid">{data.generations.filter((item) => item.status === 'completed').map((item) => <article key={item.id}><img src={item.output_image_data} alt={item.brand_name || 'Diseño'} /><div><span>{PRESET_NAMES[item.preset]}</span><strong>{item.brand_name || 'Creación'}</strong><small>{new Date(`${item.created_at.replace(' ', 'T')}`).toLocaleDateString('es-EC')}</small></div><div className="cs-history-actions"><button onClick={() => downloadDataImage(item.output_image_data, `${item.brand_name || 'contenido'}-${item.id}.webp`)}><Download size={17} /></button><button onClick={() => remove(item.id)}><Trash2 size={17} /></button></div></article>)}</div> : <div className="cs-empty-large"><LayoutGrid size={38} /><h3>Aquí aparecerán tus diseños</h3><p>Crea tu primera imagen profesional para verla en esta galería.</p></div>}</section>;
+  const pending = data.generations.filter((item) => item.status === 'processing');
+  const completed = data.generations.filter((item) => item.status === 'completed');
+  return <section>
+    <div className="cs-section-heading"><span className="cs-eyebrow">Tus resultados</span><h1>Mis diseños</h1><p>Todo tu contenido terminado, listo para volver a descargar.</p></div>
+    {pending.length > 0 && <div className="cs-queue-banner" role="status"><span><Sparkles size={20} /></span><div><strong>{pending.length === 1 ? 'Tu imagen sigue en proceso' : `${pending.length} imágenes siguen en proceso`}</strong><small>Puedes cambiar de sección, cerrar o recargar la página. Aparecerá aquí cuando termine.</small></div></div>}
+    {completed.length ? <div className="cs-history-grid">{completed.map((item) => <article key={item.id}><img src={item.output_image_data} alt={item.brand_name || 'Diseño'} /><div><span>{PRESET_NAMES[item.preset]}</span><strong>{item.brand_name || 'Creación'}</strong><small>{new Date(`${item.created_at.replace(' ', 'T')}`).toLocaleDateString('es-EC')}</small></div><div className="cs-history-actions"><button onClick={() => downloadDataImage(item.output_image_data, `${item.brand_name || 'contenido'}-${item.id}.webp`)}><Download size={17} /></button><button onClick={() => remove(item.id)}><Trash2 size={17} /></button></div></article>)}</div> : <div className="cs-empty-large"><LayoutGrid size={38} /><h3>Aquí aparecerán tus diseños</h3><p>{pending.length ? 'Tu primera imagen aparecerá aquí en cuanto termine.' : 'Crea tu primera imagen profesional para verla en esta galería.'}</p></div>}
+  </section>;
 }
 
 function SettingsView({ data, scopeBody, onSaved, setError, user }) {
