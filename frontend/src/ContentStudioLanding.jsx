@@ -1,8 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import {
-  ArrowRight, BadgeCheck, Check, Image as ImageIcon, Instagram,
-  Mail, Menu, MessageCircle, ShieldCheck, Sparkles, Upload, WandSparkles, X
-} from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { ArrowRight, BadgeCheck, Check, ChevronRight, Image as ImageIcon, Instagram, Layers3, Mail, Menu, MessageCircle, MousePointer2, ShieldCheck, Sparkles, Upload, WandSparkles, X, Zap } from 'lucide-react';
 import { api } from './api.js';
 import './content-studio-landing.css';
 
@@ -12,121 +9,61 @@ const FALLBACK_PLANS = [
   { id: 'negocio', name: 'Negocio', photos: 60, price: 35, days: 30 },
   { id: 'pro', name: 'Pro', photos: 150, price: 60, days: 30 }
 ];
-
-const formatPlanPrice = (price) => (Number(price) % 1 === 0 ? String(Number(price)) : Number(price).toFixed(2));
-
-const CREATIONS = [
-  { image: '/content-studio/guides/editorial.jpg', label: 'Editorial con modelo', className: 'editorial' },
-  { image: '/content-studio/guides/catalog.jpg', label: 'Catálogo profesional', className: 'catalog' },
-  { image: '/content-studio/guides/social.jpg', label: 'Contenido para redes', className: 'social' },
-  { image: '/content-studio/guides/detail.jpg', label: 'Detalle premium', className: 'detail' }
+const SHOWCASE = [
+  { number: '01', image: '/content-studio/guides/catalog.jpg', eyebrow: 'Catálogo', title: 'De foto simple a producto protagonista.', copy: 'Creamos una escena limpia y cuidada que conserva la forma, el color y los detalles reales de tu producto.', tags: ['Luz de estudio', 'Producto fiel'] },
+  { number: '02', image: '/content-studio/guides/editorial.jpg', eyebrow: 'Editorial', title: 'Una sesión de fotos, sin organizar una sesión.', copy: 'Elige una modelo, un modelo o un animal. La escena y el estilo se adaptan naturalmente a lo que vendes.', tags: ['Modelo IA', 'Estilo coherente'] },
+  { number: '03', image: '/content-studio/guides/social.jpg', eyebrow: 'Campañas', title: 'Posts que llaman la atención y se entienden.', copy: 'Convierte los beneficios reales de tu producto en una pieza lista para publicar en feed o historias.', tags: ['1080 × 1350', 'Texto diseñado'] },
+  { number: '04', image: '/content-studio/guides/detail.jpg', eyebrow: 'Detalle premium', title: 'Haz que el acabado venda por sí solo.', copy: 'Acercamientos con textura, materiales y detalles que dan confianza antes de comprar.', tags: ['Acabados reales', 'Alta calidad'] }
 ];
+const formatPlanPrice = (price) => (Number(price) % 1 === 0 ? String(Number(price)) : Number(price).toFixed(2));
 
 export default function ContentStudioLanding() {
   const [data, setData] = useState({ plans: FALLBACK_PLANS, contact: { phone_display: '098 376 3419', email: 'promoters.ecu@gmail.com' }, transfer: {} });
   const [selectedPlan, setSelectedPlan] = useState(null);
+  const [examplesOpen, setExamplesOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-
+  const [activeShowcase, setActiveShowcase] = useState(0);
+  const showcaseRefs = useRef([]);
+  useEffect(() => { api('/content-studio/public').then(setData).catch(() => {}); }, []);
   useEffect(() => {
-    api('/content-studio/public').then(setData).catch(() => {});
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+      if (visible) setActiveShowcase(Number(visible.target.dataset.index));
+    }, { threshold: [0.4, 0.62, 0.82] });
+    showcaseRefs.current.forEach((node) => node && observer.observe(node));
+    return () => observer.disconnect();
   }, []);
-
-  function choosePlan(plan) {
-    setSelectedPlan(plan);
-    setMenuOpen(false);
-  }
+  const choosePlan = (plan) => { setSelectedPlan(plan); setMenuOpen(false); };
+  const active = SHOWCASE[activeShowcase];
 
   return <div className="csl-page">
     <header className="csl-header">
-      <a className="csl-logo" href="/estudio-creativo"><span><WandSparkles size={20} /></span><strong>ESTUDIO CREATIVO</strong></a>
+      <a className="csl-logo" href="/estudio-creativo"><span><WandSparkles size={19} /></span><strong>ESTUDIO<br />CREATIVO</strong></a>
       <button className="csl-menu" type="button" onClick={() => setMenuOpen((value) => !value)} aria-label="Abrir menú"><Menu /></button>
-      <nav className={menuOpen ? 'open' : ''}>
-        <a href="#resultados" onClick={() => setMenuOpen(false)}>Resultados</a>
-        <a href="#como-funciona" onClick={() => setMenuOpen(false)}>Cómo funciona</a>
-        <a href="#planes" onClick={() => setMenuOpen(false)}>Planes</a>
-        <a href="#contacto" onClick={() => setMenuOpen(false)}>Contacto</a>
-      </nav>
-      <a className="csl-login" href="/">Iniciar sesión</a>
-      <button className="csl-start" type="button" onClick={() => choosePlan(data.plans?.[1] || FALLBACK_PLANS[1])}>Empezar <ArrowRight size={16} /></button>
+      <nav className={menuOpen ? 'open' : ''}><a href="#como-funciona" onClick={() => setMenuOpen(false)}>Cómo funciona</a><a href="#planes" onClick={() => setMenuOpen(false)}>Planes</a><a href="#contacto" onClick={() => setMenuOpen(false)}>Contacto</a></nav>
+      <div className="csl-header-actions"><a className="csl-login" href="/">Iniciar sesión</a><button className="csl-start" type="button" onClick={() => choosePlan(data.plans?.[1] || FALLBACK_PLANS[1])}>Empieza a crear <ArrowRight size={16} /></button></div>
     </header>
-
     <main>
       <section className="csl-hero">
-        <div className="csl-hero-copy">
-          <span className="csl-kicker"><Sparkles size={15} /> Fotografía de producto con IA</span>
-          <h1><span>Una foto sencilla.</span><em>Contenido que vende.</em></h1>
-          <p>Convierte la foto de cualquier producto en imágenes profesionales para catálogo, redes sociales y campañas, sin escribir prompts ni saber de diseño.</p>
-          <div className="csl-hero-actions"><button type="button" onClick={() => choosePlan(data.plans?.[1] || FALLBACK_PLANS[1])}>Crear mis imágenes <ArrowRight /></button><a href="#resultados">Ver resultados</a></div>
-          <div className="csl-trust"><span><Check /> Producto fiel al original</span><span><Check /> Listo para publicar</span><span><Check /> Sin conocimientos técnicos</span></div>
-        </div>
-        <div className="csl-hero-visual" aria-label="Ejemplos creados con Estudio Creativo">
-          <div className="csl-orbit one"><Sparkles /></div><div className="csl-orbit two"><ImageIcon /></div>
-          <article className="main"><img src="/content-studio/guides/editorial.jpg" alt="Editorial profesional creada con IA" /><span>Editorial con modelo</span></article>
-          <article className="floating top"><img src="/content-studio/guides/catalog.jpg" alt="Foto profesional para catálogo" /></article>
-          <article className="floating bottom"><img src="/content-studio/guides/detail.jpg" alt="Detalle premium de producto" /></article>
-          <div className="csl-result-badge"><BadgeCheck /><div><strong>Resultado profesional</strong><small>en pocos minutos</small></div></div>
-        </div>
+        <div className="csl-hero-copy"><span className="csl-kicker"><i /><Sparkles size={14} /> Fotografía comercial con IA</span><h1>Tu producto merece<br /><em>verse imposible</em><br />de ignorar.</h1><p>Convierte una foto tomada con tu celular en campañas, catálogo y contenido de marca que parece producido por un equipo creativo.</p><div className="csl-hero-actions"><button type="button" onClick={() => choosePlan(data.plans?.[1] || FALLBACK_PLANS[1])}>Crear contenido <ArrowRight /></button><button className="csl-quiet-action" type="button" onClick={() => setExamplesOpen(true)}>Ver ejemplos <ChevronRight /></button></div><div className="csl-trust"><span><Check /> Sin prompts</span><span><Check /> Producto fiel al original</span><span><Check /> Listo para publicar</span></div></div>
+        <div className="csl-hero-stage" aria-label="Ejemplos de contenido creado con Estudio Creativo"><div className="csl-stage-glow" /><article className="csl-stage-main"><img src="/content-studio/guides/social.jpg" alt="Diseño comercial para redes sociales" /><div><span>POST PARA REDES</span><strong>Diseñado para detener el scroll</strong></div></article><article className="csl-stage-card top"><img src="/content-studio/guides/editorial.jpg" alt="Editorial de producto con modelo" /><span>Editorial</span></article><article className="csl-stage-card bottom"><img src="/content-studio/guides/catalog.jpg" alt="Fotografía de catálogo" /><span>Catálogo</span></article><div className="csl-stage-note"><BadgeCheck /><div><strong>Producto conservado</strong><small>Forma, color y detalles reales</small></div></div><span className="csl-stage-orbit one"><Zap /></span><span className="csl-stage-orbit two"><Layers3 /></span></div>
       </section>
-
-      <section className="csl-proof"><span>Creado para negocios de</span><div><strong>CALZADO</strong><strong>MODA</strong><strong>ACCESORIOS</strong><strong>BELLEZA</strong><strong>PRODUCTOS</strong></div></section>
-
-      <section className="csl-results" id="resultados">
-        <div className="csl-section-heading"><span>UN ESTUDIO EN TU NEGOCIO</span><h2>De una foto sencilla a contenido listo para publicar.</h2><p>Mira una transformación real de botines y una creación para la vaquita que corre.</p></div>
-        <div className="csl-before-after">
-          <article className="csl-transform-card"><div className="csl-transform-images"><figure><img src="/content-studio/results/botin-antes.jpg" alt="Foto original de un botín" /><figcaption>Foto subida</figcaption></figure><span><ArrowRight /></span><figure><img src="/content-studio/results/botin-despues.jpg" alt="Resultado editorial de botines creado por Estudio Creativo" /><figcaption>Resultado creado</figcaption></figure></div><div><strong>Botines: de una foto de celular a una escena editorial</strong><p>La plataforma conserva el diseño del producto y construye una imagen lista para redes.</p></div></article>
-          <article className="csl-vaquita-card"><img src="/content-studio/results/vaquita-resultado.webp" alt="Post de la vaquita que corre creado por Estudio Creativo" /><div><span>RESULTADO REAL</span><strong>La vaquita que corre</strong><p>Un post diseñado a partir de una foto sencilla y una breve descripción del producto.</p></div></article>
-        </div>
-        <div className="csl-gallery">{CREATIONS.map((item) => <article className={item.className} key={item.label}><img src={item.image} alt={item.label} /><div><strong>{item.label}</strong><span>Generar <ArrowRight /></span></div></article>)}</div>
-      </section>
-
-      <section className="csl-how" id="como-funciona">
-        <div className="csl-how-visual"><img src="/content-studio/guides/catalog.jpg" alt="Producto preparado para catálogo" /><div><Upload /><strong>Sube cualquier producto</strong><small>Zapatos, carteras, ropa, cosméticos y más</small></div></div>
-        <div className="csl-how-copy"><span>ASÍ DE FÁCIL</span><h2>De tu cámara a una campaña profesional.</h2><ol><li><b>01</b><div><strong>Sube la foto</strong><p>Una foto clara tomada desde tu celular es suficiente.</p></div></li><li><b>02</b><div><strong>Elige el tipo de contenido</strong><p>Modelo, catálogo, post para redes o detalle premium.</p></div></li><li><b>03</b><div><strong>Descarga y publica</strong><p>Recibe la imagen terminada en alta calidad.</p></div></li></ol></div>
-      </section>
-
-      <section className="csl-brand-feature">
-        <div><span><ShieldCheck /></span><p>Tu producto conserva su diseño, materiales y detalles importantes.</p></div>
-        <h2>Tu identidad.<br />Tu producto.<br /><em>Mejor presentado.</em></h2>
-        <div><span><WandSparkles /></span><p>Guarda tus logos y aplícalos de forma profesional en cada creación.</p></div>
-      </section>
-
-      <section className="csl-pricing" id="planes">
-        <div className="csl-section-heading"><span>PLANES SIMPLES</span><h2>Elige cuántas imágenes necesitas.</h2><p>Pago único por transferencia. Sin cobros automáticos.</p></div>
-        <div className="csl-plan-grid">{(data.plans || FALLBACK_PLANS).map((plan, index) => <article className={index === 1 ? 'featured' : ''} key={plan.id}>{index === 1 && <em>Más elegido</em>}<span>{plan.name}</span><div><strong>${formatPlanPrice(plan.price)}</strong><small>USD</small></div><h3>{plan.photos} imágenes</h3><p>Disponibles durante {plan.days} días</p><ul><li><Check /> Todos los tipos de contenido</li><li><Check /> Logos de tus marcas</li><li><Check /> Descarga en alta calidad</li><li><Check /> Historial de creaciones</li></ul><button type="button" onClick={() => choosePlan(plan)}>Elegir plan <ArrowRight /></button></article>)}</div>
-        <p className="csl-payment-note"><ShieldCheck /> Por ahora aceptamos únicamente transferencia bancaria. Tu cuenta se activa después de verificar el pago.</p>
-      </section>
-
-      <section className="csl-contact" id="contacto"><div><span>¿TIENES PREGUNTAS?</span><h2>Estamos para ayudarte.</h2></div><div><a href={`https://wa.me/593${String(data.contact?.phone || '0983763419').replace(/\D/g, '').replace(/^0/, '')}`} target="_blank" rel="noreferrer"><MessageCircle /> {data.contact?.phone_display || '098 376 3419'}</a><a href={`mailto:${data.contact?.email}`}><Mail /> {data.contact?.email}</a></div></section>
+      <section className="csl-brands"><span>HECHO PARA MARCAS QUE QUIEREN DESTACAR</span><div><strong>CALZADO</strong><strong>ACCESORIOS</strong><strong>BELLEZA</strong><strong>HOGAR</strong><strong>ALIMENTOS</strong></div></section>
+      <section className="csl-intro"><span>UN ESTUDIO CREATIVO EN TU NEGOCIO</span><h2>Una sola foto.<br /><em>Muchas formas de vender.</em></h2><p>No necesitas aprender diseño ni describir lo que quieres con palabras técnicas. Elige el objetivo y nosotros nos encargamos de la dirección creativa.</p></section>
+      <section className="csl-showcase" id="como-funciona"><div className="csl-showcase-preview"><div className="csl-preview-frame" key={active.number}><img src={active.image} alt={active.title} /><span>{active.eyebrow}</span><div className="csl-preview-number">{active.number}</div></div><div className="csl-preview-caption"><span>{active.eyebrow}</span><strong>{active.title}</strong><div>{SHOWCASE.map((item, index) => <i className={index === activeShowcase ? 'active' : ''} key={item.number} />)}</div></div></div><div className="csl-showcase-list">{SHOWCASE.map((item, index) => <article key={item.number} data-index={index} ref={(node) => { showcaseRefs.current[index] = node; }} className={activeShowcase === index ? 'active' : ''} onMouseEnter={() => setActiveShowcase(index)}><span>{item.number}</span><div><small>{item.eyebrow}</small><h3>{item.title}</h3><p>{item.copy}</p><ul>{item.tags.map((tag) => <li key={tag}><Check size={14} /> {tag}</li>)}</ul></div><ChevronRight /></article>)}</div></section>
+      <section className="csl-method"><div className="csl-method-heading"><span>HECHO PARA SER SIMPLE</span><h2>De la cámara de tu celular<br />a una pieza de marca.</h2></div><div className="csl-method-grid"><article><span><Upload /></span><small>01</small><h3>Sube tu producto</h3><p>Puede ser un zapato, una cartera, un peluche o cualquier objeto que vendas.</p></article><article><span><MousePointer2 /></span><small>02</small><h3>Elige el objetivo</h3><p>Catálogo, modelo, post para redes o detalle premium. Sin configuraciones complejas.</p></article><article><span><ImageIcon /></span><small>03</small><h3>Publica con confianza</h3><p>Recibe una imagen lista para tu tienda, WhatsApp, Instagram o Facebook.</p></article></div></section>
+      <section className="csl-identity"><div><span><ShieldCheck /></span><small>TU MARCA, A TU MANERA</small><h2>Tu logo y tus contactos.<br /><em>Integrados con intención.</em></h2></div><p>Guarda las marcas de tu negocio una sola vez. Cuando quieras, añádelas a cada creación con WhatsApp y ubicación en una composición limpia y legible.</p></section>
+      <section className="csl-pricing" id="planes"><div className="csl-pricing-heading"><span>PLANES SIMPLES</span><h2>Elige el ritmo de<br />tu contenido.</h2><p>Pago único por transferencia. Sin cobros automáticos.</p></div><div className="csl-plan-grid">{(data.plans || FALLBACK_PLANS).map((plan, index) => <article className={index === 1 ? 'featured' : ''} key={plan.id}>{index === 1 && <em>Más elegido</em>}<span>{plan.name}</span><div><strong>${formatPlanPrice(plan.price)}</strong><small>USD</small></div><h3>{plan.photos} imágenes</h3><p>Disponibles durante {plan.days} días</p><ul><li><Check /> Todos los tipos de contenido</li><li><Check /> Logos de tus marcas</li><li><Check /> Descarga en alta calidad</li><li><Check /> Historial de creaciones</li></ul><button type="button" onClick={() => choosePlan(plan)}>Elegir plan <ArrowRight /></button></article>)}</div></section>
+      <section className="csl-contact" id="contacto"><div><span>EMPIEZA CUANDO QUIERAS</span><h2>Tu próxima campaña<br /><em>puede empezar hoy.</em></h2></div><div><button type="button" onClick={() => choosePlan(data.plans?.[1] || FALLBACK_PLANS[1])}>Crear mis imágenes <ArrowRight /></button><a href={`https://wa.me/593${String(data.contact?.phone || '0983763419').replace(/\D/g, '').replace(/^0/, '')}`} target="_blank" rel="noreferrer"><MessageCircle /> ¿Tienes una pregunta? Escríbenos</a></div></section>
     </main>
-
-    <footer className="csl-footer"><a className="csl-logo" href="/estudio-creativo"><span><WandSparkles size={20} /></span><strong>ESTUDIO CREATIVO</strong></a><p>Contenido profesional para marcas que quieren crecer.</p><div><a href="#planes">Planes</a><a href="/">Iniciar sesión</a><a href={`https://wa.me/593983763419`}><Instagram size={17} /> Contacto</a></div></footer>
-    {selectedPlan && <TransferCheckout plan={selectedPlan} transfer={data.transfer || {}} contact={data.contact || {}} onClose={() => setSelectedPlan(null)} />}
+    <footer className="csl-footer"><a className="csl-logo" href="/estudio-creativo"><span><WandSparkles size={19} /></span><strong>ESTUDIO<br />CREATIVO</strong></a><p>Contenido comercial para negocios que quieren crecer.</p><div><a href="#planes">Planes</a><a href="/">Iniciar sesión</a><a href={`mailto:${data.contact?.email}`}><Mail size={15} /> Contacto</a><a href="https://www.instagram.com" target="_blank" rel="noreferrer"><Instagram size={16} /></a></div></footer>
+    {examplesOpen && <ExamplesModal onClose={() => setExamplesOpen(false)} />}{selectedPlan && <TransferCheckout plan={selectedPlan} transfer={data.transfer || {}} contact={data.contact || {}} onClose={() => setSelectedPlan(null)} />}
   </div>;
 }
-
+function ExamplesModal({ onClose }) { return <div className="csl-modal csl-examples-modal" role="dialog" aria-modal="true" aria-label="Ejemplos de resultados"><section><button className="csl-modal-close" type="button" onClick={onClose}><X /></button><span className="csl-kicker"><i /><Sparkles size={14} /> Resultados reales</span><h2>De la foto que tienes al contenido que quieres publicar.</h2><p>Estos ejemplos muestran cómo una foto sencilla se convierte en una pieza con dirección comercial.</p><div className="csl-example-grid"><article className="csl-example-before-after"><div><figure><img src="/content-studio/results/botin-antes.jpg" alt="Foto subida de botines" /><figcaption>Foto subida</figcaption></figure><span><ArrowRight /></span><figure><img src="/content-studio/results/botin-despues.jpg" alt="Resultado editorial de botines" /><figcaption>Resultado creado</figcaption></figure></div><strong>Botines: de celular a editorial</strong><p>Una escena de moda que conserva el modelo y sus detalles.</p></article><article className="csl-example-result"><img src="/content-studio/results/vaquita-resultado.webp" alt="Post creado de la vaquita que corre" /><div><span>POST PARA REDES</span><strong>La vaquita que corre</strong><p>Un resultado diseñado con texto, producto y estilo comercial.</p></div></article></div></section></div>; }
 function TransferCheckout({ plan, transfer, contact, onClose }) {
-  const [form, setForm] = useState({ customer_name: '', business_name: '', whatsapp: '', email: '', username: '', password: '', plan_id: plan.id });
-  const [order, setOrder] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-
-  async function submit(event) {
-    event.preventDefault();
-    setBusy(true);
-    setError('');
-    try { setOrder(await api('/content-studio/public/orders', { method: 'POST', body: JSON.stringify(form) })); }
-    catch (err) { setError(err.message); }
-    finally { setBusy(false); }
-  }
-
+  const [form, setForm] = useState({ customer_name: '', business_name: '', whatsapp: '', email: '', username: '', password: '', plan_id: plan.id }); const [order, setOrder] = useState(null); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
+  async function submit(event) { event.preventDefault(); setBusy(true); setError(''); try { setOrder(await api('/content-studio/public/orders', { method: 'POST', body: JSON.stringify(form) })); } catch (err) { setError(err.message); } finally { setBusy(false); } }
   const details = order?.transfer || transfer;
-  return <div className="csl-modal" role="dialog" aria-modal="true" aria-label="Comprar plan">
-    <section>
-      <button className="csl-modal-close" type="button" onClick={onClose}><X /></button>
-      {!order ? <>
-        <span className="csl-kicker">PLAN {plan.name.toUpperCase()}</span><h2>Activa tus {plan.photos} imágenes.</h2><p>Completa los datos de la cuenta. Después realiza la transferencia de <strong>${formatPlanPrice(plan.price)}</strong>.</p>
-        <form onSubmit={submit}><label>Nombre completo<input required value={form.customer_name} onChange={(event) => setForm({ ...form, customer_name: event.target.value })} /></label><label>Nombre del negocio<input value={form.business_name} onChange={(event) => setForm({ ...form, business_name: event.target.value })} /></label><label>WhatsApp<input required inputMode="tel" value={form.whatsapp} onChange={(event) => setForm({ ...form, whatsapp: event.target.value })} placeholder="098 376 3419" /></label><label>Correo electrónico<input required type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label><label>Usuario para ingresar<input required pattern="[a-z0-9._-]{3,80}" value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value.toLowerCase().replace(/\s+/g, '.') })} /></label><label>Contraseña<input required type="password" minLength="8" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="Mínimo 8 caracteres" /></label>{error && <div className="csl-form-error">{error}</div>}<button disabled={busy}>{busy ? 'Preparando transferencia...' : <>Continuar al pago <ArrowRight /></>}</button></form>
-      </> : <div className="csl-transfer-success"><span><Check /></span><small>SOLICITUD CREADA</small><h2>{order.order.order_number}</h2><p>Transfiere <strong>${Number(order.order.amount).toFixed(2)}</strong> y envíanos el comprobante para activar tu cuenta.</p>{details.account_number ? <dl><div><dt>Banco</dt><dd>{details.bank_name}</dd></div><div><dt>Beneficiario</dt><dd>{details.beneficiary}</dd></div><div><dt>{details.account_type || 'Cuenta'}</dt><dd>{details.account_number}</dd></div>{details.identification && <div><dt>Identificación</dt><dd>{details.identification}</dd></div>}</dl> : <div className="csl-bank-pending">Solicita los datos bancarios directamente por WhatsApp.</div>}<a href={details.whatsapp_url || `https://wa.me/593983763419`} target="_blank" rel="noreferrer"><MessageCircle /> Enviar comprobante por WhatsApp</a><p className="csl-transfer-help">Confirmaremos el pago manualmente. Luego podrás ingresar con el usuario y contraseña que acabas de crear.</p><small>{contact.email}</small></div>}
-    </section>
-  </div>;
+  return <div className="csl-modal" role="dialog" aria-modal="true" aria-label="Comprar plan"><section><button className="csl-modal-close" type="button" onClick={onClose}><X /></button>{!order ? <><span className="csl-kicker">PLAN {plan.name.toUpperCase()}</span><h2>Activa tus {plan.photos} imágenes.</h2><p>Completa los datos de la cuenta. Después realiza la transferencia de <strong>${formatPlanPrice(plan.price)}</strong>.</p><form onSubmit={submit}><label>Nombre completo<input required value={form.customer_name} onChange={(event) => setForm({ ...form, customer_name: event.target.value })} /></label><label>Nombre del negocio<input value={form.business_name} onChange={(event) => setForm({ ...form, business_name: event.target.value })} /></label><label>WhatsApp<input required inputMode="tel" value={form.whatsapp} onChange={(event) => setForm({ ...form, whatsapp: event.target.value })} placeholder="098 376 3419" /></label><label>Correo electrónico<input required type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label><label>Usuario para ingresar<input required pattern="[a-z0-9._-]{3,80}" value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value.toLowerCase().replace(/\s+/g, '.') })} /></label><label>Contraseña<input required type="password" minLength="8" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="Mínimo 8 caracteres" /></label>{error && <div className="csl-form-error">{error}</div>}<button disabled={busy}>{busy ? 'Preparando transferencia...' : <>Continuar al pago <ArrowRight /></>}</button></form></> : <div className="csl-transfer-success"><span><Check /></span><small>SOLICITUD CREADA</small><h2>{order.order.order_number}</h2><p>Transfiere <strong>${Number(order.order.amount).toFixed(2)}</strong> y envíanos el comprobante para activar tu cuenta.</p>{details.account_number ? <dl><div><dt>Banco</dt><dd>{details.bank_name}</dd></div><div><dt>Beneficiario</dt><dd>{details.beneficiary}</dd></div><div><dt>{details.account_type || 'Cuenta'}</dt><dd>{details.account_number}</dd></div>{details.identification && <div><dt>Identificación</dt><dd>{details.identification}</dd></div>}</dl> : <div className="csl-bank-pending">Solicita los datos bancarios directamente por WhatsApp.</div>}<a href={details.whatsapp_url || 'https://wa.me/593983763419'} target="_blank" rel="noreferrer"><MessageCircle /> Enviar comprobante por WhatsApp</a><p className="csl-transfer-help">Confirmaremos el pago manualmente. Luego podrás ingresar con el usuario y contraseña que acabas de crear.</p><small>{contact.email}</small></div>}</section></div>;
 }

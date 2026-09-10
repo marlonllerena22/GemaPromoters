@@ -31,8 +31,8 @@ const PRESETS = {
 };
 
 const SOCIAL_FORMATS = {
-  post: { label: 'Post 1080 × 1350', width: 1080, height: 1350, size: '1024x1536', instruction: 'Compose for a vertical 4:5 feed post. Keep all text and key product details inside a generous central safe area.' },
-  story: { label: 'Historia 1080 × 1920', width: 1080, height: 1920, size: '1024x1536', instruction: 'Compose for a tall 9:16 story. Keep all text and key product details inside the central safe area, away from the top and bottom interface zones.' }
+  post: { id: 'post', label: 'Post 1080 × 1350', width: 1080, height: 1350, size: '1024x1536', instruction: 'Design the finished campaign specifically for a vertical 4:5 feed post. The central 1024 × 1280 area is the exact final canvas: keep the entire product, all headline text, callouts and composition inside it. The small area above and below it may contain only a continuation of the background. Never put important content near those upper or lower edges.' },
+  story: { id: 'story', label: 'Historia 1080 × 1920', width: 1080, height: 1920, size: '1024x1536', instruction: 'Compose for a tall 9:16 story. Keep all text and key product details inside the central safe area, away from the top and bottom interface zones.' }
 };
 
 const SOCIAL_STYLES = {
@@ -431,6 +431,20 @@ async function defaultGenerate({ images, prompt, size }) {
 
 async function resizeSocialOutput(imageData, format) {
   const source = dataImageBuffer(imageData, 'La imagen generada no se pudo preparar');
+  if (format.id === 'post') {
+    const metadata = await sharp(source).metadata();
+    const sourceWidth = metadata.width || 1024;
+    const sourceHeight = metadata.height || 1536;
+    const finalRatio = format.width / format.height;
+    const cropHeight = Math.min(sourceHeight, Math.round(sourceWidth / finalRatio));
+    const cropTop = Math.max(0, Math.round((sourceHeight - cropHeight) / 2));
+    const output = await sharp(source)
+      .extract({ left: 0, top: cropTop, width: sourceWidth, height: cropHeight })
+      .resize(format.width, format.height, { fit: 'fill' })
+      .webp({ quality: 92 })
+      .toBuffer();
+    return `data:image/webp;base64,${output.toString('base64')}`;
+  }
   const output = await sharp(source)
     .resize(format.width, format.height, { fit: 'cover', position: 'attention' })
     .webp({ quality: 92 })

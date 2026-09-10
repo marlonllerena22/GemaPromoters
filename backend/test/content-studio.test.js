@@ -118,6 +118,7 @@ test('prompt accepts any product, adapts the editorial model and prepares social
   assert.match(catalog, /rear shoe must show the internal-side zipper exactly once/i);
   assert.match(catalog, /every other non-footwear product.+never duplicate it/i);
   assert.match(story, /tall 9:16 story/i);
+  assert.match(benefits, /central 1024 × 1280 area is the exact final canvas/i);
   assert.match(story, /witty product-specific Spanish concept/i);
   assert.match(story, /Optional real characteristics the user wants to highlight/i);
   assert.match(story, /Optional user creative direction/i);
