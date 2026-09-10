@@ -47,11 +47,13 @@ export function initContentStudioDb(db) {
     CREATE TABLE IF NOT EXISTS content_studio_logos (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       establishment_id INTEGER NOT NULL,
+      content_studio_user_id INTEGER,
       name TEXT NOT NULL,
       image_data TEXT NOT NULL,
       created_by TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-      FOREIGN KEY (establishment_id) REFERENCES establishments(id)
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (content_studio_user_id) REFERENCES content_studio_users(id)
     );
 
     CREATE TABLE IF NOT EXISTS content_studio_users (
@@ -154,6 +156,33 @@ export function initContentStudioDb(db) {
   if (!settingsColumns.some((column) => column.name === 'logos_seeded')) {
     db.exec('ALTER TABLE content_studio_settings ADD COLUMN logos_seeded INTEGER NOT NULL DEFAULT 0');
   }
+  if (!settingsColumns.some((column) => column.name === 'user_logos_isolated')) {
+    db.exec('ALTER TABLE content_studio_settings ADD COLUMN user_logos_isolated INTEGER NOT NULL DEFAULT 0');
+  }
+  const logoColumns = db.prepare('PRAGMA table_info(content_studio_logos)').all();
+  if (!logoColumns.some((column) => column.name === 'content_studio_user_id')) {
+    db.exec('ALTER TABLE content_studio_logos ADD COLUMN content_studio_user_id INTEGER');
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_content_studio_logos_user_scope ON content_studio_logos(establishment_id, content_studio_user_id, created_at)');
+  const migrateLegacyLogos = db.transaction(() => {
+    const scopes = db.prepare('SELECT establishment_id FROM content_studio_settings WHERE user_logos_isolated = 0').all();
+    const usersForScope = db.prepare('SELECT id FROM content_studio_users WHERE establishment_id = ?');
+    const legacyLogosForScope = db.prepare('SELECT name, image_data, created_by, created_at FROM content_studio_logos WHERE establishment_id = ? AND content_studio_user_id IS NULL');
+    const cloneLogo = db.prepare(`INSERT INTO content_studio_logos
+      (establishment_id, content_studio_user_id, name, image_data, created_by, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)`);
+    for (const scope of scopes) {
+      const users = usersForScope.all(scope.establishment_id);
+      const legacyLogos = legacyLogosForScope.all(scope.establishment_id);
+      for (const user of users) {
+        for (const logo of legacyLogos) {
+          cloneLogo.run(scope.establishment_id, user.id, logo.name, logo.image_data, logo.created_by, logo.created_at);
+        }
+      }
+      db.prepare('UPDATE content_studio_settings SET user_logos_isolated = 1 WHERE establishment_id = ?').run(scope.establishment_id);
+    }
+  });
+  migrateLegacyLogos();
 }
 
 export function ensureContentStudioEstablishment(db) {

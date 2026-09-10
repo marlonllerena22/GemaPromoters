@@ -6,9 +6,9 @@ import sharp from 'sharp';
 const PRESETS = {
   editorial: {
     name: 'Editorial con modelo',
-    description: 'Una modelo real usando el producto con un outfit coherente.',
+    description: 'Una persona o animal usando el producto en una escena coherente.',
     size: '1024x1536',
-    direction: `Create a high-end editorial fashion photograph with a believable adult female model naturally wearing, carrying, holding or using the exact uploaded product in the way appropriate for that object. Build a tasteful scene or outfit around it. Use realistic anatomy, natural skin texture, correct scale, convincing contact shadows and commercial fashion lighting. Never add advertising copy or decorative text. Keep the successful natural proportions between the person and product. The uploaded product must remain visually faithful in shape, construction, color, material and distinctive details.`
+    direction: `Create a high-end editorial commercial photograph with one believable model naturally wearing, carrying, holding or using the exact uploaded product, or interacting with it in the way appropriate for that object. Build a tasteful scene or outfit around it. Use realistic anatomy, natural skin, fur or feather texture as applicable, correct scale, convincing contact shadows and commercial fashion lighting. Never add advertising copy or decorative text. Keep successful natural proportions between the model and product. The uploaded product must remain visually faithful in shape, construction, color, material and distinctive details.`
   },
   catalog: {
     name: 'Catálogo de producto',
@@ -251,10 +251,19 @@ function buildPrompt(body, preset, hasBrandLogo = false) {
   const socialInstruction = preset === PRESETS.social
     ? `${socialFormat.instruction} ${SOCIAL_STYLES[body.social_style] || SOCIAL_STYLES.editorial}`
     : `Do not include headlines, captions, labels, brand names or advertising copy.`;
+  const editorialSubjects = {
+    female: `Use one female human model. Use an adult woman by default. Choose a girl only when the optional product clue or public context clearly indicates a children's toy, child character or product intended for children. Any child depiction must be fully clothed, wholesome, age-appropriate and presented in an ordinary family-safe commercial scene.`,
+    male: `Use one male human model. Use an adult man by default. Choose a boy only when the optional product clue or public context clearly indicates a children's toy, child character or product intended for children. Any child depiction must be fully clothed, wholesome, age-appropriate and presented in an ordinary family-safe commercial scene.`,
+    animal: `Use one believable animal model appropriate to the visible product and any optional public context. Infer the species only when the product or context supports it. Let the animal use, wear or interact with the product only when physically natural; otherwise place it as a tasteful companion while the exact product remains the hero. Never force human footwear, clothing or accessories onto an animal in an anatomically impossible way.`
+  };
+  const editorialInstruction = preset === PRESETS.editorial
+    ? editorialSubjects[body.editorial_subject] || editorialSubjects.female
+    : '';
   const fidelityInstruction = `Treat the source photo as the only authority for the product's geometry and construction. Preserve the exact silhouette, toe, heel, sole, panels, seams, stitching, studs, straps, handles, fasteners, closures and hardware that are actually visible. Never move, add, remove, enlarge, duplicate or expose a zipper or closure on another side. For a pair of shoes, preserve which side of each shoe faces the camera: a zipper visible only on the inward or rear shoe must stay on that shoe and must not be copied onto the outward or front hero shoe. Keep decorative studs and diagonal seams on the same visible side shown in the source.`;
   return [
     `The first image is the source-of-truth product photo. Create one original professional commercial image.`,
     preset.direction,
+    editorialInstruction,
     fidelityInstruction,
     `Art direction: ${MOODS.light}.`,
     details,
@@ -455,7 +464,9 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     const periodCondition = req.contentStudioUser ? 'AND created_at >= ?' : "AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')";
     const periodParams = req.contentStudioUser ? [req.contentStudioUser.paid_at || req.contentStudioUser.created_at || '1970-01-01'] : [];
     const usage = db.prepare(`SELECT COUNT(*) AS total FROM content_studio_generations WHERE establishment_id = ? ${userCondition} AND status = 'completed' ${periodCondition}`).get(establishmentId, ...userParams, ...periodParams).total;
-    const logos = db.prepare('SELECT id, name, image_data, created_at FROM content_studio_logos WHERE establishment_id = ? ORDER BY created_at ASC, id ASC').all(establishmentId);
+    const logoCondition = req.contentStudioUser ? 'AND content_studio_user_id = ?' : 'AND content_studio_user_id IS NULL';
+    const logoParams = req.contentStudioUser ? [req.contentStudioUser.id] : [];
+    const logos = db.prepare(`SELECT id, name, image_data, created_at FROM content_studio_logos WHERE establishment_id = ? ${logoCondition} ORDER BY created_at ASC, id ASC`).all(establishmentId, ...logoParams);
     const generations = db.prepare(`SELECT * FROM content_studio_generations WHERE establishment_id = ? ${userCondition} AND deleted_at IS NULL ORDER BY created_at DESC, id DESC LIMIT 24`).all(establishmentId, ...userParams).map(generationRow);
     const subscriptionActive = activeSubscription(req.contentStudioUser);
     res.json({
@@ -583,13 +594,15 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     const name = clean(req.body.name, 80);
     if (!name || !validDataImage(image)) return res.status(400).json({ message: 'Nombre e imagen válida son obligatorios' });
     if (dataImageBytes(image) > 5 * 1024 * 1024) return res.status(413).json({ message: 'El logo no puede superar 5 MB' });
-    const result = db.prepare('INSERT INTO content_studio_logos (establishment_id, name, image_data, created_by) VALUES (?, ?, ?, ?)')
-      .run(req.contentStudioEstablishment.id, name, image, req.user.username || req.user.role);
+    const result = db.prepare('INSERT INTO content_studio_logos (establishment_id, content_studio_user_id, name, image_data, created_by) VALUES (?, ?, ?, ?, ?)')
+      .run(req.contentStudioEstablishment.id, req.contentStudioUser?.id || null, name, image, req.user.username || req.user.role);
     res.status(201).json(db.prepare('SELECT id, name, image_data, created_at FROM content_studio_logos WHERE id = ?').get(result.lastInsertRowid));
   });
 
   app.delete('/api/content-studio/logos/:id', guard, (req, res) => {
-    const result = db.prepare('DELETE FROM content_studio_logos WHERE id = ? AND establishment_id = ?').run(req.params.id, req.contentStudioEstablishment.id);
+    const logoCondition = req.contentStudioUser ? 'AND content_studio_user_id = ?' : 'AND content_studio_user_id IS NULL';
+    const logoParams = req.contentStudioUser ? [req.contentStudioUser.id] : [];
+    const result = db.prepare(`DELETE FROM content_studio_logos WHERE id = ? AND establishment_id = ? ${logoCondition}`).run(req.params.id, req.contentStudioEstablishment.id, ...logoParams);
     if (!result.changes) return res.status(404).json({ message: 'Logo no encontrado' });
     res.json({ ok: true });
   });
@@ -631,9 +644,12 @@ export function registerContentStudioRoutes(app, db, options = {}) {
   app.post('/api/content-studio/generate', guard, (req, res) => {
     const productImage = String(req.body.product_image || '');
     const productName = clean(req.body.product_name, 70);
+    const editorialSubject = ['female', 'male', 'animal'].includes(req.body.editorial_subject) ? req.body.editorial_subject : 'female';
     const preset = PRESETS[req.body.preset];
     const logoId = Number(req.body.logo_id || 0);
-    const logo = logoId ? db.prepare('SELECT id, name, image_data FROM content_studio_logos WHERE id = ? AND establishment_id = ?').get(logoId, req.contentStudioEstablishment.id) : null;
+    const logoCondition = req.contentStudioUser ? 'AND content_studio_user_id = ?' : 'AND content_studio_user_id IS NULL';
+    const logoParams = req.contentStudioUser ? [req.contentStudioUser.id] : [];
+    const logo = logoId ? db.prepare(`SELECT id, name, image_data FROM content_studio_logos WHERE id = ? AND establishment_id = ? ${logoCondition}`).get(logoId, req.contentStudioEstablishment.id, ...logoParams) : null;
     const socialFormat = SOCIAL_FORMATS[req.body.social_format] || SOCIAL_FORMATS.post;
     const generationSize = req.body.preset === 'social' ? socialFormat.size : preset?.size;
     const outputRatio = req.body.preset === 'social' ? `${socialFormat.width}x${socialFormat.height}` : preset?.size;
@@ -658,7 +674,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
       const inserted = db.prepare(`INSERT INTO content_studio_generations
         (establishment_id, content_studio_user_id, preset, product_name, brand_name, material, color, headline, mood, aspect_ratio, reference_ids_json, status, error_message, created_by)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'failed', '__processing__', ?)`)
-        .run(req.contentStudioEstablishment.id, studioUserId, req.body.preset, productName, logo?.name || '', '', '', '', req.body.preset === 'social' ? clean(req.body.social_style, 40) || 'editorial' : 'light', outputRatio, '[]', req.user.username || req.user.role);
+        .run(req.contentStudioEstablishment.id, studioUserId, req.body.preset, productName, logo?.name || '', '', '', '', req.body.preset === 'social' ? clean(req.body.social_style, 40) || 'editorial' : req.body.preset === 'editorial' ? editorialSubject : 'light', outputRatio, '[]', req.user.username || req.user.role);
       return inserted.lastInsertRowid;
     })();
     if (!reservation) return res.status(429).json({ message: 'Se alcanzó el límite mensual del plan' });
@@ -675,6 +691,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
         const prompt = buildPrompt({
           ...req.body,
           product_name: productName,
+          editorial_subject: editorialSubject,
           research_context: researchContext,
           brand_name: logo?.name || '',
           brand_direction: logo ? 'Use restrained neutral commercial styling; the application will apply the official logo after generation.' : 'Create a neutral premium identity around the product.'

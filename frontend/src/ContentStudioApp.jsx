@@ -15,7 +15,12 @@ const PRESET_GUIDES = {
   detail: '/content-studio/guides/detail.jpg'
 };
 const PRESET_NAMES = { editorial: 'Editorial', catalog: 'Catálogo', social: 'Post social', detail: 'Detalle' };
-const emptyForm = { preset: 'editorial', logo_id: 'none', social_format: 'post', social_style: 'editorial', product_name: '' };
+const EDITORIAL_SUBJECTS = [
+  { id: 'female', name: 'Femenino', description: 'Mujer o niña según el producto', icon: '♀' },
+  { id: 'male', name: 'Masculino', description: 'Hombre o niño según el producto', icon: '♂' },
+  { id: 'animal', name: 'Animal', description: 'Animal adecuado al contexto', icon: '✦' }
+];
+const emptyForm = { preset: 'editorial', editorial_subject: 'female', logo_id: 'none', social_format: 'post', social_style: 'editorial', product_name: '' };
 const PLAN_PACKAGES = [
   { id: 'inicio', name: 'Inicio', photos: 10, price: 10, days: 8 },
   { id: 'emprendedor', name: 'Emprendedor', photos: 25, price: 20, days: 15 },
@@ -333,6 +338,7 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
                 </button>;
               })}
             </div>
+            {form.preset === 'editorial' && <div className="cs-editorial-options"><strong>¿Quién aparecerá con el producto?</strong><p>La edad o el tipo se adaptará al contexto que escribas y a la foto.</p><div className="cs-editorial-subject-grid">{EDITORIAL_SUBJECTS.map((subject) => <button type="button" key={subject.id} className={form.editorial_subject === subject.id ? 'selected' : ''} onClick={() => setForm({ ...form, editorial_subject: subject.id })}><span>{subject.icon}</span><div><b>{subject.name}</b><small>{subject.description}</small></div><i>{form.editorial_subject === subject.id && <Check size={15} />}</i></button>)}</div></div>}
             {form.preset === 'social' && <div className="cs-social-options"><div><strong>Formato</strong><div className="cs-choice-row">{(data.social_formats || []).map((format) => <button type="button" key={format.id} className={form.social_format === format.id ? 'selected' : ''} onClick={() => setForm({ ...form, social_format: format.id })}><span>{format.id === 'post' ? '▣' : '▯'}</span><div><b>{format.id === 'post' ? 'Post' : 'Historia'}</b><small>{format.width} × {format.height}</small></div><Check size={16} /></button>)}</div></div><div><strong>Estilo del diseño</strong><div className="cs-social-style-grid">{(data.social_styles || []).map((style) => <button type="button" key={style.id} className={form.social_style === style.id ? 'selected' : ''} onClick={() => setForm({ ...form, social_style: style.id })}><b>{style.name}</b><small>{style.description}</small>{form.social_style === style.id && <Check size={16} />}</button>)}</div></div></div>}
           </section>
 
@@ -354,7 +360,7 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
         <aside className="cs-summary">
           <div className="cs-summary-visual">{productImage ? <img src={productImage} alt="Vista previa" /> : <ImageIcon size={36} />}</div>
           <span>Tu creación</span><h3>{selectedPreset?.name}</h3><p>{selectedPreset?.description}</p>
-          <ul><li><Check size={15} /> Producto fiel al original</li><li><Check size={15} /> Acabado fotográfico realista</li><li><Check size={15} /> Alta calidad para publicar</li></ul>
+          <ul>{form.preset === 'editorial' && <li><UserRound size={15} /> Modelo: {EDITORIAL_SUBJECTS.find((item) => item.id === form.editorial_subject)?.name || 'Femenino'}</li>}<li><Check size={15} /> Producto fiel al original</li><li><Check size={15} /> Acabado fotográfico realista</li><li><Check size={15} /> Alta calidad para publicar</li></ul>
           <button className="cs-generate" disabled={!productImage || generating || !data.generation_available}>{generating ? <><i /> Creando tu imagen...</> : <>Continuar <ChevronRight size={19} /></>}</button>
           {generating && <div className="cs-generation-progress" role="status" aria-live="polite"><div><i style={{ width: `${generationProgress.percent}%` }} /></div><span>{generationProgress.label}</span><strong>{generationProgress.percent}%</strong><small>Puedes cambiar de sección o recargar la página: la creación continuará en el servidor.</small></div>}
           {!data.generation_available && <small className="cs-api-note">{data.subscription?.active ? 'La interfaz está lista. Falta conectar la clave de OpenAI en el servidor.' : 'Tu plan necesita estar activo para crear imágenes.'}</small>}

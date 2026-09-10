@@ -25,7 +25,7 @@ function fixture() {
   db.prepare("INSERT INTO content_studio_settings (establishment_id, plan_name, monthly_limit, brand_name) VALUES (1, 'Prueba', 2, 'Marca Uno')").run();
   db.prepare("INSERT INTO content_studio_settings (establishment_id, plan_name, monthly_limit, brand_name) VALUES (2, 'Prueba', 2, 'Marca Dos')").run();
   db.prepare("INSERT INTO content_studio_users (id, establishment_id, name, business_name, username, password_hash, plan_name, monthly_limit, subscription_status, paid_until, status) VALUES (1, 1, 'Cliente', 'Zapatería Demo', 'cliente.demo', 'hash', 'Profesional', 80, 'paid', '2099-12-31', 'active')").run();
-  db.prepare("INSERT INTO content_studio_logos (id, establishment_id, name, image_data) VALUES (1, 1, 'Marjorie Botas', ?), (2, 1, 'Sebastian''s', ?)").run(sampleImage, sampleImage);
+  db.prepare("INSERT INTO content_studio_logos (id, establishment_id, content_studio_user_id, name, image_data) VALUES (1, 1, NULL, 'Marjorie Botas', ?), (2, 1, NULL, 'Sebastian''s', ?), (3, 1, 1, 'Marjorie Botas', ?), (4, 1, 1, 'Sebastian''s', ?)").run(sampleImage, sampleImage, sampleImage, sampleImage);
   const calls = [];
   const researchCalls = [];
   const app = express();
@@ -63,12 +63,52 @@ function fixture() {
   return { db, server, request, calls, researchCalls, supreme, clientToken, waitForGeneration };
 }
 
-test('prompt accepts any product, keeps editorial text-free and prepares social formats', () => {
-  const editorial = buildPrompt({ brand_name: 'Marjorie Botas' }, PRESETS.editorial, true);
+test('legacy logos remain available to existing users while future accounts start empty', () => {
+  const db = new Database(':memory:');
+  db.exec(`
+    CREATE TABLE establishments (id INTEGER PRIMARY KEY, name TEXT, display_name TEXT, status TEXT, module_type TEXT);
+    INSERT INTO establishments VALUES (1, 'ESTUDIO', 'Estudio', 'active', 'content_studio');
+    CREATE TABLE content_studio_settings (
+      establishment_id INTEGER PRIMARY KEY, plan_name TEXT NOT NULL DEFAULT 'Profesional', monthly_limit INTEGER NOT NULL DEFAULT 80,
+      brand_name TEXT, brand_tone TEXT NOT NULL DEFAULT 'premium', created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT
+    );
+    INSERT INTO content_studio_settings (establishment_id) VALUES (1);
+    CREATE TABLE content_studio_users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, establishment_id INTEGER NOT NULL, name TEXT NOT NULL, business_name TEXT NOT NULL,
+      username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, plan_name TEXT NOT NULL DEFAULT 'Profesional', monthly_limit INTEGER NOT NULL DEFAULT 80,
+      subscription_status TEXT NOT NULL DEFAULT 'inactive', paid_at TEXT, paid_until TEXT, brand_tone TEXT NOT NULL DEFAULT 'premium',
+      status TEXT NOT NULL DEFAULT 'active', created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT
+    );
+    INSERT INTO content_studio_users (id, establishment_id, name, business_name, username, password_hash) VALUES (1, 1, 'Existente', 'Existente', 'existente', 'hash');
+    CREATE TABLE content_studio_logos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, establishment_id INTEGER NOT NULL, name TEXT NOT NULL, image_data TEXT NOT NULL,
+      created_by TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  db.prepare("INSERT INTO content_studio_logos (establishment_id, name, image_data) VALUES (1, 'Logo anterior', ?)").run(sampleImage);
+  initContentStudioDb(db);
+  assert.equal(db.prepare('SELECT COUNT(*) AS total FROM content_studio_logos WHERE content_studio_user_id = 1').get().total, 1);
+  assert.equal(db.prepare('SELECT user_logos_isolated FROM content_studio_settings WHERE establishment_id = 1').get().user_logos_isolated, 1);
+  initContentStudioDb(db);
+  assert.equal(db.prepare('SELECT COUNT(*) AS total FROM content_studio_logos WHERE content_studio_user_id = 1').get().total, 1);
+  db.prepare("INSERT INTO content_studio_users (establishment_id, name, business_name, username, password_hash) VALUES (1, 'Nuevo', 'Nuevo', 'nuevo', 'hash')").run();
+  assert.equal(db.prepare("SELECT COUNT(*) AS total FROM content_studio_logos WHERE content_studio_user_id = (SELECT id FROM content_studio_users WHERE username = 'nuevo')").get().total, 0);
+  db.close();
+});
+
+test('prompt accepts any product, adapts the editorial model and prepares social formats', () => {
+  const editorial = buildPrompt({ brand_name: 'Marjorie Botas', editorial_subject: 'female', product_name: 'vaquita que corre viral', research_context: 'Juguete infantil basado en un personaje viral.' }, PRESETS.editorial, true);
+  const masculine = buildPrompt({ editorial_subject: 'male' }, PRESETS.editorial, false);
+  const animal = buildPrompt({ editorial_subject: 'animal' }, PRESETS.editorial, false);
   const catalog = buildPrompt({}, PRESETS.catalog, false);
   const story = buildPrompt({ social_format: 'story', social_style: 'playful' }, PRESETS.social, false);
   assert.match(editorial, /source-of-truth product/i);
   assert.match(editorial, /wearing, carrying, holding or using/i);
+  assert.match(editorial, /adult woman by default/i);
+  assert.match(editorial, /Choose a girl only when.+children/i);
+  assert.match(masculine, /adult man by default/i);
+  assert.match(animal, /believable animal model/i);
+  assert.match(animal, /Never force human footwear/i);
   assert.match(editorial, /Do not include headlines/i);
   assert.match(editorial, /zipper visible only on the inward or rear shoe/i);
   assert.match(editorial, /composited by the application/i);
@@ -98,9 +138,10 @@ test('a paid client gets its own plan, usage, history and brand management', asy
   assert.equal(bootstrap.data.can_manage_logos, true);
   const clientLogo = await request('/logos', { token: clientToken, method: 'POST', body: JSON.stringify({ name: 'Marca del cliente', image: sampleImage }) });
   assert.equal(clientLogo.status, 201);
+  assert.equal(db.prepare('SELECT content_studio_user_id FROM content_studio_logos WHERE id = ?').get(clientLogo.data.id).content_studio_user_id, 1);
   assert.equal((await request(`/logos/${clientLogo.data.id}`, { token: clientToken, method: 'DELETE' })).status, 200);
   assert.equal((await request('/users', { token: clientToken, method: 'POST', body: JSON.stringify({ name: 'Otra persona', username: 'otra', password: 'Password25!' }) })).status, 403);
-  const generated = await request('/generate', { token: clientToken, method: 'POST', body: JSON.stringify({ preset: 'catalog', logo_id: 1, product_name: 'vaquita que corre viral', product_image: sampleImage }) });
+  const generated = await request('/generate', { token: clientToken, method: 'POST', body: JSON.stringify({ preset: 'catalog', logo_id: 3, product_name: 'vaquita que corre viral', product_image: sampleImage }) });
   assert.equal(generated.status, 202);
   const completed = await waitForGeneration(generated.data.generation.id, clientToken);
   assert.equal(completed.data.generation.status, 'completed');
@@ -155,6 +196,10 @@ test('logos, exact social dimensions, history, limits and business isolation wor
   assert.equal(createdUser.status, 201);
   assert.equal(createdUser.data.monthly_limit, 25);
   assert.equal(createdUser.data.subscription_status, 'paid');
+  const newUserToken = createToken({ role: 'content_studio_user', username: 'norma.llamuca', contentStudioUserId: createdUser.data.id, establishmentId: 1 });
+  const newUserBootstrap = await request('/bootstrap', { token: newUserToken });
+  assert.equal(newUserBootstrap.status, 200);
+  assert.deepEqual(newUserBootstrap.data.logos, []);
   const storedUser = db.prepare('SELECT password_hash FROM content_studio_users WHERE id = ?').get(createdUser.data.id);
   assert.equal(verifyContentStudioPassword('NormaFoto25!', storedUser.password_hash), true);
   assert.equal((await request('/users', { method: 'POST', body: JSON.stringify({ name: 'Norma', username: 'norma.llamuca', password: 'OtraClave25!' }) })).status, 409);
@@ -177,12 +222,14 @@ test('logos, exact social dimensions, history, limits and business isolation wor
   const foreignAttempt = await request('/generate', { method: 'POST', body: JSON.stringify({ preset: 'catalog', logo_id: Number(foreignLogo), product_image: sampleImage }) });
   assert.equal(foreignAttempt.status, 400);
   const first = await request('/generate', {
-    method: 'POST', body: JSON.stringify({ preset: 'editorial', logo_id: createdLogo.data.id, product_image: sampleImage })
+    method: 'POST', body: JSON.stringify({ preset: 'editorial', editorial_subject: 'animal', logo_id: createdLogo.data.id, product_image: sampleImage })
   });
   assert.equal(first.status, 202);
   const firstCompleted = await waitForGeneration(first.data.generation.id);
   assert.equal(firstCompleted.data.usage, 1);
   assert.equal(calls[0].images.length, 1);
+  assert.match(calls[0].prompt, /believable animal model/i);
+  assert.equal(db.prepare('SELECT mood FROM content_studio_generations WHERE id = ?').get(first.data.generation.id).mood, 'animal');
   assert.equal(first.data.generation.reference_ids.length, 0);
 
   const second = await request('/generate', { method: 'POST', body: JSON.stringify({ preset: 'social', logo_id: 2, social_format: 'story', social_style: 'playful', product_image: sampleImage }) });
