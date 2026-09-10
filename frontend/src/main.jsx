@@ -39,6 +39,7 @@ import LocalAttendancePage from './LocalAttendancePage.jsx';
 import ProTicketsApp, { ProTicketsPublicSite } from './ProTicketsApp.jsx';
 import { MarjoriePromoterApp, MarjoriePromotersAdmin, MarjorieReferralPage, MarjorieRegistration } from './MarjoriePromotersApp.jsx';
 import ContentStudioApp from './ContentStudioApp.jsx';
+import ContentStudioLanding from './ContentStudioLanding.jsx';
 import './styles.css';
 
 const emptyPromoter = {
@@ -833,6 +834,10 @@ function withScope(path, eventId, establishmentId) {
 function App() {
   const [token, saveToken] = useState(getToken());
   const [user, saveUser] = useState(getUser());
+
+  if (window.location.pathname === '/estudio-creativo') {
+    return <ContentStudioLanding />;
+  }
 
   if (window.location.pathname === '/tickets' || window.location.pathname.startsWith('/tickets/')) {
     return <ProTicketsPublicSite />;

@@ -1,5 +1,6 @@
 import { requireAuth } from './auth.js';
 import { hashContentStudioPassword } from './content-studio-db.js';
+import nodemailer from 'nodemailer';
 import sharp from 'sharp';
 
 const PRESETS = {
@@ -13,7 +14,7 @@ const PRESETS = {
     name: 'Catálogo de producto',
     description: 'Producto protagonista, limpio y listo para catálogo.',
     size: '1024x1024',
-    direction: `Create a premium product catalog photograph. Keep the exact uploaded product as the sole hero, arranged naturally on a refined simple set. Preserve its real silhouette, proportions, construction, color, texture, sole, stitching and identifying details. Use controlled studio lighting, crisp focus and realistic contact shadows.`
+    direction: `Create a premium product catalog photograph. Keep the exact uploaded product as the hero, arranged naturally on a refined simple set. Preserve its real silhouette, proportions, construction, color, texture, sole, stitching and identifying details. If and only if the source photo contains exactly one shoe, boot, ankle boot, sandal or other footwear item, create its matching second shoe and present a natural pair. Place the clean outer-facing shoe in front and the matching opposite shoe slightly behind. For ankle boots or boots with a zipper, the front shoe must show its clean outer side and the rear shoe must show the internal-side zipper exactly once. Never copy the zipper onto the front shoe. For handbags, clothing, accessories, food and every other non-footwear product, keep the single uploaded item as a single item and never duplicate it. Use controlled studio lighting, crisp focus and realistic contact shadows.`
   },
   social: {
     name: 'Post para redes',
@@ -47,9 +48,17 @@ const MOODS = {
   color: 'confident brand-color styling with a clean commercial finish and balanced saturation'
 };
 
+const STUDIO_PLANS = [
+  { id: 'inicio', name: 'Inicio', photos: 10, price: 10, days: 8 },
+  { id: 'emprendedor', name: 'Emprendedor', photos: 25, price: 20, days: 15 },
+  { id: 'negocio', name: 'Negocio', photos: 60, price: 35, days: 30 },
+  { id: 'pro', name: 'Pro', photos: 150, price: 60, days: 30 }
+];
+
 const clean = (value, max = 160) => String(value ?? '').trim().slice(0, max);
 const validDataImage = (value) => /^data:image\/(png|jpeg|jpg|webp);base64,[a-z0-9+/=\s]+$/i.test(String(value || ''));
 const dataImageBytes = (value) => Math.ceil((String(value || '').split(',')[1]?.length || 0) * 0.75);
+const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
 
 function safeJson(value, fallback = []) {
   try { return JSON.parse(value); } catch { return fallback; }
@@ -103,6 +112,84 @@ function activeSubscription(user) {
   const paidUntil = String(user.paid_until || '').slice(0, 10);
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Guayaquil' });
   return ['paid', 'trial'].includes(user.subscription_status) && (!paidUntil || paidUntil >= today);
+}
+
+function listStudioUsers(db, establishmentId) {
+  return db.prepare(`
+    SELECT users.id, users.name, users.business_name, users.username, users.plan_name,
+           users.monthly_limit, users.subscription_status, users.paid_at, users.paid_until,
+           users.brand_tone, users.status, users.created_at, users.updated_at,
+           (SELECT COUNT(*) FROM content_studio_generations generations
+            WHERE generations.content_studio_user_id = users.id
+              AND generations.status = 'completed'
+              AND generations.created_at >= COALESCE(users.paid_at, users.created_at)) AS usage
+    FROM content_studio_users users
+    WHERE users.establishment_id = ?
+    ORDER BY users.created_at DESC, users.id DESC
+  `).all(establishmentId);
+}
+
+function studioPaymentSettings(db) {
+  const ticketing = db.prepare("SELECT id FROM establishments WHERE module_type = 'ticketing' AND status = 'active' ORDER BY id LIMIT 1").get();
+  const hasPaymentSettings = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'ticketing_payment_settings'").get();
+  const settings = ticketing && hasPaymentSettings ? db.prepare('SELECT * FROM ticketing_payment_settings WHERE establishment_id = ?').get(ticketing.id) : null;
+  return {
+    beneficiary: settings?.beneficiary || '',
+    bank_name: settings?.bank_name || 'Banco Pichincha',
+    identification: settings?.identification || '',
+    account_number: settings?.account_number || '',
+    account_type: settings?.account_type || '',
+    deuna_qr_url: settings?.deuna_qr_url || '',
+    whatsapp: '593983763419',
+    phone_display: '098 376 3419',
+    email: process.env.CONTENT_STUDIO_CONTACT_EMAIL || 'promoters.ecu@gmail.com',
+    ready: Boolean(settings?.account_number || settings?.deuna_qr_url)
+  };
+}
+
+function planOrderRow(row) {
+  if (!row) return null;
+  const { password_hash: _passwordHash, ...safe } = row;
+  return safe;
+}
+
+function listPlanOrders(db, establishmentId) {
+  return db.prepare(`SELECT * FROM content_studio_plan_orders WHERE establishment_id = ? ORDER BY created_at DESC, id DESC`)
+    .all(establishmentId).map(planOrderRow);
+}
+
+function transferForOrder(settings, order) {
+  const message = `Hola, envío el comprobante de transferencia del pedido ${order.order_number} de Estudio Creativo. Plan ${order.plan_name}, total $${Number(order.amount).toFixed(2)}. Por favor confirmar mi pago.`;
+  return {
+    ...settings,
+    whatsapp_url: `https://wa.me/${settings.whatsapp}?text=${encodeURIComponent(message)}`
+  };
+}
+
+async function sendStudioActivationEmail(order, user) {
+  if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS || !order?.email) {
+    return { sent: false, reason: 'SMTP no configurado' };
+  }
+  const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: String(process.env.SMTP_SECURE || '').toLowerCase() === 'true',
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+  });
+  const appUrl = String(process.env.PUBLIC_APP_URL || 'https://promotersec.com').replace(/\/$/, '');
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to: order.email,
+    subject: `Tu plan de Estudio Creativo está activo · ${order.order_number}`,
+    html: `<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;background:#f6f4ef;padding:28px;color:#1d212c">
+      <div style="background:#1d212c;color:#fff;padding:22px;border-radius:14px"><strong style="font-size:22px">Estudio Creativo</strong><p style="margin:6px 0 0;color:#ddd">Tu pago fue confirmado</p></div>
+      <p>Hola ${escapeHtml(order.customer_name)}, tu plan <strong>${escapeHtml(order.plan_name)}</strong> ya está activo.</p>
+      <div style="background:#fff;border:1px solid #e4e0d7;border-radius:12px;padding:18px"><p style="margin:0 0 8px"><strong>${Number(order.monthly_limit)} imágenes</strong> disponibles durante ${Number(order.duration_days)} días.</p><p style="margin:0">Usuario: <strong>${escapeHtml(user.username)}</strong></p></div>
+      <p style="margin:24px 0"><a href="${appUrl}" style="background:#1d212c;color:#fff;padding:13px 20px;border-radius:10px;text-decoration:none;font-weight:bold">Entrar a Estudio Creativo</a></p>
+      <p style="font-size:12px;color:#777">Por seguridad no enviamos tu contraseña por correo. Usa la que elegiste al solicitar el plan.</p>
+    </div>`
+  });
+  return { sent: true };
 }
 
 function buildPrompt(body, preset, hasBrandLogo = false) {
@@ -174,21 +261,43 @@ async function overlayOfficialLogo(imageData, logoData) {
   const width = metadata.width || 1024;
   const height = metadata.height || 1024;
   const cleanedLogo = await logoWithoutFlatBackground(logoSource);
+  const cleanedMetadata = await sharp(cleanedLogo).metadata();
+  const logoAspect = (cleanedMetadata.width || 1) / Math.max(1, cleanedMetadata.height || 1);
+  const widthRatio = logoAspect >= 2.2 ? 0.27 : logoAspect >= 1.25 ? 0.225 : 0.165;
   const logo = await sharp(cleanedLogo)
     .trim({ background: { r: 0, g: 0, b: 0, alpha: 0 } })
     .resize({
-      width: Math.max(1, Math.round(width * 0.16)),
-      height: Math.max(1, Math.round(height * 0.09)),
+      width: Math.max(1, Math.round(width * widthRatio)),
+      height: Math.max(1, Math.round(height * 0.14)),
       fit: 'inside',
       withoutEnlargement: false
     })
     .png()
     .toBuffer();
+  const renderedLogo = await sharp(logo).metadata();
+  const logoWidth = renderedLogo.width || 1;
+  const logoHeight = renderedLogo.height || 1;
+  const marginX = Math.max(0, Math.round(width * 0.04));
+  const marginY = Math.max(0, Math.round(height * 0.045));
+  const candidates = [
+    { left: marginX, top: marginY },
+    { left: Math.max(0, width - logoWidth - marginX), top: marginY },
+    { left: marginX, top: Math.max(0, height - logoHeight - marginY) },
+    { left: Math.max(0, width - logoWidth - marginX), top: Math.max(0, height - logoHeight - marginY) }
+  ];
+  const scored = await Promise.all(candidates.map(async (candidate) => {
+    const regionWidth = Math.max(1, Math.min(width - candidate.left, logoWidth));
+    const regionHeight = Math.max(1, Math.min(height - candidate.top, logoHeight));
+    const stats = await sharp(source).extract({ ...candidate, width: regionWidth, height: regionHeight }).greyscale().stats();
+    const channel = stats.channels[0];
+    return { ...candidate, score: Number(stats.entropy || 0) + Number(channel?.stdev || 0) / 48 };
+  }));
+  const placement = scored.sort((a, b) => a.score - b.score)[0] || candidates[0];
   const output = await sharp(source)
     .composite([{
       input: logo,
-      left: Math.max(0, Math.round(width * 0.045)),
-      top: Math.max(0, Math.round(height * 0.055))
+      left: placement.left,
+      top: placement.top
     }])
     .webp({ quality: 94 })
     .toBuffer();
@@ -252,13 +361,52 @@ export function registerContentStudioRoutes(app, db, options = {}) {
   const guard = studioAuth(db);
   const generateImage = options.generateImage || defaultGenerate;
 
+  app.get('/api/content-studio/public', (_req, res) => {
+    res.json({
+      plans: STUDIO_PLANS,
+      contact: { phone: '0983763419', phone_display: '098 376 3419', email: studioPaymentSettings(db).email },
+      transfer: studioPaymentSettings(db)
+    });
+  });
+
+  app.post('/api/content-studio/public/orders', (req, res) => {
+    const establishment = db.prepare("SELECT id FROM establishments WHERE module_type = 'content_studio' AND status = 'active' ORDER BY id LIMIT 1").get();
+    if (!establishment) return res.status(503).json({ message: 'Estudio Creativo no está disponible' });
+    const plan = STUDIO_PLANS.find((item) => item.id === req.body.plan_id);
+    const customerName = clean(req.body.customer_name, 100);
+    const businessName = clean(req.body.business_name, 100) || customerName;
+    const whatsapp = clean(req.body.whatsapp, 30).replace(/\D/g, '');
+    const email = clean(req.body.email, 180).toLowerCase();
+    const username = clean(req.body.username, 80).toLowerCase();
+    const password = String(req.body.password || '');
+    if (!plan) return res.status(400).json({ message: 'Selecciona un plan válido' });
+    if (!customerName || whatsapp.length < 9 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !/^[a-z0-9._-]{3,80}$/.test(username) || password.length < 8) {
+      return res.status(400).json({ message: 'Completa tus datos, un usuario válido y una contraseña de al menos 8 caracteres' });
+    }
+    const duplicate = db.prepare('SELECT id FROM content_studio_users WHERE LOWER(username) = ?').get(username)
+      || db.prepare("SELECT id FROM content_studio_plan_orders WHERE LOWER(username) = ? AND status = 'pending'").get(username);
+    if (duplicate) return res.status(409).json({ message: 'Ese nombre de usuario ya está registrado o tiene un pago pendiente' });
+    const inserted = db.prepare(`INSERT INTO content_studio_plan_orders
+      (establishment_id, customer_name, business_name, whatsapp, email, username, password_hash, plan_id, plan_name, monthly_limit, duration_days, amount)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      establishment.id, customerName, businessName, whatsapp, email, username, hashContentStudioPassword(password),
+      plan.id, plan.name, plan.photos, plan.days, plan.price
+    );
+    const orderNumber = `EC-${String(inserted.lastInsertRowid).padStart(6, '0')}`;
+    db.prepare('UPDATE content_studio_plan_orders SET order_number = ? WHERE id = ?').run(orderNumber, inserted.lastInsertRowid);
+    const order = planOrderRow(db.prepare('SELECT * FROM content_studio_plan_orders WHERE id = ?').get(inserted.lastInsertRowid));
+    res.status(201).json({ order, transfer: transferForOrder(studioPaymentSettings(db), order) });
+  });
+
   app.get('/api/content-studio/bootstrap', guard, (req, res) => {
     const establishmentId = req.contentStudioEstablishment.id;
     const establishmentSettings = db.prepare('SELECT * FROM content_studio_settings WHERE establishment_id = ?').get(establishmentId);
     const settings = planSettings(req, establishmentSettings);
     const userCondition = req.contentStudioUser ? 'AND content_studio_user_id = ?' : 'AND content_studio_user_id IS NULL';
     const userParams = req.contentStudioUser ? [req.contentStudioUser.id] : [];
-    const usage = db.prepare(`SELECT COUNT(*) AS total FROM content_studio_generations WHERE establishment_id = ? ${userCondition} AND status = 'completed' AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')`).get(establishmentId, ...userParams).total;
+    const periodCondition = req.contentStudioUser ? 'AND created_at >= ?' : "AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')";
+    const periodParams = req.contentStudioUser ? [req.contentStudioUser.paid_at || req.contentStudioUser.created_at || '1970-01-01'] : [];
+    const usage = db.prepare(`SELECT COUNT(*) AS total FROM content_studio_generations WHERE establishment_id = ? ${userCondition} AND status = 'completed' ${periodCondition}`).get(establishmentId, ...userParams, ...periodParams).total;
     const logos = db.prepare('SELECT id, name, image_data, created_at FROM content_studio_logos WHERE establishment_id = ? ORDER BY created_at ASC, id ASC').all(establishmentId);
     const generations = db.prepare(`SELECT * FROM content_studio_generations WHERE establishment_id = ? ${userCondition} AND deleted_at IS NULL ORDER BY created_at DESC, id DESC LIMIT 24`).all(establishmentId, ...userParams).map(generationRow);
     const subscriptionActive = activeSubscription(req.contentStudioUser);
@@ -276,8 +424,15 @@ export function registerContentStudioRoutes(app, db, options = {}) {
         { id: 'product', name: 'Producto y beneficios', description: 'Producto protagonista con mensajes comerciales breves.' }
       ],
       presets: Object.entries(PRESETS).map(([id, item]) => ({ id, name: item.name, description: item.description, aspect_ratio: item.size })),
-      references: [], generations
+      references: [], generations,
+      users: req.contentStudioUser ? [] : listStudioUsers(db, establishmentId),
+      plan_orders: req.contentStudioUser ? [] : listPlanOrders(db, establishmentId)
     });
+  });
+
+  app.get('/api/content-studio/users', guard, (req, res) => {
+    if (req.contentStudioUser) return res.status(403).json({ message: 'Solo el administrador puede ver las cuentas' });
+    res.json(listStudioUsers(db, req.contentStudioEstablishment.id));
   });
 
   app.post('/api/content-studio/users', guard, (req, res) => {
@@ -302,6 +457,77 @@ export function registerContentStudioRoutes(app, db, options = {}) {
       `SELECT id, name, business_name, username, plan_name, monthly_limit, subscription_status, paid_at, paid_until, status, created_at
        FROM content_studio_users WHERE id = ?`
     ).get(result.lastInsertRowid));
+  });
+
+  app.put('/api/content-studio/users/:id', guard, (req, res) => {
+    if (req.contentStudioUser) return res.status(403).json({ message: 'Solo el administrador puede modificar cuentas' });
+    const current = db.prepare('SELECT * FROM content_studio_users WHERE id = ? AND establishment_id = ?')
+      .get(req.params.id, req.contentStudioEstablishment.id);
+    if (!current) return res.status(404).json({ message: 'Usuario no encontrado' });
+    const monthlyLimit = Math.max(1, Math.min(10000, Number(req.body.monthly_limit) || current.monthly_limit));
+    const renewDays = Math.max(0, Math.min(365, Number(req.body.renew_days) || 0));
+    const password = String(req.body.password || '');
+    if (password && password.length < 8) return res.status(400).json({ message: 'La nueva contraseña debe tener al menos 8 caracteres' });
+    const status = ['active', 'inactive'].includes(req.body.status) ? req.body.status : current.status;
+    const subscriptionStatus = renewDays ? 'paid' : (['paid', 'trial', 'inactive'].includes(req.body.subscription_status) ? req.body.subscription_status : current.subscription_status);
+    const paidUntil = renewDays
+      ? db.prepare("SELECT date('now', 'localtime', ?) AS value").get(`+${renewDays} days`).value
+      : (/^\d{4}-\d{2}-\d{2}$/.test(String(req.body.paid_until || '')) ? req.body.paid_until : current.paid_until);
+    db.prepare(`UPDATE content_studio_users SET
+      name = ?, business_name = ?, plan_name = ?, monthly_limit = ?, subscription_status = ?,
+      paid_at = CASE WHEN ? > 0 THEN date('now', 'localtime') ELSE paid_at END,
+      paid_until = ?, status = ?, password_hash = ?, updated_at = datetime('now', 'localtime')
+      WHERE id = ? AND establishment_id = ?`).run(
+      clean(req.body.name, 100) || current.name,
+      clean(req.body.business_name, 100) || current.business_name,
+      clean(req.body.plan_name, 60) || current.plan_name,
+      monthlyLimit,
+      subscriptionStatus,
+      renewDays,
+      paidUntil,
+      status,
+      password ? hashContentStudioPassword(password) : current.password_hash,
+      current.id,
+      req.contentStudioEstablishment.id
+    );
+    res.json(listStudioUsers(db, req.contentStudioEstablishment.id).find((item) => item.id === current.id));
+  });
+
+  app.post('/api/content-studio/plan-orders/:id/confirm', guard, async (req, res) => {
+    if (req.contentStudioUser) return res.status(403).json({ message: 'Solo el administrador puede confirmar transferencias' });
+    try {
+      const result = db.transaction(() => {
+        const order = db.prepare("SELECT * FROM content_studio_plan_orders WHERE id = ? AND establishment_id = ? AND status = 'pending'")
+          .get(req.params.id, req.contentStudioEstablishment.id);
+        if (!order) throw new Error('La solicitud ya fue procesada o no existe');
+        if (db.prepare('SELECT id FROM content_studio_users WHERE LOWER(username) = LOWER(?)').get(order.username)) throw new Error('Ese usuario ya existe');
+        const user = db.prepare(`INSERT INTO content_studio_users
+          (establishment_id, name, business_name, username, password_hash, plan_name, monthly_limit, subscription_status, paid_at, paid_until, brand_tone, status)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'paid', date('now', 'localtime'), date('now', 'localtime', ?), 'premium', 'active')`).run(
+          order.establishment_id, order.customer_name, order.business_name, order.username, order.password_hash,
+          order.plan_name, order.monthly_limit, `+${order.duration_days} days`
+        );
+        db.prepare(`UPDATE content_studio_plan_orders SET status = 'confirmed', transfer_reference = ?, content_studio_user_id = ?, reviewed_by = ?, reviewed_at = datetime('now', 'localtime') WHERE id = ?`)
+          .run(clean(req.body.reference, 120), user.lastInsertRowid, req.user.username || req.user.role, order.id);
+        return { userId: user.lastInsertRowid, orderId: order.id };
+      })();
+      const order = planOrderRow(db.prepare('SELECT * FROM content_studio_plan_orders WHERE id = ?').get(result.orderId));
+      const user = listStudioUsers(db, req.contentStudioEstablishment.id).find((item) => item.id === result.userId);
+      let email = { sent: false };
+      try { email = await sendStudioActivationEmail(order, user); }
+      catch (error) { email = { sent: false, reason: clean(error.message, 180) }; }
+      res.json({ order, user, email });
+    } catch (error) {
+      res.status(409).json({ message: error.message });
+    }
+  });
+
+  app.post('/api/content-studio/plan-orders/:id/reject', guard, (req, res) => {
+    if (req.contentStudioUser) return res.status(403).json({ message: 'Solo el administrador puede rechazar transferencias' });
+    const updated = db.prepare(`UPDATE content_studio_plan_orders SET status = 'rejected', reviewed_by = ?, reviewed_at = datetime('now', 'localtime') WHERE id = ? AND establishment_id = ? AND status = 'pending'`)
+      .run(req.user.username || req.user.role, req.params.id, req.contentStudioEstablishment.id);
+    if (!updated.changes) return res.status(404).json({ message: 'La solicitud ya fue procesada o no existe' });
+    res.json({ ok: true });
   });
 
   app.post('/api/content-studio/logos', guard, (req, res) => {
@@ -373,11 +599,13 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     const studioUserId = req.contentStudioUser?.id || null;
     const userCondition = studioUserId ? 'AND content_studio_user_id = ?' : 'AND content_studio_user_id IS NULL';
     const userParams = studioUserId ? [studioUserId] : [];
+    const periodCondition = studioUserId ? 'AND created_at >= ?' : "AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')";
+    const periodParams = studioUserId ? [req.contentStudioUser.paid_at || req.contentStudioUser.created_at || '1970-01-01'] : [];
     const reservation = db.transaction(() => {
       const occupied = db.prepare(`SELECT COUNT(*) AS total FROM content_studio_generations
-        WHERE establishment_id = ? ${userCondition} AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')
+        WHERE establishment_id = ? ${userCondition} ${periodCondition}
           AND (status = 'completed' OR (status = 'failed' AND error_message = '__processing__' AND created_at >= datetime('now', '-30 minutes')))`)
-        .get(req.contentStudioEstablishment.id, ...userParams).total;
+        .get(req.contentStudioEstablishment.id, ...userParams, ...periodParams).total;
       if (occupied >= settings.monthly_limit) return null;
       const inserted = db.prepare(`INSERT INTO content_studio_generations
         (establishment_id, content_studio_user_id, preset, product_name, brand_name, material, color, headline, mood, aspect_ratio, reference_ids_json, status, error_message, created_by)
@@ -387,7 +615,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     })();
     if (!reservation) return res.status(429).json({ message: 'Se alcanzó el límite mensual del plan' });
     const queued = generationRow(db.prepare('SELECT * FROM content_studio_generations WHERE id = ?').get(reservation));
-    res.status(202).json({ generation: queued, usage: Number(db.prepare(`SELECT COUNT(*) AS total FROM content_studio_generations WHERE establishment_id = ? ${userCondition} AND status = 'completed' AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')`).get(req.contentStudioEstablishment.id, ...userParams).total), monthly_limit: settings.monthly_limit });
+    res.status(202).json({ generation: queued, usage: Number(db.prepare(`SELECT COUNT(*) AS total FROM content_studio_generations WHERE establishment_id = ? ${userCondition} AND status = 'completed' ${periodCondition}`).get(req.contentStudioEstablishment.id, ...userParams, ...periodParams).total), monthly_limit: settings.monthly_limit });
 
     void Promise.resolve().then(async () => {
       try {
@@ -406,12 +634,14 @@ export function registerContentStudioRoutes(app, db, options = {}) {
   app.get('/api/content-studio/generations/:id', guard, (req, res) => {
     const userCondition = req.contentStudioUser ? 'AND content_studio_user_id = ?' : 'AND content_studio_user_id IS NULL';
     const userParams = req.contentStudioUser ? [req.contentStudioUser.id] : [];
+    const periodCondition = req.contentStudioUser ? 'AND created_at >= ?' : "AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')";
+    const periodParams = req.contentStudioUser ? [req.contentStudioUser.paid_at || req.contentStudioUser.created_at || '1970-01-01'] : [];
     const row = db.prepare(`SELECT * FROM content_studio_generations WHERE id = ? AND establishment_id = ? ${userCondition} AND deleted_at IS NULL`)
       .get(req.params.id, req.contentStudioEstablishment.id, ...userParams);
     if (!row) return res.status(404).json({ message: 'Creación no encontrada' });
     const generation = generationRow(row);
-    const usage = db.prepare(`SELECT COUNT(*) AS total FROM content_studio_generations WHERE establishment_id = ? ${userCondition} AND status = 'completed' AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')`)
-      .get(req.contentStudioEstablishment.id, ...userParams).total;
+    const usage = db.prepare(`SELECT COUNT(*) AS total FROM content_studio_generations WHERE establishment_id = ? ${userCondition} AND status = 'completed' ${periodCondition}`)
+      .get(req.contentStudioEstablishment.id, ...userParams, ...periodParams).total;
     res.json({ generation, usage });
   });
 

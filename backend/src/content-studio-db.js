@@ -105,6 +105,35 @@ export function initContentStudioDb(db) {
       ON content_studio_generations(establishment_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_content_studio_users_scope
       ON content_studio_users(establishment_id, subscription_status, status);
+
+    CREATE TABLE IF NOT EXISTS content_studio_plan_orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      order_number TEXT UNIQUE,
+      customer_name TEXT NOT NULL,
+      business_name TEXT NOT NULL,
+      whatsapp TEXT NOT NULL,
+      email TEXT NOT NULL,
+      username TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      plan_id TEXT NOT NULL,
+      plan_name TEXT NOT NULL,
+      monthly_limit INTEGER NOT NULL,
+      duration_days INTEGER NOT NULL,
+      amount REAL NOT NULL,
+      payment_method TEXT NOT NULL DEFAULT 'transfer',
+      transfer_reference TEXT,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'rejected')),
+      content_studio_user_id INTEGER,
+      reviewed_by TEXT,
+      reviewed_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (content_studio_user_id) REFERENCES content_studio_users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_content_studio_plan_orders_scope
+      ON content_studio_plan_orders(establishment_id, status, created_at);
   `);
   const generationColumns = db.prepare('PRAGMA table_info(content_studio_generations)').all();
   if (!generationColumns.some((column) => column.name === 'deleted_at')) {

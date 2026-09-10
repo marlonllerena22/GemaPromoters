@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Check, ChevronRight, Crown, Download, EyeOff, Gem, Home, Image as ImageIcon,
+  Check, ChevronRight, Crown, Download, EyeOff, Gem, Image as ImageIcon,
   LayoutGrid, LogOut, Plus, Settings, Share2, ShoppingBag, Sparkles, Tag,
-  Trash2, Upload, UserRound, WandSparkles, X
+  Trash2, Upload, UserPlus, UserRound, UsersRound, WandSparkles, X
 } from 'lucide-react';
 import { api } from './api.js';
 import './content-studio.css';
@@ -16,6 +16,12 @@ const PRESET_GUIDES = {
 };
 const PRESET_NAMES = { editorial: 'Editorial', catalog: 'Catálogo', social: 'Post social', detail: 'Detalle' };
 const emptyForm = { preset: 'editorial', logo_id: 'none', social_format: 'post', social_style: 'editorial' };
+const PLAN_PACKAGES = [
+  { id: 'inicio', name: 'Inicio', photos: 10, price: 10, days: 8 },
+  { id: 'emprendedor', name: 'Emprendedor', photos: 25, price: 20, days: 15 },
+  { id: 'negocio', name: 'Negocio', photos: 60, price: 35, days: 30 },
+  { id: 'pro', name: 'Pro', photos: 150, price: 60, days: 30 }
+];
 
 const wait = (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 
@@ -122,6 +128,13 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
   const selectedPreset = data?.presets?.find((item) => item.id === form.preset);
   const usagePercent = Math.min(100, ((data?.usage || 0) / (data?.settings?.monthly_limit || 1)) * 100);
   const canManageLogos = data?.can_manage_logos === true;
+  const isStudioAdmin = ['admin', 'supreme'].includes(user?.role);
+  const navigation = [
+    ['create', 'Crear', Sparkles],
+    ['history', 'Historial', LayoutGrid],
+    ...(isStudioAdmin ? [['users', 'Usuarios', UsersRound]] : []),
+    ['profile', 'Perfil', UserRound]
+  ];
 
   async function chooseProduct(file) {
     setError('');
@@ -214,9 +227,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
             <div><strong>ESTUDIO CREATIVO</strong><small>by Promoters</small></div>
           </button>
           <nav>
-            <button className={tab === 'create' ? 'active' : ''} onClick={() => setTab('create')}><Sparkles size={17} /> Crear</button>
-            <button className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}><LayoutGrid size={17} /> Historial</button>
-            <button className={tab === 'profile' ? 'active' : ''} onClick={() => setTab('profile')}><UserRound size={17} /> Perfil</button>
+            {navigation.map(([key, label, Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}><Icon size={17} /> {label}</button>)}
           </nav>
           <button className="cs-logout" type="button" onClick={onLogout}><LogOut size={17} /> Salir</button>
         </header>
@@ -225,7 +236,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
       <div className="cs-page">
         {embedded && (
           <div className="cs-embedded-nav">
-            {[['create', 'Crear', Sparkles], ['history', 'Historial', LayoutGrid], ['profile', 'Perfil', UserRound]].map(([key, label, Icon]) => (
+            {navigation.map(([key, label, Icon]) => (
               <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}><Icon size={17} /> {label}</button>
             ))}
           </div>
@@ -243,14 +254,13 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
           />
         )}
         {tab === 'history' && <HistoryView data={data} scopeBody={scopeBody} reload={load} setError={setError} />}
+        {tab === 'users' && isStudioAdmin && <UsersView data={data} scopeBody={scopeBody} reload={load} setError={setError} />}
         {tab === 'profile' && <ProfileView data={data} scopeBody={scopeBody} reload={load} setError={setError} canManageLogos={canManageLogos} user={user} onSaved={(settings) => setData((current) => ({ ...current, settings }))} />}
       </div>
 
       {!embedded && (
-        <nav className="cs-mobile-nav" aria-label="Navegación principal">
-          <button className={tab === 'create' ? 'active' : ''} onClick={() => setTab('create')}><Home size={21} /><span>Crear</span></button>
-          <button className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}><LayoutGrid size={21} /><span>Historial</span></button>
-          <button className={tab === 'profile' ? 'active' : ''} onClick={() => setTab('profile')}><UserRound size={21} /><span>Perfil</span></button>
+        <nav className={`cs-mobile-nav ${isStudioAdmin ? 'admin' : ''}`} aria-label="Navegación principal">
+          {navigation.map(([key, label, Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}><Icon size={21} /><span>{label}</span></button>)}
         </nav>
       )}
     </div>
@@ -346,6 +356,109 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
       </div>
     </form>
   );
+}
+
+function UsersView({ data, scopeBody, reload, setError }) {
+  const [form, setForm] = useState({ name: '', business_name: '', username: '', password: '', package_id: 'emprendedor' });
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+  const [references, setReferences] = useState({});
+  const selectedPackage = PLAN_PACKAGES.find((item) => item.id === form.package_id) || PLAN_PACKAGES[1];
+
+  async function createUser(event) {
+    event.preventDefault();
+    setSaving(true);
+    setMessage('');
+    try {
+      await api('/content-studio/users', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...scopeBody,
+          name: form.name,
+          business_name: form.business_name || form.name,
+          username: form.username,
+          password: form.password,
+          plan_name: selectedPackage.name,
+          monthly_limit: selectedPackage.photos,
+          duration_days: selectedPackage.days
+        })
+      });
+      setMessage(`Cuenta creada. Usuario: ${form.username} · Contraseña: ${form.password}`);
+      setForm({ name: '', business_name: '', username: '', password: '', package_id: 'emprendedor' });
+      await reload();
+    } catch (err) { setError(err.message); }
+    finally { setSaving(false); }
+  }
+
+  async function updateUser(item, changes, successMessage) {
+    try {
+      await api(`/content-studio/users/${item.id}`, {
+        method: 'PUT', body: JSON.stringify({ ...scopeBody, ...changes })
+      });
+      setMessage(successMessage);
+      await reload();
+    } catch (err) { setError(err.message); }
+  }
+
+  async function renewUser(item) {
+    const plan = PLAN_PACKAGES.find((candidate) => candidate.photos === Number(item.monthly_limit)) || PLAN_PACKAGES[1];
+    await updateUser(item, {
+      monthly_limit: plan.photos,
+      plan_name: plan.name,
+      renew_days: plan.days,
+      status: 'active'
+    }, `Plan de ${item.name} renovado por ${plan.days} días.`);
+  }
+
+  async function processOrder(order, action) {
+    if (action === 'confirm' && !String(references[order.id] || '').trim()) {
+      setError('Ingresa la referencia bancaria antes de confirmar el pago');
+      return;
+    }
+    try {
+      await api(`/content-studio/plan-orders/${order.id}/${action}`, {
+        method: 'POST', body: JSON.stringify({ ...scopeBody, reference: references[order.id] || '' })
+      });
+      setMessage(action === 'confirm' ? `Pago ${order.order_number} confirmado y cuenta activada.` : `Solicitud ${order.order_number} rechazada.`);
+      await reload();
+    } catch (err) { setError(err.message); }
+  }
+
+  const pendingOrders = (data.plan_orders || []).filter((item) => item.status === 'pending');
+
+  return <section className="cs-users-page">
+    <div className="cs-section-heading"><span className="cs-eyebrow">Administración</span><h1>Usuarios y planes</h1><p>Crea cuentas, controla sus fotos disponibles y renueva su acceso.</p></div>
+    {message && <div className="cs-admin-message"><Check size={18} /><span>{message}</span></div>}
+    {pendingOrders.length > 0 && <section className="cs-transfer-requests"><div className="cs-user-list-heading"><div><strong>Transferencias por confirmar</strong><small>{pendingOrders.length} {pendingOrders.length === 1 ? 'solicitud pendiente' : 'solicitudes pendientes'} desde la landing</small></div></div>{pendingOrders.map((order) => <article key={order.id}><div><span>{order.order_number}</span><strong>{order.customer_name}</strong><small>{order.business_name} · {order.email} · {order.whatsapp}</small></div><div><strong>${Number(order.amount).toFixed(2)}</strong><small>{order.plan_name}: {order.monthly_limit} fotos / {order.duration_days} días</small></div><label>Referencia bancaria<input value={references[order.id] || ''} onChange={(event) => setReferences({ ...references, [order.id]: event.target.value })} placeholder="Número o referencia" /></label><div><button type="button" onClick={() => processOrder(order, 'confirm')}>Confirmar y activar</button><button type="button" onClick={() => processOrder(order, 'reject')}>Rechazar</button></div></article>)}</section>}
+    <div className="cs-users-layout">
+      <form className="cs-user-form cs-card" onSubmit={createUser}>
+        <div className="cs-user-form-title"><span><UserPlus size={21} /></span><div><h2>Crear usuario</h2><p>Entrega acceso con uno de tus planes.</p></div></div>
+        <label>Nombre completo<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Ej. Norma Llamuca" /></label>
+        <label>Nombre del negocio<input value={form.business_name} onChange={(event) => setForm({ ...form, business_name: event.target.value })} placeholder="Puede ser igual al nombre" /></label>
+        <label>Usuario<input required value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value.toLowerCase().replace(/\s+/g, '.') })} placeholder="nombre.apellido" /></label>
+        <label>Contraseña temporal<input required minLength="8" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="Mínimo 8 caracteres" /></label>
+        <label>Plan<select value={form.package_id} onChange={(event) => setForm({ ...form, package_id: event.target.value })}>{PLAN_PACKAGES.map((plan) => <option key={plan.id} value={plan.id}>{plan.photos} fotos · ${plan.price} · {plan.days} días</option>)}</select></label>
+        <div className="cs-plan-preview"><Crown size={19} /><div><strong>{selectedPackage.name}</strong><small>{selectedPackage.photos} fotos durante {selectedPackage.days} días</small></div><b>${selectedPackage.price}</b></div>
+        <button className="cs-primary" disabled={saving}>{saving ? 'Creando cuenta...' : <><UserPlus size={18} /> Crear cuenta</>}</button>
+      </form>
+
+      <div className="cs-user-list">
+        <div className="cs-user-list-heading"><div><strong>{data.users?.length || 0} usuarios</strong><small>Clientes registrados en Estudio Creativo</small></div></div>
+        {(data.users || []).map((item) => {
+          const available = Math.max(0, Number(item.monthly_limit || 0) - Number(item.usage || 0));
+          const active = item.status === 'active' && item.subscription_status !== 'inactive';
+          return <article key={item.id} className={!active ? 'inactive' : ''}>
+            <div className="cs-user-avatar">{String(item.name || 'U').slice(0, 1).toUpperCase()}</div>
+            <div className="cs-user-identity"><strong>{item.name}</strong><span>@{item.username}</span><small>{item.business_name}</small></div>
+            <div className="cs-user-quota"><strong>{available} disponibles</strong><span>{item.usage || 0} de {item.monthly_limit} usadas</span><i><b style={{ width: `${Math.min(100, (Number(item.usage || 0) / Math.max(1, Number(item.monthly_limit || 1))) * 100)}%` }} /></i></div>
+            <div className="cs-user-validity"><span className={active ? 'active' : 'inactive'}>{active ? 'Activo' : 'Inactivo'}</span><small>Hasta {item.paid_until ? new Date(`${item.paid_until}T12:00:00`).toLocaleDateString('es-EC') : 'sin fecha'}</small></div>
+            <div className="cs-user-actions"><button type="button" onClick={() => renewUser(item)}>Renovar plan</button><button type="button" onClick={() => updateUser(item, { status: item.status === 'active' ? 'inactive' : 'active' }, `${item.name} ${item.status === 'active' ? 'fue desactivado' : 'fue activado'}.`)}>{item.status === 'active' ? 'Desactivar' : 'Activar'}</button></div>
+          </article>;
+        })}
+        {!data.users?.length && <div className="cs-empty-large"><UsersRound size={38} /><h3>Aún no hay usuarios</h3><p>Crea la primera cuenta desde el formulario.</p></div>}
+      </div>
+    </div>
+  </section>;
 }
 
 function ProfileView({ data, scopeBody, reload, setError, canManageLogos, user, onSaved }) {

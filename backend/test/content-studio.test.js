@@ -60,6 +60,7 @@ function fixture() {
 
 test('prompt accepts any product, keeps editorial text-free and prepares social formats', () => {
   const editorial = buildPrompt({ brand_name: 'Marjorie Botas' }, PRESETS.editorial, true);
+  const catalog = buildPrompt({}, PRESETS.catalog, false);
   const story = buildPrompt({ social_format: 'story', social_style: 'playful' }, PRESETS.social, false);
   assert.match(editorial, /source-of-truth product/i);
   assert.match(editorial, /wearing, carrying, holding or using/i);
@@ -67,6 +68,9 @@ test('prompt accepts any product, keeps editorial text-free and prepares social 
   assert.match(editorial, /zipper visible only on the inward or rear shoe/i);
   assert.match(editorial, /composited by the application/i);
   assert.doesNotMatch(editorial, /Brand: Marjorie Botas/i);
+  assert.match(catalog, /source photo contains exactly one shoe/i);
+  assert.match(catalog, /rear shoe must show the internal-side zipper exactly once/i);
+  assert.match(catalog, /every other non-footwear product.+never duplicate it/i);
   assert.match(story, /tall 9:16 story/i);
   assert.match(story, /witty short Spanish headline/i);
   assert.match(story, /Do not add a logo/i);
@@ -82,6 +86,8 @@ test('a paid client gets its own plan, usage, history and brand management', asy
   assert.equal(bootstrap.data.subscription.status, 'paid');
   assert.equal(bootstrap.data.subscription.active, true);
   assert.equal(bootstrap.data.can_manage_references, false);
+  assert.deepEqual(bootstrap.data.users, []);
+  assert.equal((await request('/users', { token: clientToken })).status, 403);
 
   assert.equal(bootstrap.data.logos.length, 2);
   assert.equal(bootstrap.data.can_manage_logos, true);
@@ -109,6 +115,26 @@ test('logos, exact social dimensions, history, limits and business isolation wor
   const { db, server, request, calls, supreme, waitForGeneration } = fixture();
   t.after(() => { server.close(); db.close(); });
 
+  const publicStudio = await request('/public');
+  assert.equal(publicStudio.status, 200);
+  assert.deepEqual(publicStudio.data.plans.map((plan) => plan.photos), [10, 25, 60, 150]);
+  assert.equal(publicStudio.data.contact.phone, '0983763419');
+  const planOrder = await request('/public/orders', {
+    method: 'POST', body: JSON.stringify({
+      customer_name: 'Cliente Landing', business_name: 'Tienda Landing', whatsapp: '0981112233',
+      email: 'cliente@landing.test', username: 'cliente.landing', password: 'Landing25!', plan_id: 'emprendedor'
+    })
+  });
+  assert.equal(planOrder.status, 201);
+  assert.equal(planOrder.data.order.amount, 20);
+  assert.equal(planOrder.data.order.password_hash, undefined);
+  const confirmedOrder = await request(`/plan-orders/${planOrder.data.order.id}/confirm`, {
+    method: 'POST', body: JSON.stringify({ reference: 'TRANS-001' })
+  });
+  assert.equal(confirmedOrder.status, 200);
+  assert.equal(confirmedOrder.data.user.username, 'cliente.landing');
+  assert.equal(verifyContentStudioPassword('Landing25!', db.prepare("SELECT password_hash FROM content_studio_users WHERE username = 'cliente.landing'").get().password_hash), true);
+
   const createdUser = await request('/users', {
     method: 'POST', body: JSON.stringify({ name: 'Norma Llamuca', business_name: 'Norma Llamuca', username: 'norma.llamuca', password: 'NormaFoto25!', plan_name: 'Emprendedor', monthly_limit: 25, duration_days: 15 })
   });
@@ -118,6 +144,15 @@ test('logos, exact social dimensions, history, limits and business isolation wor
   const storedUser = db.prepare('SELECT password_hash FROM content_studio_users WHERE id = ?').get(createdUser.data.id);
   assert.equal(verifyContentStudioPassword('NormaFoto25!', storedUser.password_hash), true);
   assert.equal((await request('/users', { method: 'POST', body: JSON.stringify({ name: 'Norma', username: 'norma.llamuca', password: 'OtraClave25!' }) })).status, 409);
+  const listedUsers = await request('/users');
+  assert.equal(listedUsers.status, 200);
+  assert.equal(listedUsers.data.some((item) => item.username === 'norma.llamuca' && item.usage === 0), true);
+  const renewedUser = await request(`/users/${createdUser.data.id}`, {
+    method: 'PUT', body: JSON.stringify({ monthly_limit: 60, plan_name: 'Negocio', renew_days: 30, status: 'active' })
+  });
+  assert.equal(renewedUser.status, 200);
+  assert.equal(renewedUser.data.monthly_limit, 60);
+  assert.equal(renewedUser.data.subscription_status, 'paid');
 
   const createdLogo = await request('/logos', {
     method: 'POST', body: JSON.stringify({ name: 'Marca nueva', image: sampleImage })
