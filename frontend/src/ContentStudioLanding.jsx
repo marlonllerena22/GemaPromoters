@@ -66,7 +66,7 @@ export default function ContentStudioLanding() {
 
   return <div className="csl-page">
     <header className="csl-header">
-      <a className="csl-logo" href={STUDIO_HOME}><span><WandSparkles size={18} /></span><strong>Estudios Creativos</strong></a>
+      <a className="csl-logo csl-logo-art" href={STUDIO_HOME} aria-label="Estudios Creativos"><span><img src="/content-studio/brand/mascota-toque.webp" alt="" /></span><img src="/content-studio/brand/estudios-creativos-wordmark.webp" alt="Estudios Creativos" /></a>
       <button className="csl-menu" type="button" onClick={() => setMenuOpen((value) => !value)} aria-label="Abrir menú"><Menu /></button>
       <nav className={menuOpen ? 'open' : ''}>
         <a href="#funciones" onClick={() => setMenuOpen(false)}>Funciones</a>
@@ -142,7 +142,7 @@ export default function ContentStudioLanding() {
       <section className="csl-contact" id="contacto"><h2>Empieza a crear contenido<br />que se vea profesional.</h2><div><button type="button" onClick={() => choosePlan(data.plans?.[1] || FALLBACK_PLANS[1])}>Crear mis imágenes <ArrowRight /></button><a href={`https://wa.me/593${String(data.contact?.phone || '0983763419').replace(/\D/g, '').replace(/^0/, '')}`} target="_blank" rel="noreferrer"><MessageCircle /> Hablar por WhatsApp</a></div></section>
     </main>
 
-    <footer className="csl-footer"><a className="csl-logo" href={STUDIO_HOME}><span><WandSparkles size={18} /></span><strong>Estudios Creativos</strong></a><p>Contenido profesional para negocios que quieren crecer.</p><div><a href="#planes">Planes</a><a href={STUDIO_LOGIN}>Iniciar sesión</a><a href={`mailto:${data.contact?.email}`}><Mail size={15} /> Contacto</a><a href="https://www.instagram.com" target="_blank" rel="noreferrer"><Instagram size={16} /></a></div></footer>
+    <footer className="csl-footer"><a className="csl-logo csl-logo-art" href={STUDIO_HOME} aria-label="Estudios Creativos"><span><img src="/content-studio/brand/mascota-toque.webp" alt="" /></span><img src="/content-studio/brand/estudios-creativos-wordmark.webp" alt="Estudios Creativos" /></a><p>Contenido profesional para negocios que quieren crecer.</p><div><a href="#planes">Planes</a><a href={STUDIO_LOGIN}>Iniciar sesión</a><a href={`mailto:${data.contact?.email}`}><Mail size={15} /> Contacto</a><a href="https://www.instagram.com" target="_blank" rel="noreferrer"><Instagram size={16} /></a></div></footer>
     {examplesOpen && <ExamplesModal onClose={() => setExamplesOpen(false)} />}
     {accessOpen && <ContentStudioAccess mode="modal" onClose={() => setAccessOpen(false)} onAuthenticated={() => window.location.assign(`${STUDIO_LOGIN}${requestedPlan?.id ? `?plan=${encodeURIComponent(requestedPlan.id)}` : ''}`)} />}
   </div>;

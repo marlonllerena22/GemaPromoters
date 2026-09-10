@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, CheckCircle2, KeyRound, Mail, Sparkles, X } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, KeyRound, Mail, X } from 'lucide-react';
 import { api, setToken, setUser } from './api.js';
 import './content-studio-access.css';
 
@@ -133,7 +133,7 @@ export default function ContentStudioAccess({ mode = 'page', onClose, onAuthenti
 
   const content = <section className="csa-card" aria-busy={busy || verifying}>
     {mode === 'modal' && <button className="csa-close" type="button" onClick={onClose} aria-label="Cerrar"><X /></button>}
-    <a className="csa-brand" href="/"><span><Sparkles /></span><strong>Estudios Creativos</strong></a>
+    <a className="csa-brand" href="/"><span className="csa-brand-mascot"><img src="/content-studio/brand/mascota-toque.webp" alt="" /></span><img className="csa-brand-wordmark" src="/content-studio/brand/estudios-creativos-wordmark.webp" alt="Estudios Creativos" /></a>
     {verifying ? <div className="csa-verifying"><i /><h1>Abriendo tu estudio</h1><p>Estamos validando tu enlace seguro.</p></div> : <>
       <div className="csa-heading"><span>BIENVENIDO</span><h1>Crea sin complicaciones.</h1><p>Entra o crea tu cuenta en pocos segundos.</p></div>
       {!sent ? <div className="csa-methods">

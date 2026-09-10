@@ -266,7 +266,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
   const usagePercent = Math.min(100, (Number(data?.usage || 0) / Math.max(1, Number(data?.settings?.monthly_limit || 0))) * 100);
 
   return <div className={`cs-app ${embedded ? 'cs-embedded' : ''}`}>
-    {!embedded && <header className="cs-header"><button className="cs-brand" type="button" onClick={newCreation}><span><WandSparkles size={21} /></span><div><strong>ESTUDIOS CREATIVOS</strong><small>Tu estudio con IA</small></div></button><nav>{navigation.map(([key,label,Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}><Icon size={17}/>{label}</button>)}</nav></header>}
+    {!embedded && <header className="cs-header"><button className="cs-brand" type="button" onClick={newCreation} aria-label="Crear una nueva imagen"><span className="cs-brand-mascot"><img src="/content-studio/brand/mascota-toque.webp" alt="" /></span><div><img className="cs-brand-wordmark" src="/content-studio/brand/estudios-creativos-wordmark.webp" alt="Estudios Creativos" /><small>Tu estudio con IA</small></div></button><nav>{navigation.map(([key,label,Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}><Icon size={17}/>{label}</button>)}</nav></header>}
     <div className="cs-page">
       {embedded && <div className="cs-embedded-nav">{navigation.map(([key,label,Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}><Icon size={17}/>{label}</button>)}</div>}
       {notice && <div className="cs-toast"><Check size={17}/>{notice}</div>}
