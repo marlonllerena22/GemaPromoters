@@ -1,5 +1,7 @@
-import { requireAuth } from './auth.js';
-import { hashContentStudioPassword } from './content-studio-db.js';
+import crypto from 'node:crypto';
+import { OAuth2Client } from 'google-auth-library';
+import { createToken, requireAuth } from './auth.js';
+import { hashContentStudioPassword, verifyContentStudioPassword } from './content-studio-db.js';
 import nodemailer from 'nodemailer';
 import sharp from 'sharp';
 
@@ -31,8 +33,8 @@ const PRESETS = {
 };
 
 const SOCIAL_FORMATS = {
-  post: { id: 'post', label: 'Post 1080 × 1350', width: 1080, height: 1350, size: '1024x1536', instruction: 'Design the finished campaign specifically for a vertical 4:5 feed post. The central 1024 × 1280 area is the exact final canvas: keep the entire product, all headline text, callouts and composition inside it. The small area above and below it may contain only a continuation of the background. Never put important content near those upper or lower edges.' },
-  story: { id: 'story', label: 'Historia 1080 × 1920', width: 1080, height: 1920, size: '1024x1536', instruction: 'Compose for a tall 9:16 story. Keep all text and key product details inside the central safe area, away from the top and bottom interface zones.' }
+  post: { id: 'post', label: 'Post 1080 × 1350', width: 1080, height: 1350, size: '1024x1536', instruction: 'Design the composition from the beginning as a vertical 4:5 feed post inside this portrait render. The central 1024 × 1280 area is the exact final artwork. Keep the complete product, complete person or animal, hands, face, all typography, callouts, logos placeholders and every meaningful object entirely inside that central area, with at least 7% internal margin on every side. The narrow area above and below must be seamless background only.' },
+  story: { id: 'story', label: 'Historia 1080 × 1920', width: 1080, height: 1920, size: '1024x1536', instruction: 'Design the composition from the beginning as a tall 9:16 story inside this portrait render. Keep the complete product, person or animal, face, hands, typography and meaningful objects inside the centered 864 × 1536 safe canvas, with at least 7% internal margin. The narrow strips at the left and right must contain seamless background only. Also preserve clear top and bottom interface-safe zones.' }
 };
 
 const SOCIAL_STYLES = {
@@ -56,9 +58,78 @@ const STUDIO_PLANS = [
 ];
 
 const clean = (value, max = 160) => String(value ?? '').trim().slice(0, max);
+const cleanEmail = (value) => clean(value, 180).toLowerCase();
+const validEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || ''));
 const validDataImage = (value) => /^data:image\/(png|jpeg|jpg|webp);base64,[a-z0-9+/=\s]+$/i.test(String(value || ''));
 const dataImageBytes = (value) => Math.ceil((String(value || '').split(',')[1]?.length || 0) * 0.75);
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
+const hashLoginToken = (value) => crypto.createHash('sha256').update(String(value || '')).digest('hex');
+
+function contentStudioEstablishment(db) {
+  return db.prepare("SELECT * FROM establishments WHERE module_type = 'content_studio' AND status = 'active' ORDER BY id LIMIT 1").get();
+}
+
+function uniqueStudioUsername(db, email) {
+  const local = cleanEmail(email).split('@')[0].normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9._-]+/g, '.').replace(/^\.+|\.+$/g, '').slice(0, 52) || 'usuario';
+  let candidate = local;
+  let suffix = 1;
+  while (db.prepare('SELECT 1 FROM content_studio_users WHERE LOWER(username) = LOWER(?)').get(candidate)) {
+    suffix += 1;
+    candidate = `${local.slice(0, 52)}.${suffix}`;
+  }
+  return candidate;
+}
+
+function studioUserPublic(user) {
+  if (!user) return null;
+  const methods = [];
+  if (String(user.password_hash || '').startsWith('scrypt$')) methods.push('password');
+  if (user.google_sub) methods.push('google');
+  if (user.email) methods.push('magic_link');
+  return {
+    id: user.id,
+    username: user.username,
+    role: 'content_studio_user',
+    name: user.name,
+    email: user.email || '',
+    avatar_url: user.avatar_url || '',
+    business_name: user.business_name || '',
+    auth_methods: methods,
+    establishment_id: user.establishment_id,
+    establishment_name: user.establishment_name || 'ESTUDIOS CREATIVOS',
+    establishment_display_name: user.establishment_display_name || 'Estudios Creativos',
+    establishment_module_type: 'content_studio'
+  };
+}
+
+function studioLoginResponse(user) {
+  const publicUser = studioUserPublic(user);
+  return {
+    token: createToken({
+      role: 'content_studio_user',
+      username: user.username,
+      contentStudioUserId: user.id,
+      establishmentId: user.establishment_id,
+      email: user.email || undefined
+    }),
+    user: publicUser
+  };
+}
+
+function studioTransporter() {
+  if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) return null;
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: String(process.env.SMTP_SECURE || '').toLowerCase() === 'true',
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+  });
+}
+
+function studioAppUrl(pathname = '/ingresar') {
+  const configured = String(process.env.CONTENT_STUDIO_APP_URL || process.env.CONTENT_STUDIO_PUBLIC_URL || 'https://estudioscreativos.com').replace(/\/$/, '').replace(/\/ingresar$/, '');
+  return `${configured}${pathname.startsWith('/') ? pathname : `/${pathname}`}`;
+}
 
 function safeJson(value, fallback = []) {
   try { return JSON.parse(value); } catch { return fallback; }
@@ -98,10 +169,12 @@ function studioAuth(db) {
 
 function planSettings(req, establishmentSettings) {
   if (!req.contentStudioUser) return establishmentSettings;
+  const creditLimit = Math.max(0, Number(req.contentStudioUser.credit_limit ?? req.contentStudioUser.monthly_limit ?? 0));
   return {
     establishment_id: req.contentStudioUser.establishment_id,
     plan_name: req.contentStudioUser.plan_name,
-    monthly_limit: req.contentStudioUser.monthly_limit,
+    monthly_limit: creditLimit,
+    credit_limit: creditLimit,
     brand_name: req.contentStudioUser.business_name,
     brand_tone: req.contentStudioUser.brand_tone,
     contact_whatsapp: req.contentStudioUser.contact_whatsapp || '',
@@ -118,8 +191,9 @@ function activeSubscription(user) {
 
 function listStudioUsers(db, establishmentId) {
   return db.prepare(`
-    SELECT users.id, users.name, users.business_name, users.username, users.plan_name,
-           users.monthly_limit, users.subscription_status, users.paid_at, users.paid_until,
+    SELECT users.id, users.name, users.business_name, users.username, users.email, users.avatar_url,
+           users.plan_name, users.credit_limit AS monthly_limit, users.credit_limit,
+           users.subscription_status, users.paid_at, users.paid_until,
            users.brand_tone, users.contact_whatsapp, users.contact_location, users.status, users.created_at, users.updated_at,
            (SELECT COUNT(*) FROM content_studio_generations generations
             WHERE generations.content_studio_user_id = users.id
@@ -158,6 +232,37 @@ function planOrderRow(row) {
 function listPlanOrders(db, establishmentId) {
   return db.prepare(`SELECT * FROM content_studio_plan_orders WHERE establishment_id = ? ORDER BY created_at DESC, id DESC`)
     .all(establishmentId).map(planOrderRow);
+}
+
+function activateStudioPlan(db, order, reviewedBy = 'system', transferReference = '') {
+  let user;
+  if (order.content_studio_user_id) {
+    user = db.prepare('SELECT * FROM content_studio_users WHERE id = ? AND establishment_id = ?')
+      .get(order.content_studio_user_id, order.establishment_id);
+    if (!user) throw new Error('La cuenta asociada a esta solicitud ya no existe');
+    db.prepare(`UPDATE content_studio_users SET
+      plan_name = ?, monthly_limit = ?, credit_limit = ?, subscription_status = 'paid',
+      paid_at = datetime('now', 'localtime'), paid_until = date('now', 'localtime', ?),
+      status = 'active', updated_at = datetime('now', 'localtime')
+      WHERE id = ? AND establishment_id = ?`)
+      .run(order.plan_name, order.monthly_limit, order.monthly_limit, `+${order.duration_days} days`, user.id, order.establishment_id);
+  } else {
+    if (db.prepare('SELECT id FROM content_studio_users WHERE LOWER(username) = LOWER(?)').get(order.username)) {
+      throw new Error('Ese usuario ya existe');
+    }
+    const inserted = db.prepare(`INSERT INTO content_studio_users
+      (establishment_id, name, business_name, username, password_hash, email, credit_limit,
+       plan_name, monthly_limit, subscription_status, paid_at, paid_until, brand_tone, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', datetime('now', 'localtime'), date('now', 'localtime', ?), 'premium', 'active')`)
+      .run(order.establishment_id, order.customer_name, order.business_name, order.username, order.password_hash,
+        cleanEmail(order.email), order.monthly_limit, order.plan_name, order.monthly_limit, `+${order.duration_days} days`);
+    user = db.prepare('SELECT * FROM content_studio_users WHERE id = ?').get(inserted.lastInsertRowid);
+  }
+  db.prepare(`UPDATE content_studio_plan_orders SET
+    status = 'confirmed', transfer_reference = ?, content_studio_user_id = ?, reviewed_by = ?,
+    reviewed_at = datetime('now', 'localtime') WHERE id = ? AND status = 'pending'`)
+    .run(clean(transferReference, 120), user.id, reviewedBy, order.id);
+  return db.prepare('SELECT * FROM content_studio_users WHERE id = ?').get(user.id);
 }
 
 function transferForOrder(settings, order) {
@@ -233,7 +338,7 @@ async function sendStudioActivationEmail(order, user) {
       <p>Hola ${escapeHtml(order.customer_name)}, tu plan <strong>${escapeHtml(order.plan_name)}</strong> ya está activo.</p>
       <div style="background:#fff;border:1px solid #e4e0d7;border-radius:12px;padding:18px"><p style="margin:0 0 8px"><strong>${Number(order.monthly_limit)} imágenes</strong> disponibles durante ${Number(order.duration_days)} días.</p><p style="margin:0">Usuario: <strong>${escapeHtml(user.username)}</strong></p></div>
       <p style="margin:24px 0"><a href="${appUrl}" style="background:#1d212c;color:#fff;padding:13px 20px;border-radius:10px;text-decoration:none;font-weight:bold">Entrar a Estudios Creativos</a></p>
-      <p style="font-size:12px;color:#777">Por seguridad no enviamos tu contraseña por correo. Usa la que elegiste al solicitar el plan.</p>
+      <p style="font-size:12px;color:#777">Entra con Google o solicita un enlace seguro usando este mismo correo.</p>
     </div>`
   });
   return { sent: true };
@@ -243,13 +348,13 @@ function buildPrompt(body, preset, hasBrandLogo = false) {
   const details = [
     body.product_name && `Optional user clue about what the product is: ${clean(body.product_name, 70)}.`,
     body.product_features && `Optional real characteristics the user wants to highlight: ${clean(body.product_features, 150)}. Never claim anything beyond these details and the visible product.`,
-    body.creative_instruction && `Optional user creative direction: ${clean(body.creative_instruction, 180)}. Follow it only when it fits the visible product and all other instructions.`,
+    body.creative_instruction && `The user explained what they want to achieve with this image: ${clean(body.creative_instruction, 260)}. Translate that goal into the setting, composition, mood and commercial message when it fits the visible product and all other instructions.`,
     body.research_context && `Brief public context found for that clue: ${clean(body.research_context, 500)} Use this only for the campaign concept, setting or tone. Never let it override the visible product.`,
     body.brand_name && !hasBrandLogo && `Brand: ${clean(body.brand_name)}.`,
     body.brand_direction && `Brand art direction: ${clean(body.brand_direction, 220)}.`
   ].filter(Boolean).join(' ');
   const logoInstruction = hasBrandLogo
-    ? `The official brand logo will be composited by the application after this generation. Do not draw, imitate, spell, transform or include any logo or brand mark in the scene. Leave a small, visually calm area near the upper-left edge where the exact official logo can be placed later.`
+    ? `The official brand logo will be composited by the application after this generation. Do not draw, imitate, spell, transform or include any logo or brand mark in the scene. Preserve two or more visually calm negative-space areas near different outer edges so the exact official logo can be placed after generation without covering the product, people, faces or text.`
     : `Do not add a logo, brand name or invented brand mark.`;
   const contactInstruction = body.include_contact
     ? `The application will composite the exact saved WhatsApp and location details after generation. Do not draw, imitate, spell or invent contact information. Keep the lower 12% of the image visually calm, clean and free of faces, products, logos and important text so a professional contact bar can be placed there.`
@@ -266,7 +371,7 @@ function buildPrompt(body, preset, hasBrandLogo = false) {
   const editorialInstruction = preset === PRESETS.editorial
     ? editorialSubjects[body.editorial_subject] || editorialSubjects.female
     : '';
-  const fidelityInstruction = `Treat the source photo as the only authority for the product's geometry and construction. Before composing the scene, visually inventory the exact silhouette, toe, heel, sole, every material panel, texture boundary, overlay, seam, stitching line, stud, strap, handle, pull tab, fastener, closure and hardware visible in the source. Reproduce that inventory on the hero product without simplifying or omitting any item. Never turn a multi-material or decorated product into a plain generic version. Never move, add, remove, enlarge, duplicate or expose a zipper or closure on another side. For a pair of shoes, preserve which side of each shoe faces the camera: a zipper visible only on the inward or rear shoe must stay on that shoe and must not be copied onto the outward or front hero shoe. Keep all decorative panels, textures, studs and diagonal seams intact on both shoes wherever their construction requires them.`;
+  const fidelityInstruction = `Treat the source photo as the only authority for the product's geometry and construction. First identify the uploaded product as the principal object and visually inventory its exact silhouette, aspect ratio, toe, heel, sole, every material panel, texture boundary, overlay, seam, stitching line, stud, strap, handle, pull tab, fastener, closure, label and hardware visible in the source. Reproduce that inventory on the hero product without simplifying or omitting any item. Keep the principal product completely visible with comfortable space around it; never crop, stretch, squash or distort it to fill the canvas. Never turn a multi-material or decorated product into a plain generic version. Never move, add, remove, enlarge, duplicate or expose a zipper or closure on another side. For a pair of shoes, preserve which side of each shoe faces the camera: a zipper visible only on the inward or rear shoe must stay on that shoe and must not be copied onto the outward or front hero shoe. Keep all decorative panels, textures, studs and diagonal seams intact on both shoes wherever their construction requires them. Keep faces, hands, feet, people and animals complete and away from trim edges.`;
   return [
     `The first image is the source-of-truth product photo. Create one original professional commercial image.`,
     preset.direction,
@@ -287,82 +392,67 @@ function dataImageBuffer(value, message) {
   return Buffer.from(encoded, 'base64');
 }
 
-async function logoWithoutFlatBackground(logoBuffer) {
-  const { data, info } = await sharp(logoBuffer).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-  const corners = [
-    0,
-    (info.width - 1) * 4,
-    (info.height - 1) * info.width * 4,
-    ((info.height * info.width) - 1) * 4
-  ];
-  const background = [0, 1, 2].map((channel) => Math.round(corners.reduce((sum, offset) => sum + data[offset + channel], 0) / corners.length));
-  const cornersAgree = corners.every((offset) => Math.max(
-    Math.abs(data[offset] - background[0]),
-    Math.abs(data[offset + 1] - background[1]),
-    Math.abs(data[offset + 2] - background[2])
-  ) < 28);
-  if (!cornersAgree) return logoBuffer;
-
-  let visiblePixels = 0;
-  for (let offset = 0; offset < data.length; offset += 4) {
-    const distance = Math.max(
-      Math.abs(data[offset] - background[0]),
-      Math.abs(data[offset + 1] - background[1]),
-      Math.abs(data[offset + 2] - background[2])
-    );
-    if (distance <= 20) data[offset + 3] = 0;
-    else if (distance < 52) data[offset + 3] = Math.round(data[offset + 3] * ((distance - 20) / 32));
-    if (data[offset + 3] > 12) visiblePixels += 1;
-  }
-  if (visiblePixels < Math.max(1, info.width * info.height * 0.005)) return logoBuffer;
-  return sharp(data, { raw: info }).png().toBuffer();
-}
-
 async function overlayOfficialLogo(imageData, logoData, reserveBottom = false) {
   const source = dataImageBuffer(imageData, 'La imagen generada no se pudo preparar');
   const logoSource = dataImageBuffer(logoData, 'El logo seleccionado no se pudo preparar');
   const metadata = await sharp(source).metadata();
   const width = metadata.width || 1024;
   const height = metadata.height || 1024;
-  const cleanedLogo = await logoWithoutFlatBackground(logoSource);
+  // La marca se compone desde el archivo original. Solo se recorta un borde que
+  // ya sea transparente; nunca se intenta "adivinar" o borrar un fondo opaco,
+  // porque eso cambiaría un logo JPG que fue entregado como parte de la identidad.
+  const cleanedLogo = await sharp(logoSource).ensureAlpha()
+    .trim({ background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toBuffer();
   const cleanedMetadata = await sharp(cleanedLogo).metadata();
   const logoAspect = (cleanedMetadata.width || 1) / Math.max(1, cleanedMetadata.height || 1);
-  const widthRatio = logoAspect >= 2.2 ? 0.27 : logoAspect >= 1.25 ? 0.225 : 0.165;
-  const logo = await sharp(cleanedLogo)
-    .trim({ background: { r: 0, g: 0, b: 0, alpha: 0 } })
-    .resize({
+  const widthRatios = logoAspect >= 2.2 ? [0.30, 0.26, 0.22] : logoAspect >= 1.25 ? [0.25, 0.215, 0.18] : [0.19, 0.165, 0.14];
+  const marginX = Math.max(10, Math.round(width * 0.035));
+  const marginY = Math.max(10, Math.round(height * 0.035));
+  const padding = Math.max(7, Math.round(Math.min(width, height) * 0.009));
+  const verticalAnchors = reserveBottom ? ['top', 'middle'] : ['top', 'middle', 'bottom'];
+  const placements = [];
+  for (const widthRatio of widthRatios) {
+    const logo = await sharp(cleanedLogo).resize({
       width: Math.max(1, Math.round(width * widthRatio)),
-      height: Math.max(1, Math.round(height * 0.14)),
-      fit: 'inside',
-      withoutEnlargement: false
-    })
-    .png()
-    .toBuffer();
-  const renderedLogo = await sharp(logo).metadata();
-  const logoWidth = renderedLogo.width || 1;
-  const logoHeight = renderedLogo.height || 1;
-  const marginX = Math.max(0, Math.round(width * 0.04));
-  const marginY = Math.max(0, Math.round(height * 0.045));
-  const candidates = [
-    { left: marginX, top: marginY },
-    { left: Math.max(0, width - logoWidth - marginX), top: marginY },
-    { left: marginX, top: Math.max(0, height - logoHeight - marginY) },
-    { left: Math.max(0, width - logoWidth - marginX), top: Math.max(0, height - logoHeight - marginY) }
-  ].slice(0, reserveBottom ? 2 : 4);
-  const scored = await Promise.all(candidates.map(async (candidate) => {
-    const regionWidth = Math.max(1, Math.min(width - candidate.left, logoWidth));
-    const regionHeight = Math.max(1, Math.min(height - candidate.top, logoHeight));
-    const stats = await sharp(source).extract({ ...candidate, width: regionWidth, height: regionHeight }).greyscale().stats();
-    const channel = stats.channels[0];
-    return { ...candidate, score: Number(stats.entropy || 0) + Number(channel?.stdev || 0) / 48 };
+      height: Math.max(1, Math.round(height * 0.145)),
+      fit: 'inside', withoutEnlargement: false
+    }).png().toBuffer();
+    const rendered = await sharp(logo).metadata();
+    const logoWidth = rendered.width || 1;
+    const logoHeight = rendered.height || 1;
+    const badgeWidth = Math.min(width - marginX * 2, logoWidth + padding * 2);
+    const badgeHeight = Math.min(height - marginY * 2, logoHeight + padding * 2);
+    const xPositions = [marginX, Math.round((width - badgeWidth) / 2), width - badgeWidth - marginX];
+    const yFor = {
+      top: marginY,
+      middle: Math.round((height - badgeHeight) / 2),
+      bottom: height - badgeHeight - marginY
+    };
+    for (const anchor of verticalAnchors) {
+      for (const left of xPositions) {
+        if (anchor === 'middle' && left === xPositions[1]) continue;
+        placements.push({ logo, logoWidth, logoHeight, badgeWidth, badgeHeight, left, top: yFor[anchor], widthRatio });
+      }
+    }
+  }
+  const maxRatio = Math.max(...widthRatios);
+  const scored = await Promise.all(placements.map(async (candidate) => {
+    const region = await sharp(source).extract({ left: candidate.left, top: candidate.top, width: candidate.badgeWidth, height: candidate.badgeHeight }).greyscale().stats();
+    const channel = region.channels[0] || {};
+    const complexity = Number(region.entropy || 0) * 1.8 + Number(channel.stdev || 0) / 24;
+    const sizePenalty = (maxRatio - candidate.widthRatio) * 7;
+    return { ...candidate, mean: Number(channel.mean || 128), score: complexity + sizePenalty };
   }));
-  const placement = scored.sort((a, b) => a.score - b.score)[0] || candidates[0];
+  const placement = scored.sort((a, b) => a.score - b.score)[0] || placements[0];
+  const radius = Math.max(7, Math.round(placement.badgeHeight * 0.18));
+  const plateColor = placement.mean > 145 ? '#10110f' : '#ffffff';
+  const plateOpacity = placement.mean > 145 ? 0.66 : 0.78;
+  const plate = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${placement.badgeWidth}" height="${placement.badgeHeight}"><rect x="1" y="1" width="${placement.badgeWidth - 2}" height="${placement.badgeHeight - 2}" rx="${radius}" fill="${plateColor}" fill-opacity="${plateOpacity}" stroke="#ffffff" stroke-opacity="0.18"/></svg>`);
   const output = await sharp(source)
-    .composite([{
-      input: logo,
-      left: placement.left,
-      top: placement.top
-    }])
+    .composite([
+      { input: plate, left: placement.left, top: placement.top },
+      { input: placement.logo, left: placement.left + padding, top: placement.top + padding }
+    ])
     .webp({ quality: 94 })
     .toBuffer();
   return `data:image/webp;base64,${output.toString('base64')}`;
@@ -431,22 +521,63 @@ async function defaultGenerate({ images, prompt, size }) {
 
 async function resizeSocialOutput(imageData, format) {
   const source = dataImageBuffer(imageData, 'La imagen generada no se pudo preparar');
-  if (format.id === 'post') {
-    const metadata = await sharp(source).metadata();
-    const sourceWidth = metadata.width || 1024;
-    const sourceHeight = metadata.height || 1536;
-    const finalRatio = format.width / format.height;
-    const cropHeight = Math.min(sourceHeight, Math.round(sourceWidth / finalRatio));
-    const cropTop = Math.max(0, Math.round((sourceHeight - cropHeight) / 2));
-    const output = await sharp(source)
-      .extract({ left: 0, top: cropTop, width: sourceWidth, height: cropHeight })
-      .resize(format.width, format.height, { fit: 'fill' })
-      .webp({ quality: 92 })
-      .toBuffer();
-    return `data:image/webp;base64,${output.toString('base64')}`;
+  const metadata = await sharp(source).metadata();
+  const sourceWidth = metadata.width || 1024;
+  const sourceHeight = metadata.height || 1536;
+  const finalRatio = format.width / format.height;
+  const sourceRatio = sourceWidth / sourceHeight;
+  let crop = { left: 0, top: 0, width: sourceWidth, height: sourceHeight };
+
+  if (Math.abs(sourceRatio - finalRatio) > 0.002) {
+    const previewWidth = Math.min(240, sourceWidth);
+    const previewHeight = Math.max(1, Math.round(sourceHeight * (previewWidth / sourceWidth)));
+    const { data, info } = await sharp(source).resize(previewWidth, previewHeight, { fit: 'fill' }).greyscale().raw().toBuffer({ resolveWithObject: true });
+    const verticalCrop = sourceRatio < finalRatio;
+    const axisLength = verticalCrop ? info.height : info.width;
+    const crossLength = verticalCrop ? info.width : info.height;
+    const targetAxisLength = Math.max(1, Math.round(verticalCrop ? info.width / finalRatio : info.height * finalRatio));
+    const activity = Array.from({ length: axisLength }, (_, axis) => {
+      let total = 0;
+      let totalSquared = 0;
+      let gradient = 0;
+      for (let cross = 0; cross < crossLength; cross += 1) {
+        const index = verticalCrop ? axis * info.width + cross : cross * info.width + axis;
+        const value = data[index];
+        total += value;
+        totalSquared += value * value;
+        if (axis > 0) {
+          const previous = verticalCrop ? (axis - 1) * info.width + cross : cross * info.width + axis - 1;
+          gradient += Math.abs(value - data[previous]);
+        }
+      }
+      const mean = total / crossLength;
+      const deviation = Math.sqrt(Math.max(0, totalSquared / crossLength - mean * mean));
+      return deviation + gradient / crossLength;
+    });
+    const maxOffset = Math.max(0, axisLength - targetAxisLength);
+    let bestOffset = Math.round(maxOffset / 2);
+    let bestScore = Number.POSITIVE_INFINITY;
+    const steps = Math.max(1, Math.min(40, maxOffset));
+    for (let step = 0; step <= steps; step += 1) {
+      const offset = Math.round(maxOffset * step / steps);
+      const before = activity.slice(0, offset).reduce((sum, value) => sum + value, 0);
+      const after = activity.slice(offset + targetAxisLength).reduce((sum, value) => sum + value, 0);
+      const boundary = [...activity.slice(offset, offset + 3), ...activity.slice(Math.max(offset, offset + targetAxisLength - 3), offset + targetAxisLength)].reduce((sum, value) => sum + value, 0);
+      const centerPenalty = Math.abs(offset - maxOffset / 2) * 0.12;
+      const score = before + after + boundary * 1.6 + centerPenalty;
+      if (score < bestScore) { bestScore = score; bestOffset = offset; }
+    }
+    if (verticalCrop) {
+      const cropHeight = Math.min(sourceHeight, Math.round(sourceWidth / finalRatio));
+      crop = { left: 0, top: Math.max(0, Math.min(sourceHeight - cropHeight, Math.round(bestOffset / axisLength * sourceHeight))), width: sourceWidth, height: cropHeight };
+    } else {
+      const cropWidth = Math.min(sourceWidth, Math.round(sourceHeight * finalRatio));
+      crop = { left: Math.max(0, Math.min(sourceWidth - cropWidth, Math.round(bestOffset / axisLength * sourceWidth))), top: 0, width: cropWidth, height: sourceHeight };
+    }
   }
   const output = await sharp(source)
-    .resize(format.width, format.height, { fit: 'cover', position: 'attention' })
+    .extract(crop)
+    .resize(format.width, format.height, { fit: 'fill' })
     .webp({ quality: 92 })
     .toBuffer();
   return `data:image/webp;base64,${output.toString('base64')}`;
@@ -468,11 +599,129 @@ export function registerContentStudioRoutes(app, db, options = {}) {
   const generateImage = options.generateImage || defaultGenerate;
   const researchProduct = options.researchProduct || ((productName) => defaultResearchProduct(db, productName));
 
+  app.get('/api/content-studio/auth/config', (_req, res) => {
+    res.json({
+      google_client_id: process.env.GOOGLE_CLIENT_ID || '',
+      magic_link_available: Boolean(studioTransporter()),
+      app_name: 'Estudios Creativos'
+    });
+  });
+
+  app.post('/api/content-studio/auth/google', async (req, res) => {
+    const establishment = contentStudioEstablishment(db);
+    const credential = clean(req.body.credential, 6000);
+    const clientId = process.env.GOOGLE_CLIENT_ID || '';
+    if (!establishment || !credential || !clientId) {
+      return res.status(400).json({ message: 'El acceso con Google todavía no está configurado' });
+    }
+    try {
+      const ticket = await new OAuth2Client().verifyIdToken({ idToken: credential, audience: clientId });
+      const profile = ticket.getPayload();
+      if (!profile?.sub || !profile.email || profile.email_verified !== true) {
+        return res.status(401).json({ message: 'Google no pudo confirmar este correo' });
+      }
+      const email = cleanEmail(profile.email);
+      const googleSub = clean(profile.sub, 180);
+      let user = db.prepare('SELECT * FROM content_studio_users WHERE establishment_id = ? AND google_sub = ?').get(establishment.id, googleSub)
+        || db.prepare('SELECT * FROM content_studio_users WHERE establishment_id = ? AND LOWER(email) = ?').get(establishment.id, email);
+      if (!user) {
+        const name = clean(profile.name || email.split('@')[0], 100);
+        const inserted = db.prepare(`INSERT INTO content_studio_users
+          (establishment_id, name, business_name, username, password_hash, email, google_sub, avatar_url,
+           credit_limit, plan_name, monthly_limit, subscription_status, brand_tone, status)
+          VALUES (?, ?, '', ?, '', ?, ?, ?, 0, 'Sin plan', 1, 'inactive', 'premium', 'active')`)
+          .run(establishment.id, name, uniqueStudioUsername(db, email), email, googleSub, clean(profile.picture, 1000));
+        user = db.prepare('SELECT * FROM content_studio_users WHERE id = ?').get(inserted.lastInsertRowid);
+      } else {
+        db.prepare(`UPDATE content_studio_users SET
+          email = COALESCE(NULLIF(email, ''), ?), google_sub = COALESCE(NULLIF(google_sub, ''), ?),
+          avatar_url = COALESCE(NULLIF(?, ''), avatar_url), updated_at = datetime('now', 'localtime')
+          WHERE id = ?`).run(email, googleSub, clean(profile.picture, 1000), user.id);
+        user = db.prepare('SELECT * FROM content_studio_users WHERE id = ?').get(user.id);
+      }
+      return res.json(studioLoginResponse(user));
+    } catch (error) {
+      console.error('Google Estudios Creativos:', error.message);
+      return res.status(401).json({ message: 'No se pudo validar la cuenta de Google' });
+    }
+  });
+
+  app.post('/api/content-studio/auth/magic-link', async (req, res) => {
+    const establishment = contentStudioEstablishment(db);
+    const email = cleanEmail(req.body.email);
+    if (!establishment || !validEmail(email)) return res.status(400).json({ message: 'Ingresa un correo válido' });
+    const transporter = studioTransporter();
+    if (!transporter) return res.status(503).json({ message: 'El envío por correo todavía no está configurado' });
+    db.prepare("DELETE FROM content_studio_magic_links WHERE expires_at < datetime('now', 'localtime') OR used_at IS NOT NULL").run();
+    const recent = db.prepare(`SELECT id FROM content_studio_magic_links
+      WHERE establishment_id = ? AND LOWER(email) = ? AND used_at IS NULL
+        AND created_at >= datetime('now', 'localtime', '-2 minutes')`).get(establishment.id, email);
+    const genericMessage = 'Te enviamos un enlace seguro para entrar. Revisa también la carpeta de spam.';
+    if (recent) return res.json({ message: genericMessage });
+
+    const user = db.prepare('SELECT id, name FROM content_studio_users WHERE establishment_id = ? AND LOWER(email) = ? AND status = \'active\'').get(establishment.id, email);
+    const token = crypto.randomBytes(32).toString('hex');
+    const inserted = db.prepare(`INSERT INTO content_studio_magic_links
+      (establishment_id, content_studio_user_id, email, token_hash, expires_at)
+      VALUES (?, ?, ?, ?, datetime('now', 'localtime', '+20 minutes'))`)
+      .run(establishment.id, user?.id || null, email, hashLoginToken(token));
+    const accessUrl = `${studioAppUrl('/ingresar')}?magic=${encodeURIComponent(token)}`;
+    try {
+      await transporter.sendMail({
+        from: process.env.SMTP_FROM || process.env.SMTP_USER,
+        to: email,
+        subject: 'Entra a Estudios Creativos',
+        text: `Entra a Estudios Creativos desde este enlace: ${accessUrl}\n\nEl enlace vence en 20 minutos y solo puede usarse una vez.`,
+        html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;background:#f5f3ed;padding:28px;color:#1a1b18"><div style="background:#181a17;color:#fff;padding:22px;border-radius:14px"><strong style="font-size:22px">Estudios Creativos</strong><p style="margin:7px 0 0;color:#c9c8c1">Tu estudio está listo</p></div><p style="margin:28px 0 10px">Hola${user?.name ? ` ${escapeHtml(user.name)}` : ''},</p><p>Pulsa el botón para entrar de forma segura. No necesitas una contraseña.</p><p style="margin:30px 0"><a href="${accessUrl}" style="display:inline-block;background:#c88743;color:#17120d;padding:14px 22px;border-radius:10px;text-decoration:none;font-weight:700">Entrar a Estudios Creativos</a></p><p style="font-size:12px;color:#777970">Este enlace vence en 20 minutos y solo puede utilizarse una vez. Si no lo solicitaste, puedes ignorar este mensaje.</p></div>`
+      });
+      return res.json({ message: genericMessage });
+    } catch (error) {
+      db.prepare('DELETE FROM content_studio_magic_links WHERE id = ?').run(inserted.lastInsertRowid);
+      console.error('Magic link Estudios Creativos:', error.message);
+      return res.status(502).json({ message: 'No pudimos enviar el correo. Inténtalo nuevamente.' });
+    }
+  });
+
+  app.post('/api/content-studio/auth/magic-link/verify', (req, res) => {
+    const establishment = contentStudioEstablishment(db);
+    const token = clean(req.body.token, 180);
+    if (!establishment || !token) return res.status(400).json({ message: 'El enlace no es válido' });
+    try {
+      const user = db.transaction(() => {
+        const link = db.prepare(`SELECT * FROM content_studio_magic_links
+          WHERE establishment_id = ? AND token_hash = ? AND used_at IS NULL
+            AND expires_at >= datetime('now', 'localtime')`).get(establishment.id, hashLoginToken(token));
+        if (!link) throw new Error('Este enlace venció o ya fue utilizado. Solicita uno nuevo.');
+        const consumed = db.prepare("UPDATE content_studio_magic_links SET used_at = datetime('now', 'localtime') WHERE id = ? AND used_at IS NULL").run(link.id);
+        if (!consumed.changes) throw new Error('Este enlace ya fue utilizado. Solicita uno nuevo.');
+        let account = link.content_studio_user_id
+          ? db.prepare("SELECT * FROM content_studio_users WHERE id = ? AND establishment_id = ? AND status = 'active'").get(link.content_studio_user_id, establishment.id)
+          : db.prepare("SELECT * FROM content_studio_users WHERE establishment_id = ? AND LOWER(email) = ? AND status = 'active'").get(establishment.id, cleanEmail(link.email));
+        if (!account) {
+          const email = cleanEmail(link.email);
+          const name = clean(email.split('@')[0].replace(/[._-]+/g, ' '), 100) || 'Nuevo usuario';
+          const inserted = db.prepare(`INSERT INTO content_studio_users
+            (establishment_id, name, business_name, username, password_hash, email, credit_limit,
+             plan_name, monthly_limit, subscription_status, brand_tone, status)
+            VALUES (?, ?, '', ?, '', ?, 0, 'Sin plan', 1, 'inactive', 'premium', 'active')`)
+            .run(establishment.id, name, uniqueStudioUsername(db, email), email);
+          account = db.prepare('SELECT * FROM content_studio_users WHERE id = ?').get(inserted.lastInsertRowid);
+          db.prepare('UPDATE content_studio_magic_links SET content_studio_user_id = ? WHERE id = ?').run(account.id, link.id);
+        }
+        return account;
+      })();
+      return res.json(studioLoginResponse(user));
+    } catch (error) {
+      return res.status(400).json({ message: error.message });
+    }
+  });
+
   app.get('/api/content-studio/public', (_req, res) => {
     res.json({
       plans: STUDIO_PLANS,
       contact: { phone: '0983763419', phone_display: '098 376 3419', email: studioPaymentSettings(db).email },
-      transfer: studioPaymentSettings(db)
+      transfer: studioPaymentSettings(db),
+      google_client_id: process.env.GOOGLE_CLIENT_ID || ''
     });
   });
 
@@ -505,7 +754,36 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     res.status(201).json({ order, transfer: transferForOrder(studioPaymentSettings(db), order) });
   });
 
+  app.post('/api/content-studio/plan-orders', guard, (req, res) => {
+    if (!req.contentStudioUser) return res.status(403).json({ message: 'Selecciona el usuario que comprará el plan' });
+    const plan = STUDIO_PLANS.find((item) => item.id === req.body.plan_id);
+    if (!plan) return res.status(400).json({ message: 'Selecciona un plan válido' });
+    const user = req.contentStudioUser;
+    const email = cleanEmail(user.email || req.body.email);
+    const customerName = clean(user.name, 100);
+    const businessName = clean(req.body.business_name, 100) || clean(user.business_name, 100) || customerName;
+    const whatsapp = clean(req.body.whatsapp || user.contact_whatsapp, 30).replace(/\D/g, '');
+    if (!validEmail(email)) return res.status(400).json({ message: 'Agrega un correo válido en tu Perfil para solicitar el plan' });
+    if (whatsapp.length < 9) return res.status(400).json({ message: 'Ingresa un número de WhatsApp válido para confirmar tu transferencia' });
+    const pending = db.prepare("SELECT id FROM content_studio_plan_orders WHERE content_studio_user_id = ? AND status = 'pending'").get(user.id);
+    if (pending) return res.status(409).json({ message: 'Ya tienes una transferencia pendiente de confirmación' });
+    const inserted = db.prepare(`INSERT INTO content_studio_plan_orders
+      (establishment_id, content_studio_user_id, customer_name, business_name, whatsapp, email,
+       username, password_hash, plan_id, plan_name, monthly_limit, duration_days, amount, payment_method, payment_provider)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'transfer', 'transfer')`).run(
+      user.establishment_id, user.id, customerName, businessName, whatsapp, email,
+      user.username, user.password_hash || '', plan.id, plan.name, plan.photos, plan.days, plan.price
+    );
+    const orderNumber = `EC-${String(inserted.lastInsertRowid).padStart(6, '0')}`;
+    db.prepare('UPDATE content_studio_plan_orders SET order_number = ? WHERE id = ?').run(orderNumber, inserted.lastInsertRowid);
+    db.prepare("UPDATE content_studio_users SET business_name = ?, contact_whatsapp = ?, email = ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
+      .run(businessName, whatsapp, email, user.id);
+    const order = planOrderRow(db.prepare('SELECT * FROM content_studio_plan_orders WHERE id = ?').get(inserted.lastInsertRowid));
+    res.status(201).json({ order, transfer: transferForOrder(studioPaymentSettings(db), order) });
+  });
+
   app.get('/api/content-studio/bootstrap', guard, (req, res) => {
+    const startedAt = performance.now();
     const establishmentId = req.contentStudioEstablishment.id;
     const establishmentSettings = db.prepare('SELECT * FROM content_studio_settings WHERE establishment_id = ?').get(establishmentId);
     const settings = planSettings(req, establishmentSettings);
@@ -514,18 +792,32 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     const periodCondition = req.contentStudioUser ? 'AND created_at >= ?' : "AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')";
     const periodParams = req.contentStudioUser ? [req.contentStudioUser.paid_at || req.contentStudioUser.created_at || '1970-01-01'] : [];
     const usage = db.prepare(`SELECT COUNT(*) AS total FROM content_studio_generations WHERE establishment_id = ? ${userCondition} AND status = 'completed' ${periodCondition}`).get(establishmentId, ...userParams, ...periodParams).total;
-    const logoCondition = req.contentStudioUser ? 'AND content_studio_user_id = ?' : 'AND content_studio_user_id IS NULL';
-    const logoParams = req.contentStudioUser ? [req.contentStudioUser.id] : [];
-    const logos = db.prepare(`SELECT id, name, image_data, created_at FROM content_studio_logos WHERE establishment_id = ? ${logoCondition} ORDER BY created_at ASC, id ASC`).all(establishmentId, ...logoParams);
-    const generations = db.prepare(`SELECT * FROM content_studio_generations WHERE establishment_id = ? ${userCondition} AND deleted_at IS NULL ORDER BY created_at DESC, id DESC LIMIT 24`).all(establishmentId, ...userParams).map(generationRow);
+    const pendingGenerations = db.prepare(`SELECT id, establishment_id, content_studio_user_id, preset, product_name,
+      brand_name, mood, aspect_ratio, status, error_message, created_at
+      FROM content_studio_generations WHERE establishment_id = ? ${userCondition}
+        AND deleted_at IS NULL AND status = 'failed' AND error_message = '__processing__'
+        AND created_at >= datetime('now', '-30 minutes') ORDER BY created_at DESC, id DESC LIMIT 4`)
+      .all(establishmentId, ...userParams).map(generationRow);
     const subscriptionActive = activeSubscription(req.contentStudioUser);
+    const creditLimit = Math.max(0, Number(settings?.monthly_limit || 0));
+    res.setHeader('Server-Timing', `studio-bootstrap;dur=${(performance.now() - startedAt).toFixed(1)}`);
     res.json({
       establishment: { id: establishmentId, name: req.contentStudioEstablishment.display_name || req.contentStudioEstablishment.name },
-      settings, usage, generation_available: subscriptionActive && (Boolean(process.env.OPENAI_API_KEY) || Boolean(options.generateImage)),
+      settings, usage,
+      available_credits: Math.max(0, creditLimit - Number(usage || 0)),
+      generation_available: subscriptionActive && creditLimit > Number(usage || 0) && (Boolean(process.env.OPENAI_API_KEY) || Boolean(options.generateImage)),
       can_manage_references: false,
       can_manage_logos: true,
       subscription: req.contentStudioUser ? { status: req.contentStudioUser.subscription_status, active: subscriptionActive, paid_until: req.contentStudioUser.paid_until } : { status: 'internal', active: true, paid_until: null },
-      logos,
+      account: req.contentStudioUser ? studioUserPublic(req.contentStudioUser) : {
+        id: null, username: req.user?.username || '', role: req.user?.role || 'admin',
+        name: req.user?.name || req.user?.username || 'Administrador', email: '', avatar_url: '',
+        business_name: settings?.brand_name || '', auth_methods: ['password'],
+        establishment_id: establishmentId, establishment_name: 'ESTUDIOS CREATIVOS',
+        establishment_display_name: 'Estudios Creativos', establishment_module_type: 'content_studio'
+      },
+      plans: STUDIO_PLANS,
+      transfer: studioPaymentSettings(db),
       social_formats: Object.entries(SOCIAL_FORMATS).map(([id, item]) => ({ id, label: item.label, width: item.width, height: item.height })),
       social_styles: [
         { id: 'editorial', name: 'Editorial de moda', description: 'Elegante, con composición de revista y detalles visuales.' },
@@ -533,10 +825,62 @@ export function registerContentStudioRoutes(app, db, options = {}) {
         { id: 'product', name: 'Producto y beneficios', description: 'Producto protagonista con mensajes comerciales breves.' }
       ],
       presets: Object.entries(PRESETS).map(([id, item]) => ({ id, name: item.name, description: item.description, aspect_ratio: item.size })),
-      references: [], generations,
-      users: req.contentStudioUser ? [] : listStudioUsers(db, establishmentId),
-      plan_orders: req.contentStudioUser ? [] : listPlanOrders(db, establishmentId)
+      references: [], logos: [], generations: pendingGenerations, users: [], plan_orders: []
     });
+  });
+
+  app.get('/api/content-studio/logos', guard, (req, res) => {
+    const condition = req.contentStudioUser ? 'AND content_studio_user_id = ?' : 'AND content_studio_user_id IS NULL';
+    const params = req.contentStudioUser ? [req.contentStudioUser.id] : [];
+    const logos = db.prepare(`SELECT id, name, image_data, created_at FROM content_studio_logos
+      WHERE establishment_id = ? ${condition} ORDER BY created_at ASC, id ASC`)
+      .all(req.contentStudioEstablishment.id, ...params);
+    res.json({ logos });
+  });
+
+  app.get('/api/content-studio/generations', guard, (req, res) => {
+    const condition = req.contentStudioUser ? 'AND content_studio_user_id = ?' : 'AND content_studio_user_id IS NULL';
+    const params = req.contentStudioUser ? [req.contentStudioUser.id] : [];
+    const generations = db.prepare(`SELECT * FROM content_studio_generations
+      WHERE establishment_id = ? ${condition} AND deleted_at IS NULL
+      ORDER BY created_at DESC, id DESC LIMIT 24`).all(req.contentStudioEstablishment.id, ...params).map(generationRow);
+    res.json({ generations });
+  });
+
+  app.get('/api/content-studio/admin', guard, (req, res) => {
+    if (req.contentStudioUser) return res.status(403).json({ message: 'Solo el administrador puede ver las cuentas' });
+    res.json({
+      users: listStudioUsers(db, req.contentStudioEstablishment.id),
+      plan_orders: listPlanOrders(db, req.contentStudioEstablishment.id)
+    });
+  });
+
+  app.put('/api/content-studio/me', guard, (req, res) => {
+    if (!req.contentStudioUser) return res.status(403).json({ message: 'Este perfil se administra desde la cuenta principal' });
+    const name = clean(req.body.name, 100) || req.contentStudioUser.name;
+    const email = cleanEmail(req.body.email || req.contentStudioUser.email);
+    if (email && !validEmail(email)) return res.status(400).json({ message: 'Ingresa un correo válido' });
+    const duplicate = email && db.prepare('SELECT id FROM content_studio_users WHERE LOWER(email) = ? AND id != ?').get(email, req.contentStudioUser.id);
+    if (duplicate) return res.status(409).json({ message: 'Ese correo ya pertenece a otra cuenta' });
+    db.prepare("UPDATE content_studio_users SET name = ?, email = ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
+      .run(name, email || null, req.contentStudioUser.id);
+    const updated = db.prepare('SELECT * FROM content_studio_users WHERE id = ?').get(req.contentStudioUser.id);
+    res.json({ user: studioUserPublic(updated) });
+  });
+
+  app.put('/api/content-studio/me/password', guard, (req, res) => {
+    if (!req.contentStudioUser || !String(req.contentStudioUser.password_hash || '').startsWith('scrypt$')) {
+      return res.status(409).json({ message: 'Tu cuenta entra con Google o enlace por correo y no utiliza contraseña' });
+    }
+    const currentPassword = String(req.body.current_password || '');
+    const nextPassword = String(req.body.new_password || '');
+    if (!verifyContentStudioPassword(currentPassword, req.contentStudioUser.password_hash)) {
+      return res.status(401).json({ message: 'La contraseña actual no es correcta' });
+    }
+    if (nextPassword.length < 8) return res.status(400).json({ message: 'La nueva contraseña debe tener al menos 8 caracteres' });
+    db.prepare("UPDATE content_studio_users SET password_hash = ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
+      .run(hashContentStudioPassword(nextPassword), req.contentStudioUser.id);
+    res.json({ ok: true });
   });
 
   app.get('/api/content-studio/users', guard, (req, res) => {
@@ -559,9 +903,9 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     }
     const result = db.prepare(
       `INSERT INTO content_studio_users
-       (establishment_id, name, business_name, username, password_hash, plan_name, monthly_limit, subscription_status, paid_at, paid_until, brand_tone, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'paid', date('now', 'localtime'), date('now', 'localtime', ?), 'premium', 'active')`
-    ).run(req.contentStudioEstablishment.id, name, businessName, username, hashContentStudioPassword(password), planName, monthlyLimit, `+${durationDays} days`);
+       (establishment_id, name, business_name, username, password_hash, credit_limit, plan_name, monthly_limit, subscription_status, paid_at, paid_until, brand_tone, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'paid', datetime('now', 'localtime'), date('now', 'localtime', ?), 'premium', 'active')`
+    ).run(req.contentStudioEstablishment.id, name, businessName, username, hashContentStudioPassword(password), monthlyLimit, planName, monthlyLimit, `+${durationDays} days`);
     res.status(201).json(db.prepare(
       `SELECT id, name, business_name, username, plan_name, monthly_limit, subscription_status, paid_at, paid_until, status, created_at
        FROM content_studio_users WHERE id = ?`
@@ -583,13 +927,14 @@ export function registerContentStudioRoutes(app, db, options = {}) {
       ? db.prepare("SELECT date('now', 'localtime', ?) AS value").get(`+${renewDays} days`).value
       : (/^\d{4}-\d{2}-\d{2}$/.test(String(req.body.paid_until || '')) ? req.body.paid_until : current.paid_until);
     db.prepare(`UPDATE content_studio_users SET
-      name = ?, business_name = ?, plan_name = ?, monthly_limit = ?, subscription_status = ?,
-      paid_at = CASE WHEN ? > 0 THEN date('now', 'localtime') ELSE paid_at END,
+      name = ?, business_name = ?, plan_name = ?, monthly_limit = ?, credit_limit = ?, subscription_status = ?,
+       paid_at = CASE WHEN ? > 0 THEN datetime('now', 'localtime') ELSE paid_at END,
       paid_until = ?, status = ?, password_hash = ?, updated_at = datetime('now', 'localtime')
       WHERE id = ? AND establishment_id = ?`).run(
       clean(req.body.name, 100) || current.name,
       clean(req.body.business_name, 100) || current.business_name,
       clean(req.body.plan_name, 60) || current.plan_name,
+      monthlyLimit,
       monthlyLimit,
       subscriptionStatus,
       renewDays,
@@ -609,16 +954,8 @@ export function registerContentStudioRoutes(app, db, options = {}) {
         const order = db.prepare("SELECT * FROM content_studio_plan_orders WHERE id = ? AND establishment_id = ? AND status = 'pending'")
           .get(req.params.id, req.contentStudioEstablishment.id);
         if (!order) throw new Error('La solicitud ya fue procesada o no existe');
-        if (db.prepare('SELECT id FROM content_studio_users WHERE LOWER(username) = LOWER(?)').get(order.username)) throw new Error('Ese usuario ya existe');
-        const user = db.prepare(`INSERT INTO content_studio_users
-          (establishment_id, name, business_name, username, password_hash, plan_name, monthly_limit, subscription_status, paid_at, paid_until, brand_tone, status)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 'paid', date('now', 'localtime'), date('now', 'localtime', ?), 'premium', 'active')`).run(
-          order.establishment_id, order.customer_name, order.business_name, order.username, order.password_hash,
-          order.plan_name, order.monthly_limit, `+${order.duration_days} days`
-        );
-        db.prepare(`UPDATE content_studio_plan_orders SET status = 'confirmed', transfer_reference = ?, content_studio_user_id = ?, reviewed_by = ?, reviewed_at = datetime('now', 'localtime') WHERE id = ?`)
-          .run(clean(req.body.reference, 120), user.lastInsertRowid, req.user.username || req.user.role, order.id);
-        return { userId: user.lastInsertRowid, orderId: order.id };
+        const user = activateStudioPlan(db, order, req.user.username || req.user.role, req.body.reference);
+        return { userId: user.id, orderId: order.id };
       })();
       const order = planOrderRow(db.prepare('SELECT * FROM content_studio_plan_orders WHERE id = ?').get(result.orderId));
       const user = listStudioUsers(db, req.contentStudioEstablishment.id).find((item) => item.id === result.userId);
@@ -695,7 +1032,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     const productImage = String(req.body.product_image || '');
     const productName = clean(req.body.product_name, 70);
     const productFeatures = clean(req.body.product_features, 150);
-    const creativeInstruction = clean(req.body.creative_instruction, 180);
+    const creativeInstruction = clean(req.body.creative_instruction, 260);
     const editorialSubject = ['female', 'male', 'animal'].includes(req.body.editorial_subject) ? req.body.editorial_subject : 'female';
     const preset = PRESETS[req.body.preset];
     const logoId = Number(req.body.logo_id || 0);
@@ -712,7 +1049,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     const establishmentSettings = db.prepare('SELECT * FROM content_studio_settings WHERE establishment_id = ?').get(req.contentStudioEstablishment.id);
     const settings = planSettings(req, establishmentSettings);
     const includeContact = req.body.include_contact === true && Boolean(settings.contact_whatsapp || settings.contact_location);
-    if (!activeSubscription(req.contentStudioUser)) return res.status(403).json({ message: 'Tu plan no está activo. Contacta al administrador para renovarlo.' });
+    if (!activeSubscription(req.contentStudioUser)) return res.status(403).json({ code: 'PLAN_REQUIRED', message: 'Elige un plan para comenzar a crear.' });
     const studioUserId = req.contentStudioUser?.id || null;
     const userCondition = studioUserId ? 'AND content_studio_user_id = ?' : 'AND content_studio_user_id IS NULL';
     const userParams = studioUserId ? [studioUserId] : [];
@@ -730,7 +1067,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
         .run(req.contentStudioEstablishment.id, studioUserId, req.body.preset, productName, logo?.name || '', '', '', '', req.body.preset === 'social' ? clean(req.body.social_style, 40) || 'editorial' : req.body.preset === 'editorial' ? editorialSubject : 'light', outputRatio, '[]', req.user.username || req.user.role);
       return inserted.lastInsertRowid;
     })();
-    if (!reservation) return res.status(429).json({ message: 'Se alcanzó el límite mensual del plan' });
+    if (!reservation) return res.status(429).json({ code: 'CREDITS_EXHAUSTED', message: 'Tus creaciones disponibles se terminaron. Elige un plan para continuar.' });
     const queued = generationRow(db.prepare('SELECT * FROM content_studio_generations WHERE id = ?').get(reservation));
     res.status(202).json({ generation: queued, usage: Number(db.prepare(`SELECT COUNT(*) AS total FROM content_studio_generations WHERE establishment_id = ? ${userCondition} AND status = 'completed' ${periodCondition}`).get(req.contentStudioEstablishment.id, ...userParams, ...periodParams).total), monthly_limit: settings.monthly_limit });
 
@@ -788,4 +1125,4 @@ export function registerContentStudioRoutes(app, db, options = {}) {
   });
 }
 
-export { PRESETS, buildPrompt, overlayContactDetails, overlayOfficialLogo };
+export { PRESETS, buildPrompt, overlayContactDetails, overlayOfficialLogo, resizeSocialOutput };

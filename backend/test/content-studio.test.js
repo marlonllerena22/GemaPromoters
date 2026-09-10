@@ -5,10 +5,12 @@ import express from 'express';
 import sharp from 'sharp';
 import { createToken } from '../src/auth.js';
 import { initContentStudioDb, verifyContentStudioPassword } from '../src/content-studio-db.js';
-import { buildPrompt, overlayContactDetails, overlayOfficialLogo, PRESETS, registerContentStudioRoutes } from '../src/content-studio-routes.js';
+import crypto from 'node:crypto';
+import { buildPrompt, overlayContactDetails, overlayOfficialLogo, PRESETS, registerContentStudioRoutes, resizeSocialOutput } from '../src/content-studio-routes.js';
 
 process.env.JWT_SECRET = 'content-studio-test-secret';
-const sampleImage = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEElEQVR4nGM42Z0NRwzEcQDckhvxhhMR2AAAAABJRU5ErkJggg==';
+const sampleImageBuffer = await sharp({ create: { width: 180, height: 220, channels: 3, background: '#9a6245' } }).png().toBuffer();
+const sampleImage = `data:image/png;base64,${sampleImageBuffer.toString('base64')}`;
 
 function fixture() {
   const db = new Database(':memory:');
@@ -24,7 +26,7 @@ function fixture() {
   initContentStudioDb(db);
   db.prepare("INSERT INTO content_studio_settings (establishment_id, plan_name, monthly_limit, brand_name) VALUES (1, 'Prueba', 2, 'Marca Uno')").run();
   db.prepare("INSERT INTO content_studio_settings (establishment_id, plan_name, monthly_limit, brand_name) VALUES (2, 'Prueba', 2, 'Marca Dos')").run();
-  db.prepare("INSERT INTO content_studio_users (id, establishment_id, name, business_name, username, password_hash, plan_name, monthly_limit, subscription_status, paid_until, status) VALUES (1, 1, 'Cliente', 'Zapatería Demo', 'cliente.demo', 'hash', 'Profesional', 80, 'paid', '2099-12-31', 'active')").run();
+  db.prepare("INSERT INTO content_studio_users (id, establishment_id, name, business_name, username, password_hash, credit_limit, plan_name, monthly_limit, subscription_status, paid_until, status) VALUES (1, 1, 'Cliente', 'Zapatería Demo', 'cliente.demo', 'hash', 80, 'Profesional', 80, 'paid', '2099-12-31', 'active')").run();
   db.prepare("INSERT INTO content_studio_logos (id, establishment_id, content_studio_user_id, name, image_data) VALUES (1, 1, NULL, 'Marjorie Botas', ?), (2, 1, NULL, 'Sebastian''s', ?), (3, 1, 1, 'Marjorie Botas', ?), (4, 1, 1, 'Sebastian''s', ?)").run(sampleImage, sampleImage, sampleImage, sampleImage);
   const calls = [];
   const researchCalls = [];
@@ -88,11 +90,14 @@ test('legacy logos remain available to existing users while future accounts star
   db.prepare("INSERT INTO content_studio_logos (establishment_id, name, image_data) VALUES (1, 'Logo anterior', ?)").run(sampleImage);
   initContentStudioDb(db);
   assert.equal(db.prepare('SELECT COUNT(*) AS total FROM content_studio_logos WHERE content_studio_user_id = 1').get().total, 1);
+  assert.equal(db.prepare('SELECT credit_limit FROM content_studio_users WHERE id = 1').get().credit_limit, 80);
   assert.equal(db.prepare('SELECT user_logos_isolated FROM content_studio_settings WHERE establishment_id = 1').get().user_logos_isolated, 1);
   initContentStudioDb(db);
   assert.equal(db.prepare('SELECT COUNT(*) AS total FROM content_studio_logos WHERE content_studio_user_id = 1').get().total, 1);
   db.prepare("INSERT INTO content_studio_users (establishment_id, name, business_name, username, password_hash) VALUES (1, 'Nuevo', 'Nuevo', 'nuevo', 'hash')").run();
   assert.equal(db.prepare("SELECT COUNT(*) AS total FROM content_studio_logos WHERE content_studio_user_id = (SELECT id FROM content_studio_users WHERE username = 'nuevo')").get().total, 0);
+  assert.equal(db.prepare("SELECT credit_limit FROM content_studio_users WHERE username = 'nuevo'").get().credit_limit, 0);
+  assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'content_studio_payment_events'").get());
   db.close();
 });
 
@@ -120,10 +125,10 @@ test('prompt accepts any product, adapts the editorial model and prepares social
   assert.match(catalog, /textured panels, material changes, overlays, diagonal seams/i);
   assert.match(catalog, /every other non-footwear product.+never duplicate it/i);
   assert.match(story, /tall 9:16 story/i);
-  assert.match(benefits, /central 1024 × 1280 area is the exact final canvas/i);
+  assert.match(benefits, /central 1024 × 1280 area is the exact final artwork/i);
   assert.match(story, /witty product-specific Spanish concept/i);
   assert.match(story, /Optional real characteristics the user wants to highlight/i);
-  assert.match(story, /Optional user creative direction/i);
+  assert.match(story, /The user explained what they want to achieve with this image/i);
   assert.match(benefits, /two or three short Spanish benefit callouts/i);
   assert.match(story, /Do not add a logo/i);
 });
@@ -145,7 +150,9 @@ test('a paid client gets its own plan, usage, history and brand management', asy
   assert.deepEqual(bootstrap.data.users, []);
   assert.equal((await request('/users', { token: clientToken })).status, 403);
 
-  assert.equal(bootstrap.data.logos.length, 2);
+  assert.equal(bootstrap.data.logos.length, 0);
+  const initialLogos = await request('/logos', { token: clientToken });
+  assert.equal(initialLogos.data.logos.length, 2);
   assert.equal(bootstrap.data.can_manage_logos, true);
   const clientLogo = await request('/logos', { token: clientToken, method: 'POST', body: JSON.stringify({ name: 'Marca del cliente', image: sampleImage }) });
   assert.equal(clientLogo.status, 201);
@@ -173,7 +180,9 @@ test('a paid client gets its own plan, usage, history and brand management', asy
   const adminBootstrap = await request('/bootstrap');
   assert.equal(adminBootstrap.data.generations.length, 0);
   const clientBootstrap = await request('/bootstrap', { token: clientToken });
-  assert.equal(clientBootstrap.data.generations.length, 2);
+  assert.equal(clientBootstrap.data.generations.length, 0);
+  const clientHistory = await request('/generations', { token: clientToken });
+  assert.equal(clientHistory.data.generations.length, 2);
   assert.equal(clientBootstrap.data.usage, 2);
 });
 
@@ -241,6 +250,7 @@ test('logos, exact social dimensions, history, limits and business isolation wor
   });
   assert.equal(first.status, 202);
   const firstCompleted = await waitForGeneration(first.data.generation.id);
+  assert.equal(firstCompleted.data.generation.status, 'completed');
   assert.equal(firstCompleted.data.usage, 1);
   assert.equal(calls[0].images.length, 1);
   assert.match(calls[0].prompt, /believable animal model/i);
@@ -263,14 +273,68 @@ test('logos, exact social dimensions, history, limits and business isolation wor
   assert.equal((await request(`/generations/${first.data.generation.id}`, { method: 'DELETE' })).status, 200);
   const bootstrap = await request('/bootstrap');
   assert.equal(bootstrap.data.usage, 2);
-  assert.equal(bootstrap.data.generations.length, 1);
-  assert.equal(bootstrap.data.logos.length, 2);
+  assert.equal(bootstrap.data.generations.length, 0);
+  assert.equal(bootstrap.data.logos.length, 0);
+  assert.equal((await request('/generations')).data.generations.length, 1);
+  assert.equal((await request('/logos')).data.logos.length, 2);
 
   const wrongScope = await request('/bootstrap?establishment_id=3', { token: supreme });
   assert.equal(wrongScope.status, 403);
   const otherScope = await request('/bootstrap?establishment_id=2', { token: supreme });
   assert.equal(otherScope.status, 200);
-  assert.equal(otherScope.data.logos.length, 1);
+  assert.equal(otherScope.data.logos.length, 0);
+  assert.equal((await request('/logos?establishment_id=2', { token: supreme })).data.logos.length, 1);
+});
+
+test('a verified magic link creates a zero-credit account once and generation routes it to a plan', async (t) => {
+  const { db, server, request } = fixture();
+  t.after(() => { server.close(); db.close(); });
+  const token = 'one-use-login-token';
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+  db.prepare(`INSERT INTO content_studio_magic_links
+    (establishment_id, email, token_hash, expires_at) VALUES (1, 'nuevo@estudio.test', ?, datetime('now', '+20 minutes'))`).run(tokenHash);
+
+  const verified = await request('/auth/magic-link/verify', { method: 'POST', body: JSON.stringify({ token }) });
+  assert.equal(verified.status, 200);
+  assert.equal(verified.data.user.email, 'nuevo@estudio.test');
+  assert.deepEqual(verified.data.user.auth_methods, ['magic_link']);
+  const account = db.prepare("SELECT * FROM content_studio_users WHERE email = 'nuevo@estudio.test'").get();
+  assert.equal(account.credit_limit, 0);
+  assert.equal(account.subscription_status, 'inactive');
+  assert.equal(db.prepare('SELECT COUNT(*) AS total FROM content_studio_logos WHERE content_studio_user_id = ?').get(account.id).total, 0);
+
+  const reused = await request('/auth/magic-link/verify', { method: 'POST', body: JSON.stringify({ token }) });
+  assert.equal(reused.status, 400);
+  const newUserToken = verified.data.token;
+  const bootstrap = await request('/bootstrap', { token: newUserToken });
+  assert.equal(bootstrap.data.available_credits, 0);
+  assert.equal(bootstrap.data.subscription.active, false);
+  const generation = await request('/generate', { token: newUserToken, method: 'POST', body: JSON.stringify({ preset: 'catalog', logo_id: 'none', product_image: sampleImage }) });
+  assert.equal(generation.status, 403);
+  assert.equal(generation.data.code, 'PLAN_REQUIRED');
+
+  const order = await request('/plan-orders', { token: newUserToken, method: 'POST', body: JSON.stringify({ plan_id: 'emprendedor', business_name: 'Negocio Nuevo', whatsapp: '0981112233' }) });
+  assert.equal(order.status, 201);
+  assert.equal(order.data.order.content_studio_user_id, account.id);
+  const confirmed = await request(`/plan-orders/${order.data.order.id}/confirm`, { method: 'POST', body: JSON.stringify({ reference: 'BANCO-25' }) });
+  assert.equal(confirmed.status, 200);
+  const active = await request('/bootstrap', { token: newUserToken });
+  assert.equal(active.data.subscription.active, true);
+  assert.equal(active.data.available_credits, 25);
+});
+
+test('social output is generated at the requested final dimensions without blur padding', async () => {
+  const source = await sharp({ create: { width: 1024, height: 1536, channels: 3, background: '#eee8df' } })
+    .composite([{ input: Buffer.from('<svg width="1024" height="1536"><rect x="190" y="240" width="644" height="1056" rx="80" fill="#713e2b"/></svg>') }])
+    .png().toBuffer();
+  for (const format of [{ width: 1080, height: 1350 }, { width: 1080, height: 1920 }]) {
+    const result = await resizeSocialOutput(`data:image/png;base64,${source.toString('base64')}`, format);
+    const buffer = Buffer.from(result.split(',')[1], 'base64');
+    const metadata = await sharp(buffer).metadata();
+    assert.equal(metadata.width, format.width);
+    assert.equal(metadata.height, format.height);
+    assert.equal(metadata.format, 'webp');
+  }
 });
 
 test('the official logo is composited after generation without changing the canvas proportions', async () => {

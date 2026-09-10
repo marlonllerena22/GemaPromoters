@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   BadgeCheck,
@@ -38,8 +38,9 @@ import RenjiApp, { RenjiPublicRegistration } from './RenjiApp.jsx';
 import LocalAttendancePage from './LocalAttendancePage.jsx';
 import ProTicketsApp, { ProTicketsPublicSite } from './ProTicketsApp.jsx';
 import { MarjoriePromoterApp, MarjoriePromotersAdmin, MarjorieReferralPage, MarjorieRegistration } from './MarjoriePromotersApp.jsx';
-import ContentStudioApp from './ContentStudioApp.jsx';
-import ContentStudioLanding from './ContentStudioLanding.jsx';
+const ContentStudioApp = lazy(() => import('./ContentStudioApp.jsx'));
+const ContentStudioLanding = lazy(() => import('./ContentStudioLanding.jsx'));
+const ContentStudioAccess = lazy(() => import('./ContentStudioAccess.jsx'));
 import './styles.css';
 
 const emptyPromoter = {
@@ -838,7 +839,18 @@ function App() {
   const isStudioDomain = ['estudioscreativos.com', 'www.estudioscreativos.com'].includes(window.location.hostname.toLowerCase());
 
   if (pathname === '/estudio-creativo' || (isStudioDomain && pathname === '/')) {
-    return <ContentStudioLanding />;
+    return <Suspense fallback={<div className="studio-route-loading"/>}><ContentStudioLanding /></Suspense>;
+  }
+
+  if (pathname === '/ingresar') {
+    const isStudioUser = user?.establishment_module_type === 'content_studio' || String(user?.establishment_name || '').toUpperCase() === 'ESTUDIOS CREATIVOS';
+    if (token && isStudioUser) {
+      return <Suspense fallback={<div className="studio-route-loading"/>}><ContentStudioApp user={user} onLogout={() => {
+        window.google?.accounts?.id?.disableAutoSelect?.();
+        clearToken(); saveToken(null); saveUser(null);
+      }} /></Suspense>;
+    }
+    return <Suspense fallback={<div className="studio-route-loading"/>}><ContentStudioAccess onAuthenticated={(nextToken, nextUser) => { saveToken(nextToken); saveUser(nextUser); }} /></Suspense>;
   }
 
   if (window.location.pathname === '/tickets' || window.location.pathname.startsWith('/tickets/')) {
@@ -938,11 +950,11 @@ function App() {
     String(user?.establishment_name || '').toUpperCase() === 'ESTUDIOS CREATIVOS';
 
   if (isContentStudioSession) {
-    return <ContentStudioApp user={user} onLogout={() => {
+    return <Suspense fallback={<div className="studio-route-loading"/>}><ContentStudioApp user={user} onLogout={() => {
       clearToken();
       saveToken(null);
       saveUser(null);
-    }} />;
+    }} /></Suspense>;
   }
 
   return <AdminApp user={user} onLogout={() => {

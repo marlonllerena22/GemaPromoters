@@ -65,6 +65,10 @@ export function initContentStudioDb(db) {
       business_name TEXT NOT NULL,
       username TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
+      email TEXT,
+      google_sub TEXT,
+      avatar_url TEXT,
+      credit_limit INTEGER NOT NULL DEFAULT 0 CHECK (credit_limit >= 0),
       plan_name TEXT NOT NULL DEFAULT 'Profesional',
       monthly_limit INTEGER NOT NULL DEFAULT 80 CHECK (monthly_limit >= 1),
       subscription_status TEXT NOT NULL DEFAULT 'inactive' CHECK (subscription_status IN ('paid', 'trial', 'inactive')),
@@ -133,6 +137,9 @@ export function initContentStudioDb(db) {
       content_studio_user_id INTEGER,
       reviewed_by TEXT,
       reviewed_at TEXT,
+      payment_provider TEXT NOT NULL DEFAULT 'transfer',
+      provider_transaction_id TEXT,
+      provider_payload_json TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       FOREIGN KEY (establishment_id) REFERENCES establishments(id),
       FOREIGN KEY (content_studio_user_id) REFERENCES content_studio_users(id)
@@ -147,6 +154,35 @@ export function initContentStudioDb(db) {
       context TEXT NOT NULL,
       expires_at TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+
+    CREATE TABLE IF NOT EXISTS content_studio_magic_links (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      content_studio_user_id INTEGER,
+      email TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (content_studio_user_id) REFERENCES content_studio_users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_content_studio_magic_email
+      ON content_studio_magic_links(establishment_id, email, created_at);
+
+    CREATE TABLE IF NOT EXISTS content_studio_payment_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      provider TEXT NOT NULL,
+      provider_event_id TEXT NOT NULL,
+      plan_order_id INTEGER,
+      payload_json TEXT,
+      status TEXT NOT NULL DEFAULT 'received',
+      processed_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      UNIQUE(provider, provider_event_id),
+      FOREIGN KEY (plan_order_id) REFERENCES content_studio_plan_orders(id)
     );
   `);
   const generationColumns = db.prepare('PRAGMA table_info(content_studio_generations)').all();
@@ -170,11 +206,38 @@ export function initContentStudioDb(db) {
     db.exec('ALTER TABLE content_studio_settings ADD COLUMN contact_location TEXT');
   }
   const userColumns = db.prepare('PRAGMA table_info(content_studio_users)').all();
+  const creditLimitWasMissing = !userColumns.some((column) => column.name === 'credit_limit');
+  if (!userColumns.some((column) => column.name === 'email')) {
+    db.exec('ALTER TABLE content_studio_users ADD COLUMN email TEXT');
+  }
+  if (!userColumns.some((column) => column.name === 'google_sub')) {
+    db.exec('ALTER TABLE content_studio_users ADD COLUMN google_sub TEXT');
+  }
+  if (!userColumns.some((column) => column.name === 'avatar_url')) {
+    db.exec('ALTER TABLE content_studio_users ADD COLUMN avatar_url TEXT');
+  }
+  if (creditLimitWasMissing) {
+    db.exec('ALTER TABLE content_studio_users ADD COLUMN credit_limit INTEGER NOT NULL DEFAULT 0 CHECK (credit_limit >= 0)');
+    db.exec('UPDATE content_studio_users SET credit_limit = monthly_limit');
+  }
   if (!userColumns.some((column) => column.name === 'contact_whatsapp')) {
     db.exec('ALTER TABLE content_studio_users ADD COLUMN contact_whatsapp TEXT');
   }
   if (!userColumns.some((column) => column.name === 'contact_location')) {
     db.exec('ALTER TABLE content_studio_users ADD COLUMN contact_location TEXT');
+  }
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_content_studio_users_email ON content_studio_users(LOWER(email)) WHERE email IS NOT NULL AND email != ''");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_content_studio_users_google_sub ON content_studio_users(google_sub) WHERE google_sub IS NOT NULL AND google_sub != ''");
+
+  const orderColumns = db.prepare('PRAGMA table_info(content_studio_plan_orders)').all();
+  if (!orderColumns.some((column) => column.name === 'payment_provider')) {
+    db.exec("ALTER TABLE content_studio_plan_orders ADD COLUMN payment_provider TEXT NOT NULL DEFAULT 'transfer'");
+  }
+  if (!orderColumns.some((column) => column.name === 'provider_transaction_id')) {
+    db.exec('ALTER TABLE content_studio_plan_orders ADD COLUMN provider_transaction_id TEXT');
+  }
+  if (!orderColumns.some((column) => column.name === 'provider_payload_json')) {
+    db.exec('ALTER TABLE content_studio_plan_orders ADD COLUMN provider_payload_json TEXT');
   }
   const logoColumns = db.prepare('PRAGMA table_info(content_studio_logos)').all();
   if (!logoColumns.some((column) => column.name === 'content_studio_user_id')) {
@@ -253,8 +316,8 @@ export function ensureContentStudioEstablishment(db) {
   if (!existingDemo) {
     db.prepare(
       `INSERT INTO content_studio_users
-       (establishment_id, name, business_name, username, password_hash, plan_name, monthly_limit, subscription_status, paid_at, paid_until, brand_tone, status)
-       VALUES (?, 'Cliente Demo', 'Negocio Demo', ?, ?, 'Profesional', 80, 'paid', date('now', 'localtime'), date('now', 'localtime', '+1 year'), 'premium', 'active')`
+       (establishment_id, name, business_name, username, password_hash, credit_limit, plan_name, monthly_limit, subscription_status, paid_at, paid_until, brand_tone, status)
+       VALUES (?, 'Cliente Demo', 'Negocio Demo', ?, ?, 80, 'Profesional', 80, 'paid', date('now', 'localtime'), date('now', 'localtime', '+1 year'), 'premium', 'active')`
     ).run(establishment.id, demoUsername, hashContentStudioPassword(process.env.CONTENT_STUDIO_DEMO_PASSWORD || 'contenido2026'));
   }
   return establishment;

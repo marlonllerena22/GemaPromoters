@@ -45,7 +45,10 @@ export async function api(path, options = {}) {
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(data.message || 'No se pudo completar la accion');
+    const error = new Error(data.message || 'No se pudo completar la accion');
+    error.status = response.status;
+    error.code = data.code || '';
+    throw error;
   }
 
   return data;

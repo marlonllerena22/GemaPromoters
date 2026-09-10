@@ -34,6 +34,8 @@ services:
         value: promoters.ecu@gmail.com
       - key: CONTENT_STUDIO_PUBLIC_URL
         value: https://estudioscreativos.com/ingresar
+      - key: CONTENT_STUDIO_APP_URL
+        value: https://estudioscreativos.com
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: MARJORIE_INVENTORY_API_KEY

@@ -552,6 +552,13 @@ app.post('/api/auth/login', (req, res) => {
         username: contentStudioUser.username,
         role: 'content_studio_user',
         name: contentStudioUser.name,
+        email: contentStudioUser.email || '',
+        avatar_url: contentStudioUser.avatar_url || '',
+        auth_methods: [
+          ...(String(contentStudioUser.password_hash || '').startsWith('scrypt$') ? ['password'] : []),
+          ...(contentStudioUser.google_sub ? ['google'] : []),
+          ...(contentStudioUser.email ? ['magic_link'] : [])
+        ],
         business_name: contentStudioUser.business_name,
         establishment_id: contentStudioUser.establishment_id,
         establishment_name: contentStudioUser.establishment_name,

@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Check, ChevronDown, ChevronRight, Crown, Download, EyeOff, Gem, Image as ImageIcon,
-  LayoutGrid, LogOut, MapPin, MessageCircle, Plus, Settings, Share2, ShoppingBag, Sparkles, Tag,
-  Trash2, Upload, UserPlus, UserRound, UsersRound, WandSparkles, X
+  BadgeCheck, Building2, Check, ChevronDown, ChevronRight, CreditCard, Crown, Download, EyeOff,
+  Gem, Image as ImageIcon, LayoutGrid, LogOut, Mail, MapPin, MessageCircle, Plus, Settings,
+  Share2, ShieldCheck, ShoppingBag, Sparkles, Tag, Trash2, Upload, UserPlus, UserRound,
+  UsersRound, WandSparkles, X
 } from 'lucide-react';
-import { api } from './api.js';
+import { api, setUser } from './api.js';
 import './content-studio.css';
 
 const PRESET_ICONS = { editorial: UserRound, catalog: ShoppingBag, social: Share2, detail: Gem };
@@ -29,6 +30,16 @@ const PLAN_PACKAGES = [
 ];
 
 const wait = (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+
+async function apiWithTimeout(path, options = {}, timeoutMs = 15000) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  try { return await api(path, { ...options, signal: controller.signal }); }
+  catch (error) {
+    if (error.name === 'AbortError') throw new Error('El estudio tardó demasiado en responder. Revisa tu conexión e inténtalo nuevamente.');
+    throw error;
+  } finally { window.clearTimeout(timeout); }
+}
 
 function progressForElapsed(seconds, hasResearch = false) {
   if (seconds < 4) return { percent: 12, label: 'Preparando tus imágenes' };
@@ -71,6 +82,210 @@ function downloadDataImage(data, name = 'contenido-creado.webp') {
 }
 
 export default function ContentStudioApp({ user, onLogout, embedded = false, establishmentId }) {
+  const scopeId = establishmentId || user?.establishment_id;
+  const scopeQuery = scopeId ? `?establishment_id=${scopeId}` : '';
+  const scopeBody = scopeId ? { establishment_id: Number(scopeId) } : {};
+  const activeStorageKey = `content-studio-active-generation-${scopeId || 'current'}`;
+  const isStudioAdmin = ['admin', 'supreme'].includes(user?.role);
+  const [tab, setTab] = useState('create');
+  const [data, setData] = useState(null);
+  const [form, setForm] = useState(emptyForm);
+  const [productImage, setProductImage] = useState('');
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [sectionLoading, setSectionLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState({ percent: 0, label: '' });
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [plansOpen, setPlansOpen] = useState(false);
+  const [requestedPlan, setRequestedPlan] = useState(new URLSearchParams(window.location.search).get('plan') || (() => { try { return sessionStorage.getItem('estudios-requested-plan') || ''; } catch { return ''; } })());
+  const inputRef = useRef(null);
+  const activeGenerationRef = useRef(null);
+  const mountedRef = useRef(true);
+  const loadedSections = useRef(new Set());
+
+  const navigation = [
+    ['create', 'Crear', Sparkles],
+    ['history', 'Historial', LayoutGrid],
+    ['profile', 'Perfil', UserRound],
+    ['settings', 'Configuración', Settings]
+  ];
+
+  useEffect(() => {
+    const previousTitle = document.title;
+    document.title = 'Estudios Creativos';
+    return () => { document.title = previousTitle; };
+  }, []);
+
+  function rememberedGenerationId() {
+    try { return Number(window.localStorage.getItem(activeStorageKey) || 0); } catch { return 0; }
+  }
+  function rememberGeneration(id) { try { window.localStorage.setItem(activeStorageKey, String(id)); } catch { /* server state remains authoritative */ } }
+  function forgetGeneration() { try { window.localStorage.removeItem(activeStorageKey); } catch { /* optional */ } }
+
+  async function loadCore({ quiet = false } = {}) {
+    if (!quiet) setLoading(true);
+    setError('');
+    try {
+      const bootstrapRequest = apiWithTimeout(`/content-studio/bootstrap${scopeQuery}`);
+      const logosRequest = apiWithTimeout(`/content-studio/logos${scopeQuery}`)
+        .then((value) => ({ ok: true, value }), (reason) => ({ ok: false, reason }));
+      const response = await bootstrapRequest;
+      const next = { ...response, generations: response.generations || [], users: [], plan_orders: [] };
+      setData((current) => ({ ...current, ...next }));
+      setForm((current) => ({ ...current, include_contact: Boolean(current.include_contact && (next.settings?.contact_whatsapp || next.settings?.contact_location)) }));
+      void logosRequest.then((logosResult) => {
+        if (!mountedRef.current) return;
+        if (!logosResult.ok) {
+          setError('El estudio abrió, pero no pudimos cargar tus logos. Puedes reintentar desde Configuración.');
+          return;
+        }
+        const logosResponse = logosResult.value;
+        const logos = logosResponse.logos || [];
+        setData((current) => ({ ...current, logos }));
+        setForm((current) => ({ ...current, logo_id: current.logo_id === 'none' || logos.some((logo) => Number(logo.id) === Number(current.logo_id)) ? current.logo_id : 'none' }));
+      });
+      const remembered = next.generations.find((item) => Number(item.id) === rememberedGenerationId());
+      const pending = remembered?.status === 'processing' ? remembered : next.generations.find((item) => item.status === 'processing');
+      if (pending) void monitorGeneration(pending).catch((err) => mountedRef.current && setError(err.message));
+      if (requestedPlan) {
+        setPlansOpen(true);
+        try { sessionStorage.removeItem('estudios-requested-plan'); } catch { /* optional */ }
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    } catch (err) { setError(err.message); }
+    finally { if (!quiet) setLoading(false); }
+  }
+
+  async function loadHistory(force = false) {
+    if (!force && loadedSections.current.has('history')) return;
+    setSectionLoading(true);
+    try {
+      const response = await apiWithTimeout(`/content-studio/generations${scopeQuery}`, {}, 25000);
+      setData((current) => ({ ...current, generations: response.generations || [] }));
+      loadedSections.current.add('history');
+    } catch (err) { setError(err.message); }
+    finally { setSectionLoading(false); }
+  }
+
+  async function loadAdmin(force = false) {
+    if (!isStudioAdmin || (!force && loadedSections.current.has('admin'))) return;
+    setSectionLoading(true);
+    try {
+      const response = await apiWithTimeout(`/content-studio/admin${scopeQuery}`);
+      setData((current) => ({ ...current, users: response.users || [], plan_orders: response.plan_orders || [] }));
+      loadedSections.current.add('admin');
+    } catch (err) { setError(err.message); }
+    finally { setSectionLoading(false); }
+  }
+
+  async function reload() {
+    await loadCore({ quiet: true });
+    if (tab === 'history') await loadHistory(true);
+    if (tab === 'settings' && isStudioAdmin) await loadAdmin(true);
+  }
+
+  useEffect(() => {
+    mountedRef.current = true;
+    void loadCore();
+    return () => { mountedRef.current = false; activeGenerationRef.current = null; };
+  }, [scopeId]);
+
+  useEffect(() => {
+    if (tab === 'history') void loadHistory();
+    if (tab === 'settings' && isStudioAdmin) void loadAdmin();
+  }, [tab]);
+
+  async function chooseProduct(file) {
+    setError('');
+    try {
+      setProductImage(await imageFileToData(file));
+      setForm((current) => ({ ...current, product_name: '', product_features: '', creative_instruction: '' }));
+      setResult(null);
+    } catch (err) { setError(err.message); }
+  }
+
+  async function monitorGeneration(generation, startedAtOverride) {
+    const generationId = Number(generation?.id || 0);
+    if (!generationId || activeGenerationRef.current === generationId) return;
+    activeGenerationRef.current = generationId;
+    setGenerating(true);
+    const parsedCreatedAt = generation?.created_at ? new Date(String(generation.created_at).replace(' ', 'T')).getTime() : NaN;
+    const startedAt = startedAtOverride || (Number.isFinite(parsedCreatedAt) ? parsedCreatedAt : Date.now());
+    const hasResearch = Boolean(String(generation?.product_name || '').trim());
+    let terminal = false;
+    try {
+      let completed;
+      for (let attempt = 0; attempt < 240 && mountedRef.current && activeGenerationRef.current === generationId; attempt += 1) {
+        const statusResponse = await api(`/content-studio/generations/${generationId}${scopeQuery}`);
+        if (statusResponse.generation?.status === 'failed') { terminal = true; throw new Error(statusResponse.generation.error_message || 'No se pudo crear la imagen'); }
+        if (statusResponse.generation?.status === 'completed') { terminal = true; completed = statusResponse; break; }
+        await wait(2500);
+        if (mountedRef.current) setGenerationProgress(progressForElapsed(Math.round((Date.now() - startedAt) / 1000), hasResearch));
+      }
+      if (!mountedRef.current || activeGenerationRef.current !== generationId) return;
+      if (!completed) throw new Error('La creación sigue procesándose en el servidor. Puedes verla más tarde en Historial.');
+      setGenerationProgress({ percent: 100, label: 'Tu imagen está lista' });
+      setResult(completed.generation);
+      setData((current) => {
+        const usage = completed.usage;
+        const limit = Number(current.settings?.monthly_limit || 0);
+        return { ...current, usage, available_credits: Math.max(0, limit - usage), generation_available: current.subscription?.active && usage < limit, generations: [completed.generation, ...(current.generations || []).filter((item) => item.id !== completed.generation.id)].slice(0, 24) };
+      });
+      loadedSections.current.add('history');
+      setNotice('Tu imagen profesional está lista');
+      window.setTimeout(() => setNotice(''), 3000);
+    } finally {
+      if (terminal) forgetGeneration();
+      if (activeGenerationRef.current === generationId) activeGenerationRef.current = null;
+      if (mountedRef.current) { setGenerating(false); window.setTimeout(() => mountedRef.current && setGenerationProgress({ percent: 0, label: '' }), 700); }
+    }
+  }
+
+  async function generate(event) {
+    event.preventDefault(); setError('');
+    if (!data?.subscription?.active || Number(data?.available_credits || 0) <= 0) { setPlansOpen(true); return; }
+    if (!productImage) { setError('Primero sube la foto del producto'); return; }
+    setGenerating(true); setGenerationProgress({ percent: 7, label: 'Enviando tu foto de forma segura' });
+    try {
+      const response = await api('/content-studio/generate', { method: 'POST', body: JSON.stringify({ ...scopeBody, ...form, product_image: productImage }) });
+      const generation = response.generation;
+      if (!generation?.id) throw new Error('No se pudo iniciar la creación');
+      rememberGeneration(generation.id);
+      setData((current) => ({ ...current, generations: [generation, ...(current.generations || []).filter((item) => item.id !== generation.id)].slice(0, 24) }));
+      await monitorGeneration(generation, Date.now());
+    } catch (err) {
+      if (['PLAN_REQUIRED', 'CREDITS_EXHAUSTED'].includes(err.code)) setPlansOpen(true); else setError(err.message);
+      setGenerating(false); setGenerationProgress({ percent: 0, label: '' });
+    }
+  }
+
+  function newCreation() { setProductImage(''); setResult(null); setForm((current) => ({ ...emptyForm, logo_id: current.logo_id })); setTab('create'); }
+  const selectedPreset = data?.presets?.find((item) => item.id === form.preset);
+  const usagePercent = Math.min(100, (Number(data?.usage || 0) / Math.max(1, Number(data?.settings?.monthly_limit || 0))) * 100);
+
+  return <div className={`cs-app ${embedded ? 'cs-embedded' : ''}`}>
+    {!embedded && <header className="cs-header"><button className="cs-brand" type="button" onClick={newCreation}><span><WandSparkles size={21} /></span><div><strong>ESTUDIOS CREATIVOS</strong><small>Tu estudio con IA</small></div></button><nav>{navigation.map(([key,label,Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}><Icon size={17}/>{label}</button>)}</nav></header>}
+    <div className="cs-page">
+      {embedded && <div className="cs-embedded-nav">{navigation.map(([key,label,Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}><Icon size={17}/>{label}</button>)}</div>}
+      {notice && <div className="cs-toast"><Check size={17}/>{notice}</div>}
+      {error && <div className="cs-error"><span>{error}</span><button onClick={() => setError('')}><X size={17}/></button>{!data && <button className="cs-error-retry" onClick={() => loadCore()}>Reintentar</button>}</div>}
+      {loading && !data ? <StudioShellSkeleton /> : data && <>
+        {tab === 'create' && <CreateView data={data} form={form} setForm={setForm} productImage={productImage} inputRef={inputRef} chooseProduct={chooseProduct} selectedPreset={selectedPreset} generate={generate} generating={generating} result={result} generationProgress={generationProgress} newCreation={newCreation} usagePercent={usagePercent} goToHistory={() => setTab('history')} goToSettings={() => setTab('settings')} openPlans={() => setPlansOpen(true)} />}
+        {tab === 'history' && (sectionLoading && !loadedSections.current.has('history') ? <SectionSkeleton title="Cargando tu historial" /> : <HistoryView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/>) }
+        {tab === 'profile' && <AccountProfile data={data} user={user} onLogout={onLogout} openPlans={() => setPlansOpen(true)} setData={setData} setError={setError}/>}
+        {tab === 'settings' && <BusinessConfiguration data={data} scopeBody={scopeBody} reload={reload} setError={setError} user={user} isStudioAdmin={isStudioAdmin} sectionLoading={sectionLoading} onSaved={(settings) => setData((current) => ({...current,settings}))}/>}
+      </>}
+    </div>
+    {!embedded && <nav className="cs-mobile-nav" aria-label="Navegación principal">{navigation.map(([key,label,Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}><Icon size={21}/><span>{label}</span></button>)}</nav>}
+    {plansOpen && data && (
+      <PlansModal plans={data.plans || PLAN_PACKAGES} initialPlan={requestedPlan} account={data.account || user} settings={data.settings} transfer={data.transfer} onClose={() => { setPlansOpen(false); setRequestedPlan(''); }} onRequested={(order) => { setNotice(`Solicitud ${order.order_number} enviada`); setPlansOpen(false); }}/>
+    )}
+  </div>;
+}
+
+function LegacyContentStudioApp({ user, onLogout, embedded = false, establishmentId }) {
   const scopeId = establishmentId || user?.establishment_id;
   const [tab, setTab] = useState('create');
   const [data, setData] = useState(null);
@@ -283,7 +498,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
   );
 }
 
-function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct, selectedPreset, generate, generating, generationProgress, result, newCreation, usagePercent, goToHistory, goToProfile }) {
+function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct, selectedPreset, generate, generating, generationProgress, result, newCreation, usagePercent, goToHistory, goToSettings, openPlans }) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   if (result) {
     return (
@@ -303,13 +518,14 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
     );
   }
   const available = Math.max(0, Number(data.settings?.monthly_limit || 0) - Number(data.usage || 0));
+  const needsPlan = !data.subscription?.active || available <= 0;
   const firstLogo = data.logos?.[0];
   const hasContact = Boolean(data.settings?.contact_whatsapp || data.settings?.contact_location);
   return (
     <form onSubmit={generate}>
       <section className="cs-hero cs-create-heading">
         <div><span className="cs-eyebrow">Estudios Creativos con IA</span><h1>Crear contenido</h1><p>Convierte tus productos en imágenes profesionales listas para publicar.</p></div>
-        <button className="cs-credit-card" type="button" onClick={goToHistory}>
+        <button className="cs-credit-card" type="button" onClick={needsPlan ? openPlans : goToHistory}>
           <span><Crown size={22} /></span>
           <div><strong>Créditos: {available}</strong><small>{data.usage} de {data.settings?.monthly_limit} creaciones utilizadas</small><i><b style={{ width: `${usagePercent}%` }} /></i></div>
           <ChevronRight size={20} />
@@ -336,7 +552,7 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
               {advancedOpen && <div className="cs-advanced-fields">
                 <label><strong>¿Qué es el producto?</strong><input maxLength="70" value={form.product_name} onChange={(event) => setForm({ ...form, product_name: event.target.value })} placeholder="Ej. Vaquita que corre viral" /><small>Lo investigaremos brevemente solo si lo escribes.</small></label>
                 <label><strong>Características que deseas destacar</strong><input maxLength="150" value={form.product_features} onChange={(event) => setForm({ ...form, product_features: event.target.value })} placeholder="Ej. Suavidad, cierre lateral y tacón cómodo" /><small>Describe solo detalles reales del producto.</small></label>
-                <label><strong>Instrucción especial</strong><textarea maxLength="180" value={form.creative_instruction} onChange={(event) => setForm({ ...form, creative_instruction: event.target.value })} placeholder="Ej. Que se vea cálido, elegante y listo para regalar" /><small>Una idea sencilla sobre el ambiente, composición o tono.</small></label>
+                <label><strong>Cuéntame para qué necesitas esta foto</strong><textarea maxLength="260" value={form.creative_instruction} onChange={(event) => setForm({ ...form, creative_instruction: event.target.value })} placeholder="Es una cartera de mi local y quiero crear una publicación que motive a las personas a visitarnos." /><small>Mientras más contexto nos des, mejor podremos crearla para ti.</small></label>
               </div>}
             </div>
           </section>
@@ -367,15 +583,15 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
                 <span><EyeOff size={23} /></span><div><strong>Sin marca / logo</strong><small>Genera una imagen limpia</small></div><i>{form.logo_id === 'none' && <Check size={15} />}</i>
               </button>
             </div>
-            {form.logo_id !== 'none' && <div className="cs-available-brands"><div><strong>Selecciona una marca</strong><button type="button" onClick={goToProfile}><Settings size={15} /> Administrar logos</button></div><div className="cs-brand-picker">{(data.logos || []).map((logo) => <button type="button" key={logo.id} className={Number(form.logo_id) === Number(logo.id) ? 'selected' : ''} onClick={() => setForm({ ...form, logo_id: logo.id })}><img src={logo.image_data} alt={`Logo ${logo.name}`} /><span>{logo.name}</span>{Number(form.logo_id) === Number(logo.id) && <b><Check size={16} /></b>}</button>)}</div></div>}
-            {!firstLogo && <button className="cs-add-first-brand" type="button" onClick={goToProfile}><Plus size={17} /> Agregar tu primer logo desde Perfil</button>}
+            {form.logo_id !== 'none' && <div className="cs-available-brands"><div><strong>Selecciona una marca</strong><button type="button" onClick={goToSettings}><Settings size={15} /> Administrar logos</button></div><div className="cs-brand-picker">{(data.logos || []).map((logo) => <button type="button" key={logo.id} className={Number(form.logo_id) === Number(logo.id) ? 'selected' : ''} onClick={() => setForm({ ...form, logo_id: logo.id })}><img src={logo.image_data} alt={`Logo ${logo.name}`} /><span>{logo.name}</span>{Number(form.logo_id) === Number(logo.id) && <b><Check size={16} /></b>}</button>)}</div></div>}
+            {!firstLogo && <button className="cs-add-first-brand" type="button" onClick={goToSettings}><Plus size={17} /> Agregar tu primer logo desde Configuración</button>}
             <div className="cs-contact-options">
-              <div><strong>¿Quieres incluir medios de contacto?</strong><p>Se mostrarán abajo con los datos guardados en tu perfil.</p></div>
+              <div><strong>¿Quieres incluir medios de contacto?</strong><p>Se mostrarán abajo con los datos guardados en Configuración.</p></div>
               <div className="cs-brand-mode">
-                <button type="button" className={form.include_contact ? 'selected' : ''} disabled={!hasContact} onClick={() => hasContact && setForm({ ...form, include_contact: true })}><span><MessageCircle size={22} /></span><div><strong>Con contacto</strong><small>{hasContact ? [data.settings?.contact_whatsapp, data.settings?.contact_location].filter(Boolean).join(' · ') : 'Agrega WhatsApp o ubicación en Perfil'}</small></div><i>{form.include_contact && <Check size={15} />}</i></button>
+                <button type="button" className={form.include_contact ? 'selected' : ''} disabled={!hasContact} onClick={() => hasContact && setForm({ ...form, include_contact: true })}><span><MessageCircle size={22} /></span><div><strong>Con contacto</strong><small>{hasContact ? [data.settings?.contact_whatsapp, data.settings?.contact_location].filter(Boolean).join(' · ') : 'Agrega WhatsApp o ubicación en Configuración'}</small></div><i>{form.include_contact && <Check size={15} />}</i></button>
                 <button type="button" className={!form.include_contact ? 'selected' : ''} onClick={() => setForm({ ...form, include_contact: false })}><span><EyeOff size={22} /></span><div><strong>Sin contacto</strong><small>Imagen sin número ni ubicación</small></div><i>{!form.include_contact && <Check size={15} />}</i></button>
               </div>
-              {!hasContact && <button className="cs-contact-profile-link" type="button" onClick={goToProfile}><Settings size={15} /> Agregar datos de contacto en Perfil</button>}
+              {!hasContact && <button className="cs-contact-profile-link" type="button" onClick={goToSettings}><Settings size={15} /> Agregar datos de contacto en Configuración</button>}
             </div>
           </section>
         </div>
@@ -384,13 +600,90 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
           <div className="cs-summary-visual">{productImage ? <img src={productImage} alt="Vista previa" /> : <ImageIcon size={36} />}</div>
           <span>Tu creación</span><h3>{selectedPreset?.name}</h3><p>{selectedPreset?.description}</p>
           <ul>{form.preset === 'editorial' && <li><UserRound size={15} /> Modelo: {EDITORIAL_SUBJECTS.find((item) => item.id === form.editorial_subject)?.name || 'Femenino'}</li>}{form.include_contact && <li><MessageCircle size={15} /> Contacto incluido al pie</li>}<li><Check size={15} /> Producto fiel al original</li><li><Check size={15} /> Acabado fotográfico realista</li><li><Check size={15} /> Alta calidad para publicar</li></ul>
-          <button className="cs-generate" disabled={!productImage || generating || !data.generation_available}>{generating ? <><i /> Creando tu imagen...</> : <>Continuar <ChevronRight size={19} /></>}</button>
+          <button className="cs-generate" disabled={generating || (!needsPlan && (!productImage || !data.generation_available))}>{generating ? <><i /> Creando tu imagen...</> : needsPlan ? <><CreditCard size={18}/> Elegir un plan</> : <>Continuar <ChevronRight size={19} /></>}</button>
           {generating && <div className="cs-generation-progress" role="status" aria-live="polite"><div><i style={{ width: `${generationProgress.percent}%` }} /></div><span>{generationProgress.label}</span><strong>{generationProgress.percent}%</strong><small>Puedes cambiar de sección o recargar la página: la creación continuará en el servidor.</small></div>}
           {!data.generation_available && <small className="cs-api-note">{data.subscription?.active ? 'La interfaz está lista. Falta conectar la clave de OpenAI en el servidor.' : 'Tu plan necesita estar activo para crear imágenes.'}</small>}
         </aside>
       </div>
     </form>
   );
+}
+
+function StudioShellSkeleton() {
+  return <section className="cs-shell-skeleton" aria-label="Preparando el estudio"><div><i/><i/><i/></div><div className="cs-skeleton-grid"><span/><span/><span/></div><p>Preparando las herramientas esenciales…</p></section>;
+}
+
+function SectionSkeleton({ title }) {
+  return <section className="cs-section-skeleton" aria-label={title}><h1>{title}</h1><div><i/><i/><i/><i/></div></section>;
+}
+
+function AccountProfile({ data, user, onLogout, openPlans, setData, setError }) {
+  const account = data.account || user || {};
+  const [form, setForm] = useState({ name: account.name || '', email: account.email || '' });
+  const [saving, setSaving] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [passwords, setPasswords] = useState({ current_password: '', new_password: '' });
+  const available = Math.max(0, Number(data.settings?.monthly_limit || 0) - Number(data.usage || 0));
+  const methodLabels = { google: 'Google', magic_link: 'Enlace seguro por correo', password: 'Usuario y contraseña' };
+  async function save(event) {
+    event.preventDefault(); setSaving(true); setError('');
+    try {
+      const response = await api('/content-studio/me', { method: 'PUT', body: JSON.stringify(form) });
+      setData((current) => ({ ...current, account: response.user }));
+      setUser(response.user);
+    } catch (err) { setError(err.message); }
+    finally { setSaving(false); }
+  }
+  async function changePassword(event) {
+    event.preventDefault(); setSaving(true); setError('');
+    try {
+      await api('/content-studio/me/password', { method:'PUT', body:JSON.stringify(passwords) });
+      setPasswords({ current_password:'', new_password:'' }); setPasswordOpen(false);
+    } catch(err){ setError(err.message); }
+    finally{ setSaving(false); }
+  }
+  return <section className="cs-account-page">
+    <div className="cs-section-heading"><span className="cs-eyebrow">Tu cuenta</span><h1>Perfil</h1><p>Tu información personal, plan y formas de acceso.</p></div>
+    <div className="cs-account-layout">
+      <article className="cs-account-card cs-card"><div className="cs-account-avatar">{account.avatar_url ? <img src={account.avatar_url} alt="Foto de perfil" referrerPolicy="no-referrer"/> : <span>{String(account.name || 'U').slice(0,1).toUpperCase()}</span>}</div><div><h2>{account.name || 'Tu cuenta'}</h2><p>{account.email || 'Correo pendiente'}</p></div></article>
+      <article className="cs-account-plan cs-card"><span><Crown/></span><div><small>PLAN ACTUAL</small><h2>{data.settings?.plan_name || 'Sin plan'}</h2><p><strong>{available}</strong> creaciones disponibles</p><em className={data.subscription?.active ? 'active' : ''}>{data.subscription?.active ? `Activo${data.subscription.paid_until ? ` hasta ${new Date(`${data.subscription.paid_until}T12:00:00`).toLocaleDateString('es-EC')}` : ''}` : 'Aún no tienes un plan activo'}</em></div><button type="button" onClick={openPlans}>{data.subscription?.active ? 'Mejorar plan' : 'Elegir un plan'}</button></article>
+    </div>
+    {user?.role === 'content_studio_user' && <form className="cs-personal-form cs-card" onSubmit={save}><div><span><UserRound/></span><h2>Información personal</h2></div><label>Nombre<input value={form.name} onChange={(event) => setForm({...form,name:event.target.value})} maxLength="100" required/></label><label>Correo<input type="email" value={form.email} onChange={(event) => setForm({...form,email:event.target.value})} placeholder="nombre@empresa.com" required/></label><button className="cs-primary" disabled={saving}>{saving ? 'Guardando…' : 'Guardar cambios'}</button></form>}
+    <section className="cs-access-methods cs-card"><div><span><ShieldCheck/></span><div><h2>Seguridad y acceso</h2><p>Estas son las formas habilitadas para entrar a tu cuenta.</p></div></div><ul>{(account.auth_methods || user?.auth_methods || ['password']).map((method) => <li key={method}><BadgeCheck/><span><strong>{methodLabels[method] || method}</strong><small>{method === 'magic_link' ? account.email || 'Agrega tu correo para usarlo' : 'Método activo'}</small></span></li>)}</ul>{(account.auth_methods || user?.auth_methods || []).includes('password') && <><button className="cs-password-toggle" type="button" onClick={() => setPasswordOpen((open)=>!open)}>Cambiar contraseña</button>{passwordOpen&&<form className="cs-password-form" onSubmit={changePassword}><input required type="password" autoComplete="current-password" value={passwords.current_password} onChange={(event)=>setPasswords({...passwords,current_password:event.target.value})} placeholder="Contraseña actual"/><input required minLength="8" type="password" autoComplete="new-password" value={passwords.new_password} onChange={(event)=>setPasswords({...passwords,new_password:event.target.value})} placeholder="Nueva contraseña (mínimo 8 caracteres)"/><button disabled={saving}>Guardar contraseña</button></form>}</>}<button className="cs-logout-profile" type="button" onClick={() => { window.google?.accounts?.id?.disableAutoSelect?.(); onLogout?.(); }}><LogOut/> Cerrar sesión</button></section>
+  </section>;
+}
+
+function BusinessConfiguration({ data, scopeBody, reload, setError, user, isStudioAdmin, sectionLoading, onSaved }) {
+  return <section className="cs-business-page">
+    <div className="cs-section-heading"><span className="cs-eyebrow">Tu negocio</span><h1>Configuración</h1><p>Administra la identidad, los contactos, las marcas y las preferencias de tus creaciones.</p></div>
+    <SettingsView data={data} scopeBody={scopeBody} onSaved={onSaved} setError={setError} user={user}/>
+    <div className="cs-settings-divider"><LogosView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/></div>
+    {isStudioAdmin && <div className="cs-settings-divider">{sectionLoading && !data.users?.length ? <SectionSkeleton title="Cargando usuarios y transferencias"/> : <UsersView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/>}</div>}
+  </section>;
+}
+
+function PlansModal({ plans, initialPlan, account, settings, transfer, onClose, onRequested }) {
+  const normalizedPlans = plans.map((plan) => ({ ...plan, photos: Number(plan.photos ?? plan.monthly_limit), days: Number(plan.days ?? plan.duration_days) }));
+  const [selected, setSelected] = useState(normalizedPlans.find((plan) => plan.id === initialPlan) || normalizedPlans[1] || normalizedPlans[0]);
+  const [form, setForm] = useState({ business_name: settings?.brand_name || account?.business_name || '', whatsapp: settings?.contact_whatsapp || '' });
+  const [result, setResult] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const closeOnEscape = (event) => event.key === 'Escape' && onClose?.();
+    window.addEventListener('keydown', closeOnEscape);
+    return () => { document.body.style.overflow = previousOverflow; window.removeEventListener('keydown', closeOnEscape); };
+  }, [onClose]);
+  async function requestPlan(event) {
+    event.preventDefault(); setBusy(true); setError('');
+    try { setResult(await api('/content-studio/plan-orders', { method:'POST', body:JSON.stringify({ plan_id:selected.id, ...form }) })); }
+    catch(err){ setError(err.message); }
+    finally{ setBusy(false); }
+  }
+  const bank = result?.transfer || transfer || {};
+  return <div className="cs-plan-overlay" role="dialog" aria-modal="true" aria-label="Elegir plan"><section><button className="cs-plan-close" type="button" onClick={onClose}><X/></button>{!result ? <><span className="cs-eyebrow">Planes de Estudios Creativos</span><h1>Elige cómo quieres crear.</h1><p>Tu cuenta permanece activa. Los créditos se agregan cuando confirmemos la transferencia.</p><div className="cs-plan-options">{normalizedPlans.map((plan) => <button type="button" key={plan.id} className={selected?.id===plan.id?'selected':''} onClick={() => setSelected(plan)}><span>{plan.name}</span><strong>${Number(plan.price)%1===0?plan.price:Number(plan.price).toFixed(2)}</strong><small>{plan.photos} imágenes · {plan.days} días</small>{selected?.id===plan.id&&<Check/>}</button>)}</div><form onSubmit={requestPlan}><div><label>Negocio<input required value={form.business_name} onChange={(event)=>setForm({...form,business_name:event.target.value})} placeholder="Nombre de tu negocio"/></label><label>WhatsApp<input required inputMode="tel" value={form.whatsapp} onChange={(event)=>setForm({...form,whatsapp:event.target.value})} placeholder="098 376 3419"/></label></div><small>La confirmación se enviará a {account?.email || 'tu correo'}.</small>{error&&<div className="cs-plan-error">{error}</div>}<button disabled={busy}>{busy?'Creando solicitud…':`Solicitar ${selected?.photos || 0} imágenes`}</button></form></> : <div className="cs-plan-success"><span><Check/></span><small>SOLICITUD {result.order.order_number}</small><h1>Realiza tu transferencia.</h1><p>Cuando la confirmemos, tus {result.order.monthly_limit} créditos aparecerán automáticamente.</p><dl><div><dt>Total</dt><dd>${Number(result.order.amount).toFixed(2)}</dd></div><div><dt>Banco</dt><dd>{bank.bank_name || 'Datos por confirmar'}</dd></div>{bank.beneficiary&&<div><dt>Beneficiario</dt><dd>{bank.beneficiary}</dd></div>}{bank.account_number&&<div><dt>Cuenta</dt><dd>{bank.account_number} {bank.account_type}</dd></div>}</dl>{bank.whatsapp_url&&<a href={bank.whatsapp_url} target="_blank" rel="noreferrer"><MessageCircle/> Enviar comprobante por WhatsApp</a>}<button type="button" onClick={() => onRequested?.(result.order)}>Listo</button></div>}</section></div>;
 }
 
 function UsersView({ data, scopeBody, reload, setError }) {

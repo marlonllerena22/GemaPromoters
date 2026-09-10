@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import {
-  ArrowRight, Check, ChevronRight, Image as ImageIcon, Instagram,
+  ArrowRight, Check, Image as ImageIcon, Instagram,
   Mail, Menu, MessageCircle, ShieldCheck, ShoppingBag, Sparkles,
   Upload, UserRound, WandSparkles, X
 } from 'lucide-react';
-import { api } from './api.js';
+import { api, getToken, getUser } from './api.js';
+import ContentStudioAccess from './ContentStudioAccess.jsx';
 import './content-studio-landing.css';
 
 const FALLBACK_PLANS = [
@@ -18,7 +19,7 @@ const HERO_MODES = ['fotografía de producto', 'contenido con modelos', 'publici
 const INDUSTRIES = ['CALZADO', 'MODA', 'ACCESORIOS', 'BELLEZA', 'HOGAR', 'ALIMENTOS'];
 const IS_STUDIO_DOMAIN = typeof window !== 'undefined' && ['estudioscreativos.com', 'www.estudioscreativos.com'].includes(window.location.hostname.toLowerCase());
 const STUDIO_HOME = IS_STUDIO_DOMAIN ? '/' : '/estudio-creativo';
-const STUDIO_LOGIN = IS_STUDIO_DOMAIN ? '/ingresar' : '/';
+const STUDIO_LOGIN = '/ingresar';
 
 const FEATURES = [
   { id: 'editorial', label: 'Con modelos', title: 'Pon tu producto en una escena que se siente real.', copy: 'Elige una mujer, un hombre o un animal. Estudios Creativos adapta el entorno y conserva la forma, color y detalles del producto.', image: '/content-studio/guides/editorial.jpg' },
@@ -31,11 +32,12 @@ const formatPlanPrice = (price) => (Number(price) % 1 === 0 ? String(Number(pric
 
 export default function ContentStudioLanding() {
   const [data, setData] = useState({ plans: FALLBACK_PLANS, contact: { phone_display: '098 376 3419', email: 'promoters.ecu@gmail.com' }, transfer: {} });
-  const [selectedPlan, setSelectedPlan] = useState(null);
   const [examplesOpen, setExamplesOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [heroMode, setHeroMode] = useState(0);
   const [activeFeature, setActiveFeature] = useState('editorial');
+  const [accessOpen, setAccessOpen] = useState(false);
+  const [requestedPlan, setRequestedPlan] = useState(null);
 
   useEffect(() => {
     const previousTitle = document.title;
@@ -48,7 +50,18 @@ export default function ContentStudioLanding() {
     return () => window.clearInterval(timer);
   }, []);
 
-  const choosePlan = (plan) => { setSelectedPlan(plan); setMenuOpen(false); };
+  const begin = (plan = null) => {
+    setMenuOpen(false);
+    setRequestedPlan(plan);
+    try { if (plan?.id) sessionStorage.setItem('estudios-requested-plan', plan.id); } catch { /* optional */ }
+    const currentUser = getUser();
+    if (getToken() && currentUser?.establishment_module_type === 'content_studio') {
+      window.location.assign(`${STUDIO_LOGIN}${plan?.id ? `?plan=${encodeURIComponent(plan.id)}` : ''}`);
+      return;
+    }
+    setAccessOpen(true);
+  };
+  const choosePlan = (plan) => begin(plan);
   const feature = FEATURES.find((item) => item.id === activeFeature) || FEATURES[0];
 
   return <div className="csl-page">
@@ -61,7 +74,7 @@ export default function ContentStudioLanding() {
         <a href="#planes" onClick={() => setMenuOpen(false)}>Planes</a>
         <a href="#contacto" onClick={() => setMenuOpen(false)}>Contacto</a>
       </nav>
-      <a className="csl-login" href={STUDIO_LOGIN}>Iniciar sesión</a>
+      <button className="csl-login" type="button" onClick={() => begin()}>Iniciar sesión</button>
       <button className="csl-start" type="button" onClick={() => choosePlan(data.plans?.[1] || FALLBACK_PLANS[1])}>Probar Estudios Creativos</button>
     </header>
 
@@ -131,20 +144,10 @@ export default function ContentStudioLanding() {
 
     <footer className="csl-footer"><a className="csl-logo" href={STUDIO_HOME}><span><WandSparkles size={18} /></span><strong>Estudios Creativos</strong></a><p>Contenido profesional para negocios que quieren crecer.</p><div><a href="#planes">Planes</a><a href={STUDIO_LOGIN}>Iniciar sesión</a><a href={`mailto:${data.contact?.email}`}><Mail size={15} /> Contacto</a><a href="https://www.instagram.com" target="_blank" rel="noreferrer"><Instagram size={16} /></a></div></footer>
     {examplesOpen && <ExamplesModal onClose={() => setExamplesOpen(false)} />}
-    {selectedPlan && <TransferCheckout plan={selectedPlan} transfer={data.transfer || {}} contact={data.contact || {}} onClose={() => setSelectedPlan(null)} />}
+    {accessOpen && <ContentStudioAccess mode="modal" onClose={() => setAccessOpen(false)} onAuthenticated={() => window.location.assign(`${STUDIO_LOGIN}${requestedPlan?.id ? `?plan=${encodeURIComponent(requestedPlan.id)}` : ''}`)} />}
   </div>;
 }
 
 function ExamplesModal({ onClose }) {
   return <div className="csl-modal csl-examples-modal" role="dialog" aria-modal="true" aria-label="Ejemplos de resultados"><section><button className="csl-modal-close" type="button" onClick={onClose}><X /></button><span className="csl-modal-eyebrow">RESULTADOS REALES</span><h2>De la foto que tienes al contenido que quieres publicar.</h2><p>Dos ejemplos creados dentro de Estudios Creativos.</p><div className="csl-example-grid"><article className="csl-example-before-after"><div><figure><img src="/content-studio/results/botin-antes-nuevo.png" alt="Foto original del botín" /><figcaption>Foto subida</figcaption></figure><span><ArrowRight /></span><figure><img src="/content-studio/results/botin-despues-nuevo.png" alt="Resultado editorial con los botines" /><figcaption>Resultado creado</figcaption></figure></div><strong>Botines: de celular a editorial</strong><p>Una escena de moda que conserva el modelo y sus detalles.</p></article><article className="csl-example-before-after"><div><figure><img src="/content-studio/results/vaquita-antes.png" alt="Foto original de la vaquita que corre" /><figcaption>Foto subida</figcaption></figure><span><ArrowRight /></span><figure><img src="/content-studio/results/vaquita-resultado.webp" alt="Post creado de la vaquita que corre" /><figcaption>Resultado creado</figcaption></figure></div><strong>La vaquita que corre</strong><p>Un post para redes diseñado con texto, producto y estilo comercial.</p></article></div></section></div>;
-}
-
-function TransferCheckout({ plan, transfer, contact, onClose }) {
-  const [form, setForm] = useState({ customer_name: '', business_name: '', whatsapp: '', email: '', username: '', password: '', plan_id: plan.id });
-  const [order, setOrder] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  async function submit(event) { event.preventDefault(); setBusy(true); setError(''); try { setOrder(await api('/content-studio/public/orders', { method: 'POST', body: JSON.stringify(form) })); } catch (err) { setError(err.message); } finally { setBusy(false); } }
-  const details = order?.transfer || transfer;
-  return <div className="csl-modal" role="dialog" aria-modal="true" aria-label="Comprar plan"><section><button className="csl-modal-close" type="button" onClick={onClose}><X /></button>{!order ? <><span className="csl-modal-eyebrow">PLAN {plan.name.toUpperCase()}</span><h2>Activa tus {plan.photos} imágenes.</h2><p>Completa los datos de la cuenta. Después realiza la transferencia de <strong>${formatPlanPrice(plan.price)}</strong>.</p><form onSubmit={submit}><label>Nombre completo<input required value={form.customer_name} onChange={(event) => setForm({ ...form, customer_name: event.target.value })} /></label><label>Nombre del negocio<input value={form.business_name} onChange={(event) => setForm({ ...form, business_name: event.target.value })} /></label><label>WhatsApp<input required inputMode="tel" value={form.whatsapp} onChange={(event) => setForm({ ...form, whatsapp: event.target.value })} placeholder="098 376 3419" /></label><label>Correo electrónico<input required type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label><label>Usuario para ingresar<input required pattern="[a-z0-9._-]{3,80}" value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value.toLowerCase().replace(/\s+/g, '.') })} /></label><label>Contraseña<input required type="password" minLength="8" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="Mínimo 8 caracteres" /></label>{error && <div className="csl-form-error">{error}</div>}<button disabled={busy}>{busy ? 'Preparando transferencia...' : <>Continuar al pago <ArrowRight /></>}</button></form></> : <div className="csl-transfer-success"><span><Check /></span><small>SOLICITUD CREADA</small><h2>{order.order.order_number}</h2><p>Transfiere <strong>${Number(order.order.amount).toFixed(2)}</strong> y envíanos el comprobante para activar tu cuenta.</p>{details.account_number ? <dl><div><dt>Banco</dt><dd>{details.bank_name}</dd></div><div><dt>Beneficiario</dt><dd>{details.beneficiary}</dd></div><div><dt>{details.account_type || 'Cuenta'}</dt><dd>{details.account_number}</dd></div>{details.identification && <div><dt>Identificación</dt><dd>{details.identification}</dd></div>}</dl> : <div className="csl-bank-pending">Solicita los datos bancarios directamente por WhatsApp.</div>}<a href={details.whatsapp_url || 'https://wa.me/593983763419'} target="_blank" rel="noreferrer"><MessageCircle /> Enviar comprobante por WhatsApp</a><p className="csl-transfer-help">Confirmaremos el pago manualmente. Luego podrás ingresar con el usuario y contraseña que acabas de crear.</p><small>{contact.email}</small></div>}</section></div>;
 }

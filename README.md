@@ -94,6 +94,12 @@ Guia de publicacion:
 PRODUCCION.md
 ```
 
+Configuración de Estudios Creativos, Google, enlaces mágicos y planes:
+
+```text
+ESTUDIOS_CREATIVOS_SETUP.md
+```
+
 ## Funcionalidades incluidas
 
 - Login de administrador con JWT

@@ -9799,3 +9799,5 @@ td {
   }
 }
 
+/* Entrada neutra mientras se descarga únicamente el módulo de Estudios Creativos. */
+.studio-route-loading{min-height:100dvh;background:#111211}
