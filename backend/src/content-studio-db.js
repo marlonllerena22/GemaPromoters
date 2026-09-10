@@ -27,6 +27,8 @@ export function initContentStudioDb(db) {
       monthly_limit INTEGER NOT NULL DEFAULT 80 CHECK (monthly_limit >= 1),
       brand_name TEXT,
       brand_tone TEXT NOT NULL DEFAULT 'premium',
+      contact_whatsapp TEXT,
+      contact_location TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       updated_at TEXT,
       FOREIGN KEY (establishment_id) REFERENCES establishments(id)
@@ -69,6 +71,8 @@ export function initContentStudioDb(db) {
       paid_at TEXT,
       paid_until TEXT,
       brand_tone TEXT NOT NULL DEFAULT 'premium',
+      contact_whatsapp TEXT,
+      contact_location TEXT,
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       updated_at TEXT,
@@ -158,6 +162,19 @@ export function initContentStudioDb(db) {
   }
   if (!settingsColumns.some((column) => column.name === 'user_logos_isolated')) {
     db.exec('ALTER TABLE content_studio_settings ADD COLUMN user_logos_isolated INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!settingsColumns.some((column) => column.name === 'contact_whatsapp')) {
+    db.exec('ALTER TABLE content_studio_settings ADD COLUMN contact_whatsapp TEXT');
+  }
+  if (!settingsColumns.some((column) => column.name === 'contact_location')) {
+    db.exec('ALTER TABLE content_studio_settings ADD COLUMN contact_location TEXT');
+  }
+  const userColumns = db.prepare('PRAGMA table_info(content_studio_users)').all();
+  if (!userColumns.some((column) => column.name === 'contact_whatsapp')) {
+    db.exec('ALTER TABLE content_studio_users ADD COLUMN contact_whatsapp TEXT');
+  }
+  if (!userColumns.some((column) => column.name === 'contact_location')) {
+    db.exec('ALTER TABLE content_studio_users ADD COLUMN contact_location TEXT');
   }
   const logoColumns = db.prepare('PRAGMA table_info(content_studio_logos)').all();
   if (!logoColumns.some((column) => column.name === 'content_studio_user_id')) {

@@ -7,11 +7,13 @@ import { api } from './api.js';
 import './content-studio-landing.css';
 
 const FALLBACK_PLANS = [
-  { id: 'inicio', name: 'Inicio', photos: 10, price: 10, days: 8 },
+  { id: 'inicio', name: 'Inicio', photos: 10, price: 9.5, days: 8 },
   { id: 'emprendedor', name: 'Emprendedor', photos: 25, price: 20, days: 15 },
   { id: 'negocio', name: 'Negocio', photos: 60, price: 35, days: 30 },
   { id: 'pro', name: 'Pro', photos: 150, price: 60, days: 30 }
 ];
+
+const formatPlanPrice = (price) => (Number(price) % 1 === 0 ? String(Number(price)) : Number(price).toFixed(2));
 
 const CREATIONS = [
   { image: '/content-studio/guides/editorial.jpg', label: 'Editorial con modelo', className: 'editorial' },
@@ -69,7 +71,11 @@ export default function ContentStudioLanding() {
       <section className="csl-proof"><span>Creado para negocios de</span><div><strong>CALZADO</strong><strong>MODA</strong><strong>ACCESORIOS</strong><strong>BELLEZA</strong><strong>PRODUCTOS</strong></div></section>
 
       <section className="csl-results" id="resultados">
-        <div className="csl-section-heading"><span>UN ESTUDIO EN TU NEGOCIO</span><h2>Todo el contenido que necesitas.</h2><p>Elige el resultado. La plataforma se encarga de la dirección creativa.</p></div>
+        <div className="csl-section-heading"><span>UN ESTUDIO EN TU NEGOCIO</span><h2>De una foto sencilla a contenido listo para publicar.</h2><p>Mira una transformación real de botines y una creación para la vaquita que corre.</p></div>
+        <div className="csl-before-after">
+          <article className="csl-transform-card"><div className="csl-transform-images"><figure><img src="/content-studio/results/botin-antes.jpg" alt="Foto original de un botín" /><figcaption>Foto subida</figcaption></figure><span><ArrowRight /></span><figure><img src="/content-studio/results/botin-despues.jpg" alt="Resultado editorial de botines creado por Estudio Creativo" /><figcaption>Resultado creado</figcaption></figure></div><div><strong>Botines: de una foto de celular a una escena editorial</strong><p>La plataforma conserva el diseño del producto y construye una imagen lista para redes.</p></div></article>
+          <article className="csl-vaquita-card"><img src="/content-studio/results/vaquita-resultado.webp" alt="Post de la vaquita que corre creado por Estudio Creativo" /><div><span>RESULTADO REAL</span><strong>La vaquita que corre</strong><p>Un post diseñado a partir de una foto sencilla y una breve descripción del producto.</p></div></article>
+        </div>
         <div className="csl-gallery">{CREATIONS.map((item) => <article className={item.className} key={item.label}><img src={item.image} alt={item.label} /><div><strong>{item.label}</strong><span>Generar <ArrowRight /></span></div></article>)}</div>
       </section>
 
@@ -86,7 +92,7 @@ export default function ContentStudioLanding() {
 
       <section className="csl-pricing" id="planes">
         <div className="csl-section-heading"><span>PLANES SIMPLES</span><h2>Elige cuántas imágenes necesitas.</h2><p>Pago único por transferencia. Sin cobros automáticos.</p></div>
-        <div className="csl-plan-grid">{(data.plans || FALLBACK_PLANS).map((plan, index) => <article className={index === 1 ? 'featured' : ''} key={plan.id}>{index === 1 && <em>Más elegido</em>}<span>{plan.name}</span><div><strong>${plan.price}</strong><small>USD</small></div><h3>{plan.photos} imágenes</h3><p>Disponibles durante {plan.days} días</p><ul><li><Check /> Todos los tipos de contenido</li><li><Check /> Logos de tus marcas</li><li><Check /> Descarga en alta calidad</li><li><Check /> Historial de creaciones</li></ul><button type="button" onClick={() => choosePlan(plan)}>Elegir plan <ArrowRight /></button></article>)}</div>
+        <div className="csl-plan-grid">{(data.plans || FALLBACK_PLANS).map((plan, index) => <article className={index === 1 ? 'featured' : ''} key={plan.id}>{index === 1 && <em>Más elegido</em>}<span>{plan.name}</span><div><strong>${formatPlanPrice(plan.price)}</strong><small>USD</small></div><h3>{plan.photos} imágenes</h3><p>Disponibles durante {plan.days} días</p><ul><li><Check /> Todos los tipos de contenido</li><li><Check /> Logos de tus marcas</li><li><Check /> Descarga en alta calidad</li><li><Check /> Historial de creaciones</li></ul><button type="button" onClick={() => choosePlan(plan)}>Elegir plan <ArrowRight /></button></article>)}</div>
         <p className="csl-payment-note"><ShieldCheck /> Por ahora aceptamos únicamente transferencia bancaria. Tu cuenta se activa después de verificar el pago.</p>
       </section>
 
@@ -118,7 +124,7 @@ function TransferCheckout({ plan, transfer, contact, onClose }) {
     <section>
       <button className="csl-modal-close" type="button" onClick={onClose}><X /></button>
       {!order ? <>
-        <span className="csl-kicker">PLAN {plan.name.toUpperCase()}</span><h2>Activa tus {plan.photos} imágenes.</h2><p>Completa los datos de la cuenta. Después realiza la transferencia de <strong>${plan.price}</strong>.</p>
+        <span className="csl-kicker">PLAN {plan.name.toUpperCase()}</span><h2>Activa tus {plan.photos} imágenes.</h2><p>Completa los datos de la cuenta. Después realiza la transferencia de <strong>${formatPlanPrice(plan.price)}</strong>.</p>
         <form onSubmit={submit}><label>Nombre completo<input required value={form.customer_name} onChange={(event) => setForm({ ...form, customer_name: event.target.value })} /></label><label>Nombre del negocio<input value={form.business_name} onChange={(event) => setForm({ ...form, business_name: event.target.value })} /></label><label>WhatsApp<input required inputMode="tel" value={form.whatsapp} onChange={(event) => setForm({ ...form, whatsapp: event.target.value })} placeholder="098 376 3419" /></label><label>Correo electrónico<input required type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label><label>Usuario para ingresar<input required pattern="[a-z0-9._-]{3,80}" value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value.toLowerCase().replace(/\s+/g, '.') })} /></label><label>Contraseña<input required type="password" minLength="8" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="Mínimo 8 caracteres" /></label>{error && <div className="csl-form-error">{error}</div>}<button disabled={busy}>{busy ? 'Preparando transferencia...' : <>Continuar al pago <ArrowRight /></>}</button></form>
       </> : <div className="csl-transfer-success"><span><Check /></span><small>SOLICITUD CREADA</small><h2>{order.order.order_number}</h2><p>Transfiere <strong>${Number(order.order.amount).toFixed(2)}</strong> y envíanos el comprobante para activar tu cuenta.</p>{details.account_number ? <dl><div><dt>Banco</dt><dd>{details.bank_name}</dd></div><div><dt>Beneficiario</dt><dd>{details.beneficiary}</dd></div><div><dt>{details.account_type || 'Cuenta'}</dt><dd>{details.account_number}</dd></div>{details.identification && <div><dt>Identificación</dt><dd>{details.identification}</dd></div>}</dl> : <div className="csl-bank-pending">Solicita los datos bancarios directamente por WhatsApp.</div>}<a href={details.whatsapp_url || `https://wa.me/593983763419`} target="_blank" rel="noreferrer"><MessageCircle /> Enviar comprobante por WhatsApp</a><p className="csl-transfer-help">Confirmaremos el pago manualmente. Luego podrás ingresar con el usuario y contraseña que acabas de crear.</p><small>{contact.email}</small></div>}
     </section>

@@ -20,7 +20,7 @@ const PRESETS = {
     name: 'Post para redes',
     description: 'Pieza comercial con texto y detalles del producto.',
     size: '1024x1024',
-    direction: `Create a polished social media advertising design around the exact uploaded product. Combine a photorealistic commercial product image with strong graphic design, clean typography, deliberate hierarchy and generous breathing room. Invent one short, memorable Spanish headline appropriate to the visible product and render it correctly. You may add one very short supporting line, but never invent prices, discounts, contact details, technical specifications or unverifiable claims.`
+    direction: `Create a polished social media advertising design around the exact uploaded product. Use the visual language of a professionally art-directed retail campaign: a strong photorealistic product hero, optional supporting product crop or close-up, bold flowing graphic shapes, organized information blocks, clean typography, deliberate hierarchy and generous breathing room. Invent one short, memorable Spanish headline appropriate to the visible product and render it correctly. You may add one very short supporting line, but never invent prices, discounts, contact details, technical specifications or unverifiable claims.`
   },
   detail: {
     name: 'Detalle premium',
@@ -37,8 +37,8 @@ const SOCIAL_FORMATS = {
 
 const SOCIAL_STYLES = {
   editorial: 'Fashion-editorial advertising: refined magazine composition, sophisticated headline, product feature callouts only when clearly visible, premium spacing and tasteful type.',
-  playful: 'Playful bold advertising: one witty short Spanish headline, oversized expressive typography, energetic but controlled composition, clever scale and a polished modern campaign feel.',
-  product: 'Product-focused advertising: strong product hero, concise benefit-led Spanish headline based only on what is visibly true, clean graphic blocks and optional close-up callouts.'
+  playful: 'Playful bold retail advertising: create a witty product-specific Spanish concept with expressive oversized typography, surprising but polished composition, bold graphic shapes, playful callouts and clever visual rhythm. Make the text relevant to the product and fun to read, like a professionally art-directed campaign, without copying another brand or advertisement.',
+  product: 'Benefit-led product advertising: make the real product the hero and use two or three short Spanish benefit callouts based only on visible details or the optional characteristics supplied by the user. Use clean information blocks, a concise benefit-led headline and optional close-up callouts. Never invent benefits, specifications, prices or claims.'
 };
 
 const MOODS = {
@@ -49,7 +49,7 @@ const MOODS = {
 };
 
 const STUDIO_PLANS = [
-  { id: 'inicio', name: 'Inicio', photos: 10, price: 10, days: 8 },
+  { id: 'inicio', name: 'Inicio', photos: 10, price: 9.5, days: 8 },
   { id: 'emprendedor', name: 'Emprendedor', photos: 25, price: 20, days: 15 },
   { id: 'negocio', name: 'Negocio', photos: 60, price: 35, days: 30 },
   { id: 'pro', name: 'Pro', photos: 150, price: 60, days: 30 }
@@ -103,7 +103,9 @@ function planSettings(req, establishmentSettings) {
     plan_name: req.contentStudioUser.plan_name,
     monthly_limit: req.contentStudioUser.monthly_limit,
     brand_name: req.contentStudioUser.business_name,
-    brand_tone: req.contentStudioUser.brand_tone
+    brand_tone: req.contentStudioUser.brand_tone,
+    contact_whatsapp: req.contentStudioUser.contact_whatsapp || '',
+    contact_location: req.contentStudioUser.contact_location || ''
   };
 }
 
@@ -118,7 +120,7 @@ function listStudioUsers(db, establishmentId) {
   return db.prepare(`
     SELECT users.id, users.name, users.business_name, users.username, users.plan_name,
            users.monthly_limit, users.subscription_status, users.paid_at, users.paid_until,
-           users.brand_tone, users.status, users.created_at, users.updated_at,
+           users.brand_tone, users.contact_whatsapp, users.contact_location, users.status, users.created_at, users.updated_at,
            (SELECT COUNT(*) FROM content_studio_generations generations
             WHERE generations.content_studio_user_id = users.id
               AND generations.status = 'completed'
@@ -240,6 +242,8 @@ async function sendStudioActivationEmail(order, user) {
 function buildPrompt(body, preset, hasBrandLogo = false) {
   const details = [
     body.product_name && `Optional user clue about what the product is: ${clean(body.product_name, 70)}.`,
+    body.product_features && `Optional real characteristics the user wants to highlight: ${clean(body.product_features, 150)}. Never claim anything beyond these details and the visible product.`,
+    body.creative_instruction && `Optional user creative direction: ${clean(body.creative_instruction, 180)}. Follow it only when it fits the visible product and all other instructions.`,
     body.research_context && `Brief public context found for that clue: ${clean(body.research_context, 500)} Use this only for the campaign concept, setting or tone. Never let it override the visible product.`,
     body.brand_name && !hasBrandLogo && `Brand: ${clean(body.brand_name)}.`,
     body.brand_direction && `Brand art direction: ${clean(body.brand_direction, 220)}.`
@@ -247,6 +251,9 @@ function buildPrompt(body, preset, hasBrandLogo = false) {
   const logoInstruction = hasBrandLogo
     ? `The official brand logo will be composited by the application after this generation. Do not draw, imitate, spell, transform or include any logo or brand mark in the scene. Leave a small, visually calm area near the upper-left edge where the exact official logo can be placed later.`
     : `Do not add a logo, brand name or invented brand mark.`;
+  const contactInstruction = body.include_contact
+    ? `The application will composite the exact saved WhatsApp and location details after generation. Do not draw, imitate, spell or invent contact information. Keep the lower 12% of the image visually calm, clean and free of faces, products, logos and important text so a professional contact bar can be placed there.`
+    : `Do not add phone numbers, WhatsApp details, addresses, locations or contact information.`;
   const socialFormat = SOCIAL_FORMATS[body.social_format] || SOCIAL_FORMATS.post;
   const socialInstruction = preset === PRESETS.social
     ? `${socialFormat.instruction} ${SOCIAL_STYLES[body.social_style] || SOCIAL_STYLES.editorial}`
@@ -269,6 +276,7 @@ function buildPrompt(body, preset, hasBrandLogo = false) {
     details,
     socialInstruction,
     logoInstruction,
+    contactInstruction,
     `The result must look photographed by a professional team, not synthetic. Avoid plastic textures, excessive glow, impossible reflections, warped geometry, duplicated parts, extra accessories, fake logos, gibberish and watermarks. Do not alter the product design. Return one finished image only.`
   ].filter(Boolean).join('\n\n');
 }
@@ -310,7 +318,7 @@ async function logoWithoutFlatBackground(logoBuffer) {
   return sharp(data, { raw: info }).png().toBuffer();
 }
 
-async function overlayOfficialLogo(imageData, logoData) {
+async function overlayOfficialLogo(imageData, logoData, reserveBottom = false) {
   const source = dataImageBuffer(imageData, 'La imagen generada no se pudo preparar');
   const logoSource = dataImageBuffer(logoData, 'El logo seleccionado no se pudo preparar');
   const metadata = await sharp(source).metadata();
@@ -340,7 +348,7 @@ async function overlayOfficialLogo(imageData, logoData) {
     { left: Math.max(0, width - logoWidth - marginX), top: marginY },
     { left: marginX, top: Math.max(0, height - logoHeight - marginY) },
     { left: Math.max(0, width - logoWidth - marginX), top: Math.max(0, height - logoHeight - marginY) }
-  ];
+  ].slice(0, reserveBottom ? 2 : 4);
   const scored = await Promise.all(candidates.map(async (candidate) => {
     const regionWidth = Math.max(1, Math.min(width - candidate.left, logoWidth));
     const regionHeight = Math.max(1, Math.min(height - candidate.top, logoHeight));
@@ -357,6 +365,43 @@ async function overlayOfficialLogo(imageData, logoData) {
     }])
     .webp({ quality: 94 })
     .toBuffer();
+  return `data:image/webp;base64,${output.toString('base64')}`;
+}
+
+async function overlayContactDetails(imageData, whatsapp, location) {
+  const phoneText = clean(whatsapp, 30);
+  const locationText = clean(location, 80);
+  if (!phoneText && !locationText) return imageData;
+  const source = dataImageBuffer(imageData, 'La imagen generada no se pudo preparar');
+  const metadata = await sharp(source).metadata();
+  const width = metadata.width || 1024;
+  const height = metadata.height || 1024;
+  const marginX = Math.max(8, Math.round(width * 0.04));
+  const marginBottom = Math.max(8, Math.round(height * 0.035));
+  const barWidth = Math.max(1, width - (marginX * 2));
+  const barHeight = Math.max(44, Math.round(Math.min(height * 0.105, width * 0.11)));
+  const top = Math.max(0, height - barHeight - marginBottom);
+  const radius = Math.max(8, Math.round(barHeight * 0.2));
+  const labelSize = Math.max(10, Math.round(barHeight * 0.17));
+  const valueSize = Math.max(12, Math.round(barHeight * 0.245));
+  const iconSize = Math.max(24, Math.round(barHeight * 0.48));
+  const pad = Math.max(12, Math.round(barHeight * 0.22));
+  const shorten = (value, max) => value.length > max ? `${value.slice(0, Math.max(1, max - 1)).trim()}…` : value;
+  const items = [
+    phoneText && { label: 'WHATSAPP', value: shorten(phoneText, 24), mark: 'W' },
+    locationText && { label: 'UBICACIÓN', value: shorten(locationText, phoneText ? 42 : 68), mark: '•' }
+  ].filter(Boolean);
+  const itemWidth = barWidth / items.length;
+  const itemSvg = items.map((item, index) => {
+    const start = Math.round(index * itemWidth);
+    const iconX = start + pad;
+    const iconY = Math.round((barHeight - iconSize) / 2);
+    const textX = iconX + iconSize + Math.round(pad * 0.65);
+    const divider = index ? `<line x1="${start}" y1="${Math.round(barHeight * 0.23)}" x2="${start}" y2="${Math.round(barHeight * 0.77)}" stroke="#ffffff" stroke-opacity="0.18"/>` : '';
+    return `${divider}<circle cx="${iconX + iconSize / 2}" cy="${iconY + iconSize / 2}" r="${iconSize / 2}" fill="#d79a63"/><text x="${iconX + iconSize / 2}" y="${iconY + iconSize * 0.67}" text-anchor="middle" fill="#17191f" font-family="Arial,sans-serif" font-size="${Math.round(iconSize * 0.46)}" font-weight="700">${item.mark}</text><text x="${textX}" y="${Math.round(barHeight * 0.39)}" fill="#d9b28c" font-family="Arial,sans-serif" font-size="${labelSize}" font-weight="700" letter-spacing="1.2">${item.label}</text><text x="${textX}" y="${Math.round(barHeight * 0.68)}" fill="#ffffff" font-family="Arial,sans-serif" font-size="${valueSize}" font-weight="700">${escapeHtml(item.value)}</text>`;
+  }).join('');
+  const svg = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${barWidth}" height="${barHeight}"><rect width="${barWidth}" height="${barHeight}" rx="${radius}" fill="#17191f" fill-opacity="0.92"/><rect x="${Math.round(barWidth * 0.02)}" y="0" width="${Math.round(barWidth * 0.2)}" height="3" rx="2" fill="#d79a63"/>${itemSvg}</svg>`);
+  const output = await sharp(source).composite([{ input: svg, left: marginX, top }]).webp({ quality: 94 }).toBuffer();
   return `data:image/webp;base64,${output.toString('base64')}`;
 }
 
@@ -386,17 +431,8 @@ async function defaultGenerate({ images, prompt, size }) {
 
 async function resizeSocialOutput(imageData, format) {
   const source = dataImageBuffer(imageData, 'La imagen generada no se pudo preparar');
-  const background = await sharp(source)
-    .resize(format.width, format.height, { fit: 'cover', position: 'centre' })
-    .blur(24)
-    .modulate({ brightness: 0.82, saturation: 0.82 })
-    .toBuffer();
-  const foreground = await sharp(source)
-    .resize(format.width, format.height, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
-    .png()
-    .toBuffer();
-  const output = await sharp(background)
-    .composite([{ input: foreground, gravity: 'centre' }])
+  const output = await sharp(source)
+    .resize(format.width, format.height, { fit: 'cover', position: 'attention' })
     .webp({ quality: 92 })
     .toBuffer();
   return `data:image/webp;base64,${output.toString('base64')}`;
@@ -628,22 +664,24 @@ export function registerContentStudioRoutes(app, db, options = {}) {
 
   app.put('/api/content-studio/settings', guard, (req, res) => {
     if (req.contentStudioUser) {
-      db.prepare("UPDATE content_studio_users SET business_name = ?, brand_tone = ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
-        .run(clean(req.body.brand_name, 100) || req.contentStudioUser.business_name, clean(req.body.brand_tone, 80) || 'premium', req.contentStudioUser.id);
+      db.prepare("UPDATE content_studio_users SET business_name = ?, brand_tone = ?, contact_whatsapp = ?, contact_location = ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
+        .run(clean(req.body.brand_name, 100) || req.contentStudioUser.business_name, clean(req.body.brand_tone, 80) || 'premium', clean(req.body.contact_whatsapp, 30), clean(req.body.contact_location, 80), req.contentStudioUser.id);
       const user = db.prepare('SELECT * FROM content_studio_users WHERE id = ?').get(req.contentStudioUser.id);
       return res.json(planSettings({ contentStudioUser: user }, null));
     }
     const current = db.prepare('SELECT * FROM content_studio_settings WHERE establishment_id = ?').get(req.contentStudioEstablishment.id);
     const monthlyLimit = req.user.role === 'supreme' ? Math.max(1, Math.min(10000, Number(req.body.monthly_limit) || current.monthly_limit)) : current.monthly_limit;
     const planName = req.user.role === 'supreme' ? clean(req.body.plan_name, 60) || current.plan_name : current.plan_name;
-    db.prepare(`UPDATE content_studio_settings SET brand_name = ?, brand_tone = ?, plan_name = ?, monthly_limit = ?, updated_at = datetime('now', 'localtime') WHERE establishment_id = ?`)
-      .run(clean(req.body.brand_name, 100), clean(req.body.brand_tone, 80) || 'premium', planName, monthlyLimit, req.contentStudioEstablishment.id);
+    db.prepare(`UPDATE content_studio_settings SET brand_name = ?, brand_tone = ?, contact_whatsapp = ?, contact_location = ?, plan_name = ?, monthly_limit = ?, updated_at = datetime('now', 'localtime') WHERE establishment_id = ?`)
+      .run(clean(req.body.brand_name, 100), clean(req.body.brand_tone, 80) || 'premium', clean(req.body.contact_whatsapp, 30), clean(req.body.contact_location, 80), planName, monthlyLimit, req.contentStudioEstablishment.id);
     res.json(db.prepare('SELECT * FROM content_studio_settings WHERE establishment_id = ?').get(req.contentStudioEstablishment.id));
   });
 
   app.post('/api/content-studio/generate', guard, (req, res) => {
     const productImage = String(req.body.product_image || '');
     const productName = clean(req.body.product_name, 70);
+    const productFeatures = clean(req.body.product_features, 150);
+    const creativeInstruction = clean(req.body.creative_instruction, 180);
     const editorialSubject = ['female', 'male', 'animal'].includes(req.body.editorial_subject) ? req.body.editorial_subject : 'female';
     const preset = PRESETS[req.body.preset];
     const logoId = Number(req.body.logo_id || 0);
@@ -659,6 +697,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     if (logoId && !logo) return res.status(400).json({ message: 'El logo seleccionado ya no está disponible' });
     const establishmentSettings = db.prepare('SELECT * FROM content_studio_settings WHERE establishment_id = ?').get(req.contentStudioEstablishment.id);
     const settings = planSettings(req, establishmentSettings);
+    const includeContact = req.body.include_contact === true && Boolean(settings.contact_whatsapp || settings.contact_location);
     if (!activeSubscription(req.contentStudioUser)) return res.status(403).json({ message: 'Tu plan no está activo. Contacta al administrador para renovarlo.' });
     const studioUserId = req.contentStudioUser?.id || null;
     const userCondition = studioUserId ? 'AND content_studio_user_id = ?' : 'AND content_studio_user_id IS NULL';
@@ -691,14 +730,18 @@ export function registerContentStudioRoutes(app, db, options = {}) {
         const prompt = buildPrompt({
           ...req.body,
           product_name: productName,
+          product_features: productFeatures,
+          creative_instruction: creativeInstruction,
           editorial_subject: editorialSubject,
+          include_contact: includeContact,
           research_context: researchContext,
           brand_name: logo?.name || '',
           brand_direction: logo ? 'Use restrained neutral commercial styling; the application will apply the official logo after generation.' : 'Create a neutral premium identity around the product.'
         }, preset, Boolean(logo));
         const generated = await generateImage({ images: [productImage], prompt, size: generationSize, preset: req.body.preset });
         const sizedImage = req.body.preset === 'social' ? await resizeSocialOutput(generated.imageData, socialFormat) : generated.imageData;
-        const outputImage = logo ? await overlayOfficialLogo(sizedImage, logo.image_data) : sizedImage;
+        const brandedImage = logo ? await overlayOfficialLogo(sizedImage, logo.image_data, includeContact) : sizedImage;
+        const outputImage = includeContact ? await overlayContactDetails(brandedImage, settings.contact_whatsapp, settings.contact_location) : brandedImage;
         db.prepare("UPDATE content_studio_generations SET output_image_data = ?, revised_prompt = ?, status = 'completed', error_message = NULL WHERE id = ?")
           .run(outputImage, generated.revisedPrompt || '', reservation);
       } catch (error) {
@@ -731,4 +774,4 @@ export function registerContentStudioRoutes(app, db, options = {}) {
   });
 }
 
-export { PRESETS, buildPrompt, overlayOfficialLogo };
+export { PRESETS, buildPrompt, overlayContactDetails, overlayOfficialLogo };

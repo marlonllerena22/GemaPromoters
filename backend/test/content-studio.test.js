@@ -5,7 +5,7 @@ import express from 'express';
 import sharp from 'sharp';
 import { createToken } from '../src/auth.js';
 import { initContentStudioDb, verifyContentStudioPassword } from '../src/content-studio-db.js';
-import { buildPrompt, overlayOfficialLogo, PRESETS, registerContentStudioRoutes } from '../src/content-studio-routes.js';
+import { buildPrompt, overlayContactDetails, overlayOfficialLogo, PRESETS, registerContentStudioRoutes } from '../src/content-studio-routes.js';
 
 process.env.JWT_SECRET = 'content-studio-test-secret';
 const sampleImage = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEElEQVR4nGM42Z0NRwzEcQDckhvxhhMR2AAAAABJRU5ErkJggg==';
@@ -101,7 +101,8 @@ test('prompt accepts any product, adapts the editorial model and prepares social
   const masculine = buildPrompt({ editorial_subject: 'male' }, PRESETS.editorial, false);
   const animal = buildPrompt({ editorial_subject: 'animal' }, PRESETS.editorial, false);
   const catalog = buildPrompt({}, PRESETS.catalog, false);
-  const story = buildPrompt({ social_format: 'story', social_style: 'playful' }, PRESETS.social, false);
+  const story = buildPrompt({ social_format: 'story', social_style: 'playful', product_features: 'suavidad y cierre lateral', creative_instruction: 'Que se sienta listo para regalar' }, PRESETS.social, false);
+  const benefits = buildPrompt({ social_format: 'post', social_style: 'product', product_features: 'cuero genuino y plantilla acolchada' }, PRESETS.social, false);
   assert.match(editorial, /source-of-truth product/i);
   assert.match(editorial, /wearing, carrying, holding or using/i);
   assert.match(editorial, /adult woman by default/i);
@@ -117,7 +118,10 @@ test('prompt accepts any product, adapts the editorial model and prepares social
   assert.match(catalog, /rear shoe must show the internal-side zipper exactly once/i);
   assert.match(catalog, /every other non-footwear product.+never duplicate it/i);
   assert.match(story, /tall 9:16 story/i);
-  assert.match(story, /witty short Spanish headline/i);
+  assert.match(story, /witty product-specific Spanish concept/i);
+  assert.match(story, /Optional real characteristics the user wants to highlight/i);
+  assert.match(story, /Optional user creative direction/i);
+  assert.match(benefits, /two or three short Spanish benefit callouts/i);
   assert.match(story, /Do not add a logo/i);
 });
 
@@ -128,6 +132,10 @@ test('a paid client gets its own plan, usage, history and brand management', asy
   assert.equal(bootstrap.status, 200);
   assert.equal(bootstrap.data.settings.plan_name, 'Profesional');
   assert.equal(bootstrap.data.settings.brand_name, 'Zapatería Demo');
+  const savedContact = await request('/settings', { token: clientToken, method: 'PUT', body: JSON.stringify({ brand_name: 'Zapatería Demo', brand_tone: 'premium', contact_whatsapp: '0983763419', contact_location: 'Centro de Ambato' }) });
+  assert.equal(savedContact.status, 200);
+  assert.equal(savedContact.data.contact_whatsapp, '0983763419');
+  assert.equal(savedContact.data.contact_location, 'Centro de Ambato');
   assert.equal(bootstrap.data.subscription.status, 'paid');
   assert.equal(bootstrap.data.subscription.active, true);
   assert.equal(bootstrap.data.can_manage_references, false);
@@ -173,6 +181,7 @@ test('logos, exact social dimensions, history, limits and business isolation wor
   const publicStudio = await request('/public');
   assert.equal(publicStudio.status, 200);
   assert.deepEqual(publicStudio.data.plans.map((plan) => plan.photos), [10, 25, 60, 150]);
+  assert.equal(publicStudio.data.plans.find((plan) => plan.id === 'inicio').price, 9.5);
   assert.equal(publicStudio.data.contact.phone, '0983763419');
   const planOrder = await request('/public/orders', {
     method: 'POST', body: JSON.stringify({
@@ -217,6 +226,9 @@ test('logos, exact social dimensions, history, limits and business isolation wor
     method: 'POST', body: JSON.stringify({ name: 'Marca nueva', image: sampleImage })
   });
   assert.equal(createdLogo.status, 201);
+  const savedContact = await request('/settings', { method: 'PUT', body: JSON.stringify({ brand_name: 'Marca Uno', brand_tone: 'premium', contact_whatsapp: '0983763419', contact_location: 'Centro de Ambato' }) });
+  assert.equal(savedContact.status, 200);
+  assert.equal(savedContact.data.contact_whatsapp, '0983763419');
 
   const foreignLogo = db.prepare("INSERT INTO content_studio_logos (establishment_id, name, image_data) VALUES (2, 'Ajena', ?)").run(sampleImage).lastInsertRowid;
   const foreignAttempt = await request('/generate', { method: 'POST', body: JSON.stringify({ preset: 'catalog', logo_id: Number(foreignLogo), product_image: sampleImage }) });
@@ -232,7 +244,7 @@ test('logos, exact social dimensions, history, limits and business isolation wor
   assert.equal(db.prepare('SELECT mood FROM content_studio_generations WHERE id = ?').get(first.data.generation.id).mood, 'animal');
   assert.equal(first.data.generation.reference_ids.length, 0);
 
-  const second = await request('/generate', { method: 'POST', body: JSON.stringify({ preset: 'social', logo_id: 2, social_format: 'story', social_style: 'playful', product_image: sampleImage }) });
+  const second = await request('/generate', { method: 'POST', body: JSON.stringify({ preset: 'social', logo_id: 2, include_contact: true, social_format: 'story', social_style: 'playful', product_image: sampleImage }) });
   assert.equal(second.status, 202);
   const secondCompleted = await waitForGeneration(second.data.generation.id);
   const output = Buffer.from(secondCompleted.data.generation.output_image_data.split(',')[1], 'base64');
@@ -240,6 +252,7 @@ test('logos, exact social dimensions, history, limits and business isolation wor
   assert.equal(metadata.width, 1080);
   assert.equal(metadata.height, 1920);
   assert.equal(calls[1].size, '1024x1536');
+  assert.match(calls[1].prompt, /lower 12%/i);
   const limit = await request('/generate', { method: 'POST', body: JSON.stringify({ preset: 'detail', logo_id: 'none', product_image: sampleImage }) });
   assert.equal(limit.status, 429);
 
@@ -274,4 +287,15 @@ test('the official logo is composited after generation without changing the canv
   assert.equal(metadata.width, 600);
   assert.equal(metadata.height, 900);
   assert.ok(stats.channels[0].min < 235);
+});
+
+test('the exact saved contact details are composited locally without changing the image size', async () => {
+  const canvas = await sharp({ create: { width: 600, height: 900, channels: 3, background: { r: 238, g: 232, b: 224 } } }).webp().toBuffer();
+  const result = await overlayContactDetails(`data:image/webp;base64,${canvas.toString('base64')}`, '0983763419', 'Centro de Ambato');
+  const output = Buffer.from(result.split(',')[1], 'base64');
+  const metadata = await sharp(output).metadata();
+  const bottom = await sharp(output).extract({ left: 20, top: 760, width: 560, height: 120 }).stats();
+  assert.equal(metadata.width, 600);
+  assert.equal(metadata.height, 900);
+  assert.ok(bottom.channels[0].min < 80);
 });

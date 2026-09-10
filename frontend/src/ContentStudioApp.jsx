@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Check, ChevronRight, Crown, Download, EyeOff, Gem, Image as ImageIcon,
-  LayoutGrid, LogOut, Plus, Settings, Share2, ShoppingBag, Sparkles, Tag,
+  Check, ChevronDown, ChevronRight, Crown, Download, EyeOff, Gem, Image as ImageIcon,
+  LayoutGrid, LogOut, MapPin, MessageCircle, Plus, Settings, Share2, ShoppingBag, Sparkles, Tag,
   Trash2, Upload, UserPlus, UserRound, UsersRound, WandSparkles, X
 } from 'lucide-react';
 import { api } from './api.js';
@@ -20,9 +20,9 @@ const EDITORIAL_SUBJECTS = [
   { id: 'male', name: 'Masculino', description: 'Hombre o niño según el producto', icon: '♂' },
   { id: 'animal', name: 'Animal', description: 'Animal adecuado al contexto', icon: '✦' }
 ];
-const emptyForm = { preset: 'editorial', editorial_subject: 'female', logo_id: 'none', social_format: 'post', social_style: 'editorial', product_name: '' };
+const emptyForm = { preset: 'editorial', editorial_subject: 'female', logo_id: 'none', include_contact: false, social_format: 'post', social_style: 'editorial', product_name: '', product_features: '', creative_instruction: '' };
 const PLAN_PACKAGES = [
-  { id: 'inicio', name: 'Inicio', photos: 10, price: 10, days: 8 },
+  { id: 'inicio', name: 'Inicio', photos: 10, price: 9.5, days: 8 },
   { id: 'emprendedor', name: 'Emprendedor', photos: 25, price: 20, days: 15 },
   { id: 'negocio', name: 'Negocio', photos: 60, price: 35, days: 30 },
   { id: 'pro', name: 'Pro', photos: 150, price: 60, days: 30 }
@@ -108,7 +108,11 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
   async function load() {
     const response = await api(`/content-studio/bootstrap${scopeQuery}`);
     setData(response);
-    setForm((current) => ({ ...current, logo_id: current.logo_id === 'none' || response.logos?.some((logo) => Number(logo.id) === Number(current.logo_id)) ? current.logo_id : 'none' }));
+    setForm((current) => ({
+      ...current,
+      logo_id: current.logo_id === 'none' || response.logos?.some((logo) => Number(logo.id) === Number(current.logo_id)) ? current.logo_id : 'none',
+      include_contact: Boolean(current.include_contact && (response.settings?.contact_whatsapp || response.settings?.contact_location))
+    }));
     const remembered = response.generations?.find((item) => Number(item.id) === rememberedGenerationId());
     if (remembered?.status === 'completed') {
       setResult(remembered);
@@ -143,7 +147,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
 
   async function chooseProduct(file) {
     setError('');
-    try { setProductImage(await imageFileToData(file)); setForm((current) => ({ ...current, product_name: '' })); setResult(null); }
+    try { setProductImage(await imageFileToData(file)); setForm((current) => ({ ...current, product_name: '', product_features: '', creative_instruction: '' })); setResult(null); }
     catch (err) { setError(err.message); }
   }
 
@@ -274,6 +278,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
 }
 
 function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct, selectedPreset, generate, generating, generationProgress, result, newCreation, usagePercent, goToHistory, goToProfile }) {
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   if (result) {
     return (
       <section className="cs-result-page">
@@ -293,6 +298,7 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
   }
   const available = Math.max(0, Number(data.settings?.monthly_limit || 0) - Number(data.usage || 0));
   const firstLogo = data.logos?.[0];
+  const hasContact = Boolean(data.settings?.contact_whatsapp || data.settings?.contact_location);
   return (
     <form onSubmit={generate}>
       <section className="cs-hero cs-create-heading">
@@ -319,10 +325,13 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
                 <i>{productImage ? 'Puedes cambiarla antes de crear' : 'Una foto clara desde cualquier celular funciona'}</i>
               </span>
             </button>
-            <div className="cs-product-context">
-              <span><Sparkles size={19} /></span>
-              <label><strong>¿Qué es el producto? <em>Opcional</em></strong><input maxLength="70" value={form.product_name} onChange={(event) => setForm({ ...form, product_name: event.target.value })} placeholder="Ej. Vaquita que corre viral" /><small>Si lo escribes, investigaremos brevemente su contexto antes de crear la imagen.</small></label>
-              <b>{form.product_name.length}/70</b>
+            <div className={`cs-advanced-options ${advancedOpen ? 'open' : ''}`}>
+              <button type="button" className="cs-advanced-toggle" onClick={() => setAdvancedOpen((open) => !open)} aria-expanded={advancedOpen}><span><Sparkles size={18} /></span><div><strong>Opciones avanzadas <em>Opcionales</em></strong><small>Agrega detalles si quieres orientar más la creación.</small></div><ChevronDown size={19} /></button>
+              {advancedOpen && <div className="cs-advanced-fields">
+                <label><strong>¿Qué es el producto?</strong><input maxLength="70" value={form.product_name} onChange={(event) => setForm({ ...form, product_name: event.target.value })} placeholder="Ej. Vaquita que corre viral" /><small>Lo investigaremos brevemente solo si lo escribes.</small></label>
+                <label><strong>Características que deseas destacar</strong><input maxLength="150" value={form.product_features} onChange={(event) => setForm({ ...form, product_features: event.target.value })} placeholder="Ej. Suavidad, cierre lateral y tacón cómodo" /><small>Describe solo detalles reales del producto.</small></label>
+                <label><strong>Instrucción especial</strong><textarea maxLength="180" value={form.creative_instruction} onChange={(event) => setForm({ ...form, creative_instruction: event.target.value })} placeholder="Ej. Que se vea cálido, elegante y listo para regalar" /><small>Una idea sencilla sobre el ambiente, composición o tono.</small></label>
+              </div>}
             </div>
           </section>
 
@@ -354,13 +363,21 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
             </div>
             {form.logo_id !== 'none' && <div className="cs-available-brands"><div><strong>Selecciona una marca</strong><button type="button" onClick={goToProfile}><Settings size={15} /> Administrar logos</button></div><div className="cs-brand-picker">{(data.logos || []).map((logo) => <button type="button" key={logo.id} className={Number(form.logo_id) === Number(logo.id) ? 'selected' : ''} onClick={() => setForm({ ...form, logo_id: logo.id })}><img src={logo.image_data} alt={`Logo ${logo.name}`} /><span>{logo.name}</span>{Number(form.logo_id) === Number(logo.id) && <b><Check size={16} /></b>}</button>)}</div></div>}
             {!firstLogo && <button className="cs-add-first-brand" type="button" onClick={goToProfile}><Plus size={17} /> Agregar tu primer logo desde Perfil</button>}
+            <div className="cs-contact-options">
+              <div><strong>¿Quieres incluir medios de contacto?</strong><p>Se mostrarán abajo con los datos guardados en tu perfil.</p></div>
+              <div className="cs-brand-mode">
+                <button type="button" className={form.include_contact ? 'selected' : ''} disabled={!hasContact} onClick={() => hasContact && setForm({ ...form, include_contact: true })}><span><MessageCircle size={22} /></span><div><strong>Con contacto</strong><small>{hasContact ? [data.settings?.contact_whatsapp, data.settings?.contact_location].filter(Boolean).join(' · ') : 'Agrega WhatsApp o ubicación en Perfil'}</small></div><i>{form.include_contact && <Check size={15} />}</i></button>
+                <button type="button" className={!form.include_contact ? 'selected' : ''} onClick={() => setForm({ ...form, include_contact: false })}><span><EyeOff size={22} /></span><div><strong>Sin contacto</strong><small>Imagen sin número ni ubicación</small></div><i>{!form.include_contact && <Check size={15} />}</i></button>
+              </div>
+              {!hasContact && <button className="cs-contact-profile-link" type="button" onClick={goToProfile}><Settings size={15} /> Agregar datos de contacto en Perfil</button>}
+            </div>
           </section>
         </div>
 
         <aside className="cs-summary">
           <div className="cs-summary-visual">{productImage ? <img src={productImage} alt="Vista previa" /> : <ImageIcon size={36} />}</div>
           <span>Tu creación</span><h3>{selectedPreset?.name}</h3><p>{selectedPreset?.description}</p>
-          <ul>{form.preset === 'editorial' && <li><UserRound size={15} /> Modelo: {EDITORIAL_SUBJECTS.find((item) => item.id === form.editorial_subject)?.name || 'Femenino'}</li>}<li><Check size={15} /> Producto fiel al original</li><li><Check size={15} /> Acabado fotográfico realista</li><li><Check size={15} /> Alta calidad para publicar</li></ul>
+          <ul>{form.preset === 'editorial' && <li><UserRound size={15} /> Modelo: {EDITORIAL_SUBJECTS.find((item) => item.id === form.editorial_subject)?.name || 'Femenino'}</li>}{form.include_contact && <li><MessageCircle size={15} /> Contacto incluido al pie</li>}<li><Check size={15} /> Producto fiel al original</li><li><Check size={15} /> Acabado fotográfico realista</li><li><Check size={15} /> Alta calidad para publicar</li></ul>
           <button className="cs-generate" disabled={!productImage || generating || !data.generation_available}>{generating ? <><i /> Creando tu imagen...</> : <>Continuar <ChevronRight size={19} /></>}</button>
           {generating && <div className="cs-generation-progress" role="status" aria-live="polite"><div><i style={{ width: `${generationProgress.percent}%` }} /></div><span>{generationProgress.label}</span><strong>{generationProgress.percent}%</strong><small>Puedes cambiar de sección o recargar la página: la creación continuará en el servidor.</small></div>}
           {!data.generation_available && <small className="cs-api-note">{data.subscription?.active ? 'La interfaz está lista. Falta conectar la clave de OpenAI en el servidor.' : 'Tu plan necesita estar activo para crear imágenes.'}</small>}
@@ -449,7 +466,7 @@ function UsersView({ data, scopeBody, reload, setError }) {
         <label>Nombre del negocio<input value={form.business_name} onChange={(event) => setForm({ ...form, business_name: event.target.value })} placeholder="Puede ser igual al nombre" /></label>
         <label>Usuario<input required value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value.toLowerCase().replace(/\s+/g, '.') })} placeholder="nombre.apellido" /></label>
         <label>Contraseña temporal<input required minLength="8" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="Mínimo 8 caracteres" /></label>
-        <label>Plan<select value={form.package_id} onChange={(event) => setForm({ ...form, package_id: event.target.value })}>{PLAN_PACKAGES.map((plan) => <option key={plan.id} value={plan.id}>{plan.photos} fotos · ${plan.price} · {plan.days} días</option>)}</select></label>
+        <label>Plan<select value={form.package_id} onChange={(event) => setForm({ ...form, package_id: event.target.value })}>{PLAN_PACKAGES.map((plan) => <option key={plan.id} value={plan.id}>{plan.photos} fotos · ${Number(plan.price) % 1 === 0 ? plan.price : Number(plan.price).toFixed(2)} · {plan.days} días</option>)}</select></label>
         <div className="cs-plan-preview"><Crown size={19} /><div><strong>{selectedPackage.name}</strong><small>{selectedPackage.photos} fotos durante {selectedPackage.days} días</small></div><b>${selectedPackage.price}</b></div>
         <button className="cs-primary" disabled={saving}>{saving ? 'Creando cuenta...' : <><UserPlus size={18} /> Crear cuenta</>}</button>
       </form>
@@ -481,7 +498,7 @@ function ProfileView({ data, scopeBody, reload, setError, canManageLogos, user, 
       <div className="cs-profile-plan"><span><Crown size={22} /></span><div><small>{data.settings?.plan_name}</small><strong>{available} créditos disponibles</strong><em>{data.subscription?.active ? 'Plan activo' : 'Plan inactivo'}</em></div></div>
     </div>
     {canManageLogos ? <LogosView data={data} scopeBody={scopeBody} reload={reload} setError={setError} /> : <ReadOnlyLogos data={data} />}
-    {user?.role === 'supreme' && <div className="cs-profile-settings"><SettingsView data={data} scopeBody={scopeBody} onSaved={onSaved} setError={setError} user={user} /></div>}
+    <div className="cs-profile-settings"><SettingsView data={data} scopeBody={scopeBody} onSaved={onSaved} setError={setError} user={user} /></div>
   </section>;
 }
 
@@ -518,8 +535,8 @@ function HistoryView({ data, scopeBody, reload, setError }) {
 }
 
 function SettingsView({ data, scopeBody, onSaved, setError, user }) {
-  const [form, setForm] = useState({ brand_name: data.settings?.brand_name || '', brand_tone: data.settings?.brand_tone || 'premium', plan_name: data.settings?.plan_name || 'Profesional', monthly_limit: data.settings?.monthly_limit || 80 });
+  const [form, setForm] = useState({ brand_name: data.settings?.brand_name || '', brand_tone: data.settings?.brand_tone || 'premium', contact_whatsapp: data.settings?.contact_whatsapp || '', contact_location: data.settings?.contact_location || '', plan_name: data.settings?.plan_name || 'Profesional', monthly_limit: data.settings?.monthly_limit || 80 });
   const [saving, setSaving] = useState(false);
   async function save(event) { event.preventDefault(); setSaving(true); try { const settings = await api('/content-studio/settings', { method: 'PUT', body: JSON.stringify({ ...scopeBody, ...form }) }); onSaved(settings); } catch (err) { setError(err.message); } finally { setSaving(false); } }
-  return <section><div className="cs-section-heading"><span className="cs-eyebrow">Identidad del negocio</span><h1>Tu marca</h1><p>Estos datos se aplican automáticamente a cada creación.</p></div><form className="cs-settings-card cs-card" onSubmit={save}><label>Nombre de la marca<input value={form.brand_name} onChange={(e) => setForm({ ...form, brand_name: e.target.value })} placeholder="Nombre que debe reconocer el estudio" /></label><label>Personalidad visual<select value={form.brand_tone} onChange={(e) => setForm({ ...form, brand_tone: e.target.value })}><option value="premium">Elegante y premium</option><option value="warm">Cercana y cálida</option><option value="modern">Moderna y limpia</option><option value="bold">Audaz y colorida</option></select></label>{user?.role === 'supreme' && <><label>Nombre del plan<input value={form.plan_name} onChange={(e) => setForm({ ...form, plan_name: e.target.value })} /></label><label>Límite mensual<input type="number" min="1" max="10000" value={form.monthly_limit} onChange={(e) => setForm({ ...form, monthly_limit: e.target.value })} /></label></>}<div className="cs-subscription-note"><Sparkles size={20} /><div><strong>Preparado para suscripciones</strong><p>El sistema ya mide cada creación por mes y respeta el límite asignado al plan.</p></div></div><button className="cs-primary" disabled={saving}>{saving ? 'Guardando...' : 'Guardar identidad'}</button></form></section>;
+  return <section><div className="cs-section-heading"><span className="cs-eyebrow">Datos del negocio</span><h1>Identidad y contacto</h1><p>Guarda el WhatsApp y la ubicación que podrás incluir al pie de cualquier creación.</p></div><form className="cs-settings-card cs-card" onSubmit={save}><label>Nombre de la marca<input value={form.brand_name} onChange={(e) => setForm({ ...form, brand_name: e.target.value })} placeholder="Nombre que debe reconocer el estudio" /></label><label>Personalidad visual<select value={form.brand_tone} onChange={(e) => setForm({ ...form, brand_tone: e.target.value })}><option value="premium">Elegante y premium</option><option value="warm">Cercana y cálida</option><option value="modern">Moderna y limpia</option><option value="bold">Audaz y colorida</option></select></label><label><span className="cs-field-label"><MessageCircle size={15} /> WhatsApp</span><input maxLength="30" value={form.contact_whatsapp} onChange={(e) => setForm({ ...form, contact_whatsapp: e.target.value })} placeholder="Ej. 0983763419" /><small>Se mostrará exactamente como lo escribas.</small></label><label><span className="cs-field-label"><MapPin size={15} /> Ubicación</span><input maxLength="80" value={form.contact_location} onChange={(e) => setForm({ ...form, contact_location: e.target.value })} placeholder="Ej. Centro de Ambato" /><small>Puede ser ciudad, sector o dirección corta.</small></label>{user?.role === 'supreme' && <><label>Nombre del plan<input value={form.plan_name} onChange={(e) => setForm({ ...form, plan_name: e.target.value })} /></label><label>Límite mensual<input type="number" min="1" max="10000" value={form.monthly_limit} onChange={(e) => setForm({ ...form, monthly_limit: e.target.value })} /></label></>}<div className="cs-subscription-note"><Sparkles size={20} /><div><strong>Contacto opcional en cada imagen</strong><p>Guardar estos datos no los agrega automáticamente. Tú eliges “Con contacto” o “Sin contacto” antes de crear.</p></div></div><button className="cs-primary" disabled={saving}>{saving ? 'Guardando...' : 'Guardar datos'}</button></form></section>;
 }
