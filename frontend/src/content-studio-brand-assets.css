@@ -1,6 +1,8 @@
 /* Los assets oficiales tienen transparencia; ningún contenedor debe crear un cuadro negro detrás. */
 .csl-logo-art>span,.csa-brand-mascot,.cs-brand-mascot,.csl-logo-art>img,.csa-brand-wordmark,.cs-brand-wordmark{background:transparent!important}
+.csl-logo-art>span,.csa-brand-mascot,.cs-brand-mascot{overflow:visible!important}
 .csl-logo-art>span img,.csa-brand-mascot img,.cs-brand-mascot img{object-fit:contain!important}
+.csa-brand-wordmark,.cs-brand-wordmark,.csl-logo-art>img{border-radius:0!important}
 .cs-brand-profile-grid img,.cs-reference-list article>img,.cs-ref-upload img,.cs-brand-picker img{background:#f8f5ef!important}
 .cs-account-avatar:has(.cs-account-mascot){background:linear-gradient(145deg,#171a20,#2a2e38)!important}
 .cs-account-mascot{width:118%;height:118%;max-width:none!important;object-fit:contain!important;transform:translateY(7%)}

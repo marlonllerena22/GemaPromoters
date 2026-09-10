@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, CheckCircle2, KeyRound, Mail, X } from 'lucide-react';
 import { api, setToken, setUser } from './api.js';
 import './content-studio-access.css';
+import './content-studio-brand-assets.css';
 
 let googleScriptPromise;
 

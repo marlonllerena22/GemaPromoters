@@ -7,6 +7,7 @@ import {
 import { api, getToken, getUser } from './api.js';
 import ContentStudioAccess from './ContentStudioAccess.jsx';
 import './content-studio-landing.css';
+import './content-studio-brand-assets.css';
 
 const FALLBACK_PLANS = [
   { id: 'inicio', name: 'Inicio', photos: 10, price: 9.5, days: 8 },

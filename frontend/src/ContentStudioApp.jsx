@@ -8,6 +8,7 @@ import {
 import { api, setUser } from './api.js';
 import './content-studio.css';
 import './content-studio-magic-progress.css';
+import './content-studio-brand-assets.css';
 
 const PRESET_ICONS = { editorial: UserRound, catalog: ShoppingBag, social: Share2, detail: Gem };
 const PRESET_GUIDES = {
