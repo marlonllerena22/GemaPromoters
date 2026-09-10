@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { clearToken, getToken, getUser, setToken, setUser } from './api.js';
 import ContentStudioIntro from './ContentStudioIntro.jsx';
 import './studio-base.css';
+import './content-studio-brand-assets.css';
 
 const ContentStudioApp = lazy(() => import('./ContentStudioApp.jsx'));
 const ContentStudioLanding = lazy(() => import('./ContentStudioLanding.jsx'));

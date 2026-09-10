@@ -1,0 +1,3 @@
+/* Los assets oficiales tienen transparencia; ningún contenedor debe crear un cuadro negro detrás. */
+.csl-logo-art>span,.csa-brand-mascot,.cs-brand-mascot,.csl-logo-art>img,.csa-brand-wordmark,.cs-brand-wordmark{background:transparent!important}
+.csl-logo-art>span img,.csa-brand-mascot img,.cs-brand-mascot img{object-fit:contain!important}
