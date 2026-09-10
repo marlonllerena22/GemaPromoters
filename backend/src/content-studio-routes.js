@@ -223,7 +223,7 @@ async function sendStudioActivationEmail(order, user) {
     secure: String(process.env.SMTP_SECURE || '').toLowerCase() === 'true',
     auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
   });
-  const appUrl = String(process.env.PUBLIC_APP_URL || 'https://promotersec.com').replace(/\/$/, '');
+  const appUrl = String(process.env.CONTENT_STUDIO_PUBLIC_URL || 'https://estudioscreativos.com/ingresar').replace(/\/$/, '');
   await transporter.sendMail({
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
     to: order.email,

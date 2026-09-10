@@ -750,6 +750,48 @@ input[type="file"] {
   text-decoration: none;
 }
 
+.studio-login-shell {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    radial-gradient(circle at 50% 15%, rgba(217, 148, 69, 0.2), transparent 34%),
+    #111211;
+  background-size: 64px 64px, 64px 64px, auto, auto;
+}
+
+.studio-login-shell .login-panel {
+  background: rgba(24, 25, 23, 0.96);
+  border-color: rgba(217, 148, 69, 0.28);
+  border-radius: 18px;
+  box-shadow: 0 34px 100px rgba(0, 0, 0, 0.6), 0 0 70px rgba(217, 148, 69, 0.08);
+}
+
+.studio-login-shell .brand-mark,
+.studio-login-shell .primary-button {
+  background: #d99445;
+  color: #1b140d;
+  box-shadow: 0 16px 36px rgba(217, 148, 69, 0.2);
+}
+
+.studio-login-shell .login-eyebrow,
+.studio-login-shell .login-secondary-actions a {
+  color: #e2a963;
+}
+
+.studio-login-shell .login-premium-note {
+  background: rgba(217, 148, 69, 0.1);
+  border-color: rgba(217, 148, 69, 0.22);
+  color: #ead8c1;
+}
+
+.studio-login-shell .remember-control input {
+  accent-color: #d99445;
+}
+
+.studio-login-back {
+  justify-content: center;
+}
+
 .brand-mark.small {
   box-shadow: 3px 3px 0 #18201d;
   flex: 0 0 auto;

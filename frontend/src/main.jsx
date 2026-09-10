@@ -834,8 +834,10 @@ function withScope(path, eventId, establishmentId) {
 function App() {
   const [token, saveToken] = useState(getToken());
   const [user, saveUser] = useState(getUser());
+  const pathname = window.location.pathname;
+  const isStudioDomain = ['estudioscreativos.com', 'www.estudioscreativos.com'].includes(window.location.hostname.toLowerCase());
 
-  if (window.location.pathname === '/estudio-creativo') {
+  if (pathname === '/estudio-creativo' || (isStudioDomain && pathname === '/')) {
     return <ContentStudioLanding />;
   }
 
@@ -951,6 +953,7 @@ function App() {
 }
 
 function Login({ onLogin }) {
+  const isStudioLogin = ['estudioscreativos.com', 'www.estudioscreativos.com'].includes(window.location.hostname.toLowerCase());
   const savedCredentials = (() => {
     try {
       return JSON.parse(localStorage.getItem('promoters_remember_credentials') || '{}');
@@ -962,6 +965,13 @@ function Login({ onLogin }) {
   const [rememberMe, setRememberMe] = useState(Boolean(savedCredentials.username && savedCredentials.password));
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!isStudioLogin) return undefined;
+    const previousTitle = document.title;
+    document.title = 'Ingresar | Estudios Creativos';
+    return () => { document.title = previousTitle; };
+  }, [isStudioLogin]);
 
   async function submit(event) {
     event.preventDefault();
@@ -1001,19 +1011,19 @@ function Login({ onLogin }) {
   }
 
   return (
-    <main className="login-shell">
+    <main className={`login-shell${isStudioLogin ? ' studio-login-shell' : ''}`}>
       <section className="login-panel">
         <div className="login-brand-row">
-          <div className="brand-mark">P</div>
+          <div className="brand-mark">{isStudioLogin ? <Sparkles size={24} /> : 'P'}</div>
           <div>
-            <span className="login-eyebrow">Plataforma oficial</span>
-            <h1>PROMOTERS</h1>
+            <span className="login-eyebrow">{isStudioLogin ? 'Tu espacio creativo' : 'Plataforma oficial'}</span>
+            <h1>{isStudioLogin ? 'Estudios Creativos' : 'PROMOTERS'}</h1>
           </div>
         </div>
-        <p>Acceso unificado para administradores, promotores y negocios aliados.</p>
+        <p>{isStudioLogin ? 'Ingresa para crear, revisar y descargar el contenido de tu negocio.' : 'Acceso unificado para administradores, promotores y negocios aliados.'}</p>
         <div className="login-premium-note">
           <Sparkles size={18} />
-          El sistema reconoce tu cuenta y abre tu espacio automaticamente.
+          {isStudioLogin ? 'Tus imágenes, marcas e historial están listos para ti.' : 'El sistema reconoce tu cuenta y abre tu espacio automaticamente.'}
         </div>
         <form onSubmit={submit} className="form-grid">
           <label>
@@ -1047,11 +1057,11 @@ function Login({ onLogin }) {
             Entrar
           </button>
         </form>
-        <div className="login-secondary-actions">
+        {isStudioLogin ? <div className="login-secondary-actions studio-login-back"><a href="/">Volver a Estudios Creativos</a></div> : <div className="login-secondary-actions">
           <a href="/registro">Quiero registrarme como promotor</a>
           <a href="/marjorie/registro">Promotoras Marjorie Botas</a>
           <a href="/verificar">Verificar codigo de promotor</a>
-        </div>
+        </div>}
       </section>
     </main>
   );

@@ -2,6 +2,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
 import nodemailer from 'nodemailer';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { PDFParse } from 'pdf-parse';
 import { fileURLToPath } from 'node:url';
@@ -2970,6 +2971,37 @@ registerContentStudioRoutes(app, db);
 recalculateAllCommissions();
 
 const frontendDist = process.env.FRONTEND_DIST || path.join(__dirname, '..', '..', 'frontend', 'dist');
+const studioDomains = new Set(['estudioscreativos.com', 'www.estudioscreativos.com']);
+const studioIndexPath = path.join(frontendDist, 'index.html');
+
+app.get(['/', '/estudio-creativo', '/ingresar'], async (req, res, next) => {
+  const isStudioDomain = studioDomains.has(String(req.hostname || '').toLowerCase());
+  if (!isStudioDomain && req.path !== '/estudio-creativo') return next();
+
+  try {
+    const isLogin = req.path === '/ingresar';
+    const title = isLogin ? 'Ingresar | Estudios Creativos' : 'Estudios Creativos | Contenido profesional con IA';
+    const description = 'Convierte fotos de tus productos en contenido profesional para catálogo, redes sociales y campañas con modelos.';
+    const canonical = `https://estudioscreativos.com${isLogin ? '/ingresar' : '/'}`;
+    const image = 'https://estudioscreativos.com/content-studio/guides/social.jpg';
+    const meta = `<title>${title}</title>
+    <meta name="description" content="${description}" />
+    <meta name="theme-color" content="#111211" />
+    <link rel="canonical" href="${canonical}" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Estudios Creativos" />
+    <meta property="og:title" content="${title}" />
+    <meta property="og:description" content="${description}" />
+    <meta property="og:url" content="${canonical}" />
+    <meta property="og:image" content="${image}" />
+    <meta name="twitter:card" content="summary_large_image" />`;
+    const html = (await readFile(studioIndexPath, 'utf8')).replace('<title>PROMOTERS</title>', meta);
+    return res.type('html').send(html);
+  } catch (error) {
+    return next(error);
+  }
+});
+
 app.use(express.static(frontendDist));
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api')) {

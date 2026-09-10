@@ -32,6 +32,8 @@ services:
         sync: false
       - key: CONTENT_STUDIO_CONTACT_EMAIL
         value: promoters.ecu@gmail.com
+      - key: CONTENT_STUDIO_PUBLIC_URL
+        value: https://estudioscreativos.com/ingresar
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: MARJORIE_INVENTORY_API_KEY

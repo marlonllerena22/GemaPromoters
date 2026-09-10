@@ -16,6 +16,9 @@ const FALLBACK_PLANS = [
 
 const HERO_MODES = ['fotografía de producto', 'contenido con modelos', 'publicidad para redes', 'catálogos profesionales'];
 const INDUSTRIES = ['CALZADO', 'MODA', 'ACCESORIOS', 'BELLEZA', 'HOGAR', 'ALIMENTOS'];
+const IS_STUDIO_DOMAIN = typeof window !== 'undefined' && ['estudioscreativos.com', 'www.estudioscreativos.com'].includes(window.location.hostname.toLowerCase());
+const STUDIO_HOME = IS_STUDIO_DOMAIN ? '/' : '/estudio-creativo';
+const STUDIO_LOGIN = IS_STUDIO_DOMAIN ? '/ingresar' : '/';
 
 const FEATURES = [
   { id: 'editorial', label: 'Con modelos', title: 'Pon tu producto en una escena que se siente real.', copy: 'Elige una mujer, un hombre o un animal. Estudios Creativos adapta el entorno y conserva la forma, color y detalles del producto.', image: '/content-studio/guides/editorial.jpg' },
@@ -50,7 +53,7 @@ export default function ContentStudioLanding() {
 
   return <div className="csl-page">
     <header className="csl-header">
-      <a className="csl-logo" href="/estudio-creativo"><span><WandSparkles size={18} /></span><strong>Estudios Creativos</strong></a>
+      <a className="csl-logo" href={STUDIO_HOME}><span><WandSparkles size={18} /></span><strong>Estudios Creativos</strong></a>
       <button className="csl-menu" type="button" onClick={() => setMenuOpen((value) => !value)} aria-label="Abrir menú"><Menu /></button>
       <nav className={menuOpen ? 'open' : ''}>
         <a href="#funciones" onClick={() => setMenuOpen(false)}>Funciones</a>
@@ -58,7 +61,7 @@ export default function ContentStudioLanding() {
         <a href="#planes" onClick={() => setMenuOpen(false)}>Planes</a>
         <a href="#contacto" onClick={() => setMenuOpen(false)}>Contacto</a>
       </nav>
-      <a className="csl-login" href="/">Iniciar sesión</a>
+      <a className="csl-login" href={STUDIO_LOGIN}>Iniciar sesión</a>
       <button className="csl-start" type="button" onClick={() => choosePlan(data.plans?.[1] || FALLBACK_PLANS[1])}>Probar Estudios Creativos</button>
     </header>
 
@@ -126,7 +129,7 @@ export default function ContentStudioLanding() {
       <section className="csl-contact" id="contacto"><h2>Empieza a crear contenido<br />que se vea profesional.</h2><div><button type="button" onClick={() => choosePlan(data.plans?.[1] || FALLBACK_PLANS[1])}>Crear mis imágenes <ArrowRight /></button><a href={`https://wa.me/593${String(data.contact?.phone || '0983763419').replace(/\D/g, '').replace(/^0/, '')}`} target="_blank" rel="noreferrer"><MessageCircle /> Hablar por WhatsApp</a></div></section>
     </main>
 
-    <footer className="csl-footer"><a className="csl-logo" href="/estudio-creativo"><span><WandSparkles size={18} /></span><strong>Estudios Creativos</strong></a><p>Contenido profesional para negocios que quieren crecer.</p><div><a href="#planes">Planes</a><a href="/">Iniciar sesión</a><a href={`mailto:${data.contact?.email}`}><Mail size={15} /> Contacto</a><a href="https://www.instagram.com" target="_blank" rel="noreferrer"><Instagram size={16} /></a></div></footer>
+    <footer className="csl-footer"><a className="csl-logo" href={STUDIO_HOME}><span><WandSparkles size={18} /></span><strong>Estudios Creativos</strong></a><p>Contenido profesional para negocios que quieren crecer.</p><div><a href="#planes">Planes</a><a href={STUDIO_LOGIN}>Iniciar sesión</a><a href={`mailto:${data.contact?.email}`}><Mail size={15} /> Contacto</a><a href="https://www.instagram.com" target="_blank" rel="noreferrer"><Instagram size={16} /></a></div></footer>
     {examplesOpen && <ExamplesModal onClose={() => setExamplesOpen(false)} />}
     {selectedPlan && <TransferCheckout plan={selectedPlan} transfer={data.transfer || {}} contact={data.contact || {}} onClose={() => setSelectedPlan(null)} />}
   </div>;
