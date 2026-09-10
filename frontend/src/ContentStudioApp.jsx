@@ -15,7 +15,7 @@ const PRESET_GUIDES = {
   detail: '/content-studio/guides/detail.jpg'
 };
 const PRESET_NAMES = { editorial: 'Editorial', catalog: 'Catálogo', social: 'Post social', detail: 'Detalle' };
-const emptyForm = { preset: 'editorial', logo_id: 'none', social_format: 'post', social_style: 'editorial' };
+const emptyForm = { preset: 'editorial', logo_id: 'none', social_format: 'post', social_style: 'editorial', product_name: '' };
 const PLAN_PACKAGES = [
   { id: 'inicio', name: 'Inicio', photos: 10, price: 10, days: 8 },
   { id: 'emprendedor', name: 'Emprendedor', photos: 25, price: 20, days: 15 },
@@ -25,9 +25,9 @@ const PLAN_PACKAGES = [
 
 const wait = (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 
-function progressForElapsed(seconds) {
+function progressForElapsed(seconds, hasResearch = false) {
   if (seconds < 4) return { percent: 12, label: 'Preparando tus imágenes' };
-  if (seconds < 15) return { percent: 28, label: 'Analizando el producto y la marca' };
+  if (seconds < 15) return { percent: 28, label: hasResearch ? 'Investigando el contexto del producto' : 'Analizando el producto y la marca' };
   if (seconds < 35) return { percent: 48, label: 'Creando la composición' };
   if (seconds < 65) return { percent: 68, label: 'Cuidando el realismo y los detalles' };
   if (seconds < 100) return { percent: 84, label: 'Aplicando el acabado profesional' };
@@ -138,7 +138,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
 
   async function chooseProduct(file) {
     setError('');
-    try { setProductImage(await imageFileToData(file)); setResult(null); }
+    try { setProductImage(await imageFileToData(file)); setForm((current) => ({ ...current, product_name: '' })); setResult(null); }
     catch (err) { setError(err.message); }
   }
 
@@ -149,7 +149,8 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
     setGenerating(true);
     const parsedCreatedAt = generation?.created_at ? new Date(String(generation.created_at).replace(' ', 'T')).getTime() : NaN;
     const startedAt = startedAtOverride || (Number.isFinite(parsedCreatedAt) ? parsedCreatedAt : Date.now());
-    setGenerationProgress(progressForElapsed(Math.max(0, Math.round((Date.now() - startedAt) / 1000))));
+    const hasResearch = Boolean(String(generation?.product_name || '').trim());
+    setGenerationProgress(progressForElapsed(Math.max(0, Math.round((Date.now() - startedAt) / 1000)), hasResearch));
     let terminal = false;
     try {
       let completed;
@@ -167,7 +168,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
         await wait(2500);
         if (mountedRef.current) {
           const elapsed = Math.round((Date.now() - startedAt) / 1000);
-          setGenerationProgress(progressForElapsed(elapsed));
+          setGenerationProgress(progressForElapsed(elapsed, hasResearch));
         }
       }
       if (!mountedRef.current || activeGenerationRef.current !== generationId) return;
@@ -279,7 +280,7 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
             <button className="cs-primary" onClick={() => downloadDataImage(result.output_image_data, `${result.brand_name || 'contenido'}-${result.id}.webp`)}><Download size={18} /> Descargar</button>
             <button className="cs-secondary" onClick={newCreation}><Plus size={18} /> Nueva creación</button>
           </div>
-          <div className="cs-result-meta">{result.brand_name && <span>{result.brand_name}</span>}<span>{PRESET_NAMES[result.preset]}</span><span>{result.aspect_ratio}</span></div>
+          <div className="cs-result-meta">{result.product_name && <span>{result.product_name}</span>}{result.brand_name && <span>{result.brand_name}</span>}<span>{PRESET_NAMES[result.preset]}</span><span>{result.aspect_ratio}</span></div>
         </div>
         <div className="cs-result-image"><img src={result.output_image_data} alt="Contenido generado" /></div>
       </section>
@@ -313,6 +314,11 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
                 <i>{productImage ? 'Puedes cambiarla antes de crear' : 'Una foto clara desde cualquier celular funciona'}</i>
               </span>
             </button>
+            <div className="cs-product-context">
+              <span><Sparkles size={19} /></span>
+              <label><strong>¿Qué es el producto? <em>Opcional</em></strong><input maxLength="70" value={form.product_name} onChange={(event) => setForm({ ...form, product_name: event.target.value })} placeholder="Ej. Vaquita que corre viral" /><small>Si lo escribes, investigaremos brevemente su contexto antes de crear la imagen.</small></label>
+              <b>{form.product_name.length}/70</b>
+            </div>
           </section>
 
           <section className="cs-card cs-content-card">
@@ -501,7 +507,7 @@ function HistoryView({ data, scopeBody, reload, setError }) {
   return <section>
     <div className="cs-section-heading"><span className="cs-eyebrow">Tus resultados</span><h1>Mis diseños</h1><p>Todo tu contenido terminado, listo para volver a descargar.</p></div>
     {pending.length > 0 && <div className="cs-queue-banner" role="status"><span><Sparkles size={20} /></span><div><strong>{pending.length === 1 ? 'Tu imagen sigue en proceso' : `${pending.length} imágenes siguen en proceso`}</strong><small>Puedes cambiar de sección, cerrar o recargar la página. Aparecerá aquí cuando termine.</small></div></div>}
-    {completed.length ? <div className="cs-history-grid">{completed.map((item) => <article key={item.id}><img src={item.output_image_data} alt={item.brand_name || 'Diseño'} /><div><span>{PRESET_NAMES[item.preset]}</span><strong>{item.brand_name || 'Creación'}</strong><small>{new Date(`${item.created_at.replace(' ', 'T')}`).toLocaleDateString('es-EC')}</small></div><div className="cs-history-actions"><button onClick={() => downloadDataImage(item.output_image_data, `${item.brand_name || 'contenido'}-${item.id}.webp`)}><Download size={17} /></button><button onClick={() => remove(item.id)}><Trash2 size={17} /></button></div></article>)}</div> : <div className="cs-empty-large"><LayoutGrid size={38} /><h3>Aquí aparecerán tus diseños</h3><p>{pending.length ? 'Tu primera imagen aparecerá aquí en cuanto termine.' : 'Crea tu primera imagen profesional para verla en esta galería.'}</p></div>}
+    {completed.length ? <div className="cs-history-grid">{completed.map((item) => <article key={item.id}><img src={item.output_image_data} alt={item.product_name || item.brand_name || 'Diseño'} /><div><span>{PRESET_NAMES[item.preset]}</span><strong>{item.product_name || item.brand_name || 'Creación'}</strong><small>{new Date(`${item.created_at.replace(' ', 'T')}`).toLocaleDateString('es-EC')}</small></div><div className="cs-history-actions"><button onClick={() => downloadDataImage(item.output_image_data, `${item.brand_name || 'contenido'}-${item.id}.webp`)}><Download size={17} /></button><button onClick={() => remove(item.id)}><Trash2 size={17} /></button></div></article>)}</div> : <div className="cs-empty-large"><LayoutGrid size={38} /><h3>Aquí aparecerán tus diseños</h3><p>{pending.length ? 'Tu primera imagen aparecerá aquí en cuanto termine.' : 'Crea tu primera imagen profesional para verla en esta galería.'}</p></div>}
   </section>;
 }
 

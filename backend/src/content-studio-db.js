@@ -134,6 +134,14 @@ export function initContentStudioDb(db) {
 
     CREATE INDEX IF NOT EXISTS idx_content_studio_plan_orders_scope
       ON content_studio_plan_orders(establishment_id, status, created_at);
+
+    CREATE TABLE IF NOT EXISTS content_studio_research_cache (
+      query_key TEXT PRIMARY KEY,
+      query_text TEXT NOT NULL,
+      context TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
   `);
   const generationColumns = db.prepare('PRAGMA table_info(content_studio_generations)').all();
   if (!generationColumns.some((column) => column.name === 'deleted_at')) {

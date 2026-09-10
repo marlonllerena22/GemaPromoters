@@ -42,6 +42,8 @@ services:
         value: gpt-image-2
       - key: OPENAI_IMAGE_QUALITY
         value: medium
+      - key: OPENAI_RESEARCH_MODEL
+        value: gpt-5.4-nano
       - key: CONTENT_STUDIO_ADMIN_USER
         value: contenido
       - key: CONTENT_STUDIO_ADMIN_PASSWORD

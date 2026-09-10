@@ -27,12 +27,17 @@ function fixture() {
   db.prepare("INSERT INTO content_studio_users (id, establishment_id, name, business_name, username, password_hash, plan_name, monthly_limit, subscription_status, paid_until, status) VALUES (1, 1, 'Cliente', 'Zapatería Demo', 'cliente.demo', 'hash', 'Profesional', 80, 'paid', '2099-12-31', 'active')").run();
   db.prepare("INSERT INTO content_studio_logos (id, establishment_id, name, image_data) VALUES (1, 1, 'Marjorie Botas', ?), (2, 1, 'Sebastian''s', ?)").run(sampleImage, sampleImage);
   const calls = [];
+  const researchCalls = [];
   const app = express();
   app.use(express.json({ limit: '20mb' }));
   registerContentStudioRoutes(app, db, {
     generateImage: async (request) => {
       calls.push(request);
       return { imageData: sampleImage, revisedPrompt: 'mock' };
+    },
+    researchProduct: async (productName) => {
+      researchCalls.push(productName);
+      return 'Personaje de peluche asociado a un video viral de una vaquita que corre.';
     }
   });
   const server = app.listen(0);
@@ -55,7 +60,7 @@ function fixture() {
     }
     throw new Error('La generación de prueba no terminó');
   }
-  return { db, server, request, calls, supreme, clientToken, waitForGeneration };
+  return { db, server, request, calls, researchCalls, supreme, clientToken, waitForGeneration };
 }
 
 test('prompt accepts any product, keeps editorial text-free and prepares social formats', () => {
@@ -77,7 +82,7 @@ test('prompt accepts any product, keeps editorial text-free and prepares social 
 });
 
 test('a paid client gets its own plan, usage, history and brand management', async (t) => {
-  const { db, server, request, calls, clientToken, waitForGeneration } = fixture();
+  const { db, server, request, calls, researchCalls, clientToken, waitForGeneration } = fixture();
   t.after(() => { server.close(); db.close(); });
   const bootstrap = await request('/bootstrap', { token: clientToken });
   assert.equal(bootstrap.status, 200);
@@ -95,20 +100,29 @@ test('a paid client gets its own plan, usage, history and brand management', asy
   assert.equal(clientLogo.status, 201);
   assert.equal((await request(`/logos/${clientLogo.data.id}`, { token: clientToken, method: 'DELETE' })).status, 200);
   assert.equal((await request('/users', { token: clientToken, method: 'POST', body: JSON.stringify({ name: 'Otra persona', username: 'otra', password: 'Password25!' }) })).status, 403);
-  const generated = await request('/generate', { token: clientToken, method: 'POST', body: JSON.stringify({ preset: 'catalog', logo_id: 1, product_image: sampleImage }) });
+  const generated = await request('/generate', { token: clientToken, method: 'POST', body: JSON.stringify({ preset: 'catalog', logo_id: 1, product_name: 'vaquita que corre viral', product_image: sampleImage }) });
   assert.equal(generated.status, 202);
   const completed = await waitForGeneration(generated.data.generation.id, clientToken);
   assert.equal(completed.data.generation.status, 'completed');
   assert.equal(calls.length, 1);
+  assert.deepEqual(researchCalls, ['vaquita que corre viral']);
+  assert.match(calls[0].prompt, /Personaje de peluche asociado a un video viral/i);
   assert.equal(calls[0].images.length, 1);
+  assert.equal(completed.data.generation.product_name, 'vaquita que corre viral');
   assert.doesNotMatch(calls[0].prompt, /Reproduce that supplied logo/i);
   assert.equal(db.prepare('SELECT content_studio_user_id FROM content_studio_generations WHERE id = ?').get(generated.data.generation.id).content_studio_user_id, 1);
+
+  const unrelated = await request('/generate', { token: clientToken, method: 'POST', body: JSON.stringify({ preset: 'catalog', logo_id: 'none', product_image: sampleImage }) });
+  assert.equal(unrelated.status, 202);
+  await waitForGeneration(unrelated.data.generation.id, clientToken);
+  assert.equal(researchCalls.length, 1);
+  assert.doesNotMatch(calls[1].prompt, /vaquita que corre|video viral/i);
 
   const adminBootstrap = await request('/bootstrap');
   assert.equal(adminBootstrap.data.generations.length, 0);
   const clientBootstrap = await request('/bootstrap', { token: clientToken });
-  assert.equal(clientBootstrap.data.generations.length, 1);
-  assert.equal(clientBootstrap.data.usage, 1);
+  assert.equal(clientBootstrap.data.generations.length, 2);
+  assert.equal(clientBootstrap.data.usage, 2);
 });
 
 test('logos, exact social dimensions, history, limits and business isolation work together', async (t) => {
