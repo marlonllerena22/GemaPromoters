@@ -249,7 +249,10 @@ function planOrderRow(row) {
 }
 
 function listPlanOrders(db, establishmentId) {
-  return db.prepare(`SELECT * FROM content_studio_plan_orders WHERE establishment_id = ? ORDER BY created_at DESC, id DESC`)
+  return db.prepare(`SELECT orders.*, sellers.name AS seller_name, sellers.username AS seller_username
+    FROM content_studio_plan_orders orders
+    LEFT JOIN content_studio_sellers sellers ON sellers.id = orders.seller_id
+    WHERE orders.establishment_id = ? ORDER BY orders.created_at DESC, orders.id DESC`)
     .all(establishmentId).map(planOrderRow);
 }
 
