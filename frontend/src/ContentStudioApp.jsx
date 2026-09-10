@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { api, setUser } from './api.js';
 import './content-studio.css';
+import './content-studio-magic-progress.css';
 
 const PRESET_ICONS = { editorial: UserRound, catalog: ShoppingBag, social: Share2, detail: Gem };
 const PRESET_GUIDES = {
@@ -601,12 +602,29 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
           <span>Tu creación</span><h3>{selectedPreset?.name}</h3><p>{selectedPreset?.description}</p>
           <ul>{form.preset === 'editorial' && <li><UserRound size={15} /> Modelo: {EDITORIAL_SUBJECTS.find((item) => item.id === form.editorial_subject)?.name || 'Femenino'}</li>}{form.include_contact && <li><MessageCircle size={15} /> Contacto incluido al pie</li>}<li><Check size={15} /> Producto fiel al original</li><li><Check size={15} /> Acabado fotográfico realista</li><li><Check size={15} /> Alta calidad para publicar</li></ul>
           <button className="cs-generate" disabled={generating || (!needsPlan && (!productImage || !data.generation_available))}>{generating ? <><i /> Creando tu imagen...</> : needsPlan ? <><CreditCard size={18}/> Elegir un plan</> : <>Continuar <ChevronRight size={19} /></>}</button>
-          {generating && <div className="cs-generation-progress" role="status" aria-live="polite"><div><i style={{ width: `${generationProgress.percent}%` }} /></div><span>{generationProgress.label}</span><strong>{generationProgress.percent}%</strong><small>Puedes cambiar de sección o recargar la página: la creación continuará en el servidor.</small></div>}
+          {generating && <MagicGenerationProgress progress={generationProgress} />}
           {!data.generation_available && <small className="cs-api-note">{data.subscription?.active ? 'La interfaz está lista. Falta conectar la clave de OpenAI en el servidor.' : 'Tu plan necesita estar activo para crear imágenes.'}</small>}
         </aside>
       </div>
     </form>
   );
+}
+
+function MagicGenerationProgress({ progress }) {
+  const percent = Math.max(0, Math.min(100, Number(progress?.percent || 0)));
+  return <div className="cs-magic-progress" role="status" aria-live="polite">
+    <div className="cs-magic-progress-scene" aria-hidden="true">
+      <span className="cs-magic-orb" />
+      <span className="cs-magic-spark cs-magic-spark-one" />
+      <span className="cs-magic-spark cs-magic-spark-two" />
+      <span className="cs-magic-spark cs-magic-spark-three" />
+      <img className="cs-magic-wizard cs-magic-wizard-touch" src="/content-studio/brand/mascota-toque.webp" alt="" />
+      <img className="cs-magic-wizard cs-magic-wizard-wink" src="/content-studio/brand/mascota-regreso.webp" alt="" />
+    </div>
+    <div className="cs-magic-progress-copy"><span>{progress?.label || 'Preparando tu creación'}</span><strong>{percent}%</strong></div>
+    <div className="cs-magic-track"><i style={{ width: `${percent}%` }} /></div>
+    <small>Puedes cambiar de sección o recargar la página: la creación continuará en el servidor.</small>
+  </div>;
 }
 
 function StudioShellSkeleton() {
@@ -645,7 +663,7 @@ function AccountProfile({ data, user, onLogout, openPlans, setData, setError }) 
   return <section className="cs-account-page">
     <div className="cs-section-heading"><span className="cs-eyebrow">Tu cuenta</span><h1>Perfil</h1><p>Tu información personal, plan y formas de acceso.</p></div>
     <div className="cs-account-layout">
-      <article className="cs-account-card cs-card"><div className="cs-account-avatar">{account.avatar_url ? <img src={account.avatar_url} alt="Foto de perfil" referrerPolicy="no-referrer"/> : <span>{String(account.name || 'U').slice(0,1).toUpperCase()}</span>}</div><div><h2>{account.name || 'Tu cuenta'}</h2><p>{account.email || 'Correo pendiente'}</p></div></article>
+      <article className="cs-account-card cs-card"><div className="cs-account-avatar">{account.avatar_url ? <img src={account.avatar_url} alt="Foto de perfil" referrerPolicy="no-referrer"/> : <img className="cs-account-mascot" src="/content-studio/brand/mascota-regreso.webp" alt="Mascota de Estudios Creativos" />}</div><div><h2>{account.name || 'Tu cuenta'}</h2><p>{account.email || 'Correo pendiente'}</p></div></article>
       <article className="cs-account-plan cs-card"><span><Crown/></span><div><small>PLAN ACTUAL</small><h2>{data.settings?.plan_name || 'Sin plan'}</h2><p><strong>{available}</strong> creaciones disponibles</p><em className={data.subscription?.active ? 'active' : ''}>{data.subscription?.active ? `Activo${data.subscription.paid_until ? ` hasta ${new Date(`${data.subscription.paid_until}T12:00:00`).toLocaleDateString('es-EC')}` : ''}` : 'Aún no tienes un plan activo'}</em></div><button type="button" onClick={openPlans}>{data.subscription?.active ? 'Mejorar plan' : 'Elegir un plan'}</button></article>
     </div>
     {user?.role === 'content_studio_user' && <form className="cs-personal-form cs-card" onSubmit={save}><div><span><UserRound/></span><h2>Información personal</h2></div><label>Nombre<input value={form.name} onChange={(event) => setForm({...form,name:event.target.value})} maxLength="100" required/></label><label>Correo<input type="email" value={form.email} onChange={(event) => setForm({...form,email:event.target.value})} placeholder="nombre@empresa.com" required/></label><button className="cs-primary" disabled={saving}>{saving ? 'Guardando…' : 'Guardar cambios'}</button></form>}
