@@ -121,6 +121,65 @@ function studioLoginResponse(user) {
   };
 }
 
+function studioSellerPublic(seller) {
+  if (!seller) return null;
+  return {
+    id: seller.id,
+    username: seller.username,
+    role: 'content_studio_seller',
+    name: seller.name,
+    email: seller.email || '',
+    phone: seller.phone || '',
+    establishment_id: seller.establishment_id,
+    establishment_name: seller.establishment_name || 'ESTUDIOS CREATIVOS',
+    establishment_display_name: seller.establishment_display_name || 'Estudios Creativos',
+    establishment_module_type: 'content_studio'
+  };
+}
+
+function studioAdminPublic(admin, establishment) {
+  return {
+    username: admin.username || '',
+    role: admin.role,
+    name: admin.name || establishment.display_name || establishment.name,
+    establishment_id: establishment.id,
+    establishment_name: establishment.name,
+    establishment_display_name: establishment.display_name || establishment.name,
+    establishment_module_type: 'content_studio'
+  };
+}
+
+function createStudioHandoff(db, claims) {
+  const establishmentId = Number(claims?.establishmentId || 0);
+  const establishment = establishmentId
+    ? db.prepare("SELECT * FROM establishments WHERE id = ? AND status = 'active' AND module_type = 'content_studio'").get(establishmentId)
+    : contentStudioEstablishment(db);
+  if (!establishment) throw new Error('El estudio no está disponible');
+
+  if (claims.role === 'content_studio_user') {
+    const user = db.prepare(`SELECT users.*, establishments.name AS establishment_name, establishments.display_name AS establishment_display_name
+      FROM content_studio_users users JOIN establishments ON establishments.id = users.establishment_id
+      WHERE users.id = ? AND users.establishment_id = ? AND users.status = 'active'`).get(claims.contentStudioUserId, establishment.id);
+    if (!user) throw new Error('La cuenta del estudio ya no está disponible');
+    return studioLoginResponse(user);
+  }
+  if (claims.role === 'content_studio_seller') {
+    const seller = db.prepare(`SELECT sellers.*, establishments.name AS establishment_name, establishments.display_name AS establishment_display_name
+      FROM content_studio_sellers sellers JOIN establishments ON establishments.id = sellers.establishment_id
+      WHERE sellers.id = ? AND sellers.establishment_id = ? AND sellers.status = 'active'`).get(claims.contentStudioSellerId, establishment.id);
+    if (!seller) throw new Error('La cuenta de vendedor ya no está disponible');
+    return {
+      token: createToken({ role: 'content_studio_seller', username: seller.username, contentStudioSellerId: seller.id, establishmentId: establishment.id }),
+      user: studioSellerPublic(seller)
+    };
+  }
+  if (!['admin', 'supreme'].includes(claims.role)) throw new Error('Esta sesión no pertenece a Estudios Creativos');
+  return {
+    token: createToken({ role: claims.role, username: claims.username, establishmentId: establishment.id }),
+    user: studioAdminPublic(claims, establishment)
+  };
+}
+
 function studioTransporter() {
   if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) return null;
   return nodemailer.createTransport({
@@ -681,6 +740,45 @@ export function registerContentStudioRoutes(app, db, options = {}) {
       magic_link_available: Boolean(studioTransporter()),
       app_name: 'Estudios Creativos'
     });
+  });
+
+  // Lets people who still have a studio session saved under the former Promoters
+  // domain arrive at the dedicated domain without exposing that session in the URL.
+  // The short-lived code is hashed at rest and can only be consumed once.
+  app.post('/api/content-studio/auth/handoff', (req, res) => requireAuth(req, res, () => {
+    try {
+      const login = createStudioHandoff(db, req.user);
+      const code = crypto.randomBytes(32).toString('base64url');
+      db.prepare("DELETE FROM content_studio_auth_handoffs WHERE expires_at < datetime('now', 'localtime') OR used_at IS NOT NULL").run();
+      db.prepare(`INSERT INTO content_studio_auth_handoffs (token_hash, payload_json, expires_at)
+        VALUES (?, ?, datetime('now', 'localtime', '+2 minutes'))`)
+        .run(hashLoginToken(code), JSON.stringify(login));
+      return res.json({ code });
+    } catch (error) {
+      return res.status(403).json({ message: error.message || 'No se pudo trasladar la sesión' });
+    }
+  }));
+
+  app.post('/api/content-studio/auth/handoff/verify', (req, res) => {
+    const code = clean(req.body?.code, 240);
+    if (!code) return res.status(400).json({ message: 'El enlace de acceso no es válido' });
+    try {
+      const login = db.transaction(() => {
+        const handoff = db.prepare(`SELECT * FROM content_studio_auth_handoffs
+          WHERE token_hash = ? AND used_at IS NULL AND expires_at >= datetime('now', 'localtime')`)
+          .get(hashLoginToken(code));
+        if (!handoff) throw new Error('Este enlace de acceso venció o ya fue utilizado. Entra nuevamente.');
+        const consumed = db.prepare("UPDATE content_studio_auth_handoffs SET used_at = datetime('now', 'localtime') WHERE id = ? AND used_at IS NULL")
+          .run(handoff.id);
+        if (!consumed.changes) throw new Error('Este enlace de acceso ya fue utilizado. Entra nuevamente.');
+        const payload = safeJson(handoff.payload_json, null);
+        if (!payload?.token || !payload?.user) throw new Error('No pudimos restaurar esta sesión. Entra nuevamente.');
+        return payload;
+      })();
+      return res.json(login);
+    } catch (error) {
+      return res.status(400).json({ message: error.message || 'No se pudo restaurar la sesión' });
+    }
   });
 
   app.post('/api/content-studio/auth/google', async (req, res) => {

@@ -217,6 +217,17 @@ export function initContentStudioDb(db) {
     CREATE INDEX IF NOT EXISTS idx_content_studio_magic_email
       ON content_studio_magic_links(establishment_id, email, created_at);
 
+    CREATE TABLE IF NOT EXISTS content_studio_auth_handoffs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      token_hash TEXT NOT NULL UNIQUE,
+      payload_json TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_content_studio_auth_handoffs_expiry
+      ON content_studio_auth_handoffs(expires_at);
+
     CREATE TABLE IF NOT EXISTS content_studio_payment_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       provider TEXT NOT NULL,

@@ -38,7 +38,10 @@ export default function ContentStudioAccess({ mode = 'page', onClose, onAuthenti
   const [legacy, setLegacy] = useState({ username: '', password: '' });
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
-  const [verifying, setVerifying] = useState(Boolean(new URLSearchParams(window.location.search).get('magic')));
+  const [verifying, setVerifying] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return Boolean(params.get('magic') || params.get('handoff'));
+  });
   const [error, setError] = useState('');
   const googleButtonRef = useRef(null);
 
@@ -62,19 +65,23 @@ export default function ContentStudioAccess({ mode = 'page', onClose, onAuthenti
   }, []);
 
   useEffect(() => {
-    const magic = new URLSearchParams(window.location.search).get('magic');
-    if (!magic) return;
+    const params = new URLSearchParams(window.location.search);
+    const magic = params.get('magic');
+    const handoff = params.get('handoff');
+    if (!magic && !handoff) return;
     let active = true;
     setVerifying(true);
-    api('/content-studio/auth/magic-link/verify', { method: 'POST', body: JSON.stringify({ token: magic }) })
+    const endpoint = handoff ? '/content-studio/auth/handoff/verify' : '/content-studio/auth/magic-link/verify';
+    const body = handoff ? { code: handoff } : { token: magic };
+    api(endpoint, { method: 'POST', body: JSON.stringify(body) })
       .then((data) => {
         if (!active) return;
         window.history.replaceState({}, '', window.location.pathname);
         complete(data);
       })
-      .catch((err) => { if (active) { setError(err.message); setVerifying(false); setEmailOpen(true); } });
+      .catch((err) => { if (active) { setError(err.message); setVerifying(false); setEmailOpen(!legacyOnly); } });
     return () => { active = false; };
-  }, []);
+  }, [legacyOnly]);
 
   useEffect(() => {
     if (!config?.google_client_id || !googleButtonRef.current || verifying) return undefined;
