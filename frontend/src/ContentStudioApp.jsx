@@ -86,6 +86,12 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
   const activeGenerationRef = useRef(null);
   const mountedRef = useRef(true);
 
+  useEffect(() => {
+    const previousTitle = document.title;
+    document.title = 'Estudios Creativos';
+    return () => { document.title = previousTitle; };
+  }, []);
+
   const scopeQuery = scopeId ? `?establishment_id=${scopeId}` : '';
   const scopeBody = scopeId ? { establishment_id: Number(scopeId) } : {};
   const activeStorageKey = `content-studio-active-generation-${scopeId || 'current'}`;
@@ -234,7 +240,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
         <header className="cs-header">
           <button className="cs-brand" type="button" onClick={newCreation}>
             <span><WandSparkles size={21} /></span>
-            <div><strong>ESTUDIO CREATIVO</strong><small>by Promoters</small></div>
+            <div><strong>ESTUDIOS CREATIVOS</strong><small>by Promoters</small></div>
           </button>
           <nav>
             {navigation.map(([key, label, Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}><Icon size={17} /> {label}</button>)}
@@ -302,7 +308,7 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
   return (
     <form onSubmit={generate}>
       <section className="cs-hero cs-create-heading">
-        <div><span className="cs-eyebrow">Estudio creativo con IA</span><h1>Crear contenido</h1><p>Convierte tus productos en imágenes profesionales listas para publicar.</p></div>
+        <div><span className="cs-eyebrow">Estudios Creativos con IA</span><h1>Crear contenido</h1><p>Convierte tus productos en imágenes profesionales listas para publicar.</p></div>
         <button className="cs-credit-card" type="button" onClick={goToHistory}>
           <span><Crown size={22} /></span>
           <div><strong>Créditos: {available}</strong><small>{data.usage} de {data.settings?.monthly_limit} creaciones utilizadas</small><i><b style={{ width: `${usagePercent}%` }} /></i></div>
@@ -472,7 +478,7 @@ function UsersView({ data, scopeBody, reload, setError }) {
       </form>
 
       <div className="cs-user-list">
-        <div className="cs-user-list-heading"><div><strong>{data.users?.length || 0} usuarios</strong><small>Clientes registrados en Estudio Creativo</small></div></div>
+        <div className="cs-user-list-heading"><div><strong>{data.users?.length || 0} usuarios</strong><small>Clientes registrados en Estudios Creativos</small></div></div>
         {(data.users || []).map((item) => {
           const available = Math.max(0, Number(item.monthly_limit || 0) - Number(item.usage || 0));
           const active = item.status === 'active' && item.subscription_status !== 'inactive';

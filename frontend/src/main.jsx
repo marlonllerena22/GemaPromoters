@@ -933,7 +933,7 @@ function App() {
 
   const isContentStudioSession =
     user?.establishment_module_type === 'content_studio' ||
-    String(user?.establishment_name || '').toUpperCase() === 'ESTUDIO CREATIVO';
+    String(user?.establishment_name || '').toUpperCase() === 'ESTUDIOS CREATIVOS';
 
   if (isContentStudioSession) {
     return <ContentStudioApp user={user} onLogout={() => {
@@ -1291,7 +1291,7 @@ function AdminApp({ user, onLogout }) {
     ['ticketing', 'ProTickets', Ticket]
   ] : isContentStudioBusiness ? [
     ...(user?.role === 'supreme' ? [['establishments', 'Negocios', Building2]] : []),
-    ['content-studio', 'Estudio Creativo', Sparkles]
+    ['content-studio', 'Estudios Creativos', Sparkles]
   ] : isMarjorieBusiness ? [
     ...(user?.role === 'supreme' ? [['establishments', 'Negocios', Building2]] : []),
     ['marjorie-promoters', 'Promotoras', UsersRound],
@@ -1636,7 +1636,7 @@ function Establishments({ establishments, onRefresh }) {
                 : form.module_type === 'ticketing'
                   ? 'Ticketera: eventos publicos, pagos y entradas digitales'
                   : form.module_type === 'content_studio'
-                    ? 'Estudio creativo: productos, referencias y contenido profesional con IA'
+                    ? 'Estudios Creativos: productos, referencias y contenido profesional con IA'
               : form.business_type === 'commercial'
                 ? 'Local comercial: ventas solo por administrador'
                 : 'Promotores pueden registrar ventas desde su cuenta'}

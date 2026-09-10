@@ -17,7 +17,7 @@ function fixture() {
       id INTEGER PRIMARY KEY, name TEXT, display_name TEXT, status TEXT, module_type TEXT
     );
     INSERT INTO establishments VALUES
-      (1, 'ESTUDIO CREATIVO', 'Estudio Creativo', 'active', 'content_studio'),
+      (1, 'ESTUDIOS CREATIVOS', 'Estudios Creativos', 'active', 'content_studio'),
       (2, 'OTRO ESTUDIO', 'Otro estudio', 'active', 'content_studio'),
       (3, 'PRODUCALZA', 'Producalza', 'active', 'production');
   `);
@@ -115,7 +115,9 @@ test('prompt accepts any product, adapts the editorial model and prepares social
   assert.match(editorial, /composited by the application/i);
   assert.doesNotMatch(editorial, /Brand: Marjorie Botas/i);
   assert.match(catalog, /source photo contains exactly one shoe/i);
-  assert.match(catalog, /rear shoe must show the internal-side zipper exactly once/i);
+  assert.match(catalog, /show that zipper on the rear shoe exactly once/i);
+  assert.match(catalog, /must never become a simplified, smooth or generic version/i);
+  assert.match(catalog, /textured panels, material changes, overlays, diagonal seams/i);
   assert.match(catalog, /every other non-footwear product.+never duplicate it/i);
   assert.match(story, /tall 9:16 story/i);
   assert.match(benefits, /central 1024 × 1280 area is the exact final canvas/i);

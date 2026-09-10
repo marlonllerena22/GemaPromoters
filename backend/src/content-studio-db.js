@@ -210,8 +210,8 @@ export function ensureContentStudioEstablishment(db) {
        (name, display_name, business_type, module_type, code_prefix, theme, logo_url, admin_username, admin_password, status, promoter_sales_enabled)
        VALUES (?, ?, 'commercial', 'content_studio', ?, ?, '', ?, ?, 'active', 0)`
     ).run(
-      'ESTUDIO CREATIVO',
-      'Estudio Creativo',
+      'ESTUDIOS CREATIVOS',
+      'Estudios Creativos',
       'STUDIO',
       'contentstudio',
       process.env.CONTENT_STUDIO_ADMIN_USER || 'contenido',
@@ -221,7 +221,8 @@ export function ensureContentStudioEstablishment(db) {
   } else {
     db.prepare(
       `UPDATE establishments
-       SET business_type = 'commercial', module_type = 'content_studio', promoter_sales_enabled = 0,
+       SET name = 'ESTUDIOS CREATIVOS', display_name = 'Estudios Creativos',
+           business_type = 'commercial', module_type = 'content_studio', promoter_sales_enabled = 0,
            theme = 'contentstudio'
        WHERE id = ?`
     ).run(establishment.id);

@@ -49,7 +49,7 @@ Credenciales iniciales:
 - Administrador ProTickets:
   - Usuario: `protickets`
   - Contrasena inicial: `protickets123`
-- Administrador Estudio Creativo:
+- Administrador Estudios Creativos:
   - Usuario: `contenido`
   - Contrasena inicial: `contenido123`
 - Cliente de demostracion con plan Profesional pagado:
@@ -149,9 +149,9 @@ El evento inicial `KRIS R EL TRAP DE KOLOMBIA` se crea publicado, pero sus local
 
 Para enviar entradas por correo configura `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` y `SMTP_FROM`. Para Google configura `GOOGLE_CLIENT_ID`. La confirmacion automatica de Bendo queda preparada en `/api/ticketing/payments/bendo/webhook`; debe ajustarse a la documentacion y credenciales finales que entregue Bendo. Mientras tanto, el administrador puede confirmar cada pago manualmente y el sistema emite las entradas en ese momento.
 
-## Estudio Creativo
+## Estudios Creativos
 
-Estudio Creativo funciona como un negocio independiente dentro de PROMOTERS. Permite subir una foto de producto y crear contenido sin escribir prompts:
+Estudios Creativos funciona como un negocio independiente dentro de PROMOTERS. Permite subir una foto de producto y crear contenido sin escribir prompts:
 
 - Editorial con modelo y outfit acorde al producto.
 - Fotografia limpia para catalogo.

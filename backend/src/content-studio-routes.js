@@ -14,7 +14,7 @@ const PRESETS = {
     name: 'Catálogo de producto',
     description: 'Producto protagonista, limpio y listo para catálogo.',
     size: '1024x1024',
-    direction: `Create a premium product catalog photograph. Keep the exact uploaded product as the hero, arranged naturally on a refined simple set. Preserve its real silhouette, proportions, construction, color, texture, sole, stitching and identifying details. If and only if the source photo contains exactly one shoe, boot, ankle boot, sandal or other footwear item, create its matching second shoe and present a natural pair. Place the clean outer-facing shoe in front and the matching opposite shoe slightly behind. For ankle boots or boots with a zipper, the front shoe must show its clean outer side and the rear shoe must show the internal-side zipper exactly once. Never copy the zipper onto the front shoe. For handbags, clothing, accessories, food and every other non-footwear product, keep the single uploaded item as a single item and never duplicate it. Use controlled studio lighting, crisp focus and realistic contact shadows.`
+    direction: `Create a premium product catalog photograph. Keep the exact uploaded product as the hero, arranged naturally on a refined simple set. Preserve its real silhouette, proportions, construction, color, texture, sole, stitching and identifying details. If and only if the source photo contains exactly one shoe, boot, ankle boot, sandal or other footwear item, create its matching second shoe and present a natural pair. Place the outer-facing shoe in front and the matching opposite shoe slightly behind. The front hero shoe must never become a simplified, smooth or generic version: reproduce every visible non-closure detail from the source, including textured panels, material changes, overlays, diagonal seams, decorative stitching, studs, pull tabs, toe shape, heel construction and sole profile. The rear shoe must preserve those same construction details. For ankle boots or boots with an internal-side zipper, show that zipper on the rear shoe exactly once while keeping the front shoe's clean outer side; the absence of a zipper on the front must never remove any other panel, seam, texture or decoration. For handbags, clothing, accessories, food and every other non-footwear product, keep the single uploaded item as a single item and never duplicate it. Use controlled studio lighting, crisp focus and realistic contact shadows.`
   },
   social: {
     name: 'Post para redes',
@@ -79,16 +79,16 @@ function resolveScope(db, req) {
 function studioAuth(db) {
   return (req, res, next) => requireAuth(req, res, () => {
     if (!['admin', 'supreme', 'content_studio_user'].includes(req.user?.role)) {
-      return res.status(403).json({ message: 'Acceso exclusivo de Estudio Creativo' });
+      return res.status(403).json({ message: 'Acceso exclusivo de Estudios Creativos' });
     }
     const establishment = resolveScope(db, req);
     if (!establishment) {
-      return res.status(403).json({ message: 'Este negocio no tiene habilitado Estudio Creativo' });
+      return res.status(403).json({ message: 'Este negocio no tiene habilitado Estudios Creativos' });
     }
     if (req.user.role === 'content_studio_user') {
       const studioUser = db.prepare("SELECT * FROM content_studio_users WHERE id = ? AND establishment_id = ? AND status = 'active'")
         .get(req.user.contentStudioUserId, establishment.id);
-      if (!studioUser) return res.status(403).json({ message: 'Usuario de Estudio Creativo no disponible' });
+      if (!studioUser) return res.status(403).json({ message: 'Usuario de Estudios Creativos no disponible' });
       req.contentStudioUser = studioUser;
     }
     req.contentStudioEstablishment = establishment;
@@ -161,7 +161,7 @@ function listPlanOrders(db, establishmentId) {
 }
 
 function transferForOrder(settings, order) {
-  const message = `Hola, envío el comprobante de transferencia del pedido ${order.order_number} de Estudio Creativo. Plan ${order.plan_name}, total $${Number(order.amount).toFixed(2)}. Por favor confirmar mi pago.`;
+  const message = `Hola, envío el comprobante de transferencia del pedido ${order.order_number} de Estudios Creativos. Plan ${order.plan_name}, total $${Number(order.amount).toFixed(2)}. Por favor confirmar mi pago.`;
   return {
     ...settings,
     whatsapp_url: `https://wa.me/${settings.whatsapp}?text=${encodeURIComponent(message)}`
@@ -227,12 +227,12 @@ async function sendStudioActivationEmail(order, user) {
   await transporter.sendMail({
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
     to: order.email,
-    subject: `Tu plan de Estudio Creativo está activo · ${order.order_number}`,
+    subject: `Tu plan de Estudios Creativos está activo · ${order.order_number}`,
     html: `<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;background:#f6f4ef;padding:28px;color:#1d212c">
-      <div style="background:#1d212c;color:#fff;padding:22px;border-radius:14px"><strong style="font-size:22px">Estudio Creativo</strong><p style="margin:6px 0 0;color:#ddd">Tu pago fue confirmado</p></div>
+      <div style="background:#1d212c;color:#fff;padding:22px;border-radius:14px"><strong style="font-size:22px">Estudios Creativos</strong><p style="margin:6px 0 0;color:#ddd">Tu pago fue confirmado</p></div>
       <p>Hola ${escapeHtml(order.customer_name)}, tu plan <strong>${escapeHtml(order.plan_name)}</strong> ya está activo.</p>
       <div style="background:#fff;border:1px solid #e4e0d7;border-radius:12px;padding:18px"><p style="margin:0 0 8px"><strong>${Number(order.monthly_limit)} imágenes</strong> disponibles durante ${Number(order.duration_days)} días.</p><p style="margin:0">Usuario: <strong>${escapeHtml(user.username)}</strong></p></div>
-      <p style="margin:24px 0"><a href="${appUrl}" style="background:#1d212c;color:#fff;padding:13px 20px;border-radius:10px;text-decoration:none;font-weight:bold">Entrar a Estudio Creativo</a></p>
+      <p style="margin:24px 0"><a href="${appUrl}" style="background:#1d212c;color:#fff;padding:13px 20px;border-radius:10px;text-decoration:none;font-weight:bold">Entrar a Estudios Creativos</a></p>
       <p style="font-size:12px;color:#777">Por seguridad no enviamos tu contraseña por correo. Usa la que elegiste al solicitar el plan.</p>
     </div>`
   });
@@ -266,7 +266,7 @@ function buildPrompt(body, preset, hasBrandLogo = false) {
   const editorialInstruction = preset === PRESETS.editorial
     ? editorialSubjects[body.editorial_subject] || editorialSubjects.female
     : '';
-  const fidelityInstruction = `Treat the source photo as the only authority for the product's geometry and construction. Preserve the exact silhouette, toe, heel, sole, panels, seams, stitching, studs, straps, handles, fasteners, closures and hardware that are actually visible. Never move, add, remove, enlarge, duplicate or expose a zipper or closure on another side. For a pair of shoes, preserve which side of each shoe faces the camera: a zipper visible only on the inward or rear shoe must stay on that shoe and must not be copied onto the outward or front hero shoe. Keep decorative studs and diagonal seams on the same visible side shown in the source.`;
+  const fidelityInstruction = `Treat the source photo as the only authority for the product's geometry and construction. Before composing the scene, visually inventory the exact silhouette, toe, heel, sole, every material panel, texture boundary, overlay, seam, stitching line, stud, strap, handle, pull tab, fastener, closure and hardware visible in the source. Reproduce that inventory on the hero product without simplifying or omitting any item. Never turn a multi-material or decorated product into a plain generic version. Never move, add, remove, enlarge, duplicate or expose a zipper or closure on another side. For a pair of shoes, preserve which side of each shoe faces the camera: a zipper visible only on the inward or rear shoe must stay on that shoe and must not be copied onto the outward or front hero shoe. Keep all decorative panels, textures, studs and diagonal seams intact on both shoes wherever their construction requires them.`;
   return [
     `The first image is the source-of-truth product photo. Create one original professional commercial image.`,
     preset.direction,
@@ -478,7 +478,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
 
   app.post('/api/content-studio/public/orders', (req, res) => {
     const establishment = db.prepare("SELECT id FROM establishments WHERE module_type = 'content_studio' AND status = 'active' ORDER BY id LIMIT 1").get();
-    if (!establishment) return res.status(503).json({ message: 'Estudio Creativo no está disponible' });
+    if (!establishment) return res.status(503).json({ message: 'Estudios Creativos no está disponible' });
     const plan = STUDIO_PLANS.find((item) => item.id === req.body.plan_id);
     const customerName = clean(req.body.customer_name, 100);
     const businessName = clean(req.body.business_name, 100) || customerName;
@@ -658,7 +658,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
   });
 
   app.post('/api/content-studio/references', guard, (req, res) => {
-    if (req.contentStudioUser) return res.status(403).json({ message: 'La biblioteca de referencias la administra Estudio Creativo' });
+    if (req.contentStudioUser) return res.status(403).json({ message: 'La biblioteca de referencias la administra Estudios Creativos' });
     const image = String(req.body.image || '');
     const name = clean(req.body.name, 80);
     const category = ['editorial', 'catalog', 'social', 'detail', 'general'].includes(req.body.category) ? req.body.category : 'general';
@@ -670,7 +670,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
   });
 
   app.delete('/api/content-studio/references/:id', guard, (req, res) => {
-    if (req.contentStudioUser) return res.status(403).json({ message: 'La biblioteca de referencias la administra Estudio Creativo' });
+    if (req.contentStudioUser) return res.status(403).json({ message: 'La biblioteca de referencias la administra Estudios Creativos' });
     const result = db.prepare('DELETE FROM content_studio_references WHERE id = ? AND establishment_id = ?').run(req.params.id, req.contentStudioEstablishment.id);
     if (!result.changes) return res.status(404).json({ message: 'Referencia no encontrada' });
     res.json({ ok: true });
