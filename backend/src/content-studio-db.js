@@ -140,13 +140,58 @@ export function initContentStudioDb(db) {
       payment_provider TEXT NOT NULL DEFAULT 'transfer',
       provider_transaction_id TEXT,
       provider_payload_json TEXT,
+      seller_id INTEGER,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       FOREIGN KEY (establishment_id) REFERENCES establishments(id),
       FOREIGN KEY (content_studio_user_id) REFERENCES content_studio_users(id)
     );
 
+    CREATE TABLE IF NOT EXISTS content_studio_sellers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      username TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      email TEXT,
+      phone TEXT,
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT,
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS content_studio_seller_activities (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      seller_id INTEGER NOT NULL,
+      activity_type TEXT NOT NULL CHECK (activity_type IN ('visit', 'demo', 'followup')),
+      business_name TEXT NOT NULL,
+      contact_name TEXT,
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (seller_id) REFERENCES content_studio_sellers(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS content_studio_seller_sales (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      seller_id INTEGER NOT NULL,
+      plan_order_id INTEGER NOT NULL UNIQUE,
+      customer_name TEXT NOT NULL,
+      business_name TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (seller_id) REFERENCES content_studio_sellers(id),
+      FOREIGN KEY (plan_order_id) REFERENCES content_studio_plan_orders(id)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_content_studio_plan_orders_scope
       ON content_studio_plan_orders(establishment_id, status, created_at);
+    CREATE INDEX IF NOT EXISTS idx_content_studio_sellers_scope
+      ON content_studio_sellers(establishment_id, status, created_at);
+    CREATE INDEX IF NOT EXISTS idx_content_studio_seller_activities_scope
+      ON content_studio_seller_activities(establishment_id, seller_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_content_studio_seller_sales_scope
+      ON content_studio_seller_sales(establishment_id, seller_id, created_at);
 
     CREATE TABLE IF NOT EXISTS content_studio_research_cache (
       query_key TEXT PRIMARY KEY,
@@ -238,6 +283,9 @@ export function initContentStudioDb(db) {
   }
   if (!orderColumns.some((column) => column.name === 'provider_payload_json')) {
     db.exec('ALTER TABLE content_studio_plan_orders ADD COLUMN provider_payload_json TEXT');
+  }
+  if (!orderColumns.some((column) => column.name === 'seller_id')) {
+    db.exec('ALTER TABLE content_studio_plan_orders ADD COLUMN seller_id INTEGER');
   }
   const logoColumns = db.prepare('PRAGMA table_info(content_studio_logos)').all();
   if (!logoColumns.some((column) => column.name === 'content_studio_user_id')) {
@@ -336,4 +384,16 @@ export function findContentStudioUserForLogin(db, username, password) {
      WHERE LOWER(users.username) = ? AND users.status = 'active' AND establishments.status = 'active' AND establishments.module_type = 'content_studio'`
   ).get(cleanUsername);
   return user && verifyContentStudioPassword(password, user.password_hash) ? user : null;
+}
+
+export function findContentStudioSellerForLogin(db, username, password) {
+  const cleanUsername = String(username || '').trim().toLowerCase();
+  const seller = db.prepare(
+    `SELECT sellers.*, establishments.name AS establishment_name, establishments.display_name AS establishment_display_name
+     FROM content_studio_sellers sellers
+     JOIN establishments ON establishments.id = sellers.establishment_id
+     WHERE LOWER(sellers.username) = ? AND sellers.status = 'active'
+       AND establishments.status = 'active' AND establishments.module_type = 'content_studio'`
+  ).get(cleanUsername);
+  return seller && verifyContentStudioPassword(password, seller.password_hash) ? seller : null;
 }

@@ -17,7 +17,7 @@ import { registerRenjiRoutes } from './renji-routes.js';
 import { registerTicketingRoutes } from './ticketing-routes.js';
 import { registerMarjoriePromotersRoutes } from './marjorie-promoters-routes.js';
 import { registerContentStudioRoutes } from './content-studio-routes.js';
-import { findContentStudioUserForLogin } from './content-studio-db.js';
+import { findContentStudioSellerForLogin, findContentStudioUserForLogin } from './content-studio-db.js';
 
 dotenv.config();
 initDb();
@@ -563,6 +563,24 @@ app.post('/api/auth/login', (req, res) => {
         establishment_id: contentStudioUser.establishment_id,
         establishment_name: contentStudioUser.establishment_name,
         establishment_display_name: contentStudioUser.establishment_display_name,
+        establishment_module_type: 'content_studio'
+      }
+    });
+  }
+
+  const contentStudioSeller = findContentStudioSellerForLogin(db, username, password);
+  if (contentStudioSeller) {
+    return res.json({
+      token: createToken({
+        role: 'content_studio_seller', username: contentStudioSeller.username,
+        contentStudioSellerId: contentStudioSeller.id, establishmentId: contentStudioSeller.establishment_id
+      }),
+      user: {
+        id: contentStudioSeller.id, username: contentStudioSeller.username, role: 'content_studio_seller',
+        name: contentStudioSeller.name, email: contentStudioSeller.email || '', phone: contentStudioSeller.phone || '',
+        establishment_id: contentStudioSeller.establishment_id,
+        establishment_name: contentStudioSeller.establishment_name,
+        establishment_display_name: contentStudioSeller.establishment_display_name,
         establishment_module_type: 'content_studio'
       }
     });
@@ -2981,16 +2999,17 @@ const frontendDist = process.env.FRONTEND_DIST || path.join(__dirname, '..', '..
 const studioDomains = new Set(['estudioscreativos.com', 'www.estudioscreativos.com']);
 const studioIndexPath = path.join(frontendDist, 'index.html');
 
-app.get(['/', '/estudio-creativo', '/ingresar', '/administracion'], async (req, res, next) => {
+app.get(['/', '/estudio-creativo', '/ingresar', '/administracion', '/vendedores'], async (req, res, next) => {
   const isStudioDomain = studioDomains.has(String(req.hostname || '').toLowerCase());
   if (!isStudioDomain && req.path !== '/estudio-creativo') return next();
 
   try {
     const isLogin = req.path === '/ingresar';
     const isAdministration = req.path === '/administracion';
-    const title = isAdministration ? 'Administración | Estudios Creativos' : (isLogin ? 'Ingresar | Estudios Creativos' : 'Estudios Creativos | Contenido profesional con IA');
+    const isSellerPortal = req.path === '/vendedores';
+    const title = isAdministration ? 'Administración | Estudios Creativos' : (isSellerPortal ? 'Vendedores | Estudios Creativos' : (isLogin ? 'Ingresar | Estudios Creativos' : 'Estudios Creativos | Contenido profesional con IA'));
     const description = 'Convierte fotos de tus productos en contenido profesional para catálogo, redes sociales y campañas con modelos.';
-    const canonical = `https://estudioscreativos.com${isAdministration ? '/administracion' : (isLogin ? '/ingresar' : '/')}`;
+    const canonical = `https://estudioscreativos.com${isAdministration ? '/administracion' : (isSellerPortal ? '/vendedores' : (isLogin ? '/ingresar' : '/'))}`;
     const image = 'https://estudioscreativos.com/content-studio/guides/social.jpg';
     const meta = `<title>${title}</title>
     <meta name="description" content="${description}" />

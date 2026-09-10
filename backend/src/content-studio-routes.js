@@ -51,11 +51,16 @@ const MOODS = {
 };
 
 const STUDIO_PLANS = [
-  { id: 'inicio', name: 'Inicio', photos: 10, price: 9.5, days: 8 },
+  { id: 'inicio', name: 'Inicio', photos: 10, price: 10, days: 8 },
   { id: 'emprendedor', name: 'Emprendedor', photos: 25, price: 20, days: 15 },
-  { id: 'negocio', name: 'Negocio', photos: 60, price: 35, days: 30 },
-  { id: 'pro', name: 'Pro', photos: 150, price: 60, days: 30 }
+  { id: 'negocio', name: 'Negocio', photos: 60, price: 39, days: 30 },
+  { id: 'pro', name: 'Pro', photos: 150, price: 69, days: 30 }
 ];
+
+const SELLER_ACTIVITY_GOAL = { total: 12, visits: 4, demos: 3, followups: 3 };
+const SELLER_QUINCENIAL_SALES_GOAL = 250;
+const SELLER_UPPER_PLAN_CLIENTS_GOAL = 3;
+const SELLER_QUINCENIAL_BONUS = 100;
 
 const clean = (value, max = 160) => String(value ?? '').trim().slice(0, max);
 const cleanEmail = (value) => clean(value, 180).toLowerCase();
@@ -167,6 +172,20 @@ function studioAuth(db) {
   });
 }
 
+function sellerAuth(db) {
+  return (req, res, next) => requireAuth(req, res, () => {
+    if (req.user?.role !== 'content_studio_seller') return res.status(403).json({ message: 'Acceso exclusivo para vendedores de Estudios Creativos' });
+    const establishment = resolveScope(db, req);
+    if (!establishment) return res.status(403).json({ message: 'El estudio no está disponible' });
+    const seller = db.prepare('SELECT * FROM content_studio_sellers WHERE id = ? AND establishment_id = ? AND status = \'active\'')
+      .get(req.user.contentStudioSellerId, establishment.id);
+    if (!seller) return res.status(403).json({ message: 'Tu acceso de vendedor no está disponible' });
+    req.contentStudioSeller = seller;
+    req.contentStudioEstablishment = establishment;
+    next();
+  });
+}
+
 function planSettings(req, establishmentSettings) {
   if (!req.contentStudioUser) return establishmentSettings;
   const creditLimit = Math.max(0, Number(req.contentStudioUser.credit_limit ?? req.contentStudioUser.monthly_limit ?? 0));
@@ -232,6 +251,59 @@ function planOrderRow(row) {
 function listPlanOrders(db, establishmentId) {
   return db.prepare(`SELECT * FROM content_studio_plan_orders WHERE establishment_id = ? ORDER BY created_at DESC, id DESC`)
     .all(establishmentId).map(planOrderRow);
+}
+
+function currentQuincena(db) {
+  const today = db.prepare("SELECT date('now', 'localtime') AS today, CAST(strftime('%d', 'now', 'localtime') AS INTEGER) AS day").get();
+  const start = today.day <= 15
+    ? db.prepare("SELECT date('now', 'localtime', 'start of month') AS value").get().value
+    : db.prepare("SELECT date('now', 'localtime', 'start of month', '+15 days') AS value").get().value;
+  const end = db.prepare("SELECT date(?, '+14 days') AS value").get(start).value;
+  return { start, end };
+}
+
+function sellerPeriodSummary(db, establishmentId, sellerId = null) {
+  const period = currentQuincena(db);
+  const sellerWhere = sellerId ? 'AND sellers.id = ?' : '';
+  const sellerParams = sellerId ? [sellerId] : [];
+  const sellers = db.prepare(`SELECT sellers.id, sellers.name, sellers.username, sellers.email, sellers.phone, sellers.status,
+    (SELECT COUNT(*) FROM content_studio_seller_activities a WHERE a.seller_id = sellers.id AND date(a.created_at) BETWEEN ? AND ?) AS activities,
+    (SELECT COUNT(*) FROM content_studio_seller_activities a WHERE a.seller_id = sellers.id AND a.activity_type = 'visit' AND date(a.created_at) BETWEEN ? AND ?) AS visits,
+    (SELECT COUNT(*) FROM content_studio_seller_activities a WHERE a.seller_id = sellers.id AND a.activity_type = 'demo' AND date(a.created_at) BETWEEN ? AND ?) AS demos,
+    (SELECT COUNT(*) FROM content_studio_seller_activities a WHERE a.seller_id = sellers.id AND a.activity_type = 'followup' AND date(a.created_at) BETWEEN ? AND ?) AS followups
+    FROM content_studio_sellers sellers WHERE sellers.establishment_id = ? ${sellerWhere} ORDER BY sellers.name COLLATE NOCASE`).all(
+      period.start, period.end, period.start, period.end, period.start, period.end, period.start, period.end, establishmentId, ...sellerParams
+    );
+  const sales = db.prepare(`SELECT sales.id, sales.seller_id, sales.customer_name, sales.business_name, sales.created_at,
+      orders.id AS order_id, orders.order_number, orders.plan_id, orders.plan_name, orders.amount, orders.status AS order_status,
+      orders.content_studio_user_id,
+      CASE WHEN orders.status = 'confirmed' AND orders.content_studio_user_id IS NOT NULL AND EXISTS(
+        SELECT 1 FROM content_studio_generations generations
+        WHERE generations.content_studio_user_id = orders.content_studio_user_id
+          AND generations.status = 'completed' AND generations.deleted_at IS NULL
+      ) THEN 1 ELSE 0 END AS is_affianzado
+    FROM content_studio_seller_sales sales
+    JOIN content_studio_plan_orders orders ON orders.id = sales.plan_order_id
+    WHERE sales.establishment_id = ? AND date(sales.created_at) BETWEEN ? AND ? ${sellerId ? 'AND sales.seller_id = ?' : ''}
+    ORDER BY sales.created_at DESC, sales.id DESC`).all(establishmentId, period.start, period.end, ...sellerParams);
+  const rows = sellers.map((seller) => {
+    const sellerSales = sales.filter((sale) => sale.seller_id === seller.id);
+    const affianzadas = sellerSales.filter((sale) => Number(sale.is_affianzado) === 1);
+    const upper39 = affianzadas.filter((sale) => sale.plan_id === 'negocio');
+    const upper69 = affianzadas.filter((sale) => sale.plan_id === 'pro');
+    const chargedTotal = affianzadas.reduce((total, sale) => total + Number(sale.amount || 0), 0);
+    const individualIncentive = upper39.length * 5 + upper69.length * 10;
+    const activityReady = seller.activities >= SELLER_ACTIVITY_GOAL.total && seller.visits >= SELLER_ACTIVITY_GOAL.visits && seller.demos >= SELLER_ACTIVITY_GOAL.demos && seller.followups >= SELLER_ACTIVITY_GOAL.followups;
+    const bonusUnlocked = activityReady && chargedTotal >= SELLER_QUINCENIAL_SALES_GOAL && (upper39.length + upper69.length) >= SELLER_UPPER_PLAN_CLIENTS_GOAL;
+    return {
+      ...seller, sales: sellerSales, affianzadas: affianzadas.length, charged_total: chargedTotal,
+      upper_clients: upper39.length + upper69.length, incentive_39: upper39.length * 5, incentive_69: upper69.length * 10,
+      individual_incentive: individualIncentive, bonus_unlocked: bonusUnlocked,
+      quincenal_bonus: bonusUnlocked ? SELLER_QUINCENIAL_BONUS : 0,
+      total_earned: individualIncentive + (bonusUnlocked ? SELLER_QUINCENIAL_BONUS : 0), activity_ready: activityReady
+    };
+  });
+  return { period, goals: { activity: SELLER_ACTIVITY_GOAL, sales: SELLER_QUINCENIAL_SALES_GOAL, upper_clients: SELLER_UPPER_PLAN_CLIENTS_GOAL, bonus: SELLER_QUINCENIAL_BONUS }, sellers: rows, sales };
 }
 
 function activateStudioPlan(db, order, reviewedBy = 'system', transferReference = '') {
@@ -596,6 +668,7 @@ function generationRow(row) {
 
 export function registerContentStudioRoutes(app, db, options = {}) {
   const guard = studioAuth(db);
+  const sellerGuard = sellerAuth(db);
   const generateImage = options.generateImage || defaultGenerate;
   const researchProduct = options.researchProduct || ((productName) => defaultResearchProduct(db, productName));
 
@@ -849,10 +922,90 @@ export function registerContentStudioRoutes(app, db, options = {}) {
 
   app.get('/api/content-studio/admin', guard, (req, res) => {
     if (req.contentStudioUser) return res.status(403).json({ message: 'Solo el administrador puede ver las cuentas' });
+    const sellerPeriod = sellerPeriodSummary(db, req.contentStudioEstablishment.id);
     res.json({
       users: listStudioUsers(db, req.contentStudioEstablishment.id),
-      plan_orders: listPlanOrders(db, req.contentStudioEstablishment.id)
+      plan_orders: listPlanOrders(db, req.contentStudioEstablishment.id),
+      sellers: sellerPeriod.sellers,
+      seller_period: sellerPeriod
     });
+  });
+
+  app.post('/api/content-studio/sellers', guard, (req, res) => {
+    if (req.contentStudioUser) return res.status(403).json({ message: 'Solo el administrador puede crear vendedores' });
+    const name = clean(req.body.name, 100);
+    const username = clean(req.body.username, 80).toLowerCase();
+    const password = String(req.body.password || '');
+    const email = cleanEmail(req.body.email);
+    const phone = clean(req.body.phone, 30).replace(/\D/g, '');
+    if (!name || !/^[a-z0-9._-]{3,80}$/.test(username) || password.length < 8) {
+      return res.status(400).json({ message: 'Ingresa nombre, usuario válido y una contraseña de al menos 8 caracteres' });
+    }
+    const duplicate = db.prepare('SELECT id FROM content_studio_sellers WHERE LOWER(username) = ?').get(username)
+      || db.prepare('SELECT id FROM content_studio_users WHERE LOWER(username) = ?').get(username)
+      || db.prepare('SELECT id FROM establishments WHERE LOWER(admin_username) = ?').get(username);
+    if (duplicate) return res.status(409).json({ message: 'Ese usuario ya está en uso' });
+    const result = db.prepare(`INSERT INTO content_studio_sellers
+      (establishment_id, name, username, password_hash, email, phone)
+      VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(req.contentStudioEstablishment.id, name, username, hashContentStudioPassword(password), email || null, phone || null);
+    res.status(201).json(db.prepare('SELECT id, name, username, email, phone, status, created_at FROM content_studio_sellers WHERE id = ?').get(result.lastInsertRowid));
+  });
+
+  app.put('/api/content-studio/sellers/:id', guard, (req, res) => {
+    if (req.contentStudioUser) return res.status(403).json({ message: 'Solo el administrador puede modificar vendedores' });
+    const seller = db.prepare('SELECT * FROM content_studio_sellers WHERE id = ? AND establishment_id = ?').get(req.params.id, req.contentStudioEstablishment.id);
+    if (!seller) return res.status(404).json({ message: 'Vendedor no encontrado' });
+    const status = ['active', 'inactive'].includes(req.body.status) ? req.body.status : seller.status;
+    db.prepare("UPDATE content_studio_sellers SET status = ?, updated_at = datetime('now', 'localtime') WHERE id = ?").run(status, seller.id);
+    res.json({ ok: true });
+  });
+
+  app.get('/api/content-studio/seller/bootstrap', sellerGuard, (req, res) => {
+    const summary = sellerPeriodSummary(db, req.contentStudioEstablishment.id, req.contentStudioSeller.id);
+    const activities = db.prepare(`SELECT * FROM content_studio_seller_activities WHERE seller_id = ? ORDER BY created_at DESC, id DESC LIMIT 30`).all(req.contentStudioSeller.id);
+    res.json({ seller: { id: req.contentStudioSeller.id, name: req.contentStudioSeller.name, username: req.contentStudioSeller.username, email: req.contentStudioSeller.email || '', phone: req.contentStudioSeller.phone || '' }, ...summary, activities, plans: STUDIO_PLANS, transfer: studioPaymentSettings(db) });
+  });
+
+  app.post('/api/content-studio/seller/activities', sellerGuard, (req, res) => {
+    const activityType = ['visit', 'demo', 'followup'].includes(req.body.activity_type) ? req.body.activity_type : '';
+    const businessName = clean(req.body.business_name, 100);
+    if (!activityType || !businessName) return res.status(400).json({ message: 'Selecciona la actividad e indica el negocio' });
+    const result = db.prepare(`INSERT INTO content_studio_seller_activities
+      (establishment_id, seller_id, activity_type, business_name, contact_name, notes)
+      VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(req.contentStudioEstablishment.id, req.contentStudioSeller.id, activityType, businessName, clean(req.body.contact_name, 100), clean(req.body.notes, 400));
+    res.status(201).json(db.prepare('SELECT * FROM content_studio_seller_activities WHERE id = ?').get(result.lastInsertRowid));
+  });
+
+  app.post('/api/content-studio/seller/sales', sellerGuard, (req, res) => {
+    const plan = STUDIO_PLANS.find((item) => item.id === req.body.plan_id);
+    const customerName = clean(req.body.customer_name, 100);
+    const businessName = clean(req.body.business_name, 100) || customerName;
+    const whatsapp = clean(req.body.whatsapp, 30).replace(/\D/g, '');
+    const email = cleanEmail(req.body.email);
+    if (!plan || !customerName || !validEmail(email) || whatsapp.length < 9) return res.status(400).json({ message: 'Completa cliente, negocio, correo, WhatsApp y plan' });
+    const existing = db.prepare(`SELECT id FROM content_studio_plan_orders
+      WHERE establishment_id = ? AND LOWER(email) = ? AND status = 'pending'`).get(req.contentStudioEstablishment.id, email);
+    if (existing) return res.status(409).json({ message: 'Este cliente ya tiene una transferencia pendiente' });
+    const username = uniqueStudioUsername(db, email);
+    const temporaryPassword = crypto.randomBytes(18).toString('base64url');
+    const created = db.transaction(() => {
+      const inserted = db.prepare(`INSERT INTO content_studio_plan_orders
+        (establishment_id, seller_id, customer_name, business_name, whatsapp, email, username, password_hash,
+         plan_id, plan_name, monthly_limit, duration_days, amount, payment_method, payment_provider)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'transfer', 'transfer')`)
+        .run(req.contentStudioEstablishment.id, req.contentStudioSeller.id, customerName, businessName, whatsapp, email, username,
+          hashContentStudioPassword(temporaryPassword), plan.id, plan.name, plan.photos, plan.days, plan.price);
+      const orderNumber = `EC-${String(inserted.lastInsertRowid).padStart(6, '0')}`;
+      db.prepare('UPDATE content_studio_plan_orders SET order_number = ? WHERE id = ?').run(orderNumber, inserted.lastInsertRowid);
+      const sale = db.prepare(`INSERT INTO content_studio_seller_sales
+        (establishment_id, seller_id, plan_order_id, customer_name, business_name) VALUES (?, ?, ?, ?, ?)`)
+        .run(req.contentStudioEstablishment.id, req.contentStudioSeller.id, inserted.lastInsertRowid, customerName, businessName);
+      return { saleId: sale.lastInsertRowid, orderId: inserted.lastInsertRowid };
+    })();
+    const order = planOrderRow(db.prepare('SELECT * FROM content_studio_plan_orders WHERE id = ?').get(created.orderId));
+    res.status(201).json({ sale: { id: created.saleId, customer_name: customerName, business_name: businessName }, order, transfer: transferForOrder(studioPaymentSettings(db), order) });
   });
 
   app.put('/api/content-studio/me', guard, (req, res) => {

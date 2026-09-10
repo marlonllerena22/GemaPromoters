@@ -8,6 +8,7 @@ import './content-studio-brand-assets.css';
 const ContentStudioApp = lazy(() => import('./ContentStudioApp.jsx'));
 const ContentStudioLanding = lazy(() => import('./ContentStudioLanding.jsx'));
 const ContentStudioAccess = lazy(() => import('./ContentStudioAccess.jsx'));
+const ContentStudioSellerApp = lazy(() => import('./ContentStudioSellerApp.jsx'));
 
 function StudioEntry() {
   const [token, saveToken] = useState(getToken());
@@ -17,9 +18,11 @@ function StudioEntry() {
   const isStudioDomain = ['estudioscreativos.com', 'www.estudioscreativos.com'].includes(hostname);
   const isLocalStudio = ['localhost', '127.0.0.1'].includes(hostname);
   const isAdminRoute = pathname === '/administracion';
+  const isSellerRoute = pathname === '/vendedores';
   const isLandingRoute = pathname === '/estudio-creativo' || (isStudioDomain && pathname === '/');
   const isStudioUser = user?.establishment_module_type === 'content_studio'
     || String(user?.establishment_name || '').toUpperCase() === 'ESTUDIOS CREATIVOS';
+  const isSeller = user?.role === 'content_studio_seller';
   const [showIntro, setShowIntro] = useState(() => {
     try {
       return isLandingRoute
@@ -37,16 +40,23 @@ function StudioEntry() {
   }
 
   // A studio session must be created on its own domain, never under Promoters.
-  if (!isStudioDomain && !isLocalStudio && (pathname === '/ingresar' || isAdminRoute)) {
-    window.location.replace(`https://estudioscreativos.com${isAdminRoute ? '/administracion' : '/ingresar'}${window.location.search || ''}`);
+  if (!isStudioDomain && !isLocalStudio && (pathname === '/ingresar' || isAdminRoute || isSellerRoute)) {
+    const route = isAdminRoute ? '/administracion' : isSellerRoute ? '/vendedores' : '/ingresar';
+    window.location.replace(`https://estudioscreativos.com${route}${window.location.search || ''}`);
     return null;
   }
 
   let page;
   if (isLandingRoute) {
     page = <ContentStudioLanding />;
+  } else if (isSellerRoute && token && isSeller) {
+    page = <ContentStudioSellerApp user={user} onLogout={() => { clearToken(); saveToken(null); saveUser(null); }} />;
+  } else if (isSellerRoute) {
+    page = <ContentStudioAccess sellerOnly onAuthenticated={(nextToken, nextUser) => {
+      setToken(nextToken); setUser(nextUser); saveToken(nextToken); saveUser(nextUser);
+    }} />;
   } else if ((pathname === '/ingresar' || isAdminRoute) && token && isStudioUser && (!isAdminRoute || ['admin', 'supreme'].includes(user?.role))) {
-    page = <ContentStudioApp user={user} onLogout={() => {
+    page = <ContentStudioApp user={user} initialTab={isAdminRoute ? 'settings' : 'create'} onLogout={() => {
       window.google?.accounts?.id?.disableAutoSelect?.();
       clearToken(); saveToken(null); saveUser(null);
     }} />;

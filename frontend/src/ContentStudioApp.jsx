@@ -3,7 +3,7 @@ import {
   BadgeCheck, Building2, Check, ChevronDown, ChevronRight, CreditCard, Crown, Download, EyeOff,
   Gem, Image as ImageIcon, LayoutGrid, LogOut, Mail, MapPin, MessageCircle, Plus, Settings,
   Share2, ShieldCheck, ShoppingBag, Sparkles, Tag, Trash2, Upload, UserPlus, UserRound,
-  UsersRound, WandSparkles, X
+  UsersRound, WandSparkles, X, BriefcaseBusiness, CalendarCheck, TrendingUp
 } from 'lucide-react';
 import { api, setUser } from './api.js';
 import './content-studio.css';
@@ -25,10 +25,10 @@ const EDITORIAL_SUBJECTS = [
 ];
 const emptyForm = { preset: 'editorial', editorial_subject: 'female', logo_id: 'none', include_contact: false, social_format: 'post', social_style: 'editorial', product_name: '', product_features: '', creative_instruction: '' };
 const PLAN_PACKAGES = [
-  { id: 'inicio', name: 'Inicio', photos: 10, price: 9.5, days: 8 },
+  { id: 'inicio', name: 'Inicio', photos: 10, price: 10, days: 8 },
   { id: 'emprendedor', name: 'Emprendedor', photos: 25, price: 20, days: 15 },
-  { id: 'negocio', name: 'Negocio', photos: 60, price: 35, days: 30 },
-  { id: 'pro', name: 'Pro', photos: 150, price: 60, days: 30 }
+  { id: 'negocio', name: 'Negocio', photos: 60, price: 39, days: 30 },
+  { id: 'pro', name: 'Pro', photos: 150, price: 69, days: 30 }
 ];
 
 const wait = (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
@@ -83,13 +83,13 @@ function downloadDataImage(data, name = 'contenido-creado.webp') {
   link.remove();
 }
 
-export default function ContentStudioApp({ user, onLogout, embedded = false, establishmentId }) {
+export default function ContentStudioApp({ user, onLogout, embedded = false, establishmentId, initialTab = 'create' }) {
   const scopeId = establishmentId || user?.establishment_id;
   const scopeQuery = scopeId ? `?establishment_id=${scopeId}` : '';
   const scopeBody = scopeId ? { establishment_id: Number(scopeId) } : {};
   const activeStorageKey = `content-studio-active-generation-${scopeId || 'current'}`;
   const isStudioAdmin = ['admin', 'supreme'].includes(user?.role);
-  const [tab, setTab] = useState('create');
+  const [tab, setTab] = useState(initialTab);
   const [data, setData] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [productImage, setProductImage] = useState('');
@@ -134,7 +134,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
       const logosRequest = apiWithTimeout(`/content-studio/logos${scopeQuery}`)
         .then((value) => ({ ok: true, value }), (reason) => ({ ok: false, reason }));
       const response = await bootstrapRequest;
-      const next = { ...response, generations: response.generations || [], users: [], plan_orders: [] };
+      const next = { ...response, generations: response.generations || [], users: [], plan_orders: [], sellers: [], seller_period: null };
       setData((current) => ({ ...current, ...next }));
       setForm((current) => ({ ...current, include_contact: Boolean(current.include_contact && (next.settings?.contact_whatsapp || next.settings?.contact_location)) }));
       void logosRequest.then((logosResult) => {
@@ -176,7 +176,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
     setSectionLoading(true);
     try {
       const response = await apiWithTimeout(`/content-studio/admin${scopeQuery}`);
-      setData((current) => ({ ...current, users: response.users || [], plan_orders: response.plan_orders || [] }));
+      setData((current) => ({ ...current, users: response.users || [], plan_orders: response.plan_orders || [], sellers: response.sellers || [], seller_period: response.seller_period || null }));
       loadedSections.current.add('admin');
     } catch (err) { setError(err.message); }
     finally { setSectionLoading(false); }
@@ -678,6 +678,7 @@ function BusinessConfiguration({ data, scopeBody, reload, setError, user, isStud
     <SettingsView data={data} scopeBody={scopeBody} onSaved={onSaved} setError={setError} user={user}/>
     <div className="cs-settings-divider"><LogosView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/></div>
     {isStudioAdmin && <div className="cs-settings-divider">{sectionLoading && !data.users?.length ? <SectionSkeleton title="Cargando usuarios y transferencias"/> : <UsersView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/>}</div>}
+    {isStudioAdmin && <div className="cs-settings-divider">{sectionLoading && !data.sellers?.length ? <SectionSkeleton title="Cargando equipo comercial"/> : <SellersView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/>}</div>}
   </section>;
 }
 
@@ -804,6 +805,39 @@ function UsersView({ data, scopeBody, reload, setError }) {
         })}
         {!data.users?.length && <div className="cs-empty-large"><UsersRound size={38} /><h3>Aún no hay usuarios</h3><p>Crea la primera cuenta desde el formulario.</p></div>}
       </div>
+    </div>
+  </section>;
+}
+
+function SellersView({ data, scopeBody, reload, setError }) {
+  const [form, setForm] = useState({ name: '', username: '', password: '', email: '', phone: '' });
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+  const period = data.seller_period;
+  async function createSeller(event) {
+    event.preventDefault(); setSaving(true); setMessage('');
+    try {
+      await api('/content-studio/sellers', { method: 'POST', body: JSON.stringify({ ...scopeBody, ...form }) });
+      setMessage(`Vendedor creado: ${form.username}`);
+      setForm({ name: '', username: '', password: '', email: '', phone: '' });
+      await reload();
+    } catch (error) { setError(error.message); }
+    finally { setSaving(false); }
+  }
+  async function updateSeller(seller) {
+    try {
+      await api(`/content-studio/sellers/${seller.id}`, { method: 'PUT', body: JSON.stringify({ ...scopeBody, status: seller.status === 'active' ? 'inactive' : 'active' }) });
+      await reload();
+    } catch (error) { setError(error.message); }
+  }
+  const money = (value) => `$${Number(value || 0).toFixed(2)}`;
+  return <section className="cs-sellers-page">
+    <div className="cs-section-heading"><span className="cs-eyebrow">Equipo comercial</span><h1>Vendedores y bono quincenal</h1><p>Los incentivos se calculan solo con clientes pagados, activados y que ya usan el estudio.</p></div>
+    {period && <div className="cs-seller-goals"><article><CalendarCheck/><div><small>ACTIVIDAD MÍNIMA</small><strong>{period.goals.activity.total} registros</strong><span>{period.goals.activity.visits} visitas · {period.goals.activity.demos} demos · {period.goals.activity.followups} seguimientos</span></div></article><article><TrendingUp/><div><small>VENTA AFIANZADA</small><strong>{money(period.goals.sales)}</strong><span>mínimo por quincena</span></div></article><article><Crown/><div><small>BONO QUINCENAL</small><strong>{money(period.goals.bonus)}</strong><span>{period.goals.upper_clients} clientes de $39 o $69</span></div></article></div>}
+    {message && <div className="cs-admin-message"><Check size={18}/><span>{message}</span></div>}
+    <div className="cs-sellers-layout">
+      <form className="cs-user-form cs-card" onSubmit={createSeller}><div className="cs-user-form-title"><span><BriefcaseBusiness size={21}/></span><div><h2>Crear vendedor</h2><p>Podrá registrar visitas, pruebas, seguimientos y ventas.</p></div></div><label>Nombre completo<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Ej. Andrea Vendedor"/></label><label>Usuario<input required value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value.toLowerCase().replace(/\s+/g, '.') })} placeholder="andrea.ventas"/></label><label>Contraseña temporal<input required minLength="8" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="Mínimo 8 caracteres"/></label><label>Correo<input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="opcional@correo.com"/></label><label>WhatsApp<input inputMode="tel" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="098 376 3419"/></label><button className="cs-primary" disabled={saving}>{saving ? 'Creando...' : <><UserPlus size={18}/> Crear vendedor</>}</button></form>
+      <div className="cs-seller-list">{(data.sellers || []).length ? data.sellers.map((seller) => <article key={seller.id} className={seller.status !== 'active' ? 'inactive' : ''}><div className="cs-user-avatar">{seller.name.slice(0, 1).toUpperCase()}</div><div><strong>{seller.name}</strong><small>@{seller.username}</small><em>{seller.status === 'active' ? 'Activo' : 'Inactivo'}</em></div><div><b>{money(seller.charged_total)}</b><small>ventas afianzadas</small><span>{seller.affianzadas} clientes · {seller.upper_clients} superiores</span></div><div><b>{money(seller.total_earned)}</b><small>{seller.bonus_unlocked ? 'Bono $100 desbloqueado' : 'Incentivos individuales'}</small><span>{seller.activities}/{period?.goals.activity.total || 12} actividades</span></div><button type="button" onClick={() => updateSeller(seller)}>{seller.status === 'active' ? 'Desactivar' : 'Activar'}</button></article>) : <div className="cs-empty-large"><BriefcaseBusiness size={38}/><h3>Aún no hay vendedores</h3><p>Crea la primera cuenta para empezar a registrar actividad comercial.</p></div>}</div>
     </div>
   </section>;
 }

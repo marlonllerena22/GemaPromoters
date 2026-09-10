@@ -10,10 +10,10 @@ import './content-studio-landing.css';
 import './content-studio-brand-assets.css';
 
 const FALLBACK_PLANS = [
-  { id: 'inicio', name: 'Inicio', photos: 10, price: 9.5, days: 8 },
+  { id: 'inicio', name: 'Inicio', photos: 10, price: 10, days: 8 },
   { id: 'emprendedor', name: 'Emprendedor', photos: 25, price: 20, days: 15 },
-  { id: 'negocio', name: 'Negocio', photos: 60, price: 35, days: 30 },
-  { id: 'pro', name: 'Pro', photos: 150, price: 60, days: 30 }
+  { id: 'negocio', name: 'Negocio', photos: 60, price: 39, days: 30 },
+  { id: 'pro', name: 'Pro', photos: 150, price: 69, days: 30 }
 ];
 
 const HERO_MODES = ['fotografía de producto', 'contenido con modelos', 'publicidad para redes', 'catálogos profesionales'];
