@@ -2981,15 +2981,16 @@ const frontendDist = process.env.FRONTEND_DIST || path.join(__dirname, '..', '..
 const studioDomains = new Set(['estudioscreativos.com', 'www.estudioscreativos.com']);
 const studioIndexPath = path.join(frontendDist, 'index.html');
 
-app.get(['/', '/estudio-creativo', '/ingresar'], async (req, res, next) => {
+app.get(['/', '/estudio-creativo', '/ingresar', '/administracion'], async (req, res, next) => {
   const isStudioDomain = studioDomains.has(String(req.hostname || '').toLowerCase());
   if (!isStudioDomain && req.path !== '/estudio-creativo') return next();
 
   try {
     const isLogin = req.path === '/ingresar';
-    const title = isLogin ? 'Ingresar | Estudios Creativos' : 'Estudios Creativos | Contenido profesional con IA';
+    const isAdministration = req.path === '/administracion';
+    const title = isAdministration ? 'Administración | Estudios Creativos' : (isLogin ? 'Ingresar | Estudios Creativos' : 'Estudios Creativos | Contenido profesional con IA');
     const description = 'Convierte fotos de tus productos en contenido profesional para catálogo, redes sociales y campañas con modelos.';
-    const canonical = `https://estudioscreativos.com${isLogin ? '/ingresar' : '/'}`;
+    const canonical = `https://estudioscreativos.com${isAdministration ? '/administracion' : (isLogin ? '/ingresar' : '/')}`;
     const image = 'https://estudioscreativos.com/content-studio/guides/social.jpg';
     const meta = `<title>${title}</title>
     <meta name="description" content="${description}" />

@@ -457,7 +457,7 @@ function LegacyContentStudioApp({ user, onLogout, embedded = false, establishmen
         <header className="cs-header">
           <button className="cs-brand" type="button" onClick={newCreation}>
             <span><WandSparkles size={21} /></span>
-            <div><strong>ESTUDIOS CREATIVOS</strong><small>by Promoters</small></div>
+            <div><strong>ESTUDIOS CREATIVOS</strong><small>Tu estudio con IA</small></div>
           </button>
           <nav>
             {navigation.map(([key, label, Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}><Icon size={17} /> {label}</button>)}

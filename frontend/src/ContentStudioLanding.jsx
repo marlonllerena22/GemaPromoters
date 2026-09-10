@@ -20,7 +20,9 @@ const HERO_MODES = ['fotografía de producto', 'contenido con modelos', 'publici
 const INDUSTRIES = ['CALZADO', 'MODA', 'ACCESORIOS', 'BELLEZA', 'HOGAR', 'ALIMENTOS'];
 const IS_STUDIO_DOMAIN = typeof window !== 'undefined' && ['estudioscreativos.com', 'www.estudioscreativos.com'].includes(window.location.hostname.toLowerCase());
 const STUDIO_HOME = IS_STUDIO_DOMAIN ? '/' : '/estudio-creativo';
-const STUDIO_LOGIN = '/ingresar';
+const IS_LOCAL_STUDIO = typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname);
+const STUDIO_ORIGIN = IS_STUDIO_DOMAIN || IS_LOCAL_STUDIO ? window.location.origin : 'https://estudioscreativos.com';
+const STUDIO_LOGIN = `${STUDIO_ORIGIN}/ingresar`;
 
 const FEATURES = [
   { id: 'editorial', label: 'Con modelos', title: 'Pon tu producto en una escena que se siente real.', copy: 'Elige una mujer, un hombre o un animal. Estudios Creativos adapta el entorno y conserva la forma, color y detalles del producto.', image: '/content-studio/guides/editorial.jpg' },
@@ -53,11 +55,20 @@ export default function ContentStudioLanding() {
 
   const begin = (plan = null) => {
     setMenuOpen(false);
+    const planQuery = plan?.id ? `?plan=${encodeURIComponent(plan.id)}` : '';
+
+    // The old in-app route stays available, but customers always authenticate
+    // on the Estudios Creativos domain.
+    if (!IS_STUDIO_DOMAIN && !IS_LOCAL_STUDIO) {
+      window.location.assign(`${STUDIO_LOGIN}${planQuery}`);
+      return;
+    }
+
     setRequestedPlan(plan);
     try { if (plan?.id) sessionStorage.setItem('estudios-requested-plan', plan.id); } catch { /* optional */ }
     const currentUser = getUser();
     if (getToken() && currentUser?.establishment_module_type === 'content_studio') {
-      window.location.assign(`${STUDIO_LOGIN}${plan?.id ? `?plan=${encodeURIComponent(plan.id)}` : ''}`);
+      window.location.assign(`${STUDIO_LOGIN}${planQuery}`);
       return;
     }
     setAccessOpen(true);

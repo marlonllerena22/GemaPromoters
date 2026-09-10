@@ -266,6 +266,8 @@ export function initContentStudioDb(db) {
 }
 
 export function ensureContentStudioEstablishment(db) {
+  const configuredAdminUser = String(process.env.CONTENT_STUDIO_ADMIN_USER || '').trim();
+  const configuredAdminPassword = String(process.env.CONTENT_STUDIO_ADMIN_PASSWORD || '');
   let establishment = db.prepare("SELECT * FROM establishments WHERE module_type = 'content_studio' ORDER BY id ASC").get();
   if (!establishment) {
     const result = db.prepare(
@@ -277,8 +279,8 @@ export function ensureContentStudioEstablishment(db) {
       'Estudios Creativos',
       'STUDIO',
       'contentstudio',
-      process.env.CONTENT_STUDIO_ADMIN_USER || 'contenido',
-      process.env.CONTENT_STUDIO_ADMIN_PASSWORD || 'contenido123'
+      configuredAdminUser || 'contenido',
+      configuredAdminPassword || 'contenido123'
     );
     establishment = db.prepare('SELECT * FROM establishments WHERE id = ?').get(result.lastInsertRowid);
   } else {
@@ -286,9 +288,11 @@ export function ensureContentStudioEstablishment(db) {
       `UPDATE establishments
        SET name = 'ESTUDIOS CREATIVOS', display_name = 'Estudios Creativos',
            business_type = 'commercial', module_type = 'content_studio', promoter_sales_enabled = 0,
-           theme = 'contentstudio'
+           theme = 'contentstudio',
+           admin_username = CASE WHEN ? <> '' THEN ? ELSE admin_username END,
+           admin_password = CASE WHEN ? <> '' THEN ? ELSE admin_password END
        WHERE id = ?`
-    ).run(establishment.id);
+    ).run(configuredAdminUser, configuredAdminUser, configuredAdminPassword, configuredAdminPassword, establishment.id);
     establishment = db.prepare('SELECT * FROM establishments WHERE id = ?').get(establishment.id);
   }
 

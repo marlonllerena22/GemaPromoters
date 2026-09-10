@@ -13,7 +13,10 @@ function StudioEntry() {
   const [token, saveToken] = useState(getToken());
   const [user, saveUser] = useState(getUser());
   const pathname = window.location.pathname;
-  const isStudioDomain = ['estudioscreativos.com', 'www.estudioscreativos.com'].includes(window.location.hostname.toLowerCase());
+  const hostname = window.location.hostname.toLowerCase();
+  const isStudioDomain = ['estudioscreativos.com', 'www.estudioscreativos.com'].includes(hostname);
+  const isLocalStudio = ['localhost', '127.0.0.1'].includes(hostname);
+  const isAdminRoute = pathname === '/administracion';
   const isLandingRoute = pathname === '/estudio-creativo' || (isStudioDomain && pathname === '/');
   const isStudioUser = user?.establishment_module_type === 'content_studio'
     || String(user?.establishment_name || '').toUpperCase() === 'ESTUDIOS CREATIVOS';
@@ -33,16 +36,22 @@ function StudioEntry() {
     setShowIntro(false);
   }
 
+  // A studio session must be created on its own domain, never under Promoters.
+  if (!isStudioDomain && !isLocalStudio && (pathname === '/ingresar' || isAdminRoute)) {
+    window.location.replace(`https://estudioscreativos.com${isAdminRoute ? '/administracion' : '/ingresar'}${window.location.search || ''}`);
+    return null;
+  }
+
   let page;
   if (isLandingRoute) {
     page = <ContentStudioLanding />;
-  } else if (pathname === '/ingresar' && token && isStudioUser) {
+  } else if ((pathname === '/ingresar' || isAdminRoute) && token && isStudioUser && (!isAdminRoute || ['admin', 'supreme'].includes(user?.role))) {
     page = <ContentStudioApp user={user} onLogout={() => {
       window.google?.accounts?.id?.disableAutoSelect?.();
       clearToken(); saveToken(null); saveUser(null);
     }} />;
-  } else if (pathname === '/ingresar') {
-    page = <ContentStudioAccess onAuthenticated={(nextToken, nextUser) => {
+  } else if (pathname === '/ingresar' || isAdminRoute) {
+    page = <ContentStudioAccess adminOnly={isAdminRoute} onAuthenticated={(nextToken, nextUser) => {
       setToken(nextToken); setUser(nextUser); saveToken(nextToken); saveUser(nextUser);
       setShowIntro(true);
     }} />;

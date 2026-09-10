@@ -29,10 +29,10 @@ function loadGoogleIdentity() {
   return googleScriptPromise;
 }
 
-export default function ContentStudioAccess({ mode = 'page', onClose, onAuthenticated, initialEmailOpen = false }) {
+export default function ContentStudioAccess({ mode = 'page', onClose, onAuthenticated, initialEmailOpen = false, adminOnly = false }) {
   const [config, setConfig] = useState(null);
   const [emailOpen, setEmailOpen] = useState(initialEmailOpen);
-  const [legacyOpen, setLegacyOpen] = useState(false);
+  const [legacyOpen, setLegacyOpen] = useState(adminOnly);
   const [email, setEmail] = useState('');
   const [legacy, setLegacy] = useState({ username: '', password: '' });
   const [busy, setBusy] = useState(false);
@@ -127,6 +127,7 @@ export default function ContentStudioAccess({ mode = 'page', onClose, onAuthenti
     try {
       const data = await api('/auth/login', { method: 'POST', body: JSON.stringify(legacy) });
       if (data.user?.establishment_module_type !== 'content_studio') throw new Error('Este acceso no pertenece a Estudios Creativos');
+      if (adminOnly && !['admin', 'supreme'].includes(data.user?.role)) throw new Error('Este acceso es solo para la administración del estudio');
       complete(data);
     } catch (err) { setError(err.message); }
     finally { setBusy(false); }
@@ -136,9 +137,9 @@ export default function ContentStudioAccess({ mode = 'page', onClose, onAuthenti
     {mode === 'modal' && <button className="csa-close" type="button" onClick={onClose} aria-label="Cerrar"><X /></button>}
     <a className="csa-brand" href="/"><span className="csa-brand-mascot"><img src="/content-studio/brand/mascota-toque.webp" alt="" /></span><img className="csa-brand-wordmark" src="/content-studio/brand/estudios-creativos-wordmark.webp" alt="Estudios Creativos" /></a>
     {verifying ? <div className="csa-verifying"><i /><h1>Abriendo tu estudio</h1><p>Estamos validando tu enlace seguro.</p></div> : <>
-      <div className="csa-heading"><span>BIENVENIDO</span><h1>Crea sin complicaciones.</h1><p>Entra o crea tu cuenta en pocos segundos.</p></div>
+      <div className="csa-heading"><span>{adminOnly ? 'ADMINISTRACIÓN' : 'BIENVENIDO'}</span><h1>{adminOnly ? 'Gestiona tu estudio.' : 'Crea sin complicaciones.'}</h1><p>{adminOnly ? 'Acceso exclusivo para administrar usuarios, planes y solicitudes.' : 'Entra o crea tu cuenta en pocos segundos.'}</p></div>
       {!sent ? <div className="csa-methods">
-        <div className={`csa-google ${!config?.google_client_id ? 'disabled' : ''}`} ref={googleButtonRef}>{config && !config.google_client_id && <span>Google estará disponible cuando se configure el dominio</span>}</div>
+        {!adminOnly && <><div className={`csa-google ${!config?.google_client_id ? 'disabled' : ''}`} ref={googleButtonRef}>{config && !config.google_client_id && <span>Google estará disponible cuando se configure el dominio</span>}</div>
         <div className="csa-divider"><span>o</span></div>
         {!emailOpen ? <button className="csa-email-button" type="button" onClick={() => setEmailOpen(true)}><Mail /> Continuar con correo</button> : <form className="csa-email-form" onSubmit={sendMagicLink}>
           <button className="csa-back" type="button" onClick={() => setEmailOpen(false)}><ArrowLeft /> Volver</button>
@@ -146,8 +147,8 @@ export default function ContentStudioAccess({ mode = 'page', onClose, onAuthenti
           <button type="submit" disabled={busy}>{busy ? 'Enviando…' : 'Enviarme el enlace para entrar'}</button>
           <small>El enlace vence en 20 minutos y puede usarse una sola vez.</small>
         </form>}
-        <button className="csa-legacy-toggle" type="button" onClick={() => setLegacyOpen((open) => !open)}><KeyRound /> ¿Tienes un acceso anterior?</button>
-        {legacyOpen && <form className="csa-legacy-form" onSubmit={legacyLogin}><input required autoComplete="username" value={legacy.username} onChange={(event) => setLegacy({ ...legacy, username: event.target.value })} placeholder="Usuario" /><input required type="password" autoComplete="current-password" value={legacy.password} onChange={(event) => setLegacy({ ...legacy, password: event.target.value })} placeholder="Contraseña" /><button disabled={busy}>Entrar</button></form>}
+        <button className="csa-legacy-toggle" type="button" onClick={() => setLegacyOpen((open) => !open)}><KeyRound /> ¿Tienes un acceso anterior?</button></>}
+        {legacyOpen && <form className="csa-legacy-form" onSubmit={legacyLogin}><input required autoFocus={adminOnly} autoComplete="username" value={legacy.username} onChange={(event) => setLegacy({ ...legacy, username: event.target.value })} placeholder="Usuario" /><input required type="password" autoComplete="current-password" value={legacy.password} onChange={(event) => setLegacy({ ...legacy, password: event.target.value })} placeholder="Contraseña" /><button disabled={busy}>{adminOnly ? 'Entrar a la administración' : 'Entrar'}</button></form>}
       </div> : <div className="csa-sent"><span><CheckCircle2 /></span><h2>Revisa tu correo</h2><p>Enviamos un botón para entrar a <strong>{email}</strong>.</p><button type="button" onClick={() => { setSent(false); setEmailOpen(true); }}>Usar otro correo</button></div>}
       {error && <div className="csa-error" role="alert">{error}</div>}
       <p className="csa-terms">Al continuar aceptas el uso necesario de tus datos para mantener tu cuenta y tus creaciones.</p>
