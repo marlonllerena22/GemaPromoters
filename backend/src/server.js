@@ -17,6 +17,7 @@ import { registerRenjiRoutes } from './renji-routes.js';
 import { registerTicketingRoutes } from './ticketing-routes.js';
 import { registerMarjoriePromotersRoutes } from './marjorie-promoters-routes.js';
 import { registerContentStudioRoutes } from './content-studio-routes.js';
+import { registerContentStudioLegalRoutes } from './content-studio-legal.js';
 import { findContentStudioSellerForLogin, findContentStudioUserForLogin } from './content-studio-db.js';
 
 dotenv.config();
@@ -2993,6 +2994,7 @@ registerRenjiRoutes(app, db, getRequestEstablishmentId);
 registerTicketingRoutes(app, db);
 registerMarjoriePromotersRoutes(app, db);
 registerContentStudioRoutes(app, db);
+registerContentStudioLegalRoutes(app);
 
 recalculateAllCommissions();
 
