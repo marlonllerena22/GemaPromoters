@@ -17,7 +17,7 @@ const PRESETS = {
     name: 'Catálogo de producto',
     description: 'Producto protagonista, limpio y listo para catálogo.',
     size: '1024x1024',
-    direction: `Create a premium product catalog photograph. Keep the exact uploaded product as the hero, arranged naturally on a refined simple set. Preserve its real silhouette, proportions, construction, color, texture, sole, stitching and identifying details. If and only if the source photo contains exactly one shoe, boot, ankle boot, sandal or other footwear item, create its matching second shoe and present a natural pair. Place the outer-facing shoe in front and the matching opposite shoe slightly behind. The front hero shoe must never become a simplified, smooth or generic version: reproduce every visible non-closure detail from the source, including textured panels, material changes, overlays, diagonal seams, decorative stitching, studs, pull tabs, toe shape, heel construction and sole profile. The rear shoe must preserve those same construction details. For ankle boots or boots with an internal-side zipper, show that zipper on the rear shoe exactly once while keeping the front shoe's clean outer side; the absence of a zipper on the front must never remove any other panel, seam, texture or decoration. For handbags, clothing, accessories, food and every other non-footwear product, keep the single uploaded item as a single item and never duplicate it. Use controlled studio lighting, crisp focus and realistic contact shadows.`
+    direction: `Create a premium product catalog photograph. Keep the exact uploaded product as the hero, arranged naturally on a refined simple set. Preserve its real silhouette, proportions, construction, color, texture, sole, stitching and identifying details. Only when the source photo contains exactly one footwear item, create its matching second shoe and present a natural pair. If the single source item is a boot or ankle boot, the rear matching boot must show one realistic internal-side zipper and the outer-facing front hero boot must remain clean on its outer side. If the item is a sneaker, loafer, sandal, heel, flat or any footwear other than a boot or ankle boot, never add a zipper. If the source photo already contains two shoes or boots, preserve that pair exactly as supplied: do not add a shoe, zipper, closure or new feature. The front hero shoe must never become a simplified, smooth or generic version: reproduce every visible non-closure detail from the source, including textured panels, material changes, overlays, diagonal seams, decorative stitching, studs, pull tabs, toe shape, heel construction and sole profile. The rear shoe must preserve those same construction details. For handbags, clothing, accessories, food and every other non-footwear product, keep the single uploaded item as a single item and never duplicate it. Use controlled studio lighting, crisp focus and realistic contact shadows.`
   },
   social: {
     name: 'Post para redes',
@@ -34,10 +34,11 @@ const PRESETS = {
 };
 
 const SOCIAL_FORMATS = {
-  // Solo formatos listos para publicación. El archivo final se amplía desde
-  // los bordes, nunca se recorta ni se rellena con blur.
-  post: { id: 'post', label: 'Post vertical', width: 1080, height: 1350, size: '1024x1536', instruction: 'Create this as a finished vertical 4:5 feed post. The image engine supplies a 2:3 render, so the final 4:5 canvas will be completed by extending only the left and right edge background. Keep the entire product, people, animals, faces, hands, text, callouts, shadows and meaningful objects fully visible and at least 10% away from the left and right edges. Those outer edge areas must be clean seamless background that can continue naturally. Never crop any meaningful element.' },
-  story: { id: 'story', label: 'Historia', width: 1080, height: 1920, size: '1024x1536', instruction: 'Create this as a finished vertical 9:16 story. The image engine supplies a 2:3 render, so the final 9:16 canvas will be completed by extending only the top and bottom edge background. Keep the entire product, people, animals, faces, hands, text, callouts, shadows and meaningful objects fully visible and at least 10% away from the top and bottom edges. Those outer edge areas must be clean seamless background that can continue naturally. Never crop any meaningful element.' }
+  // GPT Image renders portrait natively at 1024x1536. We compose for each final
+  // aspect ratio inside that image and make one centered delivery resize only;
+  // there is never padding, blur, mirroring, edge cloning or background extension.
+  post: { id: 'post', label: 'Post vertical', width: 1080, height: 1350, size: '1024x1536', instruction: 'Compose one complete edge-to-edge vertical 4:5 Instagram feed post for final delivery at 1080 × 1350 pixels. The product, people, faces, hands, logo, headlines and every meaningful object must live safely within the central 4:5 composition, with generous clear safety space above and below. Build the scene, background, decoration and typography as one coherent full canvas. Never use frames, bars, padding, a blurred background, duplicated elements, reflected edges, stretched textures or empty side fill.' },
+  story: { id: 'story', label: 'Historia', width: 1080, height: 1920, size: '1024x1536', instruction: 'Compose one complete edge-to-edge vertical 9:16 Story/Reel for final delivery at 1080 × 1920 pixels. The product, people, faces, hands, logo, headlines and every meaningful object must live safely within the central 9:16 composition, with generous clear safety space at the left and right. Build the scene, background, decoration and typography as one coherent full canvas. Never use frames, bars, padding, a blurred background, duplicated elements, reflected edges, stretched textures or empty side fill.' }
 };
 
 const SOCIAL_STYLES = {
@@ -54,7 +55,7 @@ const MOODS = {
 };
 
 const STUDIO_PLANS = [
-  { id: 'inicio', name: 'Inicio', photos: 10, price: 10, days: 8 },
+  { id: 'inicio', name: 'Inicio', photos: 10, price: 9.5, days: 8 },
   { id: 'emprendedor', name: 'Emprendedor', photos: 25, price: 20, days: 15 },
   { id: 'negocio', name: 'Negocio', photos: 60, price: 39, days: 30 },
   { id: 'pro', name: 'Pro', photos: 150, price: 69, days: 30 }
@@ -510,7 +511,7 @@ function buildPrompt(body, preset, hasBrandLogo = false) {
   const editorialInstruction = preset === PRESETS.editorial
     ? editorialSubjects[body.editorial_subject] || editorialSubjects.female
     : '';
-  const fidelityInstruction = `Treat the source photo as the only authority for the product's geometry and construction. First identify the uploaded product as the principal object and visually inventory its exact silhouette, aspect ratio, toe, heel, sole, every material panel, texture boundary, overlay, seam, stitching line, stud, strap, handle, pull tab, fastener, closure, label and hardware visible in the source. Reproduce that inventory on the hero product without simplifying or omitting any item. Keep the principal product completely visible with comfortable space around it; never crop, stretch, squash or distort it to fill the canvas. Never turn a multi-material or decorated product into a plain generic version. Never move, add, remove, enlarge, duplicate or expose a zipper or closure on another side. For a pair of shoes, preserve which side of each shoe faces the camera: a zipper visible only on the inward or rear shoe must stay on that shoe and must not be copied onto the outward or front hero shoe. Keep all decorative panels, textures, studs and diagonal seams intact on both shoes wherever their construction requires them. Keep faces, hands, feet, people and animals complete and away from trim edges.`;
+  const fidelityInstruction = `Treat the source photo as the authority for the product's geometry and construction. First identify the uploaded product as the principal object and visually inventory its exact silhouette, aspect ratio, toe, heel, sole, every material panel, texture boundary, overlay, seam, stitching line, stud, strap, handle, pull tab, fastener, closure, label and hardware visible in the source. Reproduce that inventory on the hero product without simplifying or omitting any item. Keep the principal product completely visible with comfortable space around it; never crop, stretch, squash or distort it to fill the canvas. Never turn a multi-material or decorated product into a plain generic version. For catalog pair creation, the only permitted extra closure is one internal-side zipper on the rear shoe when and only when the single source item is a boot or ankle boot. Never put that zipper on the front outer-facing boot. Never add any zipper to sneakers or other non-boot footwear, and never add a zipper, a shoe or any new feature when the source already shows a pair. Keep all decorative panels, textures, studs and diagonal seams intact on both shoes wherever their construction requires them. Keep faces, hands, feet, people and animals complete and away from trim edges.`;
   return [
     `The first image is the source-of-truth product photo. Create one original professional commercial image.`,
     preset.direction,
@@ -530,6 +531,16 @@ function dataImageBuffer(value, message) {
   const encoded = String(value || '').split(',')[1];
   if (!encoded) throw new Error(message);
   return Buffer.from(encoded, 'base64');
+}
+
+async function normalizeLogoForStorage(logoData) {
+  const source = dataImageBuffer(logoData, 'El logo no se pudo preparar');
+  const png = await sharp(source).ensureAlpha()
+    .resize({ width: 1400, height: 1400, fit: 'inside', withoutEnlargement: true })
+    .png()
+    .toBuffer();
+  if (png.length > 5 * 1024 * 1024) throw new Error('El logo en PNG no puede superar 5 MB');
+  return `data:image/png;base64,${png.toString('base64')}`;
 }
 
 async function logoReferenceForGeneration(logoData) {
@@ -568,33 +579,11 @@ async function defaultGenerate({ images, prompt, size }) {
 
 async function resizeSocialOutput(imageData, format) {
   const source = dataImageBuffer(imageData, 'La imagen generada no se pudo preparar');
-  const metadata = await sharp(source).metadata();
-  const sourceWidth = metadata.width || 1024;
-  const sourceHeight = metadata.height || 1536;
-  const finalRatio = format.width / format.height;
-  const sourceRatio = sourceWidth / sourceHeight;
-  let canvas = source;
-  if (sourceRatio < finalRatio - 0.002) {
-    const expandedWidth = Math.max(sourceWidth, Math.round(sourceHeight * finalRatio));
-    const leftWidth = Math.floor((expandedWidth - sourceWidth) / 2);
-    const rightWidth = expandedWidth - sourceWidth - leftWidth;
-    const sample = Math.max(2, Math.min(28, Math.round(sourceWidth * 0.025)));
-    const leftEdge = await sharp(source).extract({ left: 0, top: 0, width: sample, height: sourceHeight }).resize(leftWidth || 1, sourceHeight, { fit: 'fill' }).flop().png().toBuffer();
-    const rightEdge = await sharp(source).extract({ left: sourceWidth - sample, top: 0, width: sample, height: sourceHeight }).resize(rightWidth || 1, sourceHeight, { fit: 'fill' }).flop().png().toBuffer();
-    canvas = await sharp({ create: { width: expandedWidth, height: sourceHeight, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
-      .composite([{ input: leftEdge, left: 0, top: 0 }, { input: source, left: leftWidth, top: 0 }, { input: rightEdge, left: leftWidth + sourceWidth, top: 0 }]).png().toBuffer();
-  } else if (sourceRatio > finalRatio + 0.002) {
-    const expandedHeight = Math.max(sourceHeight, Math.round(sourceWidth / finalRatio));
-    const topHeight = Math.floor((expandedHeight - sourceHeight) / 2);
-    const bottomHeight = expandedHeight - sourceHeight - topHeight;
-    const sample = Math.max(2, Math.min(28, Math.round(sourceHeight * 0.025)));
-    const topEdge = await sharp(source).extract({ left: 0, top: 0, width: sourceWidth, height: sample }).resize(sourceWidth, topHeight || 1, { fit: 'fill' }).flip().png().toBuffer();
-    const bottomEdge = await sharp(source).extract({ left: 0, top: sourceHeight - sample, width: sourceWidth, height: sample }).resize(sourceWidth, bottomHeight || 1, { fit: 'fill' }).flip().png().toBuffer();
-    canvas = await sharp({ create: { width: sourceWidth, height: expandedHeight, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
-      .composite([{ input: topEdge, left: 0, top: 0 }, { input: source, left: 0, top: topHeight }, { input: bottomEdge, left: 0, top: topHeight + sourceHeight }]).png().toBuffer();
-  }
-  const output = await sharp(canvas)
-    .resize(format.width, format.height, { fit: 'fill' })
+  // The prompt reserves the exact final composition in the safe central area.
+  // This only performs that final centered framing; it never manufactures pixels
+  // with blur, padding, edge reflection, duplication or stretch.
+  const output = await sharp(source)
+    .resize(format.width, format.height, { fit: 'cover', position: 'centre' })
     .webp({ quality: 92 })
     .toBuffer();
   return `data:image/webp;base64,${output.toString('base64')}`;
@@ -1115,14 +1104,17 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     res.json({ ok: true });
   });
 
-  app.post('/api/content-studio/logos', guard, (req, res) => {
-    const image = String(req.body.image || '');
-    const name = clean(req.body.name, 80);
-    if (!name || !validDataImage(image)) return res.status(400).json({ message: 'Nombre e imagen válida son obligatorios' });
-    if (dataImageBytes(image) > 5 * 1024 * 1024) return res.status(413).json({ message: 'El logo no puede superar 5 MB' });
-    const result = db.prepare('INSERT INTO content_studio_logos (establishment_id, content_studio_user_id, name, image_data, created_by) VALUES (?, ?, ?, ?, ?)')
-      .run(req.contentStudioEstablishment.id, req.contentStudioUser?.id || null, name, image, req.user.username || req.user.role);
-    res.status(201).json(db.prepare('SELECT id, name, image_data, created_at FROM content_studio_logos WHERE id = ?').get(result.lastInsertRowid));
+  app.post('/api/content-studio/logos', guard, async (req, res) => {
+    try {
+      const image = String(req.body.image || '');
+      const name = clean(req.body.name, 80);
+      if (!name || !validDataImage(image)) return res.status(400).json({ message: 'Nombre e imagen válida son obligatorios' });
+      if (dataImageBytes(image) > 8 * 1024 * 1024) return res.status(413).json({ message: 'El logo no puede superar 8 MB' });
+      const pngImage = await normalizeLogoForStorage(image);
+      const result = db.prepare('INSERT INTO content_studio_logos (establishment_id, content_studio_user_id, name, image_data, created_by) VALUES (?, ?, ?, ?, ?)')
+        .run(req.contentStudioEstablishment.id, req.contentStudioUser?.id || null, name, pngImage, req.user.username || req.user.role);
+      res.status(201).json(db.prepare('SELECT id, name, image_data, created_at FROM content_studio_logos WHERE id = ?').get(result.lastInsertRowid));
+    } catch (error) { res.status(400).json({ message: error.message || 'No se pudo guardar el logo en PNG' }); }
   });
 
   app.delete('/api/content-studio/logos/:id', guard, (req, res) => {
@@ -1267,4 +1259,4 @@ export function registerContentStudioRoutes(app, db, options = {}) {
   });
 }
 
-export { PRESETS, SOCIAL_FORMATS, buildPrompt, logoReferenceForGeneration, resizeSocialOutput };
+export { PRESETS, SOCIAL_FORMATS, buildPrompt, normalizeLogoForStorage, logoReferenceForGeneration, resizeSocialOutput };

@@ -6,7 +6,7 @@ import sharp from 'sharp';
 import { createToken } from '../src/auth.js';
 import { initContentStudioDb, verifyContentStudioPassword } from '../src/content-studio-db.js';
 import crypto from 'node:crypto';
-import { buildPrompt, overlayContactDetails, overlayOfficialLogo, PRESETS, registerContentStudioRoutes, resizeSocialOutput } from '../src/content-studio-routes.js';
+import { buildPrompt, normalizeLogoForStorage, PRESETS, registerContentStudioRoutes, resizeSocialOutput } from '../src/content-studio-routes.js';
 
 process.env.JWT_SECRET = 'content-studio-test-secret';
 const sampleImageBuffer = await sharp({ create: { width: 180, height: 220, channels: 3, background: '#9a6245' } }).png().toBuffer();
@@ -116,16 +116,16 @@ test('prompt accepts any product, adapts the editorial model and prepares social
   assert.match(animal, /believable animal model/i);
   assert.match(animal, /Never force human footwear/i);
   assert.match(editorial, /Do not include headlines/i);
-  assert.match(editorial, /zipper visible only on the inward or rear shoe/i);
-  assert.match(editorial, /composited by the application/i);
+  assert.match(editorial, /only permitted extra closure is one internal-side zipper/i);
+  assert.match(editorial, /second reference image is the exact official brand logo/i);
   assert.doesNotMatch(editorial, /Brand: Marjorie Botas/i);
-  assert.match(catalog, /source photo contains exactly one shoe/i);
-  assert.match(catalog, /show that zipper on the rear shoe exactly once/i);
+  assert.match(catalog, /source photo contains exactly one footwear item/i);
+  assert.match(catalog, /rear matching boot must show one realistic internal-side zipper/i);
   assert.match(catalog, /must never become a simplified, smooth or generic version/i);
   assert.match(catalog, /textured panels, material changes, overlays, diagonal seams/i);
   assert.match(catalog, /every other non-footwear product.+never duplicate it/i);
-  assert.match(story, /tall 9:16 story/i);
-  assert.match(benefits, /central 1024 × 1280 area is the exact final artwork/i);
+  assert.match(story, /complete edge-to-edge vertical 9:16 Story\/Reel/i);
+  assert.match(benefits, /complete edge-to-edge vertical 4:5 Instagram feed post/i);
   assert.match(story, /witty product-specific Spanish concept/i);
   assert.match(story, /Optional real characteristics the user wants to highlight/i);
   assert.match(story, /The user explained what they want to achieve with this image/i);
@@ -140,10 +140,6 @@ test('a paid client gets its own plan, usage, history and brand management', asy
   assert.equal(bootstrap.status, 200);
   assert.equal(bootstrap.data.settings.plan_name, 'Profesional');
   assert.equal(bootstrap.data.settings.brand_name, 'Zapatería Demo');
-  const savedContact = await request('/settings', { token: clientToken, method: 'PUT', body: JSON.stringify({ brand_name: 'Zapatería Demo', brand_tone: 'premium', contact_whatsapp: '0983763419', contact_location: 'Centro de Ambato' }) });
-  assert.equal(savedContact.status, 200);
-  assert.equal(savedContact.data.contact_whatsapp, '0983763419');
-  assert.equal(savedContact.data.contact_location, 'Centro de Ambato');
   assert.equal(bootstrap.data.subscription.status, 'paid');
   assert.equal(bootstrap.data.subscription.active, true);
   assert.equal(bootstrap.data.can_manage_references, false);
@@ -156,6 +152,7 @@ test('a paid client gets its own plan, usage, history and brand management', asy
   assert.equal(bootstrap.data.can_manage_logos, true);
   const clientLogo = await request('/logos', { token: clientToken, method: 'POST', body: JSON.stringify({ name: 'Marca del cliente', image: sampleImage }) });
   assert.equal(clientLogo.status, 201);
+  assert.match(clientLogo.data.image_data, /^data:image\/png;base64,/);
   assert.equal(db.prepare('SELECT content_studio_user_id FROM content_studio_logos WHERE id = ?').get(clientLogo.data.id).content_studio_user_id, 1);
   assert.equal((await request(`/logos/${clientLogo.data.id}`, { token: clientToken, method: 'DELETE' })).status, 200);
   assert.equal((await request('/users', { token: clientToken, method: 'POST', body: JSON.stringify({ name: 'Otra persona', username: 'otra', password: 'Password25!' }) })).status, 403);
@@ -166,9 +163,9 @@ test('a paid client gets its own plan, usage, history and brand management', asy
   assert.equal(calls.length, 1);
   assert.deepEqual(researchCalls, ['vaquita que corre viral']);
   assert.match(calls[0].prompt, /Personaje de peluche asociado a un video viral/i);
-  assert.equal(calls[0].images.length, 1);
+  assert.equal(calls[0].images.length, 2);
   assert.equal(completed.data.generation.product_name, 'vaquita que corre viral');
-  assert.doesNotMatch(calls[0].prompt, /Reproduce that supplied logo/i);
+  assert.match(calls[0].prompt, /second reference image is the exact official brand logo/i);
   assert.equal(db.prepare('SELECT content_studio_user_id FROM content_studio_generations WHERE id = ?').get(generated.data.generation.id).content_studio_user_id, 1);
 
   const unrelated = await request('/generate', { token: clientToken, method: 'POST', body: JSON.stringify({ preset: 'catalog', logo_id: 'none', product_image: sampleImage }) });
@@ -239,8 +236,6 @@ test('logos, exact social dimensions, history, limits and business isolation wor
   });
   assert.equal(createdLogo.status, 201);
   const savedContact = await request('/settings', { method: 'PUT', body: JSON.stringify({ brand_name: 'Marca Uno', brand_tone: 'premium', contact_whatsapp: '0983763419', contact_location: 'Centro de Ambato' }) });
-  assert.equal(savedContact.status, 200);
-  assert.equal(savedContact.data.contact_whatsapp, '0983763419');
 
   const foreignLogo = db.prepare("INSERT INTO content_studio_logos (establishment_id, name, image_data) VALUES (2, 'Ajena', ?)").run(sampleImage).lastInsertRowid;
   const foreignAttempt = await request('/generate', { method: 'POST', body: JSON.stringify({ preset: 'catalog', logo_id: Number(foreignLogo), product_image: sampleImage }) });
@@ -252,12 +247,12 @@ test('logos, exact social dimensions, history, limits and business isolation wor
   const firstCompleted = await waitForGeneration(first.data.generation.id);
   assert.equal(firstCompleted.data.generation.status, 'completed');
   assert.equal(firstCompleted.data.usage, 1);
-  assert.equal(calls[0].images.length, 1);
+  assert.equal(calls[0].images.length, 2);
   assert.match(calls[0].prompt, /believable animal model/i);
   assert.equal(db.prepare('SELECT mood FROM content_studio_generations WHERE id = ?').get(first.data.generation.id).mood, 'animal');
   assert.equal(first.data.generation.reference_ids.length, 0);
 
-  const second = await request('/generate', { method: 'POST', body: JSON.stringify({ preset: 'social', logo_id: 2, include_contact: true, social_format: 'story', social_style: 'playful', product_image: sampleImage }) });
+  const second = await request('/generate', { method: 'POST', body: JSON.stringify({ preset: 'social', logo_id: 2, contact_whatsapp: '0983763419', contact_location: 'Centro de Ambato', social_format: 'story', social_style: 'playful', product_image: sampleImage }) });
   assert.equal(second.status, 202);
   const secondCompleted = await waitForGeneration(second.data.generation.id);
   const output = Buffer.from(secondCompleted.data.generation.output_image_data.split(',')[1], 'base64');
@@ -265,7 +260,8 @@ test('logos, exact social dimensions, history, limits and business isolation wor
   assert.equal(metadata.width, 1080);
   assert.equal(metadata.height, 1920);
   assert.equal(calls[1].size, '1024x1536');
-  assert.match(calls[1].prompt, /lower 12%/i);
+  assert.match(calls[1].prompt, /WhatsApp: 0983763419/i);
+  assert.match(calls[1].prompt, /Location: Centro de Ambato/i);
   const limit = await request('/generate', { method: 'POST', body: JSON.stringify({ preset: 'detail', logo_id: 'none', product_image: sampleImage }) });
   assert.equal(limit.status, 429);
 
@@ -337,32 +333,12 @@ test('social output is generated at the requested final dimensions without blur 
   }
 });
 
-test('the official logo is composited after generation without changing the canvas proportions', async () => {
-  const canvas = await sharp({
-    create: { width: 600, height: 900, channels: 3, background: { r: 235, g: 225, b: 215 } }
-  }).webp().toBuffer();
-  const logo = await sharp({
-    create: { width: 300, height: 120, channels: 3, background: { r: 0, g: 0, b: 0 } }
-  }).composite([{ input: Buffer.from('<svg width="300" height="120"><text x="30" y="78" fill="#ef3b24" font-size="58">MARCA</text></svg>') }]).png().toBuffer();
-  const result = await overlayOfficialLogo(
-    `data:image/webp;base64,${canvas.toString('base64')}`,
-    `data:image/png;base64,${logo.toString('base64')}`
-  );
-  const output = Buffer.from(result.split(',')[1], 'base64');
-  const metadata = await sharp(output).metadata();
-  const stats = await sharp(output).stats();
-  assert.equal(metadata.width, 600);
-  assert.equal(metadata.height, 900);
-  assert.ok(stats.channels[0].min < 235);
-});
-
-test('the exact saved contact details are composited locally without changing the image size', async () => {
-  const canvas = await sharp({ create: { width: 600, height: 900, channels: 3, background: { r: 238, g: 232, b: 224 } } }).webp().toBuffer();
-  const result = await overlayContactDetails(`data:image/webp;base64,${canvas.toString('base64')}`, '0983763419', 'Centro de Ambato');
-  const output = Buffer.from(result.split(',')[1], 'base64');
-  const metadata = await sharp(output).metadata();
-  const bottom = await sharp(output).extract({ left: 20, top: 760, width: 560, height: 120 }).stats();
-  assert.equal(metadata.width, 600);
-  assert.equal(metadata.height, 900);
-  assert.ok(bottom.channels[0].min < 80);
+test('new logos are normalized and stored as transparent-capable PNG references', async () => {
+  const source = await sharp({ create: { width: 180, height: 90, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
+    .composite([{ input: Buffer.from('<svg width="180" height="90"><rect x="20" y="20" width="140" height="50" fill="#c88743"/></svg>') }])
+    .webp().toBuffer();
+  const normalized = await normalizeLogoForStorage(`data:image/webp;base64,${source.toString('base64')}`);
+  const metadata = await sharp(Buffer.from(normalized.split(',')[1], 'base64')).metadata();
+  assert.equal(metadata.format, 'png');
+  assert.equal(metadata.hasAlpha, true);
 });

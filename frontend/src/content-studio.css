@@ -65,3 +65,14 @@
 .cs-social-framing-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.cs-social-framing-grid button{border:1px solid #dcd9d1;background:#fff;border-radius:13px;padding:13px;display:grid;grid-template-columns:1fr auto;align-items:center;gap:10px;min-height:72px;position:relative;text-align:left;cursor:pointer;color:#343630}.cs-social-framing-grid button>div{display:grid;gap:3px}.cs-social-framing-grid button>b{font:700 13px 'Manrope'}.cs-social-framing-grid button small{color:#83857c;font-size:11px;line-height:1.4}.cs-social-framing-grid button>svg{opacity:0;color:#a45f40}.cs-social-framing-grid button.selected{border-color:#bd9352;background:#fffaf1;box-shadow:inset 0 0 0 1px #bd9352}.cs-social-framing-grid button.selected>svg{opacity:1}@media(max-width:720px){.cs-social-framing-grid{grid-template-columns:1fr}}
 .cs-output-options>div>p{margin:0;color:#83857c;font-size:11px;line-height:1.4}
 .cs-advanced-contact-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}.cs-advanced-contact-fields label{min-width:0}@media(max-width:720px){.cs-advanced-contact-fields{grid-template-columns:1fr}}
+
+/* Creation refinements */
+.cs-take-photo{display:none}
+.cs-user-actions select{border:1px solid #dedbd3;background:#fff;border-radius:9px;padding:7px 9px;color:#55575e;font-size:10px;font-weight:700;min-width:150px}
+@media(max-width:720px){
+  .cs-upload-card{position:relative}
+  .cs-take-photo{display:flex;align-items:center;justify-content:center;gap:8px;width:calc(100% - 16px);min-height:43px;margin:8px;border:1px solid #d9d3c8;background:#fffaf1;color:#765526;border-radius:11px;font:700 12px 'Manrope';cursor:pointer}
+  .cs-upload-art>small{font-size:9px;left:11px;top:10px}
+  .cs-mobile-nav.admin{grid-template-columns:repeat(5,1fr)}
+  .cs-mobile-nav.admin button span{font-size:8px}
+}
