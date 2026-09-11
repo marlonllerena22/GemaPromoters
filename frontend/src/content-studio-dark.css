@@ -1,0 +1,71 @@
+/* Compact the transparent brand artwork without cropping or distorting it. */
+.cs-brand{gap:0}
+.cs-brand-mascot{width:44px!important;height:44px!important}
+.cs-brand-mascot img{transform:scale(1.22)}
+.cs-brand>div{margin-left:-8px}
+
+.cs-appearance-settings{max-width:940px}
+.cs-appearance-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.cs-appearance-options button{min-height:92px;padding:15px;border:1px solid #dfdcd4;border-radius:15px;background:#fff;color:#30322d;display:grid;grid-template-columns:44px 1fr 20px;align-items:center;gap:12px;text-align:left;cursor:pointer;transition:border-color .18s ease,background .18s ease,transform .18s ease}
+.cs-appearance-options button:hover{transform:translateY(-1px);border-color:#c8ad81}
+.cs-appearance-options button>span{width:44px;height:44px;border-radius:13px;background:#f3eee4;color:#9a6f35;display:grid;place-items:center}
+.cs-appearance-options button>span svg{width:20px}
+.cs-appearance-options button>div{display:grid;gap:4px;min-width:0}
+.cs-appearance-options strong{font:700 13px 'Manrope',sans-serif}
+.cs-appearance-options small{color:#81837c;font-size:10px;line-height:1.35}
+.cs-appearance-options button>svg{width:18px;color:#a87537;opacity:0}
+.cs-appearance-options button.selected{border-color:#bd9352;background:#fffaf1;box-shadow:inset 0 0 0 1px #bd9352}
+.cs-appearance-options button.selected>svg{opacity:1}
+
+html[data-content-studio-color=dark] .cs-app{background:#101210;color:#f1f2ed}
+html[data-content-studio-color=dark] .cs-header{background:rgba(18,20,18,.94);border-color:#2b2f2b}
+html[data-content-studio-color=dark] .cs-brand{color:#f4f4ef}
+html[data-content-studio-color=dark] .cs-brand small{color:#a5a8a1}
+html[data-content-studio-color=dark] .cs-header nav button,html[data-content-studio-color=dark] .cs-embedded-nav button{color:#a8aaa4}
+html[data-content-studio-color=dark] .cs-header nav button.active{color:#f4f4ef}
+html[data-content-studio-color=dark] .cs-embedded-nav{background:#181b18;border-color:#343833}
+html[data-content-studio-color=dark] .cs-embedded-nav button.active{background:#e6ad61;color:#1d1b16}
+html[data-content-studio-color=dark] .cs-hero h1,html[data-content-studio-color=dark] .cs-section-heading h1,html[data-content-studio-color=dark] .cs-result-copy h1,html[data-content-studio-color=dark] .cs-create-heading h1,html[data-content-studio-color=dark] .cs-step-title h2,html[data-content-studio-color=dark] .cs-card-heading h2,html[data-content-studio-color=dark] .cs-account-plan p strong,html[data-content-studio-color=dark] .cs-empty-large h3,html[data-content-studio-color=dark] .cs-section-skeleton h1{color:#f2f2ed}
+html[data-content-studio-color=dark] .cs-hero p,html[data-content-studio-color=dark] .cs-section-heading p,html[data-content-studio-color=dark] .cs-result-copy p,html[data-content-studio-color=dark] .cs-create-heading p,html[data-content-studio-color=dark] .cs-card-heading p,html[data-content-studio-color=dark] .cs-step-title p,html[data-content-studio-color=dark] .cs-account-card p,html[data-content-studio-color=dark] .cs-account-plan p,html[data-content-studio-color=dark] .cs-access-methods p{color:#a3a69f}
+html[data-content-studio-color=dark] .cs-card,html[data-content-studio-color=dark] .cs-credit-card,html[data-content-studio-color=dark] .cs-reference-list article,html[data-content-studio-color=dark] .cs-history-grid article,html[data-content-studio-color=dark] .cs-brand-profile-grid article,html[data-content-studio-color=dark] .cs-user-list article,html[data-content-studio-color=dark] .cs-transfer-requests,html[data-content-studio-color=dark] .cs-seller-list article{background:#191c19;border-color:#30342f;color:#eff0eb;box-shadow:0 8px 28px #0003}
+html[data-content-studio-color=dark] .cs-upload-showcase,html[data-content-studio-color=dark] .cs-upload,html[data-content-studio-color=dark] .cs-empty-ref,html[data-content-studio-color=dark] .cs-advanced-options{background:#151815;border-color:#3a3e38;color:#d7d9d2}
+html[data-content-studio-color=dark] .cs-upload-art{background:linear-gradient(145deg,#272923,#1a1d19)}
+html[data-content-studio-color=dark] .cs-upload-art:before,html[data-content-studio-color=dark] .cs-upload-art:after{background:#5b4d39}
+html[data-content-studio-color=dark] .cs-upload-art>i{background:#343730}
+html[data-content-studio-color=dark] .cs-upload-copy>strong,html[data-content-studio-color=dark] .cs-upload strong,html[data-content-studio-color=dark] .cs-empty-ref strong,html[data-content-studio-color=dark] .cs-advanced-toggle,html[data-content-studio-color=dark] .cs-advanced-fields label strong,html[data-content-studio-color=dark] .cs-social-options>div>strong{color:#eff0eb}
+html[data-content-studio-color=dark] .cs-preset-card,html[data-content-studio-color=dark] .cs-preset-grid button,html[data-content-studio-color=dark] .cs-brand-picker button,html[data-content-studio-color=dark] .cs-choice-row button,html[data-content-studio-color=dark] .cs-social-style-grid button,html[data-content-studio-color=dark] .cs-social-framing-grid button,html[data-content-studio-color=dark] .cs-moods button{background:#20231f;border-color:#3b3f39;color:#e9ebe5}
+html[data-content-studio-color=dark] :is(.cs-preset-card,.cs-preset-grid button,.cs-brand-picker button,.cs-choice-row button,.cs-social-style-grid button,.cs-social-framing-grid button,.cs-appearance-options button).selected{background:#31291f;border-color:#c29150;color:#fff7e9}
+html[data-content-studio-color=dark] .cs-product-preview,html[data-content-studio-color=dark] .cs-result-image,html[data-content-studio-color=dark] .cs-history-grid article>img{background:#272a26}
+html[data-content-studio-color=dark] .cs-app input,html[data-content-studio-color=dark] .cs-app select,html[data-content-studio-color=dark] .cs-app textarea{background:#101310;border-color:#3b4039;color:#f1f2ed}
+html[data-content-studio-color=dark] .cs-app input::placeholder,html[data-content-studio-color=dark] .cs-app textarea::placeholder{color:#777b74}
+html[data-content-studio-color=dark] .cs-fields label,html[data-content-studio-color=dark] .cs-reference-form>label,html[data-content-studio-color=dark] .cs-settings-card>label,html[data-content-studio-color=dark] .cs-personal-form label,html[data-content-studio-color=dark] .cs-user-form label{color:#d2d4ce}
+html[data-content-studio-color=dark] .cs-subscription-note,html[data-content-studio-color=dark] .cs-plan-preview,html[data-content-studio-color=dark] .cs-history-retention-note{background:#28241d;border-color:#51442f;color:#e0bd83}
+html[data-content-studio-color=dark] .cs-subscription-note strong,html[data-content-studio-color=dark] .cs-plan-preview strong{color:#f0eee7}
+html[data-content-studio-color=dark] .cs-settings-divider,html[data-content-studio-color=dark] .cs-social-options,html[data-content-studio-color=dark] .cs-profile-settings,html[data-content-studio-color=dark] .cs-access-methods ul,html[data-content-studio-color=dark] .cs-access-methods li{border-color:#343833}
+html[data-content-studio-color=dark] .cs-appearance-options button{background:#191c19;border-color:#373b35;color:#eff0eb}
+html[data-content-studio-color=dark] .cs-appearance-options button>span{background:#2a261f;color:#e0ae67}
+html[data-content-studio-color=dark] .cs-appearance-options small{color:#9da099}
+html[data-content-studio-color=dark] .cs-primary,html[data-content-studio-color=dark] .cs-account-plan>button{background:#e2ac64;color:#211c15}
+html[data-content-studio-color=dark] .cs-secondary,html[data-content-studio-color=dark] .cs-password-toggle,html[data-content-studio-color=dark] .cs-user-actions button,html[data-content-studio-color=dark] .cs-seller-list article>button{background:#222521;border-color:#3b4039;color:#dcddd8}
+html[data-content-studio-color=dark] .cs-mobile-nav{background:rgba(18,20,18,.96);border-color:#2d302c}
+html[data-content-studio-color=dark] .cs-mobile-nav button{color:#969a93}
+html[data-content-studio-color=dark] .cs-mobile-nav button.active{color:#f0f1ec}
+html[data-content-studio-color=dark] .cs-mobile-nav button.active svg{background:#e0aa62;color:#201c16}
+html[data-content-studio-color=dark] .cs-plan-overlay>section{background:#171a17;color:#f1f2ed}
+html[data-content-studio-color=dark] .cs-plan-overlay h1{color:#f1f2ed}
+html[data-content-studio-color=dark] .cs-plan-options button{background:#20231f;border-color:#3b3f39;color:#f0f1ec}
+html[data-content-studio-color=dark] .cs-plan-options button.selected{background:#30281e;border-color:#c08e4c}
+html[data-content-studio-color=dark] .cs-plan-close{background:#2b2f2b;color:#f1f2ed}
+html[data-content-studio-color=dark] .cs-social-settings-card,html[data-content-studio-color=dark] .cs-social-publisher{background:#191c19;border-color:#343833;color:#eff0eb}
+html[data-content-studio-color=dark] .cs-social-locked,html[data-content-studio-color=dark] .cs-social-setup-note,html[data-content-studio-color=dark] .cs-social-empty,html[data-content-studio-color=dark] .cs-social-connections article,html[data-content-studio-color=dark] .cs-social-connect-first,html[data-content-studio-color=dark] .cs-social-targets button{background:#22251f;border-color:#3b4038;color:#eff0eb}
+html[data-content-studio-color=dark] .cs-social-setup-note code{background:#121411}
+html[data-content-studio-color=dark] .cs-social-account select,html[data-content-studio-color=dark] .cs-social-copy textarea{background:#111311;border-color:#3b4038;color:#eff0eb}
+html[data-content-studio-color=dark] .cs-shell-skeleton,html[data-content-studio-color=dark] .cs-loading{background:#101210;color:#a3a69f}
+html[data-content-studio-color=dark] .cs-skeleton-grid span,html[data-content-studio-color=dark] .cs-section-skeleton i{background:linear-gradient(100deg,#20231f 20%,#2c302b 42%,#20231f 64%);background-size:220% 100%}
+
+@media(max-width:720px){
+  .cs-brand-mascot{width:42px!important;height:42px!important}
+  .cs-brand>div{margin-left:-9px}
+  .cs-appearance-options{grid-template-columns:1fr}
+  .cs-appearance-options button{min-height:76px}
+}

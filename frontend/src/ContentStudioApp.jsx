@@ -3,13 +3,15 @@ import {
   BadgeCheck, Building2, Check, ChevronDown, ChevronRight, CreditCard, Crown, Download, EyeOff,
   Gem, Image as ImageIcon, LayoutGrid, LogOut, Mail, MessageCircle, Plus, Settings,
   Share2, ShieldCheck, ShoppingBag, Sparkles, Tag, Trash2, Upload, UserPlus, UserRound,
-  UsersRound, WandSparkles, X, BriefcaseBusiness, CalendarCheck, TrendingUp, Camera
+  UsersRound, WandSparkles, X, BriefcaseBusiness, CalendarCheck, TrendingUp, Camera, Monitor, Moon, Sun
 } from 'lucide-react';
 import { api, setUser } from './api.js';
 import ContentStudioSocialPublisher, { SocialConnectionsSettings } from './ContentStudioSocial.jsx';
+import { applyContentStudioTheme, getContentStudioTheme } from './content-studio-theme.js';
 import './content-studio.css';
 import './content-studio-magic-progress.css';
 import './content-studio-brand-assets.css';
+import './content-studio-dark.css';
 
 const PRESET_ICONS = { editorial: UserRound, catalog: ShoppingBag, social: Share2, detail: Gem };
 const PRESET_GUIDES = {
@@ -103,6 +105,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
   const [notice, setNotice] = useState('');
   const [plansOpen, setPlansOpen] = useState(false);
   const [requestedPlan, setRequestedPlan] = useState('');
+  const [appearance, setAppearance] = useState(getContentStudioTheme);
   const inputRef = useRef(null);
   const cameraInputRef = useRef(null);
   const activeGenerationRef = useRef(null);
@@ -122,6 +125,8 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
     document.title = 'Estudios Creativos';
     return () => { document.title = previousTitle; };
   }, []);
+
+  useEffect(() => applyContentStudioTheme(appearance), [appearance]);
 
   function rememberedGenerationId() {
     try { return Number(window.localStorage.getItem(activeStorageKey) || 0); } catch { return 0; }
@@ -275,7 +280,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
         {tab === 'history' && (sectionLoading && !loadedSections.current.has('history') ? <SectionSkeleton title="Cargando tu historial" /> : <HistoryView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/>) }
         {tab === 'profile' && <AccountProfile data={data} user={user} onLogout={onLogout} openPlans={() => setPlansOpen(true)} setData={setData} setError={setError}/>}
         {tab === 'users' && isStudioAdmin && (sectionLoading && !loadedSections.current.has('admin') ? <SectionSkeleton title="Cargando usuarios y transferencias" /> : <><UsersView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/><div className="cs-settings-divider"><SellersView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/></div></>)}
-        {tab === 'settings' && <BusinessConfiguration data={data} scopeBody={scopeBody} reload={reload} setError={setError} user={user} onSaved={(settings) => setData((current) => ({...current,settings}))}/>}
+        {tab === 'settings' && <BusinessConfiguration data={data} scopeBody={scopeBody} reload={reload} setError={setError} user={user} appearance={appearance} setAppearance={setAppearance} onSaved={(settings) => setData((current) => ({...current,settings}))}/>}
       </>}
     </div>
     {!embedded && <nav className={`cs-mobile-nav ${isStudioAdmin ? 'admin' : ''}`} aria-label="Navegación principal">{navigation.map(([key,label,Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => key === 'create' ? newCreation() : setTab(key)}><Icon size={21}/><span>{label}</span></button>)}</nav>}
@@ -668,10 +673,23 @@ function AccountProfile({ data, user, onLogout, openPlans, setData, setError }) 
   </section>;
 }
 
-function BusinessConfiguration({ data, scopeBody, reload, setError, user, onSaved }) {
+function AppearanceSettings({ appearance, setAppearance }) {
+  const options = [
+    ['system', 'Automático', 'Sigue el modo de tu celular o computadora', Monitor],
+    ['light', 'Claro', 'Fondo luminoso y limpio', Sun],
+    ['dark', 'Oscuro', 'Más cómodo con poca luz', Moon]
+  ];
+  return <section className="cs-appearance-settings">
+    <div className="cs-section-heading"><span className="cs-eyebrow">Apariencia</span><h1>Modo de pantalla</h1><p>Elige cómo quieres ver Estudios Creativos en este dispositivo.</p></div>
+    <div className="cs-appearance-options" role="radiogroup" aria-label="Modo de pantalla">{options.map(([value, title, description, Icon]) => <button key={value} type="button" role="radio" aria-checked={appearance === value} className={appearance === value ? 'selected' : ''} onClick={() => setAppearance(value)}><span><Icon /></span><div><strong>{title}</strong><small>{description}</small></div>{appearance === value && <Check />}</button>)}</div>
+  </section>;
+}
+
+function BusinessConfiguration({ data, scopeBody, reload, setError, user, appearance, setAppearance, onSaved }) {
   return <section className="cs-business-page">
     <div className="cs-section-heading"><span className="cs-eyebrow">Tu negocio</span><h1>Configuración</h1><p>Administra la identidad, las marcas y las preferencias de tus creaciones.</p></div>
-    <SettingsView data={data} scopeBody={scopeBody} onSaved={onSaved} setError={setError} user={user}/>
+    <AppearanceSettings appearance={appearance} setAppearance={setAppearance}/>
+    <div className="cs-settings-divider"><SettingsView data={data} scopeBody={scopeBody} onSaved={onSaved} setError={setError} user={user}/></div>
     <div className="cs-settings-divider"><SocialConnectionsSettings user={user}/></div>
     <div className="cs-settings-divider"><LogosView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/></div>
   </section>;

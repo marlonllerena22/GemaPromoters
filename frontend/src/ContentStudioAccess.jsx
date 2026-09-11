@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, CheckCircle2, KeyRound, Mail, X } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Eye, EyeOff, KeyRound, Mail, X } from 'lucide-react';
 import { api, setToken, setUser } from './api.js';
+import { applyContentStudioTheme, getContentStudioTheme } from './content-studio-theme.js';
 import './content-studio-access.css';
 import './content-studio-brand-assets.css';
 
@@ -36,6 +37,7 @@ export default function ContentStudioAccess({ mode = 'page', onClose, onAuthenti
   const [legacyOpen, setLegacyOpen] = useState(legacyOnly);
   const [email, setEmail] = useState('');
   const [legacy, setLegacy] = useState({ username: '', password: '' });
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
   const [verifying, setVerifying] = useState(() => {
@@ -48,7 +50,8 @@ export default function ContentStudioAccess({ mode = 'page', onClose, onAuthenti
   useEffect(() => {
     const previousTitle = document.title;
     document.title = 'Entrar · Estudios Creativos';
-    return () => { document.title = previousTitle; };
+    const stopWatchingTheme = applyContentStudioTheme(getContentStudioTheme());
+    return () => { document.title = previousTitle; stopWatchingTheme(); };
   }, []);
 
   function complete(data) {
@@ -157,7 +160,7 @@ export default function ContentStudioAccess({ mode = 'page', onClose, onAuthenti
           <small>El enlace vence en 20 minutos y puede usarse una sola vez.</small>
         </form>}
         <button className="csa-legacy-toggle" type="button" onClick={() => setLegacyOpen((open) => !open)}><KeyRound /> ¿Tienes un acceso anterior?</button></>}
-        {legacyOpen && <form className="csa-legacy-form" onSubmit={legacyLogin}><input required autoFocus={legacyOnly} autoComplete="username" value={legacy.username} onChange={(event) => setLegacy({ ...legacy, username: event.target.value })} placeholder="Usuario" /><input required type="password" autoComplete="current-password" value={legacy.password} onChange={(event) => setLegacy({ ...legacy, password: event.target.value })} placeholder="Contraseña" /><button disabled={busy}>{adminOnly ? 'Entrar a la administración' : sellerOnly ? 'Entrar al portal de ventas' : 'Entrar'}</button></form>}
+        {legacyOpen && <form className="csa-legacy-form" onSubmit={legacyLogin}><input required autoFocus={legacyOnly} autoComplete="username" value={legacy.username} onChange={(event) => setLegacy({ ...legacy, username: event.target.value })} placeholder="Usuario" /><label className="csa-password-field"><input required type={showPassword ? 'text' : 'password'} autoComplete="current-password" value={legacy.password} onChange={(event) => setLegacy({ ...legacy, password: event.target.value })} placeholder="Contraseña" /><button type="button" className="csa-password-visibility" onClick={() => setShowPassword((visible) => !visible)} aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'} aria-pressed={showPassword}>{showPassword ? <EyeOff /> : <Eye />}</button></label><button disabled={busy}>{adminOnly ? 'Entrar a la administración' : sellerOnly ? 'Entrar al portal de ventas' : 'Entrar'}</button></form>}
       </div> : <div className="csa-sent"><span><CheckCircle2 /></span><h2>Revisa tu correo</h2><p>Enviamos un botón para entrar a <strong>{email}</strong>.</p><button type="button" onClick={() => { setSent(false); setEmailOpen(true); }}>Usar otro correo</button></div>}
       {error && <div className="csa-error" role="alert">{error}</div>}
       <p className="csa-terms">Al continuar aceptas el uso necesario de tus datos para mantener tu cuenta y tus creaciones.</p>
