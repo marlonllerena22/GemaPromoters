@@ -35,7 +35,9 @@ function fixture() {
   registerContentStudioRoutes(app, db, {
     generateImage: async (request) => {
       calls.push(request);
-      return { imageData: sampleImage, revisedPrompt: 'mock' };
+      const [width, height] = String(request.size).split('x').map(Number);
+      const generated = await sharp({ create: { width, height, channels: 3, background: '#9a6245' } }).webp().toBuffer();
+      return { imageData: `data:image/webp;base64,${generated.toString('base64')}`, revisedPrompt: 'mock' };
     },
     researchProduct: async (productName) => {
       researchCalls.push(productName);
@@ -259,7 +261,7 @@ test('logos, exact social dimensions, history, limits and business isolation wor
   const metadata = await sharp(output).metadata();
   assert.equal(metadata.width, 1080);
   assert.equal(metadata.height, 1920);
-  assert.equal(calls[1].size, '1024x1536');
+  assert.equal(calls[1].size, '864x1536');
   assert.match(calls[1].prompt, /WhatsApp: 0983763419/i);
   assert.match(calls[1].prompt, /Location: Centro de Ambato/i);
   const limit = await request('/generate', { method: 'POST', body: JSON.stringify({ preset: 'detail', logo_id: 'none', product_image: sampleImage }) });
@@ -319,11 +321,11 @@ test('a verified magic link creates a zero-credit account once and generation ro
   assert.equal(active.data.available_credits, 25);
 });
 
-test('social output is generated at the requested final dimensions without blur padding', async () => {
-  const source = await sharp({ create: { width: 1024, height: 1536, channels: 3, background: '#eee8df' } })
-    .composite([{ input: Buffer.from('<svg width="1024" height="1536"><rect x="190" y="240" width="644" height="1056" rx="80" fill="#713e2b"/></svg>') }])
-    .png().toBuffer();
-  for (const format of [{ width: 1080, height: 1350 }, { width: 1080, height: 1920 }]) {
+test('social output preserves the native aspect ratio and never crops the generated canvas', async () => {
+  for (const format of [{ sourceWidth: 1024, sourceHeight: 1280, width: 1080, height: 1350 }, { sourceWidth: 864, sourceHeight: 1536, width: 1080, height: 1920 }]) {
+    const source = await sharp({ create: { width: format.sourceWidth, height: format.sourceHeight, channels: 3, background: '#eee8df' } })
+      .composite([{ input: Buffer.from(`<svg width="${format.sourceWidth}" height="${format.sourceHeight}"><rect x="0" y="0" width="32" height="${format.sourceHeight}" fill="#713e2b"/><rect x="${format.sourceWidth - 32}" y="0" width="32" height="${format.sourceHeight}" fill="#713e2b"/></svg>`) }])
+      .png().toBuffer();
     const result = await resizeSocialOutput(`data:image/png;base64,${source.toString('base64')}`, format);
     const buffer = Buffer.from(result.split(',')[1], 'base64');
     const metadata = await sharp(buffer).metadata();
@@ -331,6 +333,11 @@ test('social output is generated at the requested final dimensions without blur 
     assert.equal(metadata.height, format.height);
     assert.equal(metadata.format, 'webp');
   }
+  const wrongRatio = await sharp({ create: { width: 1024, height: 1536, channels: 3, background: '#eee8df' } }).png().toBuffer();
+  await assert.rejects(
+    resizeSocialOutput(`data:image/png;base64,${wrongRatio.toString('base64')}`, { width: 1080, height: 1350 }),
+    /proporción distinta/i
+  );
 });
 
 test('new logos are normalized and stored as transparent-capable PNG references', async () => {

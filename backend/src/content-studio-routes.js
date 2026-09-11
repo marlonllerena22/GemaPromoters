@@ -34,11 +34,11 @@ const PRESETS = {
 };
 
 const SOCIAL_FORMATS = {
-  // GPT Image renders portrait natively at 1024x1536. We compose for each final
-  // aspect ratio inside that image and make one centered delivery resize only;
-  // there is never padding, blur, mirroring, edge cloning or background extension.
-  post: { id: 'post', label: 'Post vertical', width: 1080, height: 1350, size: '1024x1536', instruction: 'Compose one complete edge-to-edge vertical 4:5 Instagram feed post for final delivery at 1080 × 1350 pixels. The product, people, faces, hands, logo, headlines and every meaningful object must live safely within the central 4:5 composition, with generous clear safety space above and below. Build the scene, background, decoration and typography as one coherent full canvas. Never use frames, bars, padding, a blurred background, duplicated elements, reflected edges, stretched textures or empty side fill.' },
-  story: { id: 'story', label: 'Historia', width: 1080, height: 1920, size: '1024x1536', instruction: 'Compose one complete edge-to-edge vertical 9:16 Story/Reel for final delivery at 1080 × 1920 pixels. The product, people, faces, hands, logo, headlines and every meaningful object must live safely within the central 9:16 composition, with generous clear safety space at the left and right. Build the scene, background, decoration and typography as one coherent full canvas. Never use frames, bars, padding, a blurred background, duplicated elements, reflected edges, stretched textures or empty side fill.' }
+  // GPT Image accepts custom dimensions when both edges are multiples of 16.
+  // These source canvases have the exact final aspect ratio, so delivery only
+  // resamples pixels and never crops, pads, stretches or invents edge content.
+  post: { id: 'post', label: 'Post vertical', width: 1080, height: 1350, size: '1024x1280', instruction: 'Compose one complete edge-to-edge vertical 4:5 Instagram feed post. Design the entire scene natively for this 4:5 canvas from the beginning. Keep the complete product, people, faces, hands, logo, headlines and every meaningful object fully visible with comfortable safety margins. Build the scene, background, decoration and typography as one coherent full canvas. Never use frames, bars, padding, a blurred background, duplicated elements, reflected edges, stretched textures or artificial background extension.' },
+  story: { id: 'story', label: 'Historia', width: 1080, height: 1920, size: '864x1536', instruction: 'Compose one complete edge-to-edge vertical 9:16 Story/Reel. Design the entire scene natively for this 9:16 canvas from the beginning. Keep the complete product, people, faces, hands, logo, headlines and every meaningful object fully visible with comfortable safety margins. Build the scene, background, decoration and typography as one coherent full canvas. Never use frames, bars, padding, a blurred background, duplicated elements, reflected edges, stretched textures or artificial background extension.' }
 };
 
 const SOCIAL_STYLES = {
@@ -579,11 +579,16 @@ async function defaultGenerate({ images, prompt, size }) {
 
 async function resizeSocialOutput(imageData, format) {
   const source = dataImageBuffer(imageData, 'La imagen generada no se pudo preparar');
-  // The prompt reserves the exact final composition in the safe central area.
-  // This only performs that final centered framing; it never manufactures pixels
-  // with blur, padding, edge reflection, duplication or stretch.
+  const metadata = await sharp(source).metadata();
+  const sourceRatio = Number(metadata.width) / Number(metadata.height);
+  const targetRatio = format.width / format.height;
+  if (!Number.isFinite(sourceRatio) || Math.abs(sourceRatio - targetRatio) > 0.001) {
+    throw new Error('OpenAI devolvió una proporción distinta a la solicitada; la creación se detuvo para evitar recortarla');
+  }
+  // Both canvases have the same aspect ratio. This is a resolution-only resample:
+  // no crop, padding, blur, mirroring, stretching or background extension.
   const output = await sharp(source)
-    .resize(format.width, format.height, { fit: 'cover', position: 'centre' })
+    .resize({ width: format.width })
     .webp({ quality: 92 })
     .toBuffer();
   return `data:image/webp;base64,${output.toString('base64')}`;
