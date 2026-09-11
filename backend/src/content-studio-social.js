@@ -306,7 +306,7 @@ export function registerContentStudioSocialRoutes(app, db, guard) {
     authorization.searchParams.set('redirect_uri', callbackUrl());
     authorization.searchParams.set('state', state);
     authorization.searchParams.set('response_type', 'code');
-    authorization.searchParams.set('scope', 'pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish');
+    authorization.searchParams.set('scope', 'pages_show_list,pages_read_engagement,pages_manage_posts,business_management,instagram_basic,instagram_content_publish');
     res.json({ authorization_url: authorization.toString() });
   });
 
