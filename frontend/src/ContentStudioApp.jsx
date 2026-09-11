@@ -6,6 +6,7 @@ import {
   UsersRound, WandSparkles, X, BriefcaseBusiness, CalendarCheck, TrendingUp
 } from 'lucide-react';
 import { api, setUser } from './api.js';
+import ContentStudioSocialPublisher, { SocialConnectionsSettings } from './ContentStudioSocial.jsx';
 import './content-studio.css';
 import './content-studio-magic-progress.css';
 import './content-studio-brand-assets.css';
@@ -514,6 +515,7 @@ function CreateView({ data, form, setForm, productImage, inputRef, chooseProduct
             <button className="cs-secondary" onClick={newCreation}><Plus size={18} /> Nueva creación</button>
           </div>
           <div className="cs-result-meta">{result.product_name && <span>{result.product_name}</span>}{result.brand_name && <span>{result.brand_name}</span>}<span>{PRESET_NAMES[result.preset]}</span><span>{result.aspect_ratio}</span></div>
+          <ContentStudioSocialPublisher generation={result} />
         </div>
         <div className="cs-result-image"><img src={result.output_image_data} alt="Contenido generado" /></div>
       </section>
@@ -676,6 +678,7 @@ function BusinessConfiguration({ data, scopeBody, reload, setError, user, isStud
   return <section className="cs-business-page">
     <div className="cs-section-heading"><span className="cs-eyebrow">Tu negocio</span><h1>Configuración</h1><p>Administra la identidad, los contactos, las marcas y las preferencias de tus creaciones.</p></div>
     <SettingsView data={data} scopeBody={scopeBody} onSaved={onSaved} setError={setError} user={user}/>
+    <div className="cs-settings-divider"><SocialConnectionsSettings user={user}/></div>
     <div className="cs-settings-divider"><LogosView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/></div>
     {isStudioAdmin && <div className="cs-settings-divider">{sectionLoading && !data.users?.length ? <SectionSkeleton title="Cargando usuarios y transferencias"/> : <UsersView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/>}</div>}
     {isStudioAdmin && <div className="cs-settings-divider">{sectionLoading && !data.sellers?.length ? <SectionSkeleton title="Cargando equipo comercial"/> : <SellersView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/>}</div>}
@@ -882,7 +885,7 @@ function HistoryView({ data, scopeBody, reload, setError }) {
   return <section>
     <div className="cs-section-heading"><span className="cs-eyebrow">Tus resultados</span><h1>Mis diseños</h1><p>Todo tu contenido terminado, listo para volver a descargar.</p></div>
     {pending.length > 0 && <div className="cs-queue-banner" role="status"><span><Sparkles size={20} /></span><div><strong>{pending.length === 1 ? 'Tu imagen sigue en proceso' : `${pending.length} imágenes siguen en proceso`}</strong><small>Puedes cambiar de sección, cerrar o recargar la página. Aparecerá aquí cuando termine.</small></div></div>}
-    {completed.length ? <div className="cs-history-grid">{completed.map((item) => <article key={item.id}><img src={item.output_image_data} alt={item.product_name || item.brand_name || 'Diseño'} /><div><span>{PRESET_NAMES[item.preset]}</span><strong>{item.product_name || item.brand_name || 'Creación'}</strong><small>{new Date(`${item.created_at.replace(' ', 'T')}`).toLocaleDateString('es-EC')}</small></div><div className="cs-history-actions"><button onClick={() => downloadDataImage(item.output_image_data, `${item.brand_name || 'contenido'}-${item.id}.webp`)}><Download size={17} /></button><button onClick={() => remove(item.id)}><Trash2 size={17} /></button></div></article>)}</div> : <div className="cs-empty-large"><LayoutGrid size={38} /><h3>Aquí aparecerán tus diseños</h3><p>{pending.length ? 'Tu primera imagen aparecerá aquí en cuanto termine.' : 'Crea tu primera imagen profesional para verla en esta galería.'}</p></div>}
+    {completed.length ? <div className="cs-history-grid">{completed.map((item) => <article key={item.id}><img src={item.output_image_data} alt={item.product_name || item.brand_name || 'Diseño'} /><div><span>{PRESET_NAMES[item.preset]}</span><strong>{item.product_name || item.brand_name || 'Creación'}</strong><small>{new Date(`${item.created_at.replace(' ', 'T')}`).toLocaleDateString('es-EC')}</small></div><div className="cs-history-actions"><ContentStudioSocialPublisher compact generation={item}/><button onClick={() => downloadDataImage(item.output_image_data, `${item.brand_name || 'contenido'}-${item.id}.webp`)}><Download size={17} /></button><button onClick={() => remove(item.id)}><Trash2 size={17} /></button></div></article>)}</div> : <div className="cs-empty-large"><LayoutGrid size={38} /><h3>Aquí aparecerán tus diseños</h3><p>{pending.length ? 'Tu primera imagen aparecerá aquí en cuanto termine.' : 'Crea tu primera imagen profesional para verla en esta galería.'}</p></div>}
   </section>;
 }
 

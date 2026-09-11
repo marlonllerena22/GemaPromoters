@@ -41,6 +41,9 @@ import { MarjoriePromoterApp, MarjoriePromotersAdmin, MarjorieReferralPage, Marj
 const ContentStudioApp = lazy(() => import('./ContentStudioApp.jsx'));
 const ContentStudioLanding = lazy(() => import('./ContentStudioLanding.jsx'));
 const ContentStudioAccess = lazy(() => import('./ContentStudioAccess.jsx'));
+const ContentStudioPrivacy = lazy(() => import('./ContentStudioLegal.jsx').then((module) => ({ default: module.ContentStudioPrivacy })));
+const ContentStudioTerms = lazy(() => import('./ContentStudioLegal.jsx').then((module) => ({ default: module.ContentStudioTerms })));
+const ContentStudioDataDeletion = lazy(() => import('./ContentStudioLegal.jsx').then((module) => ({ default: module.ContentStudioDataDeletion })));
 import './styles.css';
 
 const emptyPromoter = {
@@ -837,6 +840,16 @@ function App() {
   const [user, saveUser] = useState(getUser());
   const pathname = window.location.pathname;
   const isStudioDomain = ['estudioscreativos.com', 'www.estudioscreativos.com'].includes(window.location.hostname.toLowerCase());
+
+  if (pathname === '/privacidad') {
+    return <Suspense fallback={<div className="studio-route-loading"/>}><ContentStudioPrivacy /></Suspense>;
+  }
+  if (pathname === '/terminos') {
+    return <Suspense fallback={<div className="studio-route-loading"/>}><ContentStudioTerms /></Suspense>;
+  }
+  if (pathname === '/eliminar-datos') {
+    return <Suspense fallback={<div className="studio-route-loading"/>}><ContentStudioDataDeletion /></Suspense>;
+  }
 
   if (pathname === '/estudio-creativo' || (isStudioDomain && pathname === '/')) {
     return <Suspense fallback={<div className="studio-route-loading"/>}><ContentStudioLanding /></Suspense>;

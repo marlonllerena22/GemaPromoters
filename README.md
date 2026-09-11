@@ -280,3 +280,21 @@ GemaPromoters/
       main.jsx
       styles.css
 ```
+
+## Publicacion social de Estudios Creativos
+
+Los planes Negocio y Pro pueden conectar las Paginas de Facebook que administran y sus cuentas profesionales de Instagram vinculadas. La autorizacion siempre ocurre en la pantalla oficial de Meta. El servidor cifra los tokens de pagina y valida nuevamente el plan antes de crear un copy o publicar.
+
+Configura en Meta la URL de redireccion OAuth exacta:
+
+`https://estudioscreativos.com/api/content-studio/social/meta/callback`
+
+Variables necesarias en el servidor:
+
+- `META_APP_ID` y `META_APP_SECRET`: credenciales de la app de Meta.
+- `META_GRAPH_API_VERSION`: version de Graph API, actualmente `v26.0`.
+- `SOCIAL_TOKEN_ENCRYPTION_KEY`: valor aleatorio largo para cifrar tokens.
+- `SOCIAL_MEDIA_SIGNING_KEY`: valor aleatorio largo y diferente para firmar las URL temporales de las imagenes.
+- `OPENAI_COPY_MODEL`: modelo utilizado para crear el texto de la publicacion.
+
+La app solicita `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`, `instagram_basic` e `instagram_content_publish`. Para que clientes ajenos al equipo de desarrollo conecten sus cuentas, el portfolio y los permisos solicitados deben completar la verificacion y revision de Meta.

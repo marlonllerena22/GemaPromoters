@@ -48,6 +48,18 @@ services:
         value: medium
       - key: OPENAI_RESEARCH_MODEL
         value: gpt-5.4-nano
+      - key: OPENAI_COPY_MODEL
+        value: gpt-5.4-nano
+      - key: META_APP_ID
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: META_GRAPH_API_VERSION
+        value: v26.0
+      - key: SOCIAL_TOKEN_ENCRYPTION_KEY
+        generateValue: true
+      - key: SOCIAL_MEDIA_SIGNING_KEY
+        generateValue: true
       - key: CONTENT_STUDIO_ADMIN_USER
         value: contenido
       - key: CONTENT_STUDIO_ADMIN_PASSWORD

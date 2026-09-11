@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { OAuth2Client } from 'google-auth-library';
 import { createToken, requireAuth } from './auth.js';
 import { hashContentStudioPassword, verifyContentStudioPassword } from './content-studio-db.js';
+import { registerContentStudioSocialRoutes } from './content-studio-social.js';
 import nodemailer from 'nodemailer';
 import sharp from 'sharp';
 
@@ -733,6 +734,8 @@ export function registerContentStudioRoutes(app, db, options = {}) {
   const sellerGuard = sellerAuth(db);
   const generateImage = options.generateImage || defaultGenerate;
   const researchProduct = options.researchProduct || ((productName) => defaultResearchProduct(db, productName));
+
+  registerContentStudioSocialRoutes(app, db, guard);
 
   app.get('/api/content-studio/auth/config', (_req, res) => {
     res.json({

@@ -228,6 +228,74 @@ export function initContentStudioDb(db) {
     CREATE INDEX IF NOT EXISTS idx_content_studio_auth_handoffs_expiry
       ON content_studio_auth_handoffs(expires_at);
 
+    CREATE TABLE IF NOT EXISTS content_studio_meta_oauth_states (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      state_hash TEXT NOT NULL UNIQUE,
+      establishment_id INTEGER NOT NULL,
+      content_studio_user_id INTEGER,
+      owner_key TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (content_studio_user_id) REFERENCES content_studio_users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS content_studio_social_connections (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      content_studio_user_id INTEGER,
+      owner_key TEXT NOT NULL,
+      provider TEXT NOT NULL DEFAULT 'meta',
+      meta_user_id TEXT,
+      page_id TEXT NOT NULL,
+      page_name TEXT NOT NULL,
+      instagram_account_id TEXT,
+      instagram_username TEXT,
+      token_ciphertext TEXT NOT NULL,
+      token_expires_at TEXT,
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'expired', 'revoked')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT,
+      UNIQUE(owner_key, provider, page_id),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (content_studio_user_id) REFERENCES content_studio_users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_content_studio_social_connections_owner
+      ON content_studio_social_connections(owner_key, status, created_at);
+
+    CREATE TABLE IF NOT EXISTS content_studio_social_publications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      content_studio_user_id INTEGER,
+      connection_id INTEGER NOT NULL,
+      generation_id INTEGER NOT NULL,
+      network TEXT NOT NULL CHECK (network IN ('facebook', 'instagram')),
+      copy_text TEXT,
+      status TEXT NOT NULL CHECK (status IN ('published', 'failed')),
+      external_post_id TEXT,
+      permalink TEXT,
+      error_message TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (connection_id) REFERENCES content_studio_social_connections(id),
+      FOREIGN KEY (generation_id) REFERENCES content_studio_generations(id),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (content_studio_user_id) REFERENCES content_studio_users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_content_studio_social_publications_generation
+      ON content_studio_social_publications(generation_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS content_studio_social_deletions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      confirmation_code TEXT NOT NULL UNIQUE,
+      meta_user_id TEXT NOT NULL,
+      connections_revoked INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'completed',
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+
     CREATE TABLE IF NOT EXISTS content_studio_payment_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       provider TEXT NOT NULL,
@@ -248,6 +316,12 @@ export function initContentStudioDb(db) {
   if (!generationColumns.some((column) => column.name === 'content_studio_user_id')) {
     db.exec('ALTER TABLE content_studio_generations ADD COLUMN content_studio_user_id INTEGER');
   }
+  const socialConnectionColumns = db.prepare('PRAGMA table_info(content_studio_social_connections)').all();
+  if (!socialConnectionColumns.some((column) => column.name === 'meta_user_id')) {
+    db.exec('ALTER TABLE content_studio_social_connections ADD COLUMN meta_user_id TEXT');
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_content_studio_social_connections_meta_user
+    ON content_studio_social_connections(meta_user_id, status)`);
   const settingsColumns = db.prepare('PRAGMA table_info(content_studio_settings)').all();
   if (!settingsColumns.some((column) => column.name === 'logos_seeded')) {
     db.exec('ALTER TABLE content_studio_settings ADD COLUMN logos_seeded INTEGER NOT NULL DEFAULT 0');
