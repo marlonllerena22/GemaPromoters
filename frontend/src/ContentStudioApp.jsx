@@ -268,9 +268,9 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
   const usagePercent = Math.min(100, (Number(data?.usage || 0) / Math.max(1, Number(data?.settings?.monthly_limit || 0))) * 100);
 
   return <div className={`cs-app ${embedded ? 'cs-embedded' : ''}`}>
-    {!embedded && <header className="cs-header"><button className="cs-brand" type="button" onClick={newCreation} aria-label="Crear una nueva imagen"><span className="cs-brand-mascot"><img src="/content-studio/brand/mascota-toque.webp" alt="" /></span><div><img className="cs-brand-wordmark" src="/content-studio/brand/estudios-creativos-wordmark.webp" alt="Estudios Creativos" /><small>Tu estudio con IA</small></div></button><nav>{navigation.map(([key,label,Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}><Icon size={17}/>{label}</button>)}</nav></header>}
+    {!embedded && <header className="cs-header"><button className="cs-brand" type="button" onClick={newCreation} aria-label="Crear una nueva imagen"><span className="cs-brand-mascot"><img src="/content-studio/brand/mascota-toque.webp" alt="" /></span><div><img className="cs-brand-wordmark" src="/content-studio/brand/estudios-creativos-wordmark.webp" alt="Estudios Creativos" /><small>Tu estudio con IA</small></div></button><nav>{navigation.map(([key,label,Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => key === 'create' ? newCreation() : setTab(key)}><Icon size={17}/>{label}</button>)}</nav></header>}
     <div className="cs-page">
-      {embedded && <div className="cs-embedded-nav">{navigation.map(([key,label,Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}><Icon size={17}/>{label}</button>)}</div>}
+      {embedded && <div className="cs-embedded-nav">{navigation.map(([key,label,Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => key === 'create' ? newCreation() : setTab(key)}><Icon size={17}/>{label}</button>)}</div>}
       {notice && <div className="cs-toast"><Check size={17}/>{notice}</div>}
       {error && <div className="cs-error"><span>{error}</span><button onClick={() => setError('')}><X size={17}/></button>{!data && <button className="cs-error-retry" onClick={() => loadCore()}>Reintentar</button>}</div>}
       {loading && !data ? <StudioShellSkeleton /> : data && <>
@@ -280,7 +280,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
         {tab === 'settings' && <BusinessConfiguration data={data} scopeBody={scopeBody} reload={reload} setError={setError} user={user} isStudioAdmin={isStudioAdmin} sectionLoading={sectionLoading} onSaved={(settings) => setData((current) => ({...current,settings}))}/>}
       </>}
     </div>
-    {!embedded && <nav className="cs-mobile-nav" aria-label="Navegación principal">{navigation.map(([key,label,Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}><Icon size={21}/><span>{label}</span></button>)}</nav>}
+    {!embedded && <nav className="cs-mobile-nav" aria-label="Navegación principal">{navigation.map(([key,label,Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => key === 'create' ? newCreation() : setTab(key)}><Icon size={21}/><span>{label}</span></button>)}</nav>}
     {plansOpen && data && (
       <PlansModal plans={data.plans || PLAN_PACKAGES} initialPlan={requestedPlan} account={data.account || user} settings={data.settings} transfer={data.transfer} onClose={() => { setPlansOpen(false); setRequestedPlan(''); }} onRequested={(order) => { setNotice(`Solicitud ${order.order_number} enviada`); setPlansOpen(false); }}/>
     )}
