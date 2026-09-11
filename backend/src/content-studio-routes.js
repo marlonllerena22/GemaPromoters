@@ -103,6 +103,7 @@ function studioUserPublic(user) {
     email: user.email || '',
     avatar_url: user.avatar_url || '',
     business_name: user.business_name || '',
+    can_delete_generations: Number(user.can_delete_generations) !== 0,
     auth_methods: methods,
     establishment_id: user.establishment_id,
     establishment_name: user.establishment_name || 'ESTUDIOS CREATIVOS',
@@ -276,7 +277,8 @@ function listStudioUsers(db, establishmentId) {
     SELECT users.id, users.name, users.business_name, users.username, users.email, users.avatar_url,
            users.plan_name, users.credit_limit AS monthly_limit, users.credit_limit,
            users.subscription_status, users.paid_at, users.paid_until,
-           users.brand_tone, users.contact_whatsapp, users.contact_location, users.status, users.created_at, users.updated_at,
+           users.brand_tone, users.contact_whatsapp, users.contact_location, users.can_delete_generations,
+           users.status, users.created_at, users.updated_at,
            (SELECT COUNT(*) FROM content_studio_generations generations
             WHERE generations.content_studio_user_id = users.id
               AND generations.status = 'completed'
@@ -861,6 +863,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
       generation_available: subscriptionActive && creditLimit > Number(usage || 0) && (Boolean(process.env.OPENAI_API_KEY) || Boolean(options.generateImage)),
       can_manage_references: false,
       can_manage_logos: true,
+      can_delete_generations: !req.contentStudioUser || Number(req.contentStudioUser.can_delete_generations) !== 0,
       subscription: req.contentStudioUser ? { status: req.contentStudioUser.subscription_status, active: subscriptionActive, paid_until: req.contentStudioUser.paid_until } : { status: 'internal', active: true, paid_until: null },
       account: req.contentStudioUser ? studioUserPublic(req.contentStudioUser) : {
         id: null, username: req.user?.username || '', role: req.user?.role || 'admin',
@@ -1055,6 +1058,9 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     const password = String(req.body.password || '');
     if (password && password.length < 8) return res.status(400).json({ message: 'La nueva contraseña debe tener al menos 8 caracteres' });
     const status = ['active', 'inactive'].includes(req.body.status) ? req.body.status : current.status;
+    const canDeleteGenerations = typeof req.body.can_delete_generations === 'boolean'
+      ? Number(req.body.can_delete_generations)
+      : Number(current.can_delete_generations) !== 0 ? 1 : 0;
     const subscriptionStatus = renewDays ? 'paid' : (['paid', 'trial', 'inactive'].includes(req.body.subscription_status) ? req.body.subscription_status : current.subscription_status);
     const paidUntil = renewDays
       ? db.prepare("SELECT date('now', 'localtime', ?) AS value").get(`+${renewDays} days`).value
@@ -1062,7 +1068,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     db.prepare(`UPDATE content_studio_users SET
       name = ?, business_name = ?, plan_name = ?, monthly_limit = ?, credit_limit = ?, subscription_status = ?,
        paid_at = CASE WHEN ? > 0 THEN datetime('now', 'localtime') ELSE paid_at END,
-      paid_until = ?, status = ?, password_hash = ?, updated_at = datetime('now', 'localtime')
+      paid_until = ?, status = ?, can_delete_generations = ?, password_hash = ?, updated_at = datetime('now', 'localtime')
       WHERE id = ? AND establishment_id = ?`).run(
       clean(req.body.name, 100) || current.name,
       clean(req.body.business_name, 100) || current.business_name,
@@ -1073,6 +1079,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
       renewDays,
       paidUntil,
       status,
+      canDeleteGenerations,
       password ? hashContentStudioPassword(password) : current.password_hash,
       current.id,
       req.contentStudioEstablishment.id
@@ -1256,6 +1263,9 @@ export function registerContentStudioRoutes(app, db, options = {}) {
   });
 
   app.delete('/api/content-studio/generations/:id', guard, (req, res) => {
+    if (req.contentStudioUser && Number(req.contentStudioUser.can_delete_generations) === 0) {
+      return res.status(403).json({ message: 'El administrador desactivó la eliminación de imágenes para tu cuenta' });
+    }
     const userCondition = req.contentStudioUser ? 'AND content_studio_user_id = ?' : 'AND content_studio_user_id IS NULL';
     const userParams = req.contentStudioUser ? [req.contentStudioUser.id] : [];
     const result = db.prepare(`UPDATE content_studio_generations SET deleted_at = datetime('now', 'localtime'), output_image_data = NULL WHERE id = ? AND establishment_id = ? ${userCondition} AND deleted_at IS NULL`).run(req.params.id, req.contentStudioEstablishment.id, ...userParams);

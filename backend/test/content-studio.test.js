@@ -83,7 +83,10 @@ test('legacy logos remain available to existing users while future accounts star
       subscription_status TEXT NOT NULL DEFAULT 'inactive', paid_at TEXT, paid_until TEXT, brand_tone TEXT NOT NULL DEFAULT 'premium',
       status TEXT NOT NULL DEFAULT 'active', created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT
     );
-    INSERT INTO content_studio_users (id, establishment_id, name, business_name, username, password_hash) VALUES (1, 1, 'Existente', 'Existente', 'existente', 'hash');
+    INSERT INTO content_studio_users (id, establishment_id, name, business_name, username, password_hash) VALUES
+      (1, 1, 'Existente', 'Existente', 'existente', 'hash'),
+      (2, 1, 'Martha Bosque', 'Martha Bosque', 'martha.bosque', 'hash'),
+      (3, 1, 'Norma Llamuca', 'Norma Llamuca', 'norma.llamuca', 'hash');
     CREATE TABLE content_studio_logos (
       id INTEGER PRIMARY KEY AUTOINCREMENT, establishment_id INTEGER NOT NULL, name TEXT NOT NULL, image_data TEXT NOT NULL,
       created_by TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -93,6 +96,9 @@ test('legacy logos remain available to existing users while future accounts star
   initContentStudioDb(db);
   assert.equal(db.prepare('SELECT COUNT(*) AS total FROM content_studio_logos WHERE content_studio_user_id = 1').get().total, 1);
   assert.equal(db.prepare('SELECT credit_limit FROM content_studio_users WHERE id = 1').get().credit_limit, 80);
+  assert.equal(db.prepare("SELECT can_delete_generations FROM content_studio_users WHERE username = 'martha.bosque'").get().can_delete_generations, 0);
+  assert.equal(db.prepare("SELECT can_delete_generations FROM content_studio_users WHERE username = 'norma.llamuca'").get().can_delete_generations, 0);
+  assert.equal(db.prepare("SELECT can_delete_generations FROM content_studio_users WHERE username = 'existente'").get().can_delete_generations, 1);
   assert.equal(db.prepare('SELECT user_logos_isolated FROM content_studio_settings WHERE establishment_id = 1').get().user_logos_isolated, 1);
   initContentStudioDb(db);
   assert.equal(db.prepare('SELECT COUNT(*) AS total FROM content_studio_logos WHERE content_studio_user_id = 1').get().total, 1);
@@ -348,4 +354,24 @@ test('new logos are normalized and stored as transparent-capable PNG references'
   const metadata = await sharp(Buffer.from(normalized.split(',')[1], 'base64')).metadata();
   assert.equal(metadata.format, 'png');
   assert.equal(metadata.hasAlpha, true);
+});
+
+test('the administrator controls whether each user can delete generated images', async (t) => {
+  const { db, server, request, clientToken, waitForGeneration } = fixture();
+  t.after(() => { server.close(); db.close(); });
+  const created = await request('/generate', { token: clientToken, method: 'POST', body: JSON.stringify({ preset: 'catalog', logo_id: 'none', product_image: sampleImage }) });
+  assert.equal(created.status, 202);
+  await waitForGeneration(created.data.generation.id, clientToken);
+
+  const blocked = await request('/users/1', { method: 'PUT', body: JSON.stringify({ can_delete_generations: false }) });
+  assert.equal(blocked.status, 200);
+  assert.equal(blocked.data.can_delete_generations, 0);
+  const blockedBootstrap = await request('/bootstrap', { token: clientToken });
+  assert.equal(blockedBootstrap.data.can_delete_generations, false);
+  const denied = await request(`/generations/${created.data.generation.id}`, { token: clientToken, method: 'DELETE' });
+  assert.equal(denied.status, 403);
+
+  const allowed = await request('/users/1', { method: 'PUT', body: JSON.stringify({ can_delete_generations: true }) });
+  assert.equal(allowed.data.can_delete_generations, 1);
+  assert.equal((await request(`/generations/${created.data.generation.id}`, { token: clientToken, method: 'DELETE' })).status, 200);
 });

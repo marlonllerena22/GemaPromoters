@@ -77,6 +77,7 @@ export function initContentStudioDb(db) {
       brand_tone TEXT NOT NULL DEFAULT 'premium',
       contact_whatsapp TEXT,
       contact_location TEXT,
+      can_delete_generations INTEGER NOT NULL DEFAULT 1 CHECK (can_delete_generations IN (0, 1)),
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       updated_at TEXT,
@@ -355,6 +356,12 @@ export function initContentStudioDb(db) {
   }
   if (!userColumns.some((column) => column.name === 'contact_location')) {
     db.exec('ALTER TABLE content_studio_users ADD COLUMN contact_location TEXT');
+  }
+  if (!userColumns.some((column) => column.name === 'can_delete_generations')) {
+    db.exec('ALTER TABLE content_studio_users ADD COLUMN can_delete_generations INTEGER NOT NULL DEFAULT 1 CHECK (can_delete_generations IN (0, 1))');
+    db.prepare(`UPDATE content_studio_users SET can_delete_generations = 0
+      WHERE LOWER(username) IN ('martha.bosque', 'norma.llamuca')
+         OR LOWER(TRIM(name)) IN ('martha bosque', 'norma llamuca')`).run();
   }
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_content_studio_users_email ON content_studio_users(LOWER(email)) WHERE email IS NOT NULL AND email != ''");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_content_studio_users_google_sub ON content_studio_users(google_sub) WHERE google_sub IS NOT NULL AND google_sub != ''");

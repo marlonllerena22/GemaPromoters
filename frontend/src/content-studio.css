@@ -69,6 +69,7 @@
 /* Creation refinements */
 .cs-take-photo{display:none}
 .cs-user-actions select{border:1px solid #dedbd3;background:#fff;border-radius:9px;padding:7px 9px;color:#55575e;font-size:10px;font-weight:700;min-width:150px}
+.cs-user-actions button.permission-off{border-color:#c9974f;background:#fff8eb;color:#8b6329}.cs-history-retention-note{display:flex;align-items:center;gap:9px;margin-top:16px;padding:12px 14px;border:1px solid #eadbc1;background:#fffaf1;border-radius:12px;color:#755729;font-size:12px;font-weight:650}.cs-history-retention-note svg{flex:none;color:#bd8b42}
 @media(max-width:720px){
   .cs-upload-card{position:relative}
   .cs-take-photo{display:flex;align-items:center;justify-content:center;gap:8px;width:calc(100% - 16px);min-height:43px;margin:8px;border:1px solid #d9d3c8;background:#fffaf1;color:#765526;border-radius:11px;font:700 12px 'Manrope';cursor:pointer}
