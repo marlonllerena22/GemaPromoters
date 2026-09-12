@@ -9,7 +9,7 @@ const activityLabels = { visit: 'Visita', demo: 'Demostración', followup: 'Segu
 const money = (value) => `$${Number(value || 0).toFixed(2)}`;
 
 export default function ContentStudioSellerApp({ user, onLogout }) {
-  const [tab, setTab] = useState('home');
+  const [tab, setTab] = useState('studio');
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');

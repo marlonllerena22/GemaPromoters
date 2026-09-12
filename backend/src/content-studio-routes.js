@@ -231,6 +231,24 @@ function studioAppUrl(pathname = '/ingresar') {
   return `${configured}${pathname.startsWith('/') ? pathname : `/${pathname}`}`;
 }
 
+export function createStudioMagicAccess(db, { establishmentId, userId = null, email, expiresMinutes = 20 }) {
+  const token = crypto.randomBytes(32).toString('hex');
+  const inserted = db.prepare(`INSERT INTO content_studio_magic_links
+    (establishment_id, content_studio_user_id, email, token_hash, expires_at)
+    VALUES (?, ?, ?, ?, datetime('now', 'localtime', ?))`)
+    .run(
+      establishmentId,
+      userId || null,
+      cleanEmail(email),
+      hashLoginToken(token),
+      `+${Math.max(1, Math.min(60, Number(expiresMinutes) || 20))} minutes`
+    );
+  return {
+    id: Number(inserted.lastInsertRowid),
+    url: `${studioAppUrl('/ingresar')}?magic=${encodeURIComponent(token)}`
+  };
+}
+
 function safeJson(value, fallback = []) {
   try { return JSON.parse(value); } catch { return fallback; }
 }
@@ -569,26 +587,35 @@ async function defaultResearchProduct(db, productName) {
   return context;
 }
 
-async function sendStudioActivationEmail(order, user) {
+async function sendStudioActivationEmail(db, order, user) {
   const transporter = studioTransporter();
   if (!transporter || !order?.email) {
     return { sent: false, reason: 'SMTP no configurado' };
   }
-  const appUrl = String(process.env.CONTENT_STUDIO_PUBLIC_URL || 'https://estudioscreativos.com/ingresar').replace(/\/$/, '');
-  await transporter.sendMail({
-    from: studioEmailFrom(),
-    replyTo: process.env.CONTENT_STUDIO_CONTACT_EMAIL || 'estudioscreativosec@gmail.com',
-    to: order.email,
-    subject: `Tu plan de Estudios Creativos está activo · ${order.order_number}`,
-    html: `<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;background:#f6f4ef;padding:28px;color:#1d212c">
-      <div style="background:#1d212c;color:#fff;padding:22px;border-radius:14px"><strong style="font-size:22px">Estudios Creativos</strong><p style="margin:6px 0 0;color:#ddd">Tu pago fue confirmado</p></div>
-      <p>Hola ${escapeHtml(order.customer_name)}, tu plan <strong>${escapeHtml(order.plan_name)}</strong> ya está activo.</p>
-      <div style="background:#fff;border:1px solid #e4e0d7;border-radius:12px;padding:18px"><p style="margin:0 0 8px"><strong>${Number(order.monthly_limit)} imágenes</strong> disponibles durante ${Number(order.duration_days)} días.</p><p style="margin:0">Usuario: <strong>${escapeHtml(user.username)}</strong></p></div>
-      <p style="margin:24px 0"><a href="${appUrl}" style="background:#1d212c;color:#fff;padding:13px 20px;border-radius:10px;text-decoration:none;font-weight:bold">Entrar a Estudios Creativos</a></p>
-      <p style="font-size:12px;color:#777">Entra con Google o solicita un enlace seguro usando este mismo correo.</p>
-    </div>`
+  const access = createStudioMagicAccess(db, {
+    establishmentId: order.establishment_id,
+    userId: user.id,
+    email: order.email
   });
-  return { sent: true };
+  try {
+    await transporter.sendMail({
+      from: studioEmailFrom(),
+      replyTo: process.env.CONTENT_STUDIO_CONTACT_EMAIL || 'estudioscreativosec@gmail.com',
+      to: order.email,
+      subject: `Tu plan de Estudios Creativos está activo · ${order.order_number}`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;background:#f6f4ef;padding:28px;color:#1d212c">
+        <div style="background:#1d212c;color:#fff;padding:22px;border-radius:14px"><strong style="font-size:22px">Estudios Creativos</strong><p style="margin:6px 0 0;color:#ddd">Tu pago fue confirmado</p></div>
+        <p>Hola ${escapeHtml(order.customer_name)}, tu plan <strong>${escapeHtml(order.plan_name)}</strong> ya está activo.</p>
+        <div style="background:#fff;border:1px solid #e4e0d7;border-radius:12px;padding:18px"><p style="margin:0 0 8px"><strong>${Number(order.monthly_limit)} imágenes</strong> disponibles durante ${Number(order.duration_days)} días.</p><p style="margin:0">Usuario: <strong>${escapeHtml(user.username)}</strong></p></div>
+        <p style="margin:24px 0"><a href="${access.url}" style="background:#1d212c;color:#fff;padding:13px 20px;border-radius:10px;text-decoration:none;font-weight:bold">Entrar directamente a Estudios Creativos</a></p>
+        <p style="font-size:12px;color:#777">Este botón inicia tu sesión sin contraseña, vence en 20 minutos y funciona una sola vez. Después podrás usar Google o pedir otro enlace seguro con este correo.</p>
+      </div>`
+    });
+    return { sent: true };
+  } catch (error) {
+    db.prepare('DELETE FROM content_studio_magic_links WHERE id = ?').run(access.id);
+    throw error;
+  }
 }
 
 function buildPrompt(body, preset, hasBrandLogo = false) {
@@ -598,7 +625,8 @@ function buildPrompt(body, preset, hasBrandLogo = false) {
     body.creative_instruction && `The user explained what they want to achieve with this image: ${clean(body.creative_instruction, 260)}. Translate that goal into the setting, composition, mood and commercial message when it fits the visible product and all other instructions.`,
     body.research_context && `Brief public context found for that clue: ${clean(body.research_context, 500)} Use this only for the campaign concept, setting or tone. Never let it override the visible product.`,
     body.brand_name && !hasBrandLogo && `Brand: ${clean(body.brand_name)}.`,
-    body.brand_direction && `Brand art direction: ${clean(body.brand_direction, 220)}.`
+    body.brand_direction && `Brand art direction: ${clean(body.brand_direction, 220)}.`,
+    body.series_direction && `Internal series art direction: ${clean(body.series_direction, 600)} This is production guidance only. Never print or visibly mention piece, slide, sequence, position, number of images, internal role or art direction in the finished design.`
   ].filter(Boolean).join(' ');
   const logoInstruction = hasBrandLogo
     ? `The second reference image is the exact official brand logo. Integrate one clear, fully visible instance of that exact logo directly into the finished composition. Preserve its actual lettering, geometry, colors, proportions and transparency exactly: do not redraw it, replace it, improvise it, add a background rectangle, crop it, distort it or make a generic imitation. Choose an aesthetic open area with contrast where it does not cover the product, people, faces, hands, text or important details. Scale it professionally for this particular design.`
@@ -608,6 +636,11 @@ function buildPrompt(body, preset, hasBrandLogo = false) {
   const contactInstruction = phone || location
     ? `Include these exact optional contact details as part of the final design, placed in a clean, legible footer or information area that does not cover the product, faces, logo or important text. Do not invent, alter or add any other contact data. WhatsApp: ${phone || 'not supplied'}. Location: ${location || 'not supplied'}.`
     : `Do not add phone numbers, WhatsApp details, addresses, locations or contact information.`;
+  const promotionPercent = Math.max(0, Math.min(90, Number(body.promotion_percent) || 0));
+  const promotionDetails = clean(body.promotion_details, 100);
+  const promotionInstruction = promotionPercent || promotionDetails
+    ? `Use only these exact promotional facts supplied by the user: ${promotionPercent ? `${promotionPercent}% de descuento` : 'no discount percentage supplied'}${promotionDetails ? `; ${promotionDetails}` : ''}. Present them clearly and professionally when appropriate for this piece. Do not invent a price, date, coupon, availability, condition or any other offer detail.`
+    : `Do not invent discounts, percentages, prices, dates, coupons or promotional conditions.`;
   const outputFormat = SOCIAL_FORMATS[body.output_format || body.social_format] || SOCIAL_FORMATS.post;
   const socialInstruction = preset === PRESETS.social
     ? SOCIAL_STYLES[body.social_style] || SOCIAL_STYLES.editorial
@@ -638,6 +671,7 @@ function buildPrompt(body, preset, hasBrandLogo = false) {
     socialInstruction,
     logoInstruction,
     contactInstruction,
+    promotionInstruction,
     `The result must look photographed by a professional team, not synthetic. Avoid plastic textures, excessive glow, impossible reflections, warped geometry, duplicated parts, extra accessories, fake logos, gibberish and watermarks. Do not alter the product design. Return one finished image only.`
   ].filter(Boolean).join('\n\n');
 }
@@ -828,12 +862,12 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     if (recent) return res.json({ message: genericMessage });
 
     const user = db.prepare('SELECT id, name FROM content_studio_users WHERE establishment_id = ? AND LOWER(email) = ? AND status = \'active\'').get(establishment.id, email);
-    const token = crypto.randomBytes(32).toString('hex');
-    const inserted = db.prepare(`INSERT INTO content_studio_magic_links
-      (establishment_id, content_studio_user_id, email, token_hash, expires_at)
-      VALUES (?, ?, ?, ?, datetime('now', 'localtime', '+20 minutes'))`)
-      .run(establishment.id, user?.id || null, email, hashLoginToken(token));
-    const accessUrl = `${studioAppUrl('/ingresar')}?magic=${encodeURIComponent(token)}`;
+    const access = createStudioMagicAccess(db, {
+      establishmentId: establishment.id,
+      userId: user?.id || null,
+      email
+    });
+    const accessUrl = access.url;
     try {
       await transporter.sendMail({
         from: studioEmailFrom(),
@@ -845,7 +879,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
       });
       return res.json({ message: genericMessage });
     } catch (error) {
-      db.prepare('DELETE FROM content_studio_magic_links WHERE id = ?').run(inserted.lastInsertRowid);
+      db.prepare('DELETE FROM content_studio_magic_links WHERE id = ?').run(access.id);
       console.error('Magic link Estudios Creativos:', error.message);
       return res.status(502).json({ message: 'No pudimos enviar el correo. Inténtalo nuevamente.' });
     }
@@ -1267,7 +1301,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
       const order = planOrderRow(db.prepare('SELECT * FROM content_studio_plan_orders WHERE id = ?').get(result.orderId));
       const user = listStudioUsers(db, req.contentStudioEstablishment.id).find((item) => item.id === result.userId);
       let email = { sent: false };
-      try { email = await sendStudioActivationEmail(order, user); }
+      try { email = await sendStudioActivationEmail(db, order, user); }
       catch (error) { email = { sent: false, reason: clean(error.message, 180) }; }
       res.json({ order, user, email });
     } catch (error) {
@@ -1338,14 +1372,32 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     res.json(db.prepare('SELECT * FROM content_studio_settings WHERE establishment_id = ?').get(req.contentStudioEstablishment.id));
   });
 
+  app.put('/api/content-studio/contact-defaults', guard, (req, res) => {
+    const contactWhatsapp = clean(req.body.contact_whatsapp, 30);
+    const contactLocation = clean(req.body.contact_location, 80);
+    if (req.contentStudioUser) {
+      db.prepare(`UPDATE content_studio_users SET contact_whatsapp = ?, contact_location = ?,
+        updated_at = datetime('now', 'localtime') WHERE id = ? AND establishment_id = ?`)
+        .run(contactWhatsapp, contactLocation, req.contentStudioUser.id, req.contentStudioEstablishment.id);
+    } else {
+      db.prepare(`UPDATE content_studio_settings SET contact_whatsapp = ?, contact_location = ?,
+        updated_at = datetime('now', 'localtime') WHERE establishment_id = ?`)
+        .run(contactWhatsapp, contactLocation, req.contentStudioEstablishment.id);
+    }
+    res.json({ contact_whatsapp: contactWhatsapp, contact_location: contactLocation });
+  });
+
   app.post('/api/content-studio/generate', guard, (req, res) => {
     const productImage = String(req.body.product_image || '');
     const productName = clean(req.body.product_name, 70);
     const productFeatures = clean(req.body.product_features, 150);
     const creativeInstruction = clean(req.body.creative_instruction, 260);
+    const seriesDirection = clean(req.body.series_direction, 600);
+    const promotionPercent = Math.max(0, Math.min(90, Number(req.body.promotion_percent) || 0));
+    const promotionDetails = clean(req.body.promotion_details, 100);
     const creationGroupId = clean(req.body.creation_group_id, 80);
     const creationGroupType = ['carousel', 'collection', 'week', 'campaign'].includes(req.body.creation_group_type) ? req.body.creation_group_type : '';
-    const creationGroupPosition = Math.max(0, Math.min(30, Number(req.body.creation_group_position) || 0));
+    const creationGroupPosition = Math.max(0, Math.min(5, Number(req.body.creation_group_position) || 0));
     const editorialSubject = ['female', 'male', 'animal'].includes(req.body.editorial_subject) ? req.body.editorial_subject : 'female';
     const editorialFraming = req.body.editorial_framing === 'close_up' ? 'close_up' : 'full_body';
     const preset = PRESETS[req.body.preset];
@@ -1360,6 +1412,14 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     if (dataImageBytes(productImage) > 8 * 1024 * 1024) return res.status(413).json({ message: 'La foto del producto no puede superar 8 MB' });
     if (!preset) return res.status(400).json({ message: 'Selecciona un tipo de contenido' });
     if (logoId && !logo) return res.status(400).json({ message: 'El logo seleccionado ya no está disponible' });
+    if (creationGroupId) {
+      const existingPieces = db.prepare(`SELECT COUNT(*) AS total FROM content_studio_generations
+        WHERE establishment_id = ? AND creation_group_id = ? AND deleted_at IS NULL`)
+        .get(req.contentStudioEstablishment.id, creationGroupId).total;
+      if (Number(existingPieces) >= 5) {
+        return res.status(400).json({ code: 'BATCH_LIMIT', message: 'Cada creación en lote admite un máximo de 5 piezas.' });
+      }
+    }
     const establishmentSettings = db.prepare('SELECT * FROM content_studio_settings WHERE establishment_id = ?').get(req.contentStudioEstablishment.id);
     const settings = planSettings(req, establishmentSettings);
     const advancedMinimum = ['week', 'campaign'].includes(creationGroupType) ? 150 : creationGroupType ? 60 : 0;
@@ -1410,6 +1470,9 @@ export function registerContentStudioRoutes(app, db, options = {}) {
           product_name: productName,
           product_features: productFeatures,
           creative_instruction: creativeInstruction,
+          series_direction: seriesDirection,
+          promotion_percent: promotionPercent,
+          promotion_details: promotionDetails,
           editorial_subject: editorialSubject,
           editorial_framing: editorialFraming,
           contact_whatsapp: contactWhatsapp,

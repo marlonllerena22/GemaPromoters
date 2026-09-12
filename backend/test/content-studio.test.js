@@ -6,7 +6,7 @@ import sharp from 'sharp';
 import { createToken } from '../src/auth.js';
 import { hashContentStudioPassword, initContentStudioDb, verifyContentStudioPassword } from '../src/content-studio-db.js';
 import crypto from 'node:crypto';
-import { buildPrompt, normalizeLogoForStorage, PRESETS, registerContentStudioRoutes, resizeSocialOutput } from '../src/content-studio-routes.js';
+import { buildPrompt, createStudioMagicAccess, normalizeLogoForStorage, PRESETS, registerContentStudioRoutes, resizeSocialOutput } from '../src/content-studio-routes.js';
 
 process.env.JWT_SECRET = 'content-studio-test-secret';
 const sampleImageBuffer = await sharp({ create: { width: 180, height: 220, channels: 3, background: '#9a6245' } }).png().toBuffer();
@@ -118,6 +118,7 @@ test('prompt accepts any product, adapts the editorial model and prepares social
   const catalog = buildPrompt({}, PRESETS.catalog, false);
   const story = buildPrompt({ social_format: 'story', social_style: 'playful', product_features: 'suavidad y cierre lateral', creative_instruction: 'Que se sienta listo para regalar' }, PRESETS.social, false);
   const benefits = buildPrompt({ social_format: 'post', social_style: 'product', product_features: 'cuero genuino y plantilla acolchada' }, PRESETS.social, false);
+  const campaign = buildPrompt({ social_format: 'post', social_style: 'playful', promotion_percent: 25, promotion_details: 'Solo este fin de semana', series_direction: 'Use a distinct closing composition. Piece 4 of 4 is internal metadata.' }, PRESETS.social, false);
   assert.match(editorial, /source-of-truth product/i);
   assert.match(editorial, /wearing, carrying, holding or using/i);
   assert.match(editorial, /adult woman by default/i);
@@ -145,6 +146,10 @@ test('prompt accepts any product, adapts the editorial model and prepares social
   assert.match(story, /The user explained what they want to achieve with this image/i);
   assert.match(benefits, /two or three short Spanish benefit callouts/i);
   assert.match(story, /Do not add a logo/i);
+  assert.match(campaign, /25% de descuento/i);
+  assert.match(campaign, /Solo este fin de semana/i);
+  assert.match(campaign, /production guidance only/i);
+  assert.match(campaign, /Never print or visibly mention piece/i);
 });
 
 test('a paid client gets its own plan, usage, history and brand management', async (t) => {
@@ -247,6 +252,19 @@ test('advanced batches persist their group and enforce the required plan on the 
   });
   assert.equal(premiumOnly.status, 403);
   assert.equal(premiumOnly.data.code, 'ADVANCED_PLAN_REQUIRED');
+
+  for (let position = 1; position <= 5; position += 1) {
+    db.prepare(`INSERT INTO content_studio_generations
+      (establishment_id, content_studio_user_id, preset, creation_group_id, creation_group_type,
+       creation_group_position, status, created_by) VALUES (1, 1, 'social', 'max-five-test', 'campaign', ?, 'failed', 'test')`).run(position);
+  }
+  const sixthPiece = await request('/generate', {
+    token: clientToken,
+    method: 'POST',
+    body: JSON.stringify({ preset: 'social', product_image: sampleImage, creation_group_id: 'max-five-test', creation_group_type: 'campaign', creation_group_position: 6 })
+  });
+  assert.equal(sixthPiece.status, 400);
+  assert.equal(sixthPiece.data.code, 'BATCH_LIMIT');
 });
 
 test('logos, exact social dimensions, history, limits and business isolation work together', async (t) => {
@@ -351,10 +369,9 @@ test('logos, exact social dimensions, history, limits and business isolation wor
 test('a verified magic link creates a zero-credit account once and generation routes it to a plan', async (t) => {
   const { db, server, request } = fixture();
   t.after(() => { server.close(); db.close(); });
-  const token = 'one-use-login-token';
-  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-  db.prepare(`INSERT INTO content_studio_magic_links
-    (establishment_id, email, token_hash, expires_at) VALUES (1, 'nuevo@estudio.test', ?, datetime('now', '+20 minutes'))`).run(tokenHash);
+  const access = createStudioMagicAccess(db, { establishmentId: 1, email: 'nuevo@estudio.test' });
+  const token = new URL(access.url).searchParams.get('magic');
+  assert.ok(token);
 
   const verified = await request('/auth/magic-link/verify', { method: 'POST', body: JSON.stringify({ token }) });
   assert.equal(verified.status, 200);
@@ -383,6 +400,16 @@ test('a verified magic link creates a zero-credit account once and generation ro
   const active = await request('/bootstrap', { token: newUserToken });
   assert.equal(active.data.subscription.active, true);
   assert.equal(active.data.available_credits, 25);
+
+  const savedContact = await request('/contact-defaults', {
+    token: newUserToken,
+    method: 'PUT',
+    body: JSON.stringify({ contact_whatsapp: '0999999999', contact_location: 'Centro de Ambato' })
+  });
+  assert.equal(savedContact.status, 200);
+  const withContact = await request('/bootstrap', { token: newUserToken });
+  assert.equal(withContact.data.settings.contact_whatsapp, '0999999999');
+  assert.equal(withContact.data.settings.contact_location, 'Centro de Ambato');
 });
 
 test('a seller can create five-credit trials and use an isolated demonstration workspace', async (t) => {

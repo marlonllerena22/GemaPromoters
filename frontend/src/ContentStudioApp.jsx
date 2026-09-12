@@ -116,6 +116,8 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
   const activeGenerationRef = useRef(null);
   const mountedRef = useRef(true);
   const loadedSections = useRef(new Set());
+  const contactDefaultsReadyRef = useRef(false);
+  const savedContactDefaultsRef = useRef('');
 
   const navigation = isSellerWorkspace
     ? [['create', 'Crear', Sparkles], ['history', 'Historial', LayoutGrid], ['settings', 'Marca', Settings]]
@@ -145,6 +147,17 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
       const response = await bootstrapRequest;
       const next = { ...response, generations: response.generations || [], users: [], plan_orders: [], sellers: [], seller_period: null };
       setData((current) => ({ ...current, ...next }));
+      const contactDefaults = {
+        contact_whatsapp: String(response.settings?.contact_whatsapp || ''),
+        contact_location: String(response.settings?.contact_location || '')
+      };
+      setForm((current) => ({
+        ...current,
+        contact_whatsapp: current.contact_whatsapp || contactDefaults.contact_whatsapp,
+        contact_location: current.contact_location || contactDefaults.contact_location
+      }));
+      savedContactDefaultsRef.current = JSON.stringify(contactDefaults);
+      contactDefaultsReadyRef.current = true;
       void logosRequest.then((logosResult) => {
         if (!mountedRef.current) return;
         if (!logosResult.ok) {
@@ -201,6 +214,25 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
     if (tab === 'history') void loadHistory();
     if (tab === 'users' && isStudioAdmin) void loadAdmin();
   }, [tab]);
+
+  useEffect(() => {
+    if (!contactDefaultsReadyRef.current || !data) return undefined;
+    const contactDefaults = {
+      contact_whatsapp: String(form.contact_whatsapp || ''),
+      contact_location: String(form.contact_location || '')
+    };
+    const serialized = JSON.stringify(contactDefaults);
+    if (serialized === savedContactDefaultsRef.current) return undefined;
+    const timer = window.setTimeout(() => {
+      api('/content-studio/contact-defaults', { method: 'PUT', body: JSON.stringify({ ...scopeBody, ...contactDefaults }) })
+        .then((saved) => {
+          savedContactDefaultsRef.current = JSON.stringify(saved);
+          setData((current) => ({ ...current, settings: { ...current.settings, ...saved } }));
+        })
+        .catch(() => setError('No pudimos guardar el WhatsApp o la dirección. Revisa tu conexión.'));
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [form.contact_whatsapp, form.contact_location, scopeId, Boolean(data)]);
 
   async function chooseProduct(file) {
     setError('');
@@ -352,7 +384,16 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
     } finally { setGenerating(false); }
   }
 
-  function newCreation() { setProductImage(''); setResult(null); setForm((current) => ({ ...emptyForm, logo_id: current.logo_id })); setTab('create'); }
+  function newCreation() {
+    setProductImage(''); setResult(null);
+    setForm((current) => ({
+      ...emptyForm,
+      logo_id: current.logo_id,
+      contact_whatsapp: current.contact_whatsapp,
+      contact_location: current.contact_location
+    }));
+    setTab('create');
+  }
   function visitPublicLanding() {
     try { window.sessionStorage.setItem('estudios-public-landing', 'requested'); } catch { /* Navigation still works without storage. */ }
     const isStudioDomain = ['estudioscreativos.com', 'www.estudioscreativos.com'].includes(window.location.hostname.toLowerCase());
@@ -711,6 +752,7 @@ function CreateView({ data, form, setForm, productImage, inputRef, cameraInputRe
                 prepareImage={imageFileToData}
                 onGenerate={generateAdvanced}
                 openPlans={openPlans}
+                updateBaseForm={(changes) => setForm((current) => ({ ...current, ...changes }))}
                 launchKey={batchLaunchKey}
                 inline
               />}
