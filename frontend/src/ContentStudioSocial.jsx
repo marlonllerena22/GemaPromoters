@@ -30,10 +30,9 @@ function useSocialData(enabled = true) {
 
 async function openMetaConnection(setError) {
   setError('');
-  const popup = window.open('about:blank', 'estudios-meta-connect', 'popup,width=620,height=760');
+  const popup = window.open('about:blank', `estudios-meta-connect-${Date.now()}`, 'popup,width=620,height=760');
   if (!popup) throw new Error('Permite las ventanas emergentes para conectar Meta');
   try {
-    popup.document.title = 'Conectando con Meta…';
     const response = await api('/content-studio/social/connect', { method: 'POST', body: '{}' });
     popup.location.href = response.authorization_url;
   } catch (error) {
