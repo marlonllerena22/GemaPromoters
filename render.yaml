@@ -66,6 +66,8 @@ services:
         sync: false
       - key: META_APP_SECRET
         sync: false
+      - key: META_LOGIN_CONFIG_ID
+        sync: false
       - key: META_GRAPH_API_VERSION
         value: v26.0
       - key: SOCIAL_TOKEN_ENCRYPTION_KEY

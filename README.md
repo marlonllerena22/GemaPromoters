@@ -292,6 +292,7 @@ Configura en Meta la URL de redireccion OAuth exacta:
 Variables necesarias en el servidor:
 
 - `META_APP_ID` y `META_APP_SECRET`: credenciales de la app de Meta.
+- `META_LOGIN_CONFIG_ID`: identificador de la configuración de Inicio de sesión con Facebook para empresas usada por el diálogo OAuth.
 - `META_GRAPH_API_VERSION`: version de Graph API, actualmente `v26.0`.
 - `SOCIAL_TOKEN_ENCRYPTION_KEY`: valor aleatorio largo para cifrar tokens.
 - `SOCIAL_MEDIA_SIGNING_KEY`: valor aleatorio largo y diferente para firmar las URL temporales de las imagenes.

@@ -32,7 +32,13 @@ function mediaSigningKey() {
 }
 
 function metaConfigured() {
-  return Boolean(process.env.META_APP_ID && process.env.META_APP_SECRET && tokenKey() && mediaSigningKey());
+  return Boolean(
+    process.env.META_APP_ID
+    && process.env.META_APP_SECRET
+    && process.env.META_LOGIN_CONFIG_ID
+    && tokenKey()
+    && mediaSigningKey()
+  );
 }
 
 function encryptToken(value) {
@@ -306,6 +312,7 @@ export function registerContentStudioSocialRoutes(app, db, guard) {
     authorization.searchParams.set('redirect_uri', callbackUrl());
     authorization.searchParams.set('state', state);
     authorization.searchParams.set('response_type', 'code');
+    authorization.searchParams.set('config_id', clean(process.env.META_LOGIN_CONFIG_ID, 100));
     authorization.searchParams.set('scope', 'pages_show_list,pages_read_engagement,pages_manage_posts,business_management,instagram_basic,instagram_content_publish');
     res.json({ authorization_url: authorization.toString() });
   });
