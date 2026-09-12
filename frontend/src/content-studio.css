@@ -15,11 +15,11 @@
 
 /* Paso 2: una galería táctil muestra las posibilidades antes de revelar sus ajustes. */
 .cs-preset-slider{display:flex;gap:12px;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x proximity;padding:3px 18px 8px 3px;margin:0 -3px;scrollbar-width:thin;scrollbar-color:#d3b583 transparent;-webkit-overflow-scrolling:touch;mask-image:linear-gradient(to right,#000 0, #000 calc(100% - 26px),transparent 100%)}
-.cs-preset-slider .cs-preset-card{flex:0 0 238px;min-height:268px;aspect-ratio:.89;scroll-snap-align:start;border:1px solid #ebe9e4;background:#fff;border-radius:16px;display:grid;grid-template-columns:1fr 19px;grid-template-rows:143px 1fr;gap:10px;padding:6px;align-items:stretch;text-align:left;cursor:pointer;color:#242620;transition:transform .2s ease,box-shadow .2s ease,border-color .2s ease,background .2s ease;will-change:transform}
+.cs-preset-slider .cs-preset-card{flex:0 0 238px;min-height:350px;scroll-snap-align:start;border:1px solid #ebe9e4;background:#fff;border-radius:16px;display:grid;grid-template-columns:1fr 19px;grid-template-rows:auto 1fr;gap:10px;padding:6px;align-items:stretch;text-align:left;cursor:pointer;color:#242620;transition:transform .2s ease,box-shadow .2s ease,border-color .2s ease,background .2s ease;will-change:transform}
 .cs-preset-slider .cs-preset-card:hover{transform:translateY(-3px);box-shadow:0 12px 24px #1d213014}
 .cs-preset-slider .cs-preset-card:active{transform:scale(.98)}
 .cs-preset-slider .cs-preset-card.selected{transform:translateY(-4px);box-shadow:inset 0 0 0 1px #c39a5b,0 14px 28px #a87a3220}
-.cs-preset-slider .cs-preset-thumb{grid-column:1/-1;width:100%;height:143px}
+.cs-preset-slider .cs-preset-thumb{grid-column:1/-1;width:100%;height:auto;aspect-ratio:1/1}
 .cs-preset-slider .cs-preset-copy{padding:0 5px 5px;align-content:start}
 .cs-preset-slider .cs-preset-copy>i{width:30px;height:30px}
 .cs-preset-slider .cs-preset-copy strong{font-size:16px}
@@ -37,7 +37,7 @@
 .cs-editorial-subject-grid .cs-subject-avatar img{width:100%;height:100%;object-fit:cover;display:block}
 @keyframes cs-preset-config-in{from{opacity:0;transform:translateY(-8px) scale(.985)}to{opacity:1;transform:translateY(0) scale(1)}}
 @keyframes cs-batch-sparkle{50%{transform:translateY(-3px) scale(1.12);filter:brightness(1.2)}}
-@media(max-width:720px){.cs-preset-slider{gap:10px;padding-right:30px;scroll-padding-left:3px}.cs-preset-slider .cs-preset-card{flex-basis:min(76vw,252px);min-height:260px;grid-template-rows:136px 1fr}.cs-preset-slider .cs-preset-thumb{height:136px}.cs-preset-slider .cs-preset-card.selected{transform:translateY(-2px)}.cs-preset-slider .cs-preset-copy strong{font-size:15px}.cs-preset-slider .cs-preset-copy small{font-size:10px}.cs-preset-configurations .cs-social-options,.cs-preset-configurations .cs-editorial-options,.cs-more-create-inline{margin-top:14px}}
+@media(max-width:720px){.cs-preset-slider{gap:10px;padding-right:30px;scroll-padding-left:3px}.cs-preset-slider .cs-preset-card{flex-basis:min(76vw,252px);min-height:0;grid-template-rows:auto 1fr}.cs-preset-slider .cs-preset-thumb{height:auto}.cs-preset-slider .cs-preset-card.selected{transform:translateY(-2px)}.cs-preset-slider .cs-preset-copy strong{font-size:15px}.cs-preset-slider .cs-preset-copy small{font-size:10px}.cs-preset-configurations .cs-social-options,.cs-preset-configurations .cs-editorial-options,.cs-more-create-inline{margin-top:14px}}
 @media(prefers-reduced-motion:reduce){.cs-preset-slider{scroll-behavior:auto}.cs-preset-slider .cs-preset-card,.cs-preset-configurations,.cs-more-create-inline,.cs-batch-thumb svg,.cs-batch-thumb>i,.cs-batch-thumb>b{animation:none;transition:none}}
 
 /* Professional creator experience */
@@ -136,8 +136,8 @@
   .cs-content-card .cs-card-heading>p{max-width:none;margin:0;text-align:left;font-size:10px;line-height:1.35}
   .cs-preset-slider{gap:8px;width:calc(100% + 10px);margin:0 -10px 0 0;padding:2px 20px 7px 0;mask-image:none;scrollbar-width:none;scroll-snap-type:x mandatory}
   .cs-preset-slider::-webkit-scrollbar{display:none}
-  .cs-preset-slider .cs-preset-card{flex:0 0 clamp(178px,58vw,210px);min-height:222px;aspect-ratio:auto;grid-template-columns:minmax(0,1fr) 16px;grid-template-rows:112px 1fr;gap:7px;padding:5px;border-radius:14px;scroll-snap-align:start}
-  .cs-preset-slider .cs-preset-thumb{height:112px;border-radius:10px}
+  .cs-preset-slider .cs-preset-card{flex:0 0 clamp(178px,58vw,210px);min-height:0;grid-template-columns:minmax(0,1fr) 16px;grid-template-rows:auto 1fr;gap:7px;padding:5px;border-radius:14px;scroll-snap-align:start}
+  .cs-preset-slider .cs-preset-thumb{height:auto;aspect-ratio:1/1;border-radius:10px}
   .cs-preset-slider .cs-preset-copy{gap:4px;padding:0 4px 4px}
   .cs-preset-slider .cs-preset-copy>i{width:27px;height:27px}
   .cs-preset-slider .cs-preset-copy>i svg{width:14px}
@@ -250,7 +250,7 @@
   }
   .cs-preset-slider .cs-preset-card{
     flex-basis:clamp(172px,56vw,202px);
-    min-height:218px;
+    min-height:0;
   }
 }
 

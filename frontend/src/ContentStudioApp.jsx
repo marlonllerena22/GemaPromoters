@@ -17,10 +17,10 @@ import './content-studio-dark.css';
 
 const PRESET_ICONS = { editorial: UserRound, catalog: ShoppingBag, social: Share2, detail: Gem };
 const PRESET_GUIDES = {
-  editorial: '/content-studio/guides/editorial.jpg',
-  catalog: '/content-studio/guides/catalog.jpg',
-  social: '/content-studio/guides/social.jpg',
-  detail: '/content-studio/guides/detail.jpg'
+  editorial: '/content-studio/guides/editorial-square.jpg',
+  catalog: '/content-studio/guides/catalog-square.jpg',
+  social: '/content-studio/guides/social-square.jpg',
+  detail: '/content-studio/guides/detail-square.jpg'
 };
 const PRESET_NAMES = { editorial: 'Editorial', catalog: 'Catálogo', social: 'Post social', detail: 'Detalle' };
 const BATCH_PRESET = { id: 'batch', name: 'Crear en lote', description: 'Crea varias piezas coordinadas en una sola sesión.' };
