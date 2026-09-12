@@ -282,7 +282,8 @@
 .cs-contact-panel{margin-top:14px;border:1px solid #e4e0d7;border-radius:15px;background:#faf9f6;overflow:hidden;animation:cs-contact-panel-in .24s ease both;transition:border-color .2s ease,box-shadow .2s ease,background .2s ease}
 .cs-contact-panel.open{border-color:#d8c29e;background:#fff;box-shadow:0 9px 24px #3c2c160b}
 .cs-contact-toggle{width:100%;min-height:72px;padding:12px 14px;border:0;background:transparent;color:#353731;display:grid;grid-template-columns:40px minmax(0,1fr) 20px;align-items:center;gap:11px;text-align:left;cursor:pointer}
-.cs-contact-toggle>span{width:40px;height:40px;border-radius:12px;background:#f5ead8;color:#986d31;display:grid;place-items:center}
+.cs-contact-toggle>span{width:40px;height:40px;border-radius:12px;background:#eaf8ef;color:#20b958;display:grid;place-items:center}
+.cs-whatsapp-icon{width:24px;height:24px;display:block;filter:drop-shadow(0 3px 7px #20b95826)}
 .cs-contact-toggle>div{display:grid;gap:4px;min-width:0}
 .cs-contact-toggle strong{font:700 13px 'Manrope';line-height:1.3}
 .cs-contact-toggle strong em{margin-left:6px;padding:3px 6px;border-radius:999px;background:#ebe8e1;color:#777970;font:700 8px 'Manrope';font-style:normal;text-transform:uppercase;letter-spacing:.08em;white-space:nowrap}

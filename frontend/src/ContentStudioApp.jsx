@@ -575,7 +575,7 @@ function ContactFields({ form, setForm }) {
   const [open, setOpen] = useState(Boolean(form.contact_whatsapp || form.contact_location));
   return <section className={`cs-contact-panel ${open ? 'open' : ''}`}>
     <button className="cs-contact-toggle" type="button" onClick={() => setOpen((current) => !current)} aria-expanded={open}>
-      <span><MessageCircle size={19} /></span>
+      <span><WhatsAppIcon /></span>
       <div><strong>WhatsApp y dirección <em>Opcional</em></strong><small>Inclúyelos únicamente si quieres que aparezcan en esta imagen.</small></div>
       <ChevronDown size={19} />
     </button>
@@ -584,6 +584,10 @@ function ContactFields({ form, setForm }) {
       <label><span><MapPin size={15} /><strong>Dirección o ubicación</strong><em>Opcional</em></span><div><MapPin size={17} /><input maxLength="80" value={form.contact_location} onChange={(event) => setForm({ ...form, contact_location: event.target.value })} placeholder="Ej. Centro de Ambato" /></div><small>Escribe solo el dato que deseas mostrar en la imagen.</small></label>
     </div>}
   </section>;
+}
+
+function WhatsAppIcon() {
+  return <svg className="cs-whatsapp-icon" viewBox="0 0 32 32" role="img" aria-label="WhatsApp"><path fill="currentColor" d="M16 3.2A12.6 12.6 0 0 0 5.1 22.1L3.4 28.8l6.9-1.8A12.6 12.6 0 1 0 16 3.2Zm0 22.9c-2 0-3.9-.5-5.5-1.5l-.4-.2-4.1 1.1 1.1-4-.3-.4A10.3 10.3 0 1 1 16 26.1Zm5.7-7.7c-.3-.2-1.8-.9-2.1-1-.3-.1-.5-.2-.7.2-.2.3-.8 1-.9 1.2-.2.2-.4.2-.7.1-2-.9-3.4-1.8-4.8-4.1-.4-.6.4-.6 1-1.9.1-.2.1-.4 0-.6l-1-2.4c-.3-.6-.6-.5-.9-.5h-.7c-.2 0-.6.1-1 .5-1.2 1.3-1.2 3.1-.3 4.9 1.7 3.5 4.4 5.8 7.9 7.2 1.5.6 2.9.8 4 .5 1.2-.2 2.4-1 2.7-2 .3-1 .3-1.8.2-2-.1-.2-.4-.3-.7-.4Z" /></svg>;
 }
 
 function CreateView({ data, form, setForm, productImage, inputRef, cameraInputRef, chooseProduct, selectedPreset, generate, generateAdvanced, generating, generationProgress, result, newCreation, usagePercent, goToHistory, goToProfile, goToSettings, openPlans, sellerDemo = false }) {
