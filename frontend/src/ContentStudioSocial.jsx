@@ -79,7 +79,7 @@ export function SocialConnectionsSettings({ user }) {
 function PublisherPanel({ generation, onClose }) {
   const { data, error, setError, loading, load } = useSocialData(true);
   const [connectionId, setConnectionId] = useState('');
-  const [copy, setCopy] = useState('');
+  const [copy, setCopy] = useState(generation?.social_copy || '');
   const [targets, setTargets] = useState(['facebook', 'instagram']);
   const [busy, setBusy] = useState('');
   const [results, setResults] = useState([]);

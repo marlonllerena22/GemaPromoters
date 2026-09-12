@@ -77,3 +77,5 @@
   .cs-mobile-nav.admin{grid-template-columns:repeat(5,1fr)}
   .cs-mobile-nav.admin button span{font-size:8px}
 }
+
+.cs-workspace.single{grid-template-columns:1fr}

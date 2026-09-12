@@ -191,6 +191,44 @@ test('a paid client gets its own plan, usage, history and brand management', asy
   assert.equal(clientBootstrap.data.usage, 2);
 });
 
+test('advanced batches persist their group and enforce the required plan on the server', async (t) => {
+  const { db, server, request, clientToken, waitForGeneration } = fixture();
+  t.after(() => { server.close(); db.close(); });
+
+  const collection = await request('/generate', {
+    token: clientToken,
+    method: 'POST',
+    body: JSON.stringify({
+      preset: 'social',
+      product_image: sampleImage,
+      creative_instruction: 'Colección con luz y paleta compartidas',
+      creation_group_id: 'collection-test-1',
+      creation_group_type: 'collection',
+      creation_group_position: 2
+    })
+  });
+  assert.equal(collection.status, 202);
+  const completed = await waitForGeneration(collection.data.generation.id, clientToken);
+  assert.equal(completed.data.generation.creation_group_id, 'collection-test-1');
+  assert.equal(completed.data.generation.creation_group_type, 'collection');
+  assert.equal(completed.data.generation.creation_group_position, 2);
+  assert.equal(completed.data.generation.headline, 'Colección con luz y paleta compartidas');
+
+  const premiumOnly = await request('/generate', {
+    token: clientToken,
+    method: 'POST',
+    body: JSON.stringify({
+      preset: 'social',
+      product_image: sampleImage,
+      creation_group_id: 'week-test-1',
+      creation_group_type: 'week',
+      creation_group_position: 1
+    })
+  });
+  assert.equal(premiumOnly.status, 403);
+  assert.equal(premiumOnly.data.code, 'ADVANCED_PLAN_REQUIRED');
+});
+
 test('logos, exact social dimensions, history, limits and business isolation work together', async (t) => {
   const { db, server, request, calls, supreme, waitForGeneration } = fixture();
   t.after(() => { server.close(); db.close(); });

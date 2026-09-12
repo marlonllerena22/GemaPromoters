@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { api, setUser } from './api.js';
 import ContentStudioSocialPublisher, { SocialConnectionsSettings } from './ContentStudioSocial.jsx';
+import ContentStudioAdvancedCreate from './ContentStudioAdvancedCreate.jsx';
 import { applyContentStudioTheme, getContentStudioTheme } from './content-studio-theme.js';
 import './content-studio.css';
 import './content-studio-magic-progress.css';
@@ -21,6 +22,7 @@ const PRESET_GUIDES = {
   detail: '/content-studio/guides/detail.jpg'
 };
 const PRESET_NAMES = { editorial: 'Editorial', catalog: 'Catálogo', social: 'Post social', detail: 'Detalle' };
+const ADVANCED_MODE_NAMES = { carousel: 'Carrusel inteligente', collection: 'Colección completa', week: 'Semana lista', campaign: 'Campaña completa' };
 const EDITORIAL_SUBJECTS = [
   { id: 'female', name: 'Femenino', description: 'Mujer o niña según el producto', icon: '♀' },
   { id: 'male', name: 'Masculino', description: 'Hombre o niño según el producto', icon: '♂' },
@@ -265,6 +267,67 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
     }
   }
 
+  async function generateAdvanced(jobs, { mode, createCopies = false, onProgress } = {}) {
+    if (!Array.isArray(jobs) || !jobs.length) throw new Error('Configura al menos una pieza para crear');
+    const available = Math.max(0, Number(data?.available_credits ?? (Number(data?.settings?.monthly_limit || 0) - Number(data?.usage || 0))));
+    if (!data?.subscription?.active || available < jobs.length) {
+      setRequestedPlan(['week', 'campaign'].includes(mode) ? 'pro' : 'negocio');
+      setPlansOpen(true);
+      throw new Error(`Necesitas ${jobs.length} créditos disponibles para crear este contenido.`);
+    }
+    setGenerating(true); setError('');
+    const queued = [];
+    try {
+      onProgress?.({ done: 0, total: jobs.length, label: 'Enviando las piezas al estudio' });
+      for (const job of jobs) {
+        const response = await api('/content-studio/generate', { method: 'POST', body: JSON.stringify({ ...scopeBody, ...job }) });
+        if (!response.generation?.id) throw new Error('Una de las piezas no pudo entrar al estudio');
+        queued.push(response.generation);
+      }
+      setData((current) => ({ ...current, generations: [...queued, ...(current.generations || []).filter((item) => !queued.some((queuedItem) => queuedItem.id === item.id))].slice(0, 24) }));
+      let done = 0;
+      const outcomes = await Promise.allSettled(queued.map(async (generation) => {
+        let completed;
+        for (let attempt = 0; attempt < 240; attempt += 1) {
+          const statusResponse = await api(`/content-studio/generations/${generation.id}${scopeQuery}`);
+          if (statusResponse.generation?.status === 'failed') throw new Error(statusResponse.generation.error_message || 'Una pieza no pudo completarse');
+          if (statusResponse.generation?.status === 'completed') { completed = statusResponse; break; }
+          await wait(2500);
+        }
+        if (!completed) throw new Error('Una pieza continúa procesándose y aparecerá más tarde en Historial');
+        done += 1;
+        onProgress?.({ done, total: jobs.length, label: done === jobs.length ? 'Contenido listo' : 'Creando una serie visual coherente' });
+        if (createCopies) {
+          try {
+            const copyResponse = await api('/content-studio/social/copy', { method: 'POST', body: JSON.stringify({ generation_id: generation.id }) });
+            completed.generation.social_copy = copyResponse.copy || '';
+          } catch { /* The image remains usable if copy generation has a temporary failure. */ }
+        }
+        return completed;
+      }));
+      const completed = outcomes.filter((item) => item.status === 'fulfilled').map((item) => item.value);
+      const failed = outcomes.filter((item) => item.status === 'rejected');
+      const usage = completed.reduce((maximum, item) => Math.max(maximum, Number(item.usage || 0)), Number(data?.usage || 0));
+      setData((current) => ({
+        ...current,
+        usage,
+        available_credits: Math.max(0, Number(current.settings?.monthly_limit || 0) - usage),
+        generation_available: current.subscription?.active && usage < Number(current.settings?.monthly_limit || 0),
+        generations: [...completed.map((item) => item.generation), ...(current.generations || []).filter((item) => !queued.some((queuedItem) => queuedItem.id === item.id))].slice(0, 24)
+      }));
+      loadedSections.current.delete('history');
+      await loadHistory(true);
+      setTab('history');
+      setNotice(`${completed.length} ${completed.length === 1 ? 'pieza lista' : 'piezas listas'} en tu historial`);
+      window.setTimeout(() => setNotice(''), 4000);
+      if (failed.length) throw new Error(`${completed.length} piezas terminaron y ${failed.length} siguen pendientes o tuvieron un error. Revisa Historial.`);
+      return completed.map((item) => item.generation);
+    } catch (err) {
+      if (['PLAN_REQUIRED', 'CREDITS_EXHAUSTED'].includes(err.code)) setPlansOpen(true);
+      throw err;
+    } finally { setGenerating(false); }
+  }
+
   function newCreation() { setProductImage(''); setResult(null); setForm((current) => ({ ...emptyForm, logo_id: current.logo_id })); setTab('create'); }
   const selectedPreset = data?.presets?.find((item) => item.id === form.preset);
   const usagePercent = Math.min(100, (Number(data?.usage || 0) / Math.max(1, Number(data?.settings?.monthly_limit || 0))) * 100);
@@ -276,7 +339,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
       {notice && <div className="cs-toast"><Check size={17}/>{notice}</div>}
       {error && <div className="cs-error"><span>{error}</span><button onClick={() => setError('')}><X size={17}/></button>{!data && <button className="cs-error-retry" onClick={() => loadCore()}>Reintentar</button>}</div>}
       {loading && !data ? <StudioShellSkeleton /> : data && <>
-        {tab === 'create' && <CreateView data={data} form={form} setForm={setForm} productImage={productImage} inputRef={inputRef} cameraInputRef={cameraInputRef} chooseProduct={chooseProduct} selectedPreset={selectedPreset} generate={generate} generating={generating} result={result} generationProgress={generationProgress} newCreation={newCreation} usagePercent={usagePercent} goToHistory={() => setTab('history')} goToProfile={() => setTab('profile')} goToSettings={() => setTab('settings')} openPlans={() => setPlansOpen(true)} />}
+        {tab === 'create' && <CreateView data={data} form={form} setForm={setForm} productImage={productImage} inputRef={inputRef} cameraInputRef={cameraInputRef} chooseProduct={chooseProduct} selectedPreset={selectedPreset} generate={generate} generateAdvanced={generateAdvanced} generating={generating} result={result} generationProgress={generationProgress} newCreation={newCreation} usagePercent={usagePercent} goToHistory={() => setTab('history')} goToProfile={() => setTab('profile')} goToSettings={() => setTab('settings')} openPlans={(planId) => { setRequestedPlan(planId || ''); setPlansOpen(true); }} />}
         {tab === 'history' && (sectionLoading && !loadedSections.current.has('history') ? <SectionSkeleton title="Cargando tu historial" /> : <HistoryView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/>) }
         {tab === 'profile' && <AccountProfile data={data} user={user} onLogout={onLogout} openPlans={() => setPlansOpen(true)} setData={setData} setError={setError}/>}
         {tab === 'users' && isStudioAdmin && (sectionLoading && !loadedSections.current.has('admin') ? <SectionSkeleton title="Cargando usuarios y transferencias" /> : <><UsersView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/><div className="cs-settings-divider"><SellersView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/></div></>)}
@@ -506,7 +569,7 @@ function ContactFields({ form, setForm }) {
   return <div className="cs-advanced-contact-fields"><label><strong>WhatsApp para incluir</strong><input inputMode="tel" maxLength="30" value={form.contact_whatsapp} onChange={(event) => setForm({ ...form, contact_whatsapp: event.target.value })} placeholder="Ej. 0983763419" /><small>Opcional. La IA lo integrará al diseño.</small></label><label><strong>Ubicación para incluir</strong><input maxLength="80" value={form.contact_location} onChange={(event) => setForm({ ...form, contact_location: event.target.value })} placeholder="Ej. Centro de Ambato" /><small>Opcional. Se envía junto con la creación.</small></label></div>;
 }
 
-function CreateView({ data, form, setForm, productImage, inputRef, cameraInputRef, chooseProduct, selectedPreset, generate, generating, generationProgress, result, newCreation, usagePercent, goToHistory, goToProfile, goToSettings, openPlans }) {
+function CreateView({ data, form, setForm, productImage, inputRef, cameraInputRef, chooseProduct, selectedPreset, generate, generateAdvanced, generating, generationProgress, result, newCreation, usagePercent, goToHistory, goToProfile, goToSettings, openPlans }) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   if (result) {
     return (
@@ -540,7 +603,7 @@ function CreateView({ data, form, setForm, productImage, inputRef, cameraInputRe
         </button>
       </section>
 
-      <div className="cs-workspace">
+      <div className={`cs-workspace ${productImage ? '' : 'single'}`}>
         <div className="cs-main-column">
           <section className="cs-card cs-upload-card">
             <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => chooseProduct(event.target.files?.[0])} />
@@ -567,7 +630,16 @@ function CreateView({ data, form, setForm, productImage, inputRef, cameraInputRe
             </div>
           </section>
 
-          <section className="cs-card cs-content-card">
+          {generateAdvanced && <ContentStudioAdvancedCreate
+            data={data}
+            baseForm={form}
+            currentProduct={productImage}
+            prepareImage={imageFileToData}
+            onGenerate={generateAdvanced}
+            openPlans={openPlans}
+          />}
+
+          {productImage && <section className="cs-card cs-content-card">
             <div className="cs-card-heading"><div><span className="cs-eyebrow">Paso 2</span><h2>Crear en base a</h2></div><p>Elige el tipo de contenido que necesitas</p></div>
             <div className="cs-preset-grid">
               {data.presets.map((preset) => {
@@ -582,9 +654,9 @@ function CreateView({ data, form, setForm, productImage, inputRef, cameraInputRe
             {form.preset === 'editorial' && <div className="cs-editorial-options"><strong>¿Quién aparecerá con el producto?</strong><p>La edad o el tipo se adaptará al contexto que escribas y a la foto.</p><div className="cs-editorial-subject-grid">{EDITORIAL_SUBJECTS.map((subject) => <button type="button" key={subject.id} className={form.editorial_subject === subject.id ? 'selected' : ''} onClick={() => setForm({ ...form, editorial_subject: subject.id })}><span>{subject.icon}</span><div><b>{subject.name}</b><small>{subject.description}</small></div><i>{form.editorial_subject === subject.id && <Check size={15} />}</i></button>)}</div></div>}
             <div className="cs-social-options cs-output-options"><div><strong>Tamaño de publicación</strong><p>Tu imagen se crea completa en este formato; no se recorta al descargar.</p><div className="cs-choice-row">{(data.output_formats || []).map((format) => <button type="button" key={format.id} className={form.output_format === format.id ? 'selected' : ''} onClick={() => setForm({ ...form, output_format: format.id })}><span>{format.id === 'story' ? '▯' : '▣'}</span><div><b>{format.label}</b><small>{format.width} × {format.height}</small></div><Check size={16} /></button>)}</div></div></div>
             {form.preset === 'social' && <div className="cs-social-options"><div><strong>Estilo del diseño</strong><div className="cs-social-style-grid">{(data.social_styles || []).map((style) => <button type="button" key={style.id} className={form.social_style === style.id ? 'selected' : ''} onClick={() => setForm({ ...form, social_style: style.id })}><b>{style.name}</b><small>{style.description}</small>{form.social_style === style.id && <Check size={16} />}</button>)}</div></div><ContactFields form={form} setForm={setForm} /></div>}
-          </section>
+          </section>}
 
-          <section className="cs-card cs-brand-section">
+          {productImage && <section className="cs-card cs-brand-section">
             <div className="cs-card-heading"><div><span className="cs-eyebrow">Paso 3</span><h2>¿Quieres incluir tu marca?</h2></div><p>Tú decides cómo generar tu contenido</p></div>
             <div className="cs-brand-mode">
               <button type="button" className={form.logo_id !== 'none' ? 'selected' : ''} onClick={() => firstLogo && setForm({ ...form, logo_id: firstLogo.id })}>
@@ -596,17 +668,17 @@ function CreateView({ data, form, setForm, productImage, inputRef, cameraInputRe
             </div>
             {form.logo_id !== 'none' && <div className="cs-available-brands"><div><strong>Selecciona una marca</strong><button type="button" onClick={goToSettings}><Settings size={15} /> Administrar logos</button></div><div className="cs-brand-picker">{(data.logos || []).map((logo) => <button type="button" key={logo.id} className={Number(form.logo_id) === Number(logo.id) ? 'selected' : ''} onClick={() => setForm({ ...form, logo_id: logo.id })}><img src={logo.image_data} alt={`Logo ${logo.name}`} /><span>{logo.name}</span>{Number(form.logo_id) === Number(logo.id) && <b><Check size={16} /></b>}</button>)}</div></div>}
             {!firstLogo && <button className="cs-add-first-brand" type="button" onClick={goToSettings}><Plus size={17} /> Agregar tu primer logo desde Configuración</button>}
-          </section>
+          </section>}
         </div>
 
-        <aside className="cs-summary">
+        {productImage && <aside className="cs-summary">
           <div className="cs-summary-visual">{productImage ? <img src={productImage} alt="Vista previa" /> : <ImageIcon size={36} />}</div>
           <span>Tu creación</span><h3>{selectedPreset?.name}</h3><p>{selectedPreset?.description}</p>
           <ul>{form.preset === 'editorial' && <li><UserRound size={15} /> Modelo: {EDITORIAL_SUBJECTS.find((item) => item.id === form.editorial_subject)?.name || 'Femenino'}</li>}{(form.contact_whatsapp || form.contact_location) && <li><MessageCircle size={15} /> Contacto integrado al diseño</li>}<li><Check size={15} /> Producto fiel al original</li><li><Check size={15} /> Acabado fotográfico realista</li><li><Check size={15} /> Alta calidad para publicar</li></ul>
           <button className="cs-generate" disabled={generating || (!needsPlan && (!productImage || !data.generation_available))}>{generating ? <><i /> Creando tu imagen...</> : needsPlan ? <><CreditCard size={18}/> Elegir un plan</> : <>Continuar <ChevronRight size={19} /></>}</button>
           {generating && <MagicGenerationProgress progress={generationProgress} />}
           {!data.generation_available && <small className="cs-api-note">{data.subscription?.active ? 'La interfaz está lista. Falta conectar la clave de OpenAI en el servidor.' : 'Tu plan necesita estar activo para crear imágenes.'}</small>}
-        </aside>
+        </aside>}
       </div>
     </form>
   );
@@ -906,7 +978,7 @@ function HistoryView({ data, scopeBody, reload, setError }) {
   return <section>
     <div className="cs-section-heading"><span className="cs-eyebrow">Tus resultados</span><h1>Mis diseños</h1><p>Todo tu contenido terminado, listo para volver a descargar.</p></div>
     {pending.length > 0 && <div className="cs-queue-banner" role="status"><span><Sparkles size={20} /></span><div><strong>{pending.length === 1 ? 'Tu imagen sigue en proceso' : `${pending.length} imágenes siguen en proceso`}</strong><small>Puedes cambiar de sección, cerrar o recargar la página. Aparecerá aquí cuando termine.</small></div></div>}
-    {completed.length ? <div className="cs-history-grid">{completed.map((item) => <article key={item.id}><img src={item.output_image_data} alt={item.product_name || item.brand_name || 'Diseño'} /><div><span>{PRESET_NAMES[item.preset]}</span><strong>{item.product_name || item.brand_name || 'Creación'}</strong><small>{new Date(`${item.created_at.replace(' ', 'T')}`).toLocaleDateString('es-EC')}</small></div><div className="cs-history-actions"><ContentStudioSocialPublisher compact generation={item}/><button onClick={() => downloadDataImage(item.output_image_data, `${item.brand_name || 'contenido'}-${item.id}.webp`)}><Download size={17} /></button>{data.can_delete_generations !== false && <button title="Eliminar imagen" onClick={() => remove(item.id)}><Trash2 size={17} /></button>}</div></article>)}</div> : <div className="cs-empty-large"><LayoutGrid size={38} /><h3>Aquí aparecerán tus diseños</h3><p>{pending.length ? 'Tu primera imagen aparecerá aquí en cuanto termine.' : 'Crea tu primera imagen profesional para verla en esta galería.'}</p></div>}
+    {completed.length ? <div className="cs-history-grid">{completed.map((item) => <article key={item.id}><img src={item.output_image_data} alt={item.product_name || item.brand_name || 'Diseño'} /><div><span>{ADVANCED_MODE_NAMES[item.creation_group_type] || PRESET_NAMES[item.preset]}</span><strong>{item.product_name || item.brand_name || 'Creación'}</strong><small>{item.creation_group_type ? `Pieza ${item.creation_group_position} · ` : ''}{new Date(`${item.created_at.replace(' ', 'T')}`).toLocaleDateString('es-EC')}{item.social_copy ? ' · Copy listo' : ''}</small></div><div className="cs-history-actions"><ContentStudioSocialPublisher compact generation={item}/><button onClick={() => downloadDataImage(item.output_image_data, `${item.brand_name || 'contenido'}-${item.id}.webp`)}><Download size={17} /></button>{data.can_delete_generations !== false && <button title="Eliminar imagen" onClick={() => remove(item.id)}><Trash2 size={17} /></button>}</div></article>)}</div> : <div className="cs-empty-large"><LayoutGrid size={38} /><h3>Aquí aparecerán tus diseños</h3><p>{pending.length ? 'Tu primera imagen aparecerá aquí en cuanto termine.' : 'Crea tu primera imagen profesional para verla en esta galería.'}</p></div>}
     {data.can_delete_generations === false && completed.length > 0 && <div className="cs-history-retention-note"><ShieldCheck size={17}/><span>Tus imágenes están protegidas y no pueden eliminarse desde esta cuenta.</span></div>}
   </section>;
 }

@@ -98,6 +98,10 @@ export function initContentStudioDb(db) {
       reference_ids_json TEXT NOT NULL DEFAULT '[]',
       output_image_data TEXT,
       revised_prompt TEXT,
+      creation_group_id TEXT,
+      creation_group_type TEXT,
+      creation_group_position INTEGER,
+      social_copy TEXT,
       status TEXT NOT NULL DEFAULT 'completed' CHECK (status IN ('completed', 'failed')),
       error_message TEXT,
       created_by TEXT,
@@ -317,6 +321,20 @@ export function initContentStudioDb(db) {
   if (!generationColumns.some((column) => column.name === 'content_studio_user_id')) {
     db.exec('ALTER TABLE content_studio_generations ADD COLUMN content_studio_user_id INTEGER');
   }
+  if (!generationColumns.some((column) => column.name === 'creation_group_id')) {
+    db.exec('ALTER TABLE content_studio_generations ADD COLUMN creation_group_id TEXT');
+  }
+  if (!generationColumns.some((column) => column.name === 'creation_group_type')) {
+    db.exec('ALTER TABLE content_studio_generations ADD COLUMN creation_group_type TEXT');
+  }
+  if (!generationColumns.some((column) => column.name === 'creation_group_position')) {
+    db.exec('ALTER TABLE content_studio_generations ADD COLUMN creation_group_position INTEGER');
+  }
+  if (!generationColumns.some((column) => column.name === 'social_copy')) {
+    db.exec('ALTER TABLE content_studio_generations ADD COLUMN social_copy TEXT');
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_content_studio_generations_group
+    ON content_studio_generations(creation_group_id, creation_group_position)`);
   const socialConnectionColumns = db.prepare('PRAGMA table_info(content_studio_social_connections)').all();
   if (!socialConnectionColumns.some((column) => column.name === 'meta_user_id')) {
     db.exec('ALTER TABLE content_studio_social_connections ADD COLUMN meta_user_id TEXT');

@@ -1183,6 +1183,9 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     const productName = clean(req.body.product_name, 70);
     const productFeatures = clean(req.body.product_features, 150);
     const creativeInstruction = clean(req.body.creative_instruction, 260);
+    const creationGroupId = clean(req.body.creation_group_id, 80);
+    const creationGroupType = ['carousel', 'collection', 'week', 'campaign'].includes(req.body.creation_group_type) ? req.body.creation_group_type : '';
+    const creationGroupPosition = Math.max(0, Math.min(30, Number(req.body.creation_group_position) || 0));
     const editorialSubject = ['female', 'male', 'animal'].includes(req.body.editorial_subject) ? req.body.editorial_subject : 'female';
     const preset = PRESETS[req.body.preset];
     const logoId = Number(req.body.logo_id || 0);
@@ -1198,6 +1201,14 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     if (logoId && !logo) return res.status(400).json({ message: 'El logo seleccionado ya no está disponible' });
     const establishmentSettings = db.prepare('SELECT * FROM content_studio_settings WHERE establishment_id = ?').get(req.contentStudioEstablishment.id);
     const settings = planSettings(req, establishmentSettings);
+    const advancedMinimum = ['week', 'campaign'].includes(creationGroupType) ? 150 : creationGroupType ? 60 : 0;
+    const managesStudio = ['admin', 'supreme'].includes(req.user.role);
+    if (advancedMinimum && !managesStudio && Number(settings.monthly_limit || 0) < advancedMinimum) {
+      return res.status(403).json({
+        code: 'ADVANCED_PLAN_REQUIRED',
+        message: advancedMinimum === 150 ? 'Esta herramienta está disponible con el plan Pro.' : 'Esta herramienta está disponible desde el plan Negocio.'
+      });
+    }
     const contactWhatsapp = clean(req.body.contact_whatsapp, 30);
     const contactLocation = clean(req.body.contact_location, 80);
     if (!activeSubscription(req.contentStudioUser)) return res.status(403).json({ code: 'PLAN_REQUIRED', message: 'Elige un plan para comenzar a crear.' });
@@ -1213,9 +1224,12 @@ export function registerContentStudioRoutes(app, db, options = {}) {
         .get(req.contentStudioEstablishment.id, ...userParams, ...periodParams).total;
       if (occupied >= settings.monthly_limit) return null;
       const inserted = db.prepare(`INSERT INTO content_studio_generations
-        (establishment_id, content_studio_user_id, preset, product_name, brand_name, material, color, headline, mood, aspect_ratio, reference_ids_json, status, error_message, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'failed', '__processing__', ?)`)
-        .run(req.contentStudioEstablishment.id, studioUserId, req.body.preset, productName, logo?.name || '', '', '', '', req.body.preset === 'social' ? clean(req.body.social_style, 40) || 'editorial' : req.body.preset === 'editorial' ? editorialSubject : 'light', outputRatio, '[]', req.user.username || req.user.role);
+        (establishment_id, content_studio_user_id, preset, product_name, brand_name, material, color, headline, mood, aspect_ratio, reference_ids_json,
+         creation_group_id, creation_group_type, creation_group_position, status, error_message, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'failed', '__processing__', ?)`)
+        .run(req.contentStudioEstablishment.id, studioUserId, req.body.preset, productName, logo?.name || '', '', '', creativeInstruction,
+          req.body.preset === 'social' ? clean(req.body.social_style, 40) || 'editorial' : req.body.preset === 'editorial' ? editorialSubject : 'light',
+          outputRatio, '[]', creationGroupId || null, creationGroupType || null, creationGroupPosition || null, req.user.username || req.user.role);
       return inserted.lastInsertRowid;
     })();
     if (!reservation) return res.status(429).json({ code: 'CREDITS_EXHAUSTED', message: 'Tus creaciones disponibles se terminaron. Elige un plan para continuar.' });

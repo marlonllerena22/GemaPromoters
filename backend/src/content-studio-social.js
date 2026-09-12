@@ -138,6 +138,7 @@ async function createCopy(generation, brandName) {
 Marca: ${clean(brandName, 100) || 'sin nombre indicado'}.
 Producto: ${clean(generation.product_name, 100) || 'producto visible en la imagen'}.
 Tipo de creación: ${clean(generation.preset, 40)}.
+Objetivo indicado: ${clean(generation.headline, 260) || 'presentar el producto de forma atractiva'}.
 
 Entrega únicamente el copy final, sin títulos ni explicaciones. Debe sonar natural, cercano y profesional; incluir una llamada a la acción suave, máximo 2 emojis y entre 3 y 5 hashtags relevantes. No inventes precios, descuentos, ubicación, materiales, beneficios ni características que no fueron proporcionados. Máximo 650 caracteres.`,
       max_output_tokens: 240,
@@ -390,10 +391,13 @@ export function registerContentStudioSocialRoutes(app, db, guard) {
     if (!hasSocialPlan(req)) return res.status(403).json({ code: 'SOCIAL_PLAN_REQUIRED', message: 'El copy automático está disponible desde el plan Negocio.' });
     const generation = ownedGeneration(db, req, Number(req.body?.generation_id || 0));
     if (!generation) return res.status(404).json({ message: 'Creación no encontrada' });
+    if (clean(generation.social_copy, 650)) return res.json({ copy: clean(generation.social_copy, 650), cached: true });
     try {
       const brandName = req.contentStudioUser?.business_name
         || db.prepare('SELECT brand_name FROM content_studio_settings WHERE establishment_id = ?').get(req.contentStudioEstablishment.id)?.brand_name;
-      res.json({ copy: await createCopy(generation, brandName) });
+      const copy = await createCopy(generation, brandName);
+      db.prepare('UPDATE content_studio_generations SET social_copy = ? WHERE id = ?').run(copy, generation.id);
+      res.json({ copy });
     } catch (error) {
       res.status(502).json({ message: error.message || 'No se pudo crear el copy' });
     }
