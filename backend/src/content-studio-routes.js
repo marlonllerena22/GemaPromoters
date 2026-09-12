@@ -65,6 +65,9 @@ const SELLER_ACTIVITY_GOAL = { total: 12, visits: 4, demos: 3, followups: 3 };
 const SELLER_QUINCENIAL_SALES_GOAL = 250;
 const SELLER_UPPER_PLAN_CLIENTS_GOAL = 3;
 const SELLER_QUINCENIAL_BONUS = 100;
+const SELLER_DEMO_CREDITS = 25;
+const SELLER_TRIAL_CREDITS = 5;
+const SELLER_TRIAL_DAYS = 7;
 
 const clean = (value, max = 160) => String(value ?? '').trim().slice(0, max);
 const cleanEmail = (value) => clean(value, 180).toLowerCase();
@@ -85,6 +88,22 @@ function uniqueStudioUsername(db, email) {
   while (db.prepare('SELECT 1 FROM content_studio_users WHERE LOWER(username) = LOWER(?)').get(candidate)) {
     suffix += 1;
     candidate = `${local.slice(0, 52)}.${suffix}`;
+  }
+  return candidate;
+}
+
+function uniqueTrialUsername(db, name, email) {
+  const seed = cleanEmail(email).split('@')[0] || clean(name, 80);
+  const base = seed.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '.').replace(/^\.+|\.+$/g, '').slice(0, 46) || 'cliente';
+  let suffix = 1;
+  let candidate = `${base}.prueba`;
+  const exists = (username) => db.prepare(`SELECT 1 FROM content_studio_users WHERE LOWER(username) = LOWER(?)
+      UNION ALL SELECT 1 FROM content_studio_sellers WHERE LOWER(username) = LOWER(?) LIMIT 1`)
+    .get(username, username);
+  while (exists(candidate)) {
+    suffix += 1;
+    candidate = `${base.slice(0, 46)}.prueba${suffix}`;
   }
   return candidate;
 }
@@ -228,7 +247,7 @@ function resolveScope(db, req) {
 
 function studioAuth(db) {
   return (req, res, next) => requireAuth(req, res, () => {
-    if (!['admin', 'supreme', 'content_studio_user'].includes(req.user?.role)) {
+    if (!['admin', 'supreme', 'content_studio_user', 'content_studio_seller'].includes(req.user?.role)) {
       return res.status(403).json({ message: 'Acceso exclusivo de Estudios Creativos' });
     }
     const establishment = resolveScope(db, req);
@@ -240,6 +259,13 @@ function studioAuth(db) {
         .get(req.user.contentStudioUserId, establishment.id);
       if (!studioUser) return res.status(403).json({ message: 'Usuario de Estudios Creativos no disponible' });
       req.contentStudioUser = studioUser;
+    }
+    if (req.user.role === 'content_studio_seller') {
+      const seller = db.prepare("SELECT * FROM content_studio_sellers WHERE id = ? AND establishment_id = ? AND status = 'active'")
+        .get(req.user.contentStudioSellerId, establishment.id);
+      if (!seller) return res.status(403).json({ message: 'Tu acceso de vendedor no está disponible' });
+      req.contentStudioSeller = seller;
+      req.contentStudioUser = ensureSellerWorkspace(db, seller);
     }
     req.contentStudioEstablishment = establishment;
     next();
@@ -294,7 +320,7 @@ function listStudioUsers(db, establishmentId) {
               AND generations.status = 'completed'
               AND generations.created_at >= COALESCE(users.paid_at, users.created_at)) AS usage
     FROM content_studio_users users
-    WHERE users.establishment_id = ?
+    WHERE users.establishment_id = ? AND COALESCE(users.is_seller_workspace, 0) = 0
     ORDER BY users.created_at DESC, users.id DESC
   `).all(establishmentId);
 }
@@ -338,6 +364,40 @@ function currentQuincena(db) {
     : db.prepare("SELECT date('now', 'localtime', 'start of month', '+15 days') AS value").get().value;
   const end = db.prepare("SELECT date(?, '+14 days') AS value").get(start).value;
   return { start, end };
+}
+
+function ensureSellerWorkspace(db, seller) {
+  const period = currentQuincena(db);
+  const username = `__seller_demo_${seller.id}`;
+  let workspace = db.prepare('SELECT * FROM content_studio_users WHERE establishment_id = ? AND username = ?')
+    .get(seller.establishment_id, username);
+  if (!workspace) {
+    const inserted = db.prepare(`INSERT INTO content_studio_users
+      (establishment_id, name, business_name, username, password_hash, credit_limit, plan_name, monthly_limit,
+       subscription_status, paid_at, paid_until, brand_tone, created_by_seller_id, is_seller_workspace, status)
+      VALUES (?, ?, ?, ?, ?, ?, 'Demostraciones', ?, 'trial', ?, ?, 'premium', ?, 1, 'active')`)
+      .run(seller.establishment_id, seller.name, `Demostraciones de ${seller.name}`, username,
+        hashContentStudioPassword(crypto.randomBytes(24).toString('base64url')), SELLER_DEMO_CREDITS,
+        SELLER_DEMO_CREDITS, `${period.start} 00:00:00`, period.end, seller.id);
+    workspace = db.prepare('SELECT * FROM content_studio_users WHERE id = ?').get(inserted.lastInsertRowid);
+  } else if (String(workspace.paid_at || '').slice(0, 10) !== period.start) {
+    db.prepare(`UPDATE content_studio_users SET credit_limit = ?, monthly_limit = ?, plan_name = 'Demostraciones',
+      subscription_status = 'trial', paid_at = ?, paid_until = ?, status = 'active', updated_at = datetime('now', 'localtime')
+      WHERE id = ?`).run(SELLER_DEMO_CREDITS, SELLER_DEMO_CREDITS, `${period.start} 00:00:00`, period.end, workspace.id);
+    workspace = db.prepare('SELECT * FROM content_studio_users WHERE id = ?').get(workspace.id);
+  }
+  return workspace;
+}
+
+function sellerTrials(db, seller) {
+  return db.prepare(`SELECT users.id, users.name, users.business_name, users.username, users.email,
+      users.contact_whatsapp, users.credit_limit, users.paid_until, users.status, users.created_at,
+      (SELECT COUNT(*) FROM content_studio_generations generations
+       WHERE generations.content_studio_user_id = users.id AND generations.status = 'completed'
+         AND generations.deleted_at IS NULL AND generations.created_at >= COALESCE(users.paid_at, users.created_at)) AS usage
+    FROM content_studio_users users
+    WHERE users.establishment_id = ? AND users.created_by_seller_id = ? AND COALESCE(users.is_seller_workspace, 0) = 0
+    ORDER BY users.created_at DESC, users.id DESC LIMIT 50`).all(seller.establishment_id, seller.id);
 }
 
 function sellerPeriodSummary(db, establishmentId, sellerId = null) {
@@ -817,6 +877,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
   });
 
   app.post('/api/content-studio/plan-orders', guard, (req, res) => {
+    if (req.contentStudioSeller) return res.status(403).json({ message: 'Las demostraciones de vendedor no requieren comprar un plan' });
     if (!req.contentStudioUser) return res.status(403).json({ message: 'Selecciona el usuario que comprará el plan' });
     const plan = STUDIO_PLANS.find((item) => item.id === req.body.plan_id);
     if (!plan) return res.status(400).json({ message: 'Selecciona un plan válido' });
@@ -954,7 +1015,44 @@ export function registerContentStudioRoutes(app, db, options = {}) {
   app.get('/api/content-studio/seller/bootstrap', sellerGuard, (req, res) => {
     const summary = sellerPeriodSummary(db, req.contentStudioEstablishment.id, req.contentStudioSeller.id);
     const activities = db.prepare(`SELECT * FROM content_studio_seller_activities WHERE seller_id = ? ORDER BY created_at DESC, id DESC LIMIT 30`).all(req.contentStudioSeller.id);
-    res.json({ seller: { id: req.contentStudioSeller.id, name: req.contentStudioSeller.name, username: req.contentStudioSeller.username, email: req.contentStudioSeller.email || '', phone: req.contentStudioSeller.phone || '' }, ...summary, activities, plans: STUDIO_PLANS, transfer: studioPaymentSettings(db) });
+    const workspace = ensureSellerWorkspace(db, req.contentStudioSeller);
+    const demoUsage = db.prepare(`SELECT COUNT(*) AS total FROM content_studio_generations
+      WHERE content_studio_user_id = ? AND status = 'completed' AND deleted_at IS NULL
+        AND created_at >= ?`).get(workspace.id, workspace.paid_at).total;
+    res.json({
+      seller: { id: req.contentStudioSeller.id, name: req.contentStudioSeller.name, username: req.contentStudioSeller.username, email: req.contentStudioSeller.email || '', phone: req.contentStudioSeller.phone || '' },
+      ...summary, activities, trials: sellerTrials(db, req.contentStudioSeller),
+      demo: { limit: SELLER_DEMO_CREDITS, usage: demoUsage, available: Math.max(0, SELLER_DEMO_CREDITS - demoUsage), resets_at: workspace.paid_until },
+      trial: { credits: SELLER_TRIAL_CREDITS, days: SELLER_TRIAL_DAYS },
+      plans: STUDIO_PLANS, transfer: studioPaymentSettings(db)
+    });
+  });
+
+  app.post('/api/content-studio/seller/trials', sellerGuard, (req, res) => {
+    const name = clean(req.body.name, 100);
+    const businessName = clean(req.body.business_name, 100) || name;
+    const whatsapp = clean(req.body.whatsapp, 30).replace(/\D/g, '');
+    const email = cleanEmail(req.body.email);
+    if (!name || !businessName || whatsapp.length < 9) {
+      return res.status(400).json({ message: 'Completa el nombre, negocio y WhatsApp del cliente' });
+    }
+    if (email && !validEmail(email)) return res.status(400).json({ message: 'Ingresa un correo válido o déjalo vacío' });
+    const duplicate = (email && db.prepare('SELECT id FROM content_studio_users WHERE LOWER(email) = ?').get(email))
+      || db.prepare("SELECT id FROM content_studio_users WHERE contact_whatsapp = ? AND status = 'active' AND COALESCE(is_seller_workspace, 0) = 0").get(whatsapp);
+    if (duplicate) return res.status(409).json({ message: 'Este cliente ya tiene una cuenta activa de Estudios Creativos' });
+    const username = uniqueTrialUsername(db, name, email);
+    const password = `EC${crypto.randomInt(1000, 10000)}${crypto.randomBytes(2).toString('hex')}`;
+    const inserted = db.prepare(`INSERT INTO content_studio_users
+      (establishment_id, name, business_name, username, password_hash, email, contact_whatsapp,
+       credit_limit, plan_name, monthly_limit, subscription_status, paid_at, paid_until, brand_tone,
+       created_by_seller_id, is_seller_workspace, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Prueba de vendedor', ?, 'trial', datetime('now', 'localtime'),
+        date('now', 'localtime', ?), 'premium', ?, 0, 'active')`)
+      .run(req.contentStudioEstablishment.id, name, businessName, username, hashContentStudioPassword(password),
+        email || null, whatsapp, SELLER_TRIAL_CREDITS, SELLER_TRIAL_CREDITS, `+${SELLER_TRIAL_DAYS} days`, req.contentStudioSeller.id);
+    const user = db.prepare(`SELECT id, name, business_name, username, email, contact_whatsapp,
+      credit_limit, paid_until, status, created_at FROM content_studio_users WHERE id = ?`).get(inserted.lastInsertRowid);
+    res.status(201).json({ user, credentials: { username, password }, credits: SELLER_TRIAL_CREDITS, days: SELLER_TRIAL_DAYS });
   });
 
   app.post('/api/content-studio/seller/activities', sellerGuard, (req, res) => {
@@ -999,6 +1097,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
   });
 
   app.put('/api/content-studio/me', guard, (req, res) => {
+    if (req.contentStudioSeller) return res.status(403).json({ message: 'Tu perfil de vendedor se administra desde el portal comercial' });
     if (!req.contentStudioUser) return res.status(403).json({ message: 'Este perfil se administra desde la cuenta principal' });
     const name = clean(req.body.name, 100) || req.contentStudioUser.name;
     const email = cleanEmail(req.body.email || req.contentStudioUser.email);
@@ -1012,6 +1111,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
   });
 
   app.put('/api/content-studio/me/password', guard, (req, res) => {
+    if (req.contentStudioSeller) return res.status(403).json({ message: 'Tu acceso de vendedor se administra desde el portal comercial' });
     if (!req.contentStudioUser || !String(req.contentStudioUser.password_hash || '').startsWith('scrypt$')) {
       return res.status(409).json({ message: 'Tu cuenta entra con Google o enlace por correo y no utiliza contraseña' });
     }

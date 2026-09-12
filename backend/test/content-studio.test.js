@@ -4,7 +4,7 @@ import Database from 'better-sqlite3';
 import express from 'express';
 import sharp from 'sharp';
 import { createToken } from '../src/auth.js';
-import { initContentStudioDb, verifyContentStudioPassword } from '../src/content-studio-db.js';
+import { hashContentStudioPassword, initContentStudioDb, verifyContentStudioPassword } from '../src/content-studio-db.js';
 import crypto from 'node:crypto';
 import { buildPrompt, normalizeLogoForStorage, PRESETS, registerContentStudioRoutes, resizeSocialOutput } from '../src/content-studio-routes.js';
 
@@ -363,6 +363,57 @@ test('a verified magic link creates a zero-credit account once and generation ro
   const active = await request('/bootstrap', { token: newUserToken });
   assert.equal(active.data.subscription.active, true);
   assert.equal(active.data.available_credits, 25);
+});
+
+test('a seller can create five-credit trials and use an isolated demonstration workspace', async (t) => {
+  const { db, server, request, waitForGeneration } = fixture();
+  t.after(() => { server.close(); db.close(); });
+  db.prepare(`INSERT INTO content_studio_sellers
+    (id, establishment_id, name, username, password_hash, status)
+    VALUES (1, 1, 'Andrea Ventas', 'andrea.ventas', ?, 'active')`).run(hashContentStudioPassword('ventas123'));
+  const sellerToken = createToken({ role: 'content_studio_seller', username: 'andrea.ventas', contentStudioSellerId: 1, establishmentId: 1 });
+
+  const sellerHome = await request('/seller/bootstrap', { token: sellerToken });
+  assert.equal(sellerHome.status, 200);
+  assert.equal(sellerHome.data.demo.limit, 25);
+  assert.equal(sellerHome.data.demo.available, 25);
+  assert.equal(sellerHome.data.trial.credits, 5);
+
+  const trial = await request('/seller/trials', {
+    token: sellerToken, method: 'POST', body: JSON.stringify({
+      name: 'Cliente Prueba', business_name: 'Boutique Prueba', whatsapp: '0987654321', email: 'prueba@cliente.test'
+    })
+  });
+  assert.equal(trial.status, 201);
+  assert.equal(trial.data.user.credit_limit, 5);
+  assert.match(trial.data.credentials.username, /\.prueba/);
+  const storedTrial = db.prepare('SELECT * FROM content_studio_users WHERE id = ?').get(trial.data.user.id);
+  assert.equal(storedTrial.subscription_status, 'trial');
+  assert.equal(storedTrial.created_by_seller_id, 1);
+  assert.equal(verifyContentStudioPassword(trial.data.credentials.password, storedTrial.password_hash), true);
+
+  const duplicate = await request('/seller/trials', {
+    token: sellerToken, method: 'POST', body: JSON.stringify({
+      name: 'Cliente Repetido', business_name: 'Otro local', whatsapp: '0987654321'
+    })
+  });
+  assert.equal(duplicate.status, 409);
+
+  const studio = await request('/bootstrap', { token: sellerToken });
+  assert.equal(studio.status, 200);
+  assert.equal(studio.data.settings.monthly_limit, 25);
+  assert.equal(studio.data.available_credits, 25);
+  const generation = await request('/generate', {
+    token: sellerToken, method: 'POST', body: JSON.stringify({ preset: 'catalog', logo_id: 'none', product_image: sampleImage })
+  });
+  assert.equal(generation.status, 202);
+  await waitForGeneration(generation.data.generation.id, sellerToken);
+  const after = await request('/bootstrap', { token: sellerToken });
+  assert.equal(after.data.available_credits, 24);
+
+  const adminUsers = await request('/users');
+  assert.equal(adminUsers.data.some((user) => user.username.startsWith('__seller_demo_')), false);
+  assert.equal(adminUsers.data.some((user) => user.id === trial.data.user.id), true);
 });
 
 test('social output preserves the native aspect ratio and never crops the generated canvas', async () => {

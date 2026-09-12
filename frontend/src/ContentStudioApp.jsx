@@ -88,12 +88,13 @@ function downloadDataImage(data, name = 'contenido-creado.webp') {
   link.remove();
 }
 
-export default function ContentStudioApp({ user, onLogout, embedded = false, establishmentId, initialTab = 'create' }) {
+export default function ContentStudioApp({ user, onLogout, embedded = false, establishmentId, initialTab = 'create', sellerDemo = false }) {
   const scopeId = establishmentId || user?.establishment_id;
   const scopeQuery = scopeId ? `?establishment_id=${scopeId}` : '';
   const scopeBody = scopeId ? { establishment_id: Number(scopeId) } : {};
   const activeStorageKey = `content-studio-active-generation-${scopeId || 'current'}`;
   const isStudioAdmin = ['admin', 'supreme'].includes(user?.role);
+  const isSellerWorkspace = sellerDemo || user?.role === 'content_studio_seller';
   const [tab, setTab] = useState(initialTab);
   const [data, setData] = useState(null);
   const [form, setForm] = useState(emptyForm);
@@ -114,13 +115,9 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
   const mountedRef = useRef(true);
   const loadedSections = useRef(new Set());
 
-  const navigation = [
-    ['create', 'Crear', Sparkles],
-    ['history', 'Historial', LayoutGrid],
-    ['profile', 'Perfil', UserRound],
-    ...(isStudioAdmin ? [['users', 'Usuarios', UsersRound]] : []),
-    ['settings', 'Configuración', Settings]
-  ];
+  const navigation = isSellerWorkspace
+    ? [['create', 'Crear', Sparkles], ['history', 'Historial', LayoutGrid], ['settings', 'Marca', Settings]]
+    : [['create', 'Crear', Sparkles], ['history', 'Historial', LayoutGrid], ['profile', 'Perfil', UserRound], ...(isStudioAdmin ? [['users', 'Usuarios', UsersRound]] : []), ['settings', 'Configuración', Settings]];
 
   useEffect(() => {
     const previousTitle = document.title;
@@ -251,7 +248,11 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
 
   async function generate(event) {
     event.preventDefault(); setError('');
-    if (!data?.subscription?.active || Number(data?.available_credits || 0) <= 0) { setPlansOpen(true); return; }
+    if (!data?.subscription?.active || Number(data?.available_credits || 0) <= 0) {
+      if (isSellerWorkspace) setError('Ya utilizaste tus créditos de demostración de esta quincena. Se renovarán automáticamente en el siguiente periodo.');
+      else setPlansOpen(true);
+      return;
+    }
     if (!productImage) { setError('Primero sube la foto del producto'); return; }
     setGenerating(true); setGenerationProgress({ percent: 7, label: 'Enviando tu foto de forma segura' });
     try {
@@ -271,6 +272,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
     if (!Array.isArray(jobs) || !jobs.length) throw new Error('Configura al menos una pieza para crear');
     const available = Math.max(0, Number(data?.available_credits ?? (Number(data?.settings?.monthly_limit || 0) - Number(data?.usage || 0))));
     if (!data?.subscription?.active || available < jobs.length) {
+      if (isSellerWorkspace) throw new Error(`Necesitas ${jobs.length} créditos y tienes ${available} disponibles para demostraciones.`);
       setRequestedPlan(['week', 'campaign'].includes(mode) ? 'pro' : 'negocio');
       setPlansOpen(true);
       throw new Error(`Necesitas ${jobs.length} créditos disponibles para crear este contenido.`);
@@ -339,15 +341,15 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
       {notice && <div className="cs-toast"><Check size={17}/>{notice}</div>}
       {error && <div className="cs-error"><span>{error}</span><button onClick={() => setError('')}><X size={17}/></button>{!data && <button className="cs-error-retry" onClick={() => loadCore()}>Reintentar</button>}</div>}
       {loading && !data ? <StudioShellSkeleton /> : data && <>
-        {tab === 'create' && <CreateView data={data} form={form} setForm={setForm} productImage={productImage} inputRef={inputRef} cameraInputRef={cameraInputRef} chooseProduct={chooseProduct} selectedPreset={selectedPreset} generate={generate} generateAdvanced={generateAdvanced} generating={generating} result={result} generationProgress={generationProgress} newCreation={newCreation} usagePercent={usagePercent} goToHistory={() => setTab('history')} goToProfile={() => setTab('profile')} goToSettings={() => setTab('settings')} openPlans={(planId) => { setRequestedPlan(planId || ''); setPlansOpen(true); }} />}
+        {tab === 'create' && <CreateView data={data} form={form} setForm={setForm} productImage={productImage} inputRef={inputRef} cameraInputRef={cameraInputRef} chooseProduct={chooseProduct} selectedPreset={selectedPreset} generate={generate} generateAdvanced={generateAdvanced} generating={generating} result={result} generationProgress={generationProgress} newCreation={newCreation} usagePercent={usagePercent} goToHistory={() => setTab('history')} goToProfile={() => setTab(isSellerWorkspace ? 'history' : 'profile')} goToSettings={() => setTab('settings')} openPlans={(planId) => { if (isSellerWorkspace) setError('Las herramientas por lotes requieren más créditos que tu espacio de demostración.'); else { setRequestedPlan(planId || ''); setPlansOpen(true); } }} sellerDemo={isSellerWorkspace} />}
         {tab === 'history' && (sectionLoading && !loadedSections.current.has('history') ? <SectionSkeleton title="Cargando tu historial" /> : <HistoryView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/>) }
         {tab === 'profile' && <AccountProfile data={data} user={user} onLogout={onLogout} openPlans={() => setPlansOpen(true)} setData={setData} setError={setError}/>}
         {tab === 'users' && isStudioAdmin && (sectionLoading && !loadedSections.current.has('admin') ? <SectionSkeleton title="Cargando usuarios y transferencias" /> : <><UsersView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/><div className="cs-settings-divider"><SellersView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/></div></>)}
-        {tab === 'settings' && <BusinessConfiguration data={data} scopeBody={scopeBody} reload={reload} setError={setError} user={user} appearance={appearance} setAppearance={setAppearance} onSaved={(settings) => setData((current) => ({...current,settings}))}/>}
+        {tab === 'settings' && <BusinessConfiguration data={data} scopeBody={scopeBody} reload={reload} setError={setError} user={user} appearance={appearance} setAppearance={setAppearance} onSaved={(settings) => setData((current) => ({...current,settings}))} sellerDemo={isSellerWorkspace}/>}
       </>}
     </div>
     {!embedded && <nav className={`cs-mobile-nav ${isStudioAdmin ? 'admin' : ''}`} aria-label="Navegación principal">{navigation.map(([key,label,Icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => key === 'create' ? newCreation() : setTab(key)}><Icon size={21}/><span>{label}</span></button>)}</nav>}
-    {plansOpen && data && (
+    {plansOpen && data && !isSellerWorkspace && (
       <PlansModal plans={data.plans || PLAN_PACKAGES} initialPlan={requestedPlan} account={data.account || user} settings={data.settings} transfer={data.transfer} onClose={() => { setPlansOpen(false); setRequestedPlan(''); }} onRequested={(order) => { setNotice(`Solicitud ${order.order_number} enviada`); setPlansOpen(false); }}/>
     )}
   </div>;
@@ -569,7 +571,7 @@ function ContactFields({ form, setForm }) {
   return <div className="cs-advanced-contact-fields"><label><strong>WhatsApp para incluir</strong><input inputMode="tel" maxLength="30" value={form.contact_whatsapp} onChange={(event) => setForm({ ...form, contact_whatsapp: event.target.value })} placeholder="Ej. 0983763419" /><small>Opcional. La IA lo integrará al diseño.</small></label><label><strong>Ubicación para incluir</strong><input maxLength="80" value={form.contact_location} onChange={(event) => setForm({ ...form, contact_location: event.target.value })} placeholder="Ej. Centro de Ambato" /><small>Opcional. Se envía junto con la creación.</small></label></div>;
 }
 
-function CreateView({ data, form, setForm, productImage, inputRef, cameraInputRef, chooseProduct, selectedPreset, generate, generateAdvanced, generating, generationProgress, result, newCreation, usagePercent, goToHistory, goToProfile, goToSettings, openPlans }) {
+function CreateView({ data, form, setForm, productImage, inputRef, cameraInputRef, chooseProduct, selectedPreset, generate, generateAdvanced, generating, generationProgress, result, newCreation, usagePercent, goToHistory, goToProfile, goToSettings, openPlans, sellerDemo = false }) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   if (result) {
     return (
@@ -675,9 +677,9 @@ function CreateView({ data, form, setForm, productImage, inputRef, cameraInputRe
           <div className="cs-summary-visual">{productImage ? <img src={productImage} alt="Vista previa" /> : <ImageIcon size={36} />}</div>
           <span>Tu creación</span><h3>{selectedPreset?.name}</h3><p>{selectedPreset?.description}</p>
           <ul>{form.preset === 'editorial' && <li><UserRound size={15} /> Modelo: {EDITORIAL_SUBJECTS.find((item) => item.id === form.editorial_subject)?.name || 'Femenino'}</li>}{(form.contact_whatsapp || form.contact_location) && <li><MessageCircle size={15} /> Contacto integrado al diseño</li>}<li><Check size={15} /> Producto fiel al original</li><li><Check size={15} /> Acabado fotográfico realista</li><li><Check size={15} /> Alta calidad para publicar</li></ul>
-          <button className="cs-generate" disabled={generating || (!needsPlan && (!productImage || !data.generation_available))}>{generating ? <><i /> Creando tu imagen...</> : needsPlan ? <><CreditCard size={18}/> Elegir un plan</> : <>Continuar <ChevronRight size={19} /></>}</button>
+          <button className="cs-generate" disabled={generating || (!needsPlan && (!productImage || !data.generation_available))}>{generating ? <><i /> Creando tu imagen...</> : needsPlan ? <><CreditCard size={18}/> {sellerDemo ? 'Créditos agotados' : 'Elegir un plan'}</> : <>Continuar <ChevronRight size={19} /></>}</button>
           {generating && <MagicGenerationProgress progress={generationProgress} />}
-          {!data.generation_available && <small className="cs-api-note">{data.subscription?.active ? 'La interfaz está lista. Falta conectar la clave de OpenAI en el servidor.' : 'Tu plan necesita estar activo para crear imágenes.'}</small>}
+          {!data.generation_available && <small className="cs-api-note">{sellerDemo && available <= 0 ? 'Tus créditos de demostración se renuevan automáticamente cada quincena.' : data.subscription?.active ? 'La interfaz está lista. Falta conectar la clave de OpenAI en el servidor.' : 'Tu plan necesita estar activo para crear imágenes.'}</small>}
         </aside>
       </div>
     </form>
@@ -757,12 +759,12 @@ function AppearanceSettings({ appearance, setAppearance }) {
   </section>;
 }
 
-function BusinessConfiguration({ data, scopeBody, reload, setError, user, appearance, setAppearance, onSaved }) {
+function BusinessConfiguration({ data, scopeBody, reload, setError, user, appearance, setAppearance, onSaved, sellerDemo = false }) {
   return <section className="cs-business-page">
-    <div className="cs-section-heading"><span className="cs-eyebrow">Tu negocio</span><h1>Configuración</h1><p>Administra la identidad, las marcas y las preferencias de tus creaciones.</p></div>
+    <div className="cs-section-heading"><span className="cs-eyebrow">{sellerDemo ? 'Tus demostraciones' : 'Tu negocio'}</span><h1>{sellerDemo ? 'Marca para la prueba' : 'Configuración'}</h1><p>{sellerDemo ? 'Carga temporalmente el logo y configura el estilo que usarás durante la demostración.' : 'Administra la identidad, las marcas y las preferencias de tus creaciones.'}</p></div>
     <AppearanceSettings appearance={appearance} setAppearance={setAppearance}/>
     <div className="cs-settings-divider"><SettingsView data={data} scopeBody={scopeBody} onSaved={onSaved} setError={setError} user={user}/></div>
-    <div className="cs-settings-divider"><SocialConnectionsSettings user={user}/></div>
+    {!sellerDemo && <div className="cs-settings-divider"><SocialConnectionsSettings user={user}/></div>}
     <div className="cs-settings-divider"><LogosView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/></div>
   </section>;
 }

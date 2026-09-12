@@ -77,6 +77,8 @@ export function initContentStudioDb(db) {
       brand_tone TEXT NOT NULL DEFAULT 'premium',
       contact_whatsapp TEXT,
       contact_location TEXT,
+      created_by_seller_id INTEGER,
+      is_seller_workspace INTEGER NOT NULL DEFAULT 0 CHECK (is_seller_workspace IN (0, 1)),
       can_delete_generations INTEGER NOT NULL DEFAULT 1 CHECK (can_delete_generations IN (0, 1)),
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
@@ -375,6 +377,12 @@ export function initContentStudioDb(db) {
   if (!userColumns.some((column) => column.name === 'contact_location')) {
     db.exec('ALTER TABLE content_studio_users ADD COLUMN contact_location TEXT');
   }
+  if (!userColumns.some((column) => column.name === 'created_by_seller_id')) {
+    db.exec('ALTER TABLE content_studio_users ADD COLUMN created_by_seller_id INTEGER');
+  }
+  if (!userColumns.some((column) => column.name === 'is_seller_workspace')) {
+    db.exec('ALTER TABLE content_studio_users ADD COLUMN is_seller_workspace INTEGER NOT NULL DEFAULT 0 CHECK (is_seller_workspace IN (0, 1))');
+  }
   if (!userColumns.some((column) => column.name === 'can_delete_generations')) {
     db.exec('ALTER TABLE content_studio_users ADD COLUMN can_delete_generations INTEGER NOT NULL DEFAULT 1 CHECK (can_delete_generations IN (0, 1))');
     db.prepare(`UPDATE content_studio_users SET can_delete_generations = 0
@@ -383,6 +391,7 @@ export function initContentStudioDb(db) {
   }
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_content_studio_users_email ON content_studio_users(LOWER(email)) WHERE email IS NOT NULL AND email != ''");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_content_studio_users_google_sub ON content_studio_users(google_sub) WHERE google_sub IS NOT NULL AND google_sub != ''");
+  db.exec('CREATE INDEX IF NOT EXISTS idx_content_studio_users_seller_origin ON content_studio_users(created_by_seller_id, is_seller_workspace, created_at)');
 
   const orderColumns = db.prepare('PRAGMA table_info(content_studio_plan_orders)').all();
   if (!orderColumns.some((column) => column.name === 'payment_provider')) {
