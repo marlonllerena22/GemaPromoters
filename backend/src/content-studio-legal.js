@@ -1,4 +1,4 @@
-const CONTACT_EMAIL = 'promoters.ecu@gmail.com';
+const CONTACT_EMAIL = 'estudioscreativosec@gmail.com';
 const CONTACT_PHONE = '098 376 3419';
 
 const privacySections = [

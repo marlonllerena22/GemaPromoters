@@ -186,13 +186,23 @@ function createStudioHandoff(db, claims) {
 }
 
 function studioTransporter() {
-  if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) return null;
+  const host = process.env.CONTENT_STUDIO_SMTP_HOST || process.env.SMTP_HOST;
+  const user = process.env.CONTENT_STUDIO_SMTP_USER || process.env.SMTP_USER;
+  const pass = process.env.CONTENT_STUDIO_SMTP_PASS || process.env.SMTP_PASS;
+  if (!host || !user || !pass) return null;
   return nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT || 587),
-    secure: String(process.env.SMTP_SECURE || '').toLowerCase() === 'true',
-    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+    host,
+    port: Number(process.env.CONTENT_STUDIO_SMTP_PORT || process.env.SMTP_PORT || 587),
+    secure: String(process.env.CONTENT_STUDIO_SMTP_SECURE || process.env.SMTP_SECURE || '').toLowerCase() === 'true',
+    auth: { user, pass }
   });
+}
+
+function studioEmailFrom() {
+  return process.env.CONTENT_STUDIO_SMTP_FROM
+    || (process.env.CONTENT_STUDIO_SMTP_USER ? `Estudios Creativos <${process.env.CONTENT_STUDIO_SMTP_USER}>` : '')
+    || process.env.SMTP_FROM
+    || process.env.SMTP_USER;
 }
 
 function studioAppUrl(pathname = '/ingresar') {
@@ -302,7 +312,7 @@ function studioPaymentSettings(db) {
     deuna_qr_url: settings?.deuna_qr_url || '',
     whatsapp: '593983763419',
     phone_display: '098 376 3419',
-    email: process.env.CONTENT_STUDIO_CONTACT_EMAIL || 'promoters.ecu@gmail.com',
+    email: process.env.CONTENT_STUDIO_CONTACT_EMAIL || 'estudioscreativosec@gmail.com',
     ready: Boolean(settings?.account_number || settings?.deuna_qr_url)
   };
 }
@@ -459,18 +469,14 @@ async function defaultResearchProduct(db, productName) {
 }
 
 async function sendStudioActivationEmail(order, user) {
-  if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS || !order?.email) {
+  const transporter = studioTransporter();
+  if (!transporter || !order?.email) {
     return { sent: false, reason: 'SMTP no configurado' };
   }
-  const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT || 587),
-    secure: String(process.env.SMTP_SECURE || '').toLowerCase() === 'true',
-    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
-  });
   const appUrl = String(process.env.CONTENT_STUDIO_PUBLIC_URL || 'https://estudioscreativos.com/ingresar').replace(/\/$/, '');
   await transporter.sendMail({
-    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    from: studioEmailFrom(),
+    replyTo: process.env.CONTENT_STUDIO_CONTACT_EMAIL || 'estudioscreativosec@gmail.com',
     to: order.email,
     subject: `Tu plan de Estudios Creativos está activo · ${order.order_number}`,
     html: `<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;background:#f6f4ef;padding:28px;color:#1d212c">
@@ -723,7 +729,8 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     const accessUrl = `${studioAppUrl('/ingresar')}?magic=${encodeURIComponent(token)}`;
     try {
       await transporter.sendMail({
-        from: process.env.SMTP_FROM || process.env.SMTP_USER,
+        from: studioEmailFrom(),
+        replyTo: process.env.CONTENT_STUDIO_CONTACT_EMAIL || 'estudioscreativosec@gmail.com',
         to: email,
         subject: 'Entra a Estudios Creativos',
         text: `Entra a Estudios Creativos desde este enlace: ${accessUrl}\n\nEl enlace vence en 20 minutos y solo puede usarse una vez.`,

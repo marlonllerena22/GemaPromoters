@@ -31,7 +31,19 @@ services:
       - key: SMTP_FROM
         sync: false
       - key: CONTENT_STUDIO_CONTACT_EMAIL
-        value: promoters.ecu@gmail.com
+        value: estudioscreativosec@gmail.com
+      - key: CONTENT_STUDIO_SMTP_HOST
+        value: smtp.gmail.com
+      - key: CONTENT_STUDIO_SMTP_PORT
+        value: 587
+      - key: CONTENT_STUDIO_SMTP_SECURE
+        value: false
+      - key: CONTENT_STUDIO_SMTP_USER
+        sync: false
+      - key: CONTENT_STUDIO_SMTP_PASS
+        sync: false
+      - key: CONTENT_STUDIO_SMTP_FROM
+        value: Estudios Creativos <estudioscreativosec@gmail.com>
       - key: CONTENT_STUDIO_PUBLIC_URL
         value: https://estudioscreativos.com/ingresar
       - key: CONTENT_STUDIO_APP_URL

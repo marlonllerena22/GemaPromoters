@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ArrowLeft, CheckCircle2, Mail, ShieldCheck } from 'lucide-react';
 import './content-studio-legal.css';
 
-const contactEmail = 'promoters.ecu@gmail.com';
+const contactEmail = 'estudioscreativosec@gmail.com';
 
 const privacySections = [
   ['Información que tratamos', 'Guardamos los datos necesarios para crear y mantener tu cuenta, administrar tu plan, procesar solicitudes de pago, conservar tus marcas y preferencias, y mostrar el historial de creaciones. Cuando conectas Meta, recibimos las páginas de Facebook que administras, la cuenta profesional de Instagram vinculada y los permisos que aprobaste.'],

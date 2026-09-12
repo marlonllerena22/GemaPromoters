@@ -34,7 +34,7 @@ const FEATURES = [
 const formatPlanPrice = (price) => (Number(price) % 1 === 0 ? String(Number(price)) : Number(price).toFixed(2));
 
 export default function ContentStudioLanding() {
-  const [data, setData] = useState({ plans: FALLBACK_PLANS, contact: { phone_display: '098 376 3419', email: 'promoters.ecu@gmail.com' }, transfer: {} });
+  const [data, setData] = useState({ plans: FALLBACK_PLANS, contact: { phone_display: '098 376 3419', email: 'estudioscreativosec@gmail.com' }, transfer: {} });
   const [examplesOpen, setExamplesOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [heroMode, setHeroMode] = useState(0);

@@ -6,21 +6,23 @@ La landing pública vive en `https://estudioscreativos.com/` y el acceso/estudio
 
 ```text
 CONTENT_STUDIO_APP_URL=https://estudioscreativos.com
-CONTENT_STUDIO_CONTACT_EMAIL=promoters.ecu@gmail.com
+CONTENT_STUDIO_CONTACT_EMAIL=estudioscreativosec@gmail.com
 GOOGLE_CLIENT_ID=
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_USER=
-SMTP_PASS=
-SMTP_FROM=
+CONTENT_STUDIO_SMTP_HOST=smtp.gmail.com
+CONTENT_STUDIO_SMTP_PORT=587
+CONTENT_STUDIO_SMTP_SECURE=false
+CONTENT_STUDIO_SMTP_USER=estudioscreativosec@gmail.com
+CONTENT_STUDIO_SMTP_PASS=
+CONTENT_STUDIO_SMTP_FROM=Estudios Creativos <estudioscreativosec@gmail.com>
 OPENAI_API_KEY=
 OPENAI_IMAGE_MODEL=gpt-image-2
 OPENAI_IMAGE_QUALITY=medium
 OPENAI_RESEARCH_MODEL=gpt-5.4-nano
 ```
 
-`SMTP_FROM` debe ser una identidad permitida por la cuenta configurada en `SMTP_USER`. Los enlaces mágicos vencen en 20 minutos, almacenan únicamente un hash del token y se invalidan al primer uso.
+`CONTENT_STUDIO_SMTP_PASS` debe ser una contraseña de aplicación de Google, no la contraseña normal de Gmail. Para crearla, activa primero la verificación en dos pasos en `estudioscreativosec@gmail.com` y genera una contraseña de aplicación llamada `Estudios Creativos Render`. Los enlaces mágicos vencen en 20 minutos, almacenan únicamente un hash del token y se invalidan al primer uso.
+
+Las variables `CONTENT_STUDIO_SMTP_*` son exclusivas del estudio. Las variables generales `SMTP_*` continúan enviando entradas y avisos de Promoters desde su propia cuenta. Si todavía no se cargaron las variables exclusivas, el backend usa temporalmente `SMTP_*` para no interrumpir el acceso existente.
 
 ## Google Identity Services
 
