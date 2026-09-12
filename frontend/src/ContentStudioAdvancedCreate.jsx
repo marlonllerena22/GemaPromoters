@@ -77,7 +77,7 @@ function sharedArtDirection(mode, type) {
   return direction || `${mode === 'carousel' ? 'secuencia editorial' : 'serie visual'} premium, coherente y clara`;
 }
 
-export default function ContentStudioAdvancedCreate({ data, baseForm, currentProduct, prepareImage, onGenerate, openPlans }) {
+export default function ContentStudioAdvancedCreate({ data, baseForm, currentProduct, prepareImage, onGenerate, openPlans, launchKey = 0, inline = false }) {
   const [open, setOpen] = useState(false);
   const [modeId, setModeId] = useState('');
   const [products, setProducts] = useState([]);
@@ -105,6 +105,12 @@ export default function ContentStudioAdvancedCreate({ data, baseForm, currentPro
     window.addEventListener('keydown', close);
     return () => { document.body.style.overflow = previousOverflow; window.removeEventListener('keydown', close); };
   }, [open]);
+
+  useEffect(() => {
+    if (!launchKey) return;
+    reset();
+    setOpen(true);
+  }, [launchKey]);
 
   function reset(nextMode = '') {
     setModeId(nextMode); setProducts(currentProduct ? [currentProduct] : []); setCount(0); setType(''); setFormat(''); setError(''); setProgress({ done: 0, total: 0, label: '' });
@@ -153,7 +159,7 @@ export default function ContentStudioAdvancedCreate({ data, baseForm, currentPro
     finally { setBusy(false); }
   }
 
-  const launcher = <button className="cs-more-create" type="button" onClick={() => { reset(); setOpen(true); }}><span><Sparkles /></span><div><strong>✨ Más formas de crear</strong><small>Contenido avanzado y en lote</small></div><ChevronRight /></button>;
+  const launcher = <button className={`cs-more-create ${inline ? 'cs-more-create-inline' : ''}`} type="button" onClick={() => { reset(); setOpen(true); }}><span><Sparkles /></span><div><strong>{inline ? 'Abrir herramientas de creación en lote' : '✨ Más formas de crear'}</strong><small>{inline ? 'Carruseles, colecciones, semanas y campañas.' : 'Contenido avanzado y en lote'}</small></div><ChevronRight /></button>;
   if (!open) return launcher;
 
   const panel = <div className="cs-advanced-create-overlay" role="dialog" aria-modal="true" aria-label="Más formas de crear">

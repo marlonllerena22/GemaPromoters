@@ -22,13 +22,14 @@ const PRESET_GUIDES = {
   detail: '/content-studio/guides/detail.jpg'
 };
 const PRESET_NAMES = { editorial: 'Editorial', catalog: 'Catálogo', social: 'Post social', detail: 'Detalle' };
+const BATCH_PRESET = { id: 'batch', name: 'Crear en lote', description: 'Crea varias piezas coordinadas en una sola sesión.' };
 const ADVANCED_MODE_NAMES = { carousel: 'Carrusel inteligente', collection: 'Colección completa', week: 'Semana lista', campaign: 'Campaña completa' };
 const EDITORIAL_SUBJECTS = [
-  { id: 'female', name: 'Femenino', description: 'Mujer o niña según el producto', icon: '♀' },
-  { id: 'male', name: 'Masculino', description: 'Hombre o niño según el producto', icon: '♂' },
-  { id: 'animal', name: 'Animal', description: 'Animal adecuado al contexto', icon: '✦' }
+  { id: 'female', name: 'Femenino', description: 'Mujer o niña según el producto', image: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=160&q=80' },
+  { id: 'male', name: 'Masculino', description: 'Hombre o niño según el producto', image: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=160&q=80' },
+  { id: 'animal', name: 'Animal', description: 'Animal adecuado al contexto', image: 'https://images.unsplash.com/photo-1552053831-71594a27632d?auto=format&fit=crop&w=160&q=80' }
 ];
-const emptyForm = { preset: 'editorial', editorial_subject: 'female', logo_id: 'none', output_format: 'post', social_style: 'editorial', product_name: '', creative_instruction: '', contact_whatsapp: '', contact_location: '' };
+const emptyForm = { preset: '', editorial_subject: 'female', logo_id: 'none', output_format: 'post', social_style: 'editorial', product_name: '', creative_instruction: '', contact_whatsapp: '', contact_location: '' };
 const PLAN_PACKAGES = [
   { id: 'inicio', name: 'Inicio', photos: 10, price: 9.5, days: 8 },
   { id: 'emprendedor', name: 'Emprendedor', photos: 25, price: 20, days: 15 },
@@ -248,6 +249,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
 
   async function generate(event) {
     event.preventDefault(); setError('');
+    if (!data?.presets?.some((preset) => preset.id === form.preset)) { setError('Elige primero qué tipo de contenido quieres crear en el Paso 2.'); return; }
     if (!data?.subscription?.active || Number(data?.available_credits || 0) <= 0) {
       if (isSellerWorkspace) setError('Ya utilizaste tus créditos de demostración de esta quincena. Se renovarán automáticamente en el siguiente periodo.');
       else setPlansOpen(true);
@@ -331,7 +333,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
   }
 
   function newCreation() { setProductImage(''); setResult(null); setForm((current) => ({ ...emptyForm, logo_id: current.logo_id })); setTab('create'); }
-  const selectedPreset = data?.presets?.find((item) => item.id === form.preset);
+  const selectedPreset = form.preset === BATCH_PRESET.id ? BATCH_PRESET : data?.presets?.find((item) => item.id === form.preset);
   const usagePercent = Math.min(100, (Number(data?.usage || 0) / Math.max(1, Number(data?.settings?.monthly_limit || 0))) * 100);
 
   return <div className={`cs-app ${embedded ? 'cs-embedded' : ''}`}>
@@ -573,6 +575,7 @@ function ContactFields({ form, setForm }) {
 
 function CreateView({ data, form, setForm, productImage, inputRef, cameraInputRef, chooseProduct, selectedPreset, generate, generateAdvanced, generating, generationProgress, result, newCreation, usagePercent, goToHistory, goToProfile, goToSettings, openPlans, sellerDemo = false }) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [batchLaunchKey, setBatchLaunchKey] = useState(0);
   if (result) {
     return (
       <section className="cs-result-page">
@@ -594,6 +597,13 @@ function CreateView({ data, form, setForm, productImage, inputRef, cameraInputRe
   const available = Math.max(0, Number(data.settings?.monthly_limit || 0) - Number(data.usage || 0));
   const needsPlan = !data.subscription?.active || available <= 0;
   const firstLogo = data.logos?.[0];
+  const isBatchCreation = form.preset === BATCH_PRESET.id;
+  const creationOptions = [...(data.presets || []), BATCH_PRESET];
+  function selectCreationOption(optionId) {
+    setForm((current) => ({ ...current, preset: optionId }));
+    if (optionId === BATCH_PRESET.id) setBatchLaunchKey((current) => current + 1);
+  }
+  function openBatchCreator() { setBatchLaunchKey((current) => current + 1); }
   return (
     <form onSubmit={generate}>
       <section className="cs-hero cs-create-heading">
@@ -627,36 +637,42 @@ function CreateView({ data, form, setForm, productImage, inputRef, cameraInputRe
               {advancedOpen && <div className="cs-advanced-fields">
                 <label><strong>¿Qué es el producto?</strong><input maxLength="70" value={form.product_name} onChange={(event) => setForm({ ...form, product_name: event.target.value })} placeholder="Ej. Vaquita que corre viral" /><small>Lo investigaremos brevemente solo si lo escribes.</small></label>
                 <label><strong>Cuéntame para qué necesitas esta foto</strong><textarea maxLength="260" value={form.creative_instruction} onChange={(event) => setForm({ ...form, creative_instruction: event.target.value })} placeholder="Es una cartera de mi local y quiero crear una publicación que motive a las personas a visitarnos." /><small>Mientras más contexto nos des, mejor podremos crearla para ti.</small></label>
-                {form.preset !== 'social' && <ContactFields form={form} setForm={setForm} />}
+                {form.preset && form.preset !== 'social' && <ContactFields form={form} setForm={setForm} />}
               </div>}
             </div>
           </section>
 
           <section className="cs-card cs-content-card">
-            <div className="cs-card-heading"><div><span className="cs-eyebrow">Paso 2</span><h2>Crear en base a</h2></div><p>Elige el tipo de contenido que necesitas</p></div>
-            <div className="cs-preset-grid">
-              {data.presets.map((preset) => {
+            <div className="cs-card-heading"><div><span className="cs-eyebrow">Paso 2</span><h2>Crear en base a</h2></div><p>Desliza para ver todas las opciones</p></div>
+            <div className="cs-preset-slider" aria-label="Opciones para crear contenido">
+              {creationOptions.map((preset) => {
                 const PresetIcon = PRESET_ICONS[preset.id] || Sparkles;
-                return <button type="button" key={preset.id} className={`cs-preset-card cs-preset-${preset.id} ${form.preset === preset.id ? 'selected' : ''}`} onClick={() => setForm({ ...form, preset: preset.id })}>
-                  <span className="cs-preset-thumb"><img src={PRESET_GUIDES[preset.id]} alt={`Ejemplo de ${preset.name}`} /></span>
+                const isBatch = preset.id === BATCH_PRESET.id;
+                return <button type="button" key={preset.id} aria-pressed={form.preset === preset.id} className={`cs-preset-card cs-preset-${preset.id} ${form.preset === preset.id ? 'selected' : ''}`} onClick={() => selectCreationOption(preset.id)}>
+                  <span className={`cs-preset-thumb ${isBatch ? 'cs-batch-thumb' : ''}`}>{isBatch ? <><Sparkles size={31}/><i /><b /></> : <img src={PRESET_GUIDES[preset.id]} alt={`Ejemplo de ${preset.name}`} />}</span>
                   <span className="cs-preset-copy"><i><PresetIcon size={17} /></i><strong>{preset.name}</strong><small>{preset.description}</small></span>
                   <ChevronRight size={19} />
                 </button>;
               })}
             </div>
-            {form.preset === 'editorial' && <div className="cs-editorial-options"><strong>¿Quién aparecerá con el producto?</strong><p>La edad o el tipo se adaptará al contexto que escribas y a la foto.</p><div className="cs-editorial-subject-grid">{EDITORIAL_SUBJECTS.map((subject) => <button type="button" key={subject.id} className={form.editorial_subject === subject.id ? 'selected' : ''} onClick={() => setForm({ ...form, editorial_subject: subject.id })}><span>{subject.icon}</span><div><b>{subject.name}</b><small>{subject.description}</small></div><i>{form.editorial_subject === subject.id && <Check size={15} />}</i></button>)}</div></div>}
-            <div className="cs-social-options cs-output-options"><div><strong>Tamaño de publicación</strong><p>Tu imagen se crea completa en este formato; no se recorta al descargar.</p><div className="cs-choice-row">{(data.output_formats || []).map((format) => <button type="button" key={format.id} className={form.output_format === format.id ? 'selected' : ''} onClick={() => setForm({ ...form, output_format: format.id })}><span>{format.id === 'story' ? '▯' : '▣'}</span><div><b>{format.label}</b><small>{format.width} × {format.height}</small></div><Check size={16} /></button>)}</div></div></div>
-            {form.preset === 'social' && <div className="cs-social-options"><div><strong>Estilo del diseño</strong><div className="cs-social-style-grid">{(data.social_styles || []).map((style) => <button type="button" key={style.id} className={form.social_style === style.id ? 'selected' : ''} onClick={() => setForm({ ...form, social_style: style.id })}><b>{style.name}</b><small>{style.description}</small>{form.social_style === style.id && <Check size={16} />}</button>)}</div></div><ContactFields form={form} setForm={setForm} /></div>}
+            {form.preset && <div className="cs-preset-configurations" key={form.preset}>
+              {isBatchCreation && generateAdvanced && <ContentStudioAdvancedCreate
+                data={data}
+                baseForm={form}
+                currentProduct={productImage}
+                prepareImage={imageFileToData}
+                onGenerate={generateAdvanced}
+                openPlans={openPlans}
+                launchKey={batchLaunchKey}
+                inline
+              />}
+              {!isBatchCreation && <>
+                {form.preset === 'editorial' && <div className="cs-editorial-options"><strong>¿Quién aparecerá con el producto?</strong><p>La edad o el tipo se adaptará al contexto que escribas y a la foto.</p><div className="cs-editorial-subject-grid">{EDITORIAL_SUBJECTS.map((subject) => <button type="button" key={subject.id} className={form.editorial_subject === subject.id ? 'selected' : ''} onClick={() => setForm({ ...form, editorial_subject: subject.id })}><span className="cs-subject-avatar"><img src={subject.image} alt="" loading="lazy" /></span><div><b>{subject.name}</b><small>{subject.description}</small></div><i>{form.editorial_subject === subject.id && <Check size={15} />}</i></button>)}</div></div>}
+                <div className="cs-social-options cs-output-options"><div><strong>Tamaño de publicación</strong><p>Tu imagen se crea completa en este formato; no se recorta al descargar.</p><div className="cs-choice-row">{(data.output_formats || []).map((format) => <button type="button" key={format.id} className={form.output_format === format.id ? 'selected' : ''} onClick={() => setForm({ ...form, output_format: format.id })}><span>{format.id === 'story' ? '▯' : '▣'}</span><div><b>{format.label}</b><small>{format.width} × {format.height}</small></div><Check size={16} /></button>)}</div></div></div>
+                {form.preset === 'social' && <div className="cs-social-options"><div><strong>Estilo del diseño</strong><div className="cs-social-style-grid">{(data.social_styles || []).map((style) => <button type="button" key={style.id} className={form.social_style === style.id ? 'selected' : ''} onClick={() => setForm({ ...form, social_style: style.id })}><b>{style.name}</b><small>{style.description}</small>{form.social_style === style.id && <Check size={16} />}</button>)}</div></div><ContactFields form={form} setForm={setForm} /></div>}
+              </>}
+            </div>}
           </section>
-
-          {generateAdvanced && <ContentStudioAdvancedCreate
-            data={data}
-            baseForm={form}
-            currentProduct={productImage}
-            prepareImage={imageFileToData}
-            onGenerate={generateAdvanced}
-            openPlans={openPlans}
-          />}
 
           <section className="cs-card cs-brand-section">
             <div className="cs-card-heading"><div><span className="cs-eyebrow">Paso 3</span><h2>¿Quieres incluir tu marca?</h2></div><p>Tú decides cómo generar tu contenido</p></div>
@@ -675,9 +691,9 @@ function CreateView({ data, form, setForm, productImage, inputRef, cameraInputRe
 
         <aside className="cs-summary">
           <div className="cs-summary-visual">{productImage ? <img src={productImage} alt="Vista previa" /> : <ImageIcon size={36} />}</div>
-          <span>Tu creación</span><h3>{selectedPreset?.name}</h3><p>{selectedPreset?.description}</p>
-          <ul>{form.preset === 'editorial' && <li><UserRound size={15} /> Modelo: {EDITORIAL_SUBJECTS.find((item) => item.id === form.editorial_subject)?.name || 'Femenino'}</li>}{(form.contact_whatsapp || form.contact_location) && <li><MessageCircle size={15} /> Contacto integrado al diseño</li>}<li><Check size={15} /> Producto fiel al original</li><li><Check size={15} /> Acabado fotográfico realista</li><li><Check size={15} /> Alta calidad para publicar</li></ul>
-          <button className="cs-generate" disabled={generating || (!needsPlan && (!productImage || !data.generation_available))}>{generating ? <><i /> Creando tu imagen...</> : needsPlan ? <><CreditCard size={18}/> {sellerDemo ? 'Créditos agotados' : 'Elegir un plan'}</> : <>Continuar <ChevronRight size={19} /></>}</button>
+          <span>Tu creación</span><h3>{selectedPreset?.name || 'Elige una opción'}</h3><p>{selectedPreset?.description || 'Selecciona en el Paso 2 el contenido que quieres crear.'}</p>
+          <ul>{form.preset ? <>{form.preset === 'editorial' && <li><UserRound size={15} /> Modelo: {EDITORIAL_SUBJECTS.find((item) => item.id === form.editorial_subject)?.name || 'Femenino'}</li>}{(form.contact_whatsapp || form.contact_location) && <li><MessageCircle size={15} /> Contacto integrado al diseño</li>}<li><Check size={15} /> Producto fiel al original</li><li><Check size={15} /> Acabado fotográfico realista</li><li><Check size={15} /> Alta calidad para publicar</li></> : <li><Sparkles size={15} /> Paso 2 pendiente</li>}</ul>
+          <button type={isBatchCreation ? 'button' : 'submit'} onClick={isBatchCreation ? openBatchCreator : undefined} className="cs-generate" disabled={generating || (!isBatchCreation && !needsPlan && (!form.preset || !productImage || !data.generation_available))}>{generating ? <><i /> Creando tu imagen...</> : isBatchCreation ? <><Sparkles size={18}/> Abrir Crear en lote</> : needsPlan ? <><CreditCard size={18}/> {sellerDemo ? 'Créditos agotados' : 'Elegir un plan'}</> : <>Continuar <ChevronRight size={19} /></>}</button>
           {generating && <MagicGenerationProgress progress={generationProgress} />}
           {!data.generation_available && <small className="cs-api-note">{sellerDemo && available <= 0 ? 'Tus créditos de demostración se renuevan automáticamente cada quincena.' : data.subscription?.active ? 'La interfaz está lista. Falta conectar la clave de OpenAI en el servidor.' : 'Tu plan necesita estar activo para crear imágenes.'}</small>}
         </aside>
