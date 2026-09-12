@@ -3013,10 +3013,17 @@ app.get(['/', '/estudio-creativo', '/ingresar', '/administracion', '/vendedores'
     const title = isAdministration ? 'Administración | Estudios Creativos' : (isSellerPortal ? 'Vendedores | Estudios Creativos' : (isLogin ? 'Ingresar | Estudios Creativos' : 'Estudios Creativos | Contenido profesional con IA'));
     const description = 'Convierte fotos de tus productos en contenido profesional para catálogo, redes sociales y campañas con modelos.';
     const canonical = `https://estudioscreativos.com${isAdministration ? '/administracion' : (isSellerPortal ? '/vendedores' : (isLogin ? '/ingresar' : '/'))}`;
-    const image = 'https://estudioscreativos.com/content-studio/guides/social.jpg';
+    const image = 'https://estudioscreativos.com/content-studio/brand/share-preview.jpg';
     const meta = `<title>${title}</title>
     <meta name="description" content="${description}" />
     <meta name="theme-color" content="#111211" />
+    <meta name="application-name" content="Estudios Creativos" />
+    <meta name="apple-mobile-web-app-title" content="Estudios Creativos" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="canonical" href="${canonical}" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Estudios Creativos" />
@@ -3024,7 +3031,15 @@ app.get(['/', '/estudio-creativo', '/ingresar', '/administracion', '/vendedores'
     <meta property="og:description" content="${description}" />
     <meta property="og:url" content="${canonical}" />
     <meta property="og:image" content="${image}" />
-    <meta name="twitter:card" content="summary_large_image" />`;
+    <meta property="og:image:secure_url" content="${image}" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Estudios Creativos, contenido profesional con IA" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${title}" />
+    <meta name="twitter:description" content="${description}" />
+    <meta name="twitter:image" content="${image}" />`;
     const html = (await readFile(studioIndexPath, 'utf8')).replace('<title>PROMOTERS</title>', meta);
     return res.type('html').send(html);
   } catch (error) {
