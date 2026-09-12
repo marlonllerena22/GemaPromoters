@@ -104,3 +104,70 @@
   .cs-mobile-nav.admin{grid-template-columns:repeat(5,1fr)}
   .cs-mobile-nav.admin button span{font-size:8px}
 }
+
+/* Mobile polish: compact density without changing the creation flow. */
+.cs-app{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+@media(max-width:720px){
+  .cs-page{width:100%;padding:18px 10px max(24px,env(safe-area-inset-bottom))}
+  .cs-create-heading{gap:12px;margin-bottom:14px}
+  .cs-create-heading h1{font-size:32px;line-height:1.04}
+  .cs-create-heading p{font-size:13px;line-height:1.45}
+  .cs-credit-card{padding:12px 13px;border-radius:15px;grid-template-columns:38px minmax(0,1fr) 17px;gap:10px}
+  .cs-credit-card>span{width:38px;height:38px}
+  .cs-credit-card strong{font-size:14px}.cs-credit-card small{font-size:10px}
+  .cs-main-column{gap:13px}
+  .cs-card{border-radius:18px}
+  .cs-upload-card{padding:7px}
+  .cs-upload-showcase{padding:7px 7px 15px;gap:12px;border-radius:14px}
+  .cs-upload-art{height:158px;border-radius:12px}
+  .cs-upload-art>svg{width:54px;height:54px}
+  .cs-upload-art>i{width:112px;height:29px;bottom:34px}
+  .cs-upload-copy{padding:0 7px}
+  .cs-upload-copy>small{font-size:9px;margin-bottom:5px}
+  .cs-upload-copy>strong{font-size:20px;line-height:1.15}
+  .cs-upload-copy>em{font-size:11px;margin-top:6px}
+  .cs-upload-copy>b{width:100%;min-height:45px;margin-top:13px;padding:0 15px;justify-content:center;border-radius:11px;font-size:13px}
+  .cs-upload-copy>i{margin-top:8px;font-size:10px;line-height:1.35}
+  .cs-take-photo{width:calc(100% - 14px);margin:7px;min-height:42px}
+  .cs-advanced-options{margin:8px 0 0;border-radius:13px}
+  .cs-content-card,.cs-brand-section{padding:16px 10px}
+  .cs-content-card .cs-card-heading{display:grid;gap:5px;align-items:start;margin-bottom:13px}
+  .cs-content-card .cs-card-heading h2{font-size:23px}
+  .cs-content-card .cs-card-heading>p{max-width:none;margin:0;text-align:left;font-size:10px;line-height:1.35}
+  .cs-preset-slider{gap:8px;width:calc(100% + 10px);margin:0 -10px 0 0;padding:2px 20px 7px 0;mask-image:none;scrollbar-width:none;scroll-snap-type:x mandatory}
+  .cs-preset-slider::-webkit-scrollbar{display:none}
+  .cs-preset-slider .cs-preset-card{flex:0 0 clamp(178px,58vw,210px);min-height:222px;aspect-ratio:auto;grid-template-columns:minmax(0,1fr) 16px;grid-template-rows:112px 1fr;gap:7px;padding:5px;border-radius:14px;scroll-snap-align:start}
+  .cs-preset-slider .cs-preset-thumb{height:112px;border-radius:10px}
+  .cs-preset-slider .cs-preset-copy{gap:4px;padding:0 4px 4px}
+  .cs-preset-slider .cs-preset-copy>i{width:27px;height:27px}
+  .cs-preset-slider .cs-preset-copy>i svg{width:14px}
+  .cs-preset-slider .cs-preset-copy strong{font-size:14px;line-height:1.15}
+  .cs-preset-slider .cs-preset-copy small{font-size:9px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .cs-preset-slider .cs-preset-card>svg{width:16px}
+  .cs-preset-slider .cs-preset-card.selected{transform:translateY(-1px);box-shadow:inset 0 0 0 1px #c39a5b,0 8px 18px #a87a3219}
+  .cs-preset-configurations .cs-editorial-options,.cs-preset-configurations .cs-social-options{margin-top:12px;padding:13px;border-radius:13px}
+  .cs-editorial-options>p{margin-bottom:10px;font-size:10px;line-height:1.35}
+  .cs-editorial-subject-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+  .cs-editorial-subject-grid button{position:relative;min-height:126px;padding:9px 5px;display:grid;grid-template-columns:1fr;align-content:center;justify-items:center;gap:6px;text-align:center;border-radius:11px}
+  .cs-editorial-subject-grid button>span.cs-subject-avatar{width:48px;height:48px}
+  .cs-editorial-subject-grid button>div{gap:2px}
+  .cs-editorial-subject-grid button b{font-size:10px}
+  .cs-editorial-subject-grid button small{font-size:8px;line-height:1.25}
+  .cs-editorial-subject-grid button>i{position:absolute;right:6px;top:6px;width:17px;height:17px;background:inherit}
+  .cs-preset-configurations .cs-choice-row{grid-template-columns:1fr 1fr;gap:7px}
+  .cs-preset-configurations .cs-choice-row button{min-width:0;padding:9px 7px;grid-template-columns:22px minmax(0,1fr) 14px;gap:6px;border-radius:10px}
+  .cs-preset-configurations .cs-choice-row button>span{font-size:20px}
+  .cs-preset-configurations .cs-choice-row b{font-size:10px}.cs-preset-configurations .cs-choice-row small{font-size:8px}
+  .cs-preset-configurations .cs-social-style-grid{gap:7px}
+  .cs-preset-configurations .cs-social-style-grid button{min-height:82px;padding:11px 28px 11px 11px}
+  .cs-more-create-inline{min-height:62px;margin-top:12px;padding:10px 11px;grid-template-columns:37px minmax(0,1fr) 18px;border-radius:13px}
+  .cs-more-create-inline>span{width:37px;height:37px;border-radius:11px}
+  .cs-more-create-inline strong{font-size:13px;line-height:1.25}.cs-more-create-inline small{font-size:9px}
+  .cs-app input,.cs-app select,.cs-app textarea{font-size:16px}
+}
+@media(max-width:360px){
+  .cs-page{padding-left:8px;padding-right:8px}
+  .cs-content-card,.cs-brand-section{padding-left:9px;padding-right:9px}
+  .cs-preset-slider .cs-preset-card{flex-basis:174px}
+  .cs-editorial-subject-grid button{min-height:122px;padding-left:3px;padding-right:3px}
+}
