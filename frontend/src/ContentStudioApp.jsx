@@ -603,7 +603,7 @@ function CreateView({ data, form, setForm, productImage, inputRef, cameraInputRe
         </button>
       </section>
 
-      <div className={`cs-workspace ${productImage ? '' : 'single'}`}>
+      <div className="cs-workspace">
         <div className="cs-main-column">
           <section className="cs-card cs-upload-card">
             <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => chooseProduct(event.target.files?.[0])} />
@@ -630,16 +630,7 @@ function CreateView({ data, form, setForm, productImage, inputRef, cameraInputRe
             </div>
           </section>
 
-          {generateAdvanced && <ContentStudioAdvancedCreate
-            data={data}
-            baseForm={form}
-            currentProduct={productImage}
-            prepareImage={imageFileToData}
-            onGenerate={generateAdvanced}
-            openPlans={openPlans}
-          />}
-
-          {productImage && <section className="cs-card cs-content-card">
+          <section className="cs-card cs-content-card">
             <div className="cs-card-heading"><div><span className="cs-eyebrow">Paso 2</span><h2>Crear en base a</h2></div><p>Elige el tipo de contenido que necesitas</p></div>
             <div className="cs-preset-grid">
               {data.presets.map((preset) => {
@@ -654,9 +645,18 @@ function CreateView({ data, form, setForm, productImage, inputRef, cameraInputRe
             {form.preset === 'editorial' && <div className="cs-editorial-options"><strong>¿Quién aparecerá con el producto?</strong><p>La edad o el tipo se adaptará al contexto que escribas y a la foto.</p><div className="cs-editorial-subject-grid">{EDITORIAL_SUBJECTS.map((subject) => <button type="button" key={subject.id} className={form.editorial_subject === subject.id ? 'selected' : ''} onClick={() => setForm({ ...form, editorial_subject: subject.id })}><span>{subject.icon}</span><div><b>{subject.name}</b><small>{subject.description}</small></div><i>{form.editorial_subject === subject.id && <Check size={15} />}</i></button>)}</div></div>}
             <div className="cs-social-options cs-output-options"><div><strong>Tamaño de publicación</strong><p>Tu imagen se crea completa en este formato; no se recorta al descargar.</p><div className="cs-choice-row">{(data.output_formats || []).map((format) => <button type="button" key={format.id} className={form.output_format === format.id ? 'selected' : ''} onClick={() => setForm({ ...form, output_format: format.id })}><span>{format.id === 'story' ? '▯' : '▣'}</span><div><b>{format.label}</b><small>{format.width} × {format.height}</small></div><Check size={16} /></button>)}</div></div></div>
             {form.preset === 'social' && <div className="cs-social-options"><div><strong>Estilo del diseño</strong><div className="cs-social-style-grid">{(data.social_styles || []).map((style) => <button type="button" key={style.id} className={form.social_style === style.id ? 'selected' : ''} onClick={() => setForm({ ...form, social_style: style.id })}><b>{style.name}</b><small>{style.description}</small>{form.social_style === style.id && <Check size={16} />}</button>)}</div></div><ContactFields form={form} setForm={setForm} /></div>}
-          </section>}
+          </section>
 
-          {productImage && <section className="cs-card cs-brand-section">
+          {generateAdvanced && <ContentStudioAdvancedCreate
+            data={data}
+            baseForm={form}
+            currentProduct={productImage}
+            prepareImage={imageFileToData}
+            onGenerate={generateAdvanced}
+            openPlans={openPlans}
+          />}
+
+          <section className="cs-card cs-brand-section">
             <div className="cs-card-heading"><div><span className="cs-eyebrow">Paso 3</span><h2>¿Quieres incluir tu marca?</h2></div><p>Tú decides cómo generar tu contenido</p></div>
             <div className="cs-brand-mode">
               <button type="button" className={form.logo_id !== 'none' ? 'selected' : ''} onClick={() => firstLogo && setForm({ ...form, logo_id: firstLogo.id })}>
@@ -668,17 +668,17 @@ function CreateView({ data, form, setForm, productImage, inputRef, cameraInputRe
             </div>
             {form.logo_id !== 'none' && <div className="cs-available-brands"><div><strong>Selecciona una marca</strong><button type="button" onClick={goToSettings}><Settings size={15} /> Administrar logos</button></div><div className="cs-brand-picker">{(data.logos || []).map((logo) => <button type="button" key={logo.id} className={Number(form.logo_id) === Number(logo.id) ? 'selected' : ''} onClick={() => setForm({ ...form, logo_id: logo.id })}><img src={logo.image_data} alt={`Logo ${logo.name}`} /><span>{logo.name}</span>{Number(form.logo_id) === Number(logo.id) && <b><Check size={16} /></b>}</button>)}</div></div>}
             {!firstLogo && <button className="cs-add-first-brand" type="button" onClick={goToSettings}><Plus size={17} /> Agregar tu primer logo desde Configuración</button>}
-          </section>}
+          </section>
         </div>
 
-        {productImage && <aside className="cs-summary">
+        <aside className="cs-summary">
           <div className="cs-summary-visual">{productImage ? <img src={productImage} alt="Vista previa" /> : <ImageIcon size={36} />}</div>
           <span>Tu creación</span><h3>{selectedPreset?.name}</h3><p>{selectedPreset?.description}</p>
           <ul>{form.preset === 'editorial' && <li><UserRound size={15} /> Modelo: {EDITORIAL_SUBJECTS.find((item) => item.id === form.editorial_subject)?.name || 'Femenino'}</li>}{(form.contact_whatsapp || form.contact_location) && <li><MessageCircle size={15} /> Contacto integrado al diseño</li>}<li><Check size={15} /> Producto fiel al original</li><li><Check size={15} /> Acabado fotográfico realista</li><li><Check size={15} /> Alta calidad para publicar</li></ul>
           <button className="cs-generate" disabled={generating || (!needsPlan && (!productImage || !data.generation_available))}>{generating ? <><i /> Creando tu imagen...</> : needsPlan ? <><CreditCard size={18}/> Elegir un plan</> : <>Continuar <ChevronRight size={19} /></>}</button>
           {generating && <MagicGenerationProgress progress={generationProgress} />}
           {!data.generation_available && <small className="cs-api-note">{data.subscription?.active ? 'La interfaz está lista. Falta conectar la clave de OpenAI en el servidor.' : 'Tu plan necesita estar activo para crear imágenes.'}</small>}
-        </aside>}
+        </aside>
       </div>
     </form>
   );
