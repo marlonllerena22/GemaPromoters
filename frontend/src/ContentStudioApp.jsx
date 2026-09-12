@@ -3,7 +3,8 @@ import {
   BadgeCheck, Building2, Check, ChevronDown, ChevronRight, CreditCard, Crown, Download, EyeOff,
   Gem, Image as ImageIcon, LayoutGrid, LogOut, Mail, MessageCircle, Plus, Settings,
   Share2, ShieldCheck, ShoppingBag, Sparkles, Tag, Trash2, Upload, UserPlus, UserRound,
-  UsersRound, WandSparkles, X, BriefcaseBusiness, CalendarCheck, TrendingUp, Camera, Monitor, Moon, Sun
+  UsersRound, WandSparkles, X, BriefcaseBusiness, CalendarCheck, TrendingUp, Camera, Monitor, Moon, Sun,
+  MapPin, PersonStanding, Phone, ScanSearch
 } from 'lucide-react';
 import { api, setUser } from './api.js';
 import ContentStudioSocialPublisher, { SocialConnectionsSettings } from './ContentStudioSocial.jsx';
@@ -29,7 +30,7 @@ const EDITORIAL_SUBJECTS = [
   { id: 'male', name: 'Masculino', description: 'Hombre o niño según el producto', image: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=160&q=80' },
   { id: 'animal', name: 'Animal', description: 'Animal adecuado al contexto', image: 'https://images.unsplash.com/photo-1552053831-71594a27632d?auto=format&fit=crop&w=160&q=80' }
 ];
-const emptyForm = { preset: '', editorial_subject: 'female', logo_id: 'none', output_format: 'post', social_style: 'editorial', product_name: '', creative_instruction: '', contact_whatsapp: '', contact_location: '' };
+const emptyForm = { preset: '', editorial_subject: '', editorial_framing: 'full_body', logo_id: 'none', output_format: 'post', social_style: 'editorial', product_name: '', creative_instruction: '', contact_whatsapp: '', contact_location: '' };
 const PLAN_PACKAGES = [
   { id: 'inicio', name: 'Inicio', photos: 10, price: 9.5, days: 8 },
   { id: 'emprendedor', name: 'Emprendedor', photos: 25, price: 20, days: 15 },
@@ -250,6 +251,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
   async function generate(event) {
     event.preventDefault(); setError('');
     if (!data?.presets?.some((preset) => preset.id === form.preset)) { setError('Elige primero qué tipo de contenido quieres crear en el Paso 2.'); return; }
+    if (form.preset === 'editorial' && !form.editorial_subject) { setError('Elige quién aparecerá con el producto.'); return; }
     if (!data?.subscription?.active || Number(data?.available_credits || 0) <= 0) {
       if (isSellerWorkspace) setError('Ya utilizaste tus créditos de demostración de esta quincena. Se renovarán automáticamente en el siguiente periodo.');
       else setPlansOpen(true);
@@ -570,7 +572,18 @@ function LegacyContentStudioApp({ user, onLogout, embedded = false, establishmen
 }
 
 function ContactFields({ form, setForm }) {
-  return <div className="cs-advanced-contact-fields"><label><strong>WhatsApp para incluir</strong><input inputMode="tel" maxLength="30" value={form.contact_whatsapp} onChange={(event) => setForm({ ...form, contact_whatsapp: event.target.value })} placeholder="Ej. 0983763419" /><small>Opcional. La IA lo integrará al diseño.</small></label><label><strong>Ubicación para incluir</strong><input maxLength="80" value={form.contact_location} onChange={(event) => setForm({ ...form, contact_location: event.target.value })} placeholder="Ej. Centro de Ambato" /><small>Opcional. Se envía junto con la creación.</small></label></div>;
+  const [open, setOpen] = useState(Boolean(form.contact_whatsapp || form.contact_location));
+  return <section className={`cs-contact-panel ${open ? 'open' : ''}`}>
+    <button className="cs-contact-toggle" type="button" onClick={() => setOpen((current) => !current)} aria-expanded={open}>
+      <span><MessageCircle size={19} /></span>
+      <div><strong>WhatsApp y dirección <em>Opcional</em></strong><small>Inclúyelos únicamente si quieres que aparezcan en esta imagen.</small></div>
+      <ChevronDown size={19} />
+    </button>
+    {open && <div className="cs-contact-fields">
+      <label><span><Phone size={15} /><strong>WhatsApp</strong><em>Opcional</em></span><div><Phone size={17} /><input inputMode="tel" autoComplete="tel" maxLength="30" value={form.contact_whatsapp} onChange={(event) => setForm({ ...form, contact_whatsapp: event.target.value })} placeholder="0999999999" /></div><small>La IA lo integrará de forma legible dentro del diseño.</small></label>
+      <label><span><MapPin size={15} /><strong>Dirección o ubicación</strong><em>Opcional</em></span><div><MapPin size={17} /><input maxLength="80" value={form.contact_location} onChange={(event) => setForm({ ...form, contact_location: event.target.value })} placeholder="Ej. Centro de Ambato" /></div><small>Escribe solo el dato que deseas mostrar en la imagen.</small></label>
+    </div>}
+  </section>;
 }
 
 function CreateView({ data, form, setForm, productImage, inputRef, cameraInputRef, chooseProduct, selectedPreset, generate, generateAdvanced, generating, generationProgress, result, newCreation, usagePercent, goToHistory, goToProfile, goToSettings, openPlans, sellerDemo = false }) {
@@ -596,6 +609,7 @@ function CreateView({ data, form, setForm, productImage, inputRef, cameraInputRe
   }
   const available = Math.max(0, Number(data.settings?.monthly_limit || 0) - Number(data.usage || 0));
   const needsPlan = !data.subscription?.active || available <= 0;
+  const needsEditorialSubject = form.preset === 'editorial' && !form.editorial_subject;
   const firstLogo = data.logos?.[0];
   const isBatchCreation = form.preset === BATCH_PRESET.id;
   const creationOptions = [...(data.presets || []), BATCH_PRESET];
@@ -637,7 +651,6 @@ function CreateView({ data, form, setForm, productImage, inputRef, cameraInputRe
               {advancedOpen && <div className="cs-advanced-fields">
                 <label><strong>¿Qué es el producto?</strong><input maxLength="70" value={form.product_name} onChange={(event) => setForm({ ...form, product_name: event.target.value })} placeholder="Ej. Vaquita que corre viral" /><small>Lo investigaremos brevemente solo si lo escribes.</small></label>
                 <label><strong>Cuéntame para qué necesitas esta foto</strong><textarea maxLength="260" value={form.creative_instruction} onChange={(event) => setForm({ ...form, creative_instruction: event.target.value })} placeholder="Es una cartera de mi local y quiero crear una publicación que motive a las personas a visitarnos." /><small>Mientras más contexto nos des, mejor podremos crearla para ti.</small></label>
-                {form.preset && form.preset !== 'social' && <ContactFields form={form} setForm={setForm} />}
               </div>}
             </div>
           </section>
@@ -667,10 +680,11 @@ function CreateView({ data, form, setForm, productImage, inputRef, cameraInputRe
                 inline
               />}
               {!isBatchCreation && <>
-                {form.preset === 'editorial' && <div className="cs-editorial-options"><strong>¿Quién aparecerá con el producto?</strong><p>La edad o el tipo se adaptará al contexto que escribas y a la foto.</p><div className="cs-editorial-subject-grid">{EDITORIAL_SUBJECTS.map((subject) => <button type="button" key={subject.id} className={form.editorial_subject === subject.id ? 'selected' : ''} onClick={() => setForm({ ...form, editorial_subject: subject.id })}><span className="cs-subject-avatar"><img src={subject.image} alt="" loading="lazy" /></span><div><b>{subject.name}</b><small>{subject.description}</small></div><i>{form.editorial_subject === subject.id && <Check size={15} />}</i></button>)}</div></div>}
+                {form.preset === 'editorial' && <div className="cs-editorial-options"><strong>¿Quién aparecerá con el producto?</strong><p>La edad o el tipo se adaptará al contexto que escribas y a la foto.</p><div className="cs-editorial-subject-grid">{EDITORIAL_SUBJECTS.map((subject) => <button type="button" key={subject.id} className={form.editorial_subject === subject.id ? 'selected' : ''} onClick={() => setForm({ ...form, editorial_subject: subject.id })}><span className="cs-subject-avatar"><img src={subject.image} alt="" loading="lazy" /></span><div><b>{subject.name}</b><small>{subject.description}</small></div><i>{form.editorial_subject === subject.id && <Check size={15} />}</i></button>)}</div>{form.editorial_subject && <div className="cs-framing-section"><strong>Encuadre</strong><p>La IA adapta la composición al producto sin ocultar sus detalles.</p><div className="cs-framing-options"><button type="button" className={form.editorial_framing === 'full_body' ? 'selected' : ''} onClick={() => setForm({ ...form, editorial_framing: 'full_body' })}><span><PersonStanding size={21} /></span><div><b>Cuerpo completo</b><small>Persona o animal completamente visible</small></div><i>{form.editorial_framing === 'full_body' && <Check size={15} />}</i></button><button type="button" className={form.editorial_framing === 'close_up' ? 'selected' : ''} onClick={() => setForm({ ...form, editorial_framing: 'close_up' })}><span><ScanSearch size={21} /></span><div><b>Acercamiento</b><small>Enfoca automáticamente la zona que usa el producto</small></div><i>{form.editorial_framing === 'close_up' && <Check size={15} />}</i></button></div></div>}</div>}
                 <div className="cs-social-options cs-output-options"><div><strong>Tamaño de publicación</strong><p>Tu imagen se crea completa en este formato; no se recorta al descargar.</p><div className="cs-choice-row">{(data.output_formats || []).map((format) => <button type="button" key={format.id} className={form.output_format === format.id ? 'selected' : ''} onClick={() => setForm({ ...form, output_format: format.id })}><span>{format.id === 'story' ? '▯' : '▣'}</span><div><b>{format.label}</b><small>{format.width} × {format.height}</small></div><Check size={16} /></button>)}</div></div></div>
-                {form.preset === 'social' && <div className="cs-social-options"><div><strong>Estilo del diseño</strong><div className="cs-social-style-grid">{(data.social_styles || []).map((style) => <button type="button" key={style.id} className={form.social_style === style.id ? 'selected' : ''} onClick={() => setForm({ ...form, social_style: style.id })}><b>{style.name}</b><small>{style.description}</small>{form.social_style === style.id && <Check size={16} />}</button>)}</div></div><ContactFields form={form} setForm={setForm} /></div>}
+                {form.preset === 'social' && <div className="cs-social-options"><div><strong>Estilo del diseño</strong><div className="cs-social-style-grid">{(data.social_styles || []).map((style) => <button type="button" key={style.id} className={form.social_style === style.id ? 'selected' : ''} onClick={() => setForm({ ...form, social_style: style.id })}><b>{style.name}</b><small>{style.description}</small>{form.social_style === style.id && <Check size={16} />}</button>)}</div></div></div>}
               </>}
+              <ContactFields form={form} setForm={setForm} />
             </div>}
           </section>
 
@@ -692,8 +706,8 @@ function CreateView({ data, form, setForm, productImage, inputRef, cameraInputRe
         <aside className="cs-summary">
           <div className="cs-summary-visual">{productImage ? <img src={productImage} alt="Vista previa" /> : <ImageIcon size={36} />}</div>
           <span>Tu creación</span><h3>{selectedPreset?.name || 'Elige una opción'}</h3><p>{selectedPreset?.description || 'Selecciona en el Paso 2 el contenido que quieres crear.'}</p>
-          <ul>{form.preset ? <>{form.preset === 'editorial' && <li><UserRound size={15} /> Modelo: {EDITORIAL_SUBJECTS.find((item) => item.id === form.editorial_subject)?.name || 'Femenino'}</li>}{(form.contact_whatsapp || form.contact_location) && <li><MessageCircle size={15} /> Contacto integrado al diseño</li>}<li><Check size={15} /> Producto fiel al original</li><li><Check size={15} /> Acabado fotográfico realista</li><li><Check size={15} /> Alta calidad para publicar</li></> : <li><Sparkles size={15} /> Paso 2 pendiente</li>}</ul>
-          <button type={isBatchCreation ? 'button' : 'submit'} onClick={isBatchCreation ? openBatchCreator : undefined} className="cs-generate" disabled={generating || (!isBatchCreation && !needsPlan && (!form.preset || !productImage || !data.generation_available))}>{generating ? <><i /> Creando tu imagen...</> : isBatchCreation ? <><Sparkles size={18}/> Abrir Crear en lote</> : needsPlan ? <><CreditCard size={18}/> {sellerDemo ? 'Créditos agotados' : 'Elegir un plan'}</> : <>Continuar <ChevronRight size={19} /></>}</button>
+          <ul>{form.preset ? <>{form.preset === 'editorial' && (form.editorial_subject ? <><li><UserRound size={15} /> Modelo: {EDITORIAL_SUBJECTS.find((item) => item.id === form.editorial_subject)?.name}</li><li><ScanSearch size={15} /> Encuadre: {form.editorial_framing === 'close_up' ? 'Acercamiento inteligente' : 'Cuerpo completo'}</li></> : <li><UserRound size={15} /> Elige quién aparecerá</li>)}{(form.contact_whatsapp || form.contact_location) && <li><MessageCircle size={15} /> Contacto integrado al diseño</li>}<li><Check size={15} /> Producto fiel al original</li><li><Check size={15} /> Acabado fotográfico realista</li><li><Check size={15} /> Alta calidad para publicar</li></> : <li><Sparkles size={15} /> Paso 2 pendiente</li>}</ul>
+          <button type={isBatchCreation ? 'button' : 'submit'} onClick={isBatchCreation ? openBatchCreator : undefined} className="cs-generate" disabled={generating || (!isBatchCreation && !needsPlan && (!form.preset || needsEditorialSubject || !productImage || !data.generation_available))}>{generating ? <><i /> Creando tu imagen...</> : isBatchCreation ? <><Sparkles size={18}/> Abrir Crear en lote</> : needsPlan ? <><CreditCard size={18}/> {sellerDemo ? 'Créditos agotados' : 'Elegir un plan'}</> : <>Continuar <ChevronRight size={19} /></>}</button>
           {generating && <MagicGenerationProgress progress={generationProgress} />}
           {!data.generation_available && <small className="cs-api-note">{sellerDemo && available <= 0 ? 'Tus créditos de demostración se renuevan automáticamente cada quincena.' : data.subscription?.active ? 'La interfaz está lista. Falta conectar la clave de OpenAI en el servidor.' : 'Tu plan necesita estar activo para crear imágenes.'}</small>}
         </aside>

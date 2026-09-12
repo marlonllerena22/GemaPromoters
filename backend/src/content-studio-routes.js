@@ -579,11 +579,17 @@ function buildPrompt(body, preset, hasBrandLogo = false) {
   const editorialInstruction = preset === PRESETS.editorial
     ? editorialSubjects[body.editorial_subject] || editorialSubjects.female
     : '';
+  const editorialFraming = preset === PRESETS.editorial
+    ? body.editorial_framing === 'close_up'
+      ? `Use an intentional product-led close-up. Infer the body area that naturally demonstrates the visible product: lower legs and feet for footwear, torso and hands for handbags, head or face for eyewear and head accessories, wrist or hands for jewelry and small accessories, and the most natural equivalent for other products or animals. The product itself must remain fully visible, prominent and faithful to the reference. Frame the relevant body area elegantly, avoid awkward crops at joints, and do not force the face or full body into the image when it does not help present the product.`
+      : `Use a full-body editorial composition. Keep the person or animal completely visible from head to feet or paws with comfortable margin from every edge, while keeping the product prominent, recognizable and faithful to the reference.`
+    : '';
   const fidelityInstruction = `Treat the source photo as the authority for the product's geometry and construction. First identify the uploaded product as the principal object and visually inventory its exact silhouette, aspect ratio, toe, heel, sole, every material panel, texture boundary, overlay, seam, stitching line, stud, strap, handle, pull tab, fastener, closure, label and hardware visible in the source. Reproduce that inventory on the hero product without simplifying or omitting any item. Keep the principal product completely visible with comfortable space around it; never crop, stretch, squash or distort it to fill the canvas. Never turn a multi-material or decorated product into a plain generic version. For catalog pair creation, the only permitted extra closure is one internal-side zipper on the rear shoe when and only when the single source item is a boot or ankle boot. Never put that zipper on the front outer-facing boot. Never add any zipper to sneakers or other non-boot footwear, and never add a zipper, a shoe or any new feature when the source already shows a pair. Keep all decorative panels, textures, studs and diagonal seams intact on both shoes wherever their construction requires them. Keep faces, hands, feet, people and animals complete and away from trim edges.`;
   return [
     `The first image is the source-of-truth product photo. Create one original professional commercial image.`,
     preset.direction,
     editorialInstruction,
+    editorialFraming,
     fidelityInstruction,
     `Art direction: ${MOODS.light}.`,
     details,
@@ -1287,6 +1293,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     const creationGroupType = ['carousel', 'collection', 'week', 'campaign'].includes(req.body.creation_group_type) ? req.body.creation_group_type : '';
     const creationGroupPosition = Math.max(0, Math.min(30, Number(req.body.creation_group_position) || 0));
     const editorialSubject = ['female', 'male', 'animal'].includes(req.body.editorial_subject) ? req.body.editorial_subject : 'female';
+    const editorialFraming = req.body.editorial_framing === 'close_up' ? 'close_up' : 'full_body';
     const preset = PRESETS[req.body.preset];
     const logoId = Number(req.body.logo_id || 0);
     const logoCondition = req.contentStudioUser ? 'AND content_studio_user_id = ?' : 'AND content_studio_user_id IS NULL';
@@ -1349,6 +1356,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
           product_features: productFeatures,
           creative_instruction: creativeInstruction,
           editorial_subject: editorialSubject,
+          editorial_framing: editorialFraming,
           contact_whatsapp: contactWhatsapp,
           contact_location: contactLocation,
           research_context: researchContext,

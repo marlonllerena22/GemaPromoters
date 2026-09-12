@@ -261,3 +261,64 @@
   .cs-upload-copy>strong{font-size:19px}
   .cs-preset-slider .cs-preset-card{flex-basis:170px}
 }
+
+/* Editorial framing and optional contact details. */
+.cs-framing-section{margin-top:18px;padding-top:18px;border-top:1px solid #e5e1d8;animation:cs-preset-config-in .24s ease both}
+.cs-framing-section>strong{font:700 13px 'Manrope';color:#3c3e38}
+.cs-framing-section>p{margin:5px 0 11px;color:#85877f;font-size:11px;line-height:1.4}
+.cs-framing-options{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.cs-framing-options button{min-height:82px;padding:12px;border:1px solid #dcd9d1;border-radius:13px;background:#fff;color:#343630;display:grid;grid-template-columns:38px minmax(0,1fr) 18px;align-items:center;gap:10px;text-align:left;cursor:pointer;transition:transform .18s ease,border-color .18s ease,background .18s ease,box-shadow .18s ease}
+.cs-framing-options button:hover{transform:translateY(-1px);border-color:#c8ad81}
+.cs-framing-options button:active{transform:scale(.985)}
+.cs-framing-options button>span{width:38px;height:38px;border-radius:11px;background:#f3eee4;color:#9a6f35;display:grid;place-items:center}
+.cs-framing-options button>div{display:grid;gap:3px;min-width:0}
+.cs-framing-options button b{font:700 12px 'Manrope';line-height:1.25}
+.cs-framing-options button small{color:#85877f;font-size:9px;line-height:1.35}
+.cs-framing-options button>i{width:18px;height:18px;border:1px solid #c7c5bd;border-radius:50%;display:grid;place-items:center;color:#fff;font-style:normal}
+.cs-framing-options button.selected{border-color:#bd9352;background:#fffaf1;box-shadow:inset 0 0 0 1px #bd9352,0 8px 18px #a87a3212}
+.cs-framing-options button.selected>span{background:#f3dfbd;color:#8b6127}
+.cs-framing-options button.selected>i{border-color:#bd9352;background:#bd9352}
+
+.cs-contact-panel{margin-top:14px;border:1px solid #e4e0d7;border-radius:15px;background:#faf9f6;overflow:hidden;animation:cs-contact-panel-in .24s ease both;transition:border-color .2s ease,box-shadow .2s ease,background .2s ease}
+.cs-contact-panel.open{border-color:#d8c29e;background:#fff;box-shadow:0 9px 24px #3c2c160b}
+.cs-contact-toggle{width:100%;min-height:72px;padding:12px 14px;border:0;background:transparent;color:#353731;display:grid;grid-template-columns:40px minmax(0,1fr) 20px;align-items:center;gap:11px;text-align:left;cursor:pointer}
+.cs-contact-toggle>span{width:40px;height:40px;border-radius:12px;background:#f5ead8;color:#986d31;display:grid;place-items:center}
+.cs-contact-toggle>div{display:grid;gap:4px;min-width:0}
+.cs-contact-toggle strong{font:700 13px 'Manrope';line-height:1.3}
+.cs-contact-toggle strong em{margin-left:6px;padding:3px 6px;border-radius:999px;background:#ebe8e1;color:#777970;font:700 8px 'Manrope';font-style:normal;text-transform:uppercase;letter-spacing:.08em;white-space:nowrap}
+.cs-contact-toggle small{color:#85877f;font-size:10px;line-height:1.35}
+.cs-contact-toggle>svg{color:#7d7f78;transition:transform .2s ease}
+.cs-contact-panel.open .cs-contact-toggle>svg{transform:rotate(180deg)}
+.cs-contact-fields{padding:2px 14px 15px;display:grid;grid-template-columns:1fr 1fr;gap:11px;animation:cs-contact-fields-in .22s ease both}
+.cs-contact-fields label{display:grid;gap:7px;min-width:0}
+.cs-contact-fields label>span{display:flex;align-items:center;gap:6px;color:#575952}
+.cs-contact-fields label>span>svg{color:#a17638}
+.cs-contact-fields label>span strong{font:700 11px 'Manrope'}
+.cs-contact-fields label>span em{margin-left:auto;color:#999b94;font:700 8px 'Manrope';font-style:normal;text-transform:uppercase;letter-spacing:.06em}
+.cs-contact-fields label>div{height:46px;padding:0 12px;border:1px solid #d8d5cd;border-radius:11px;background:#fff;display:flex;align-items:center;gap:9px;color:#a17638;transition:border-color .18s ease,box-shadow .18s ease,background .18s ease}
+.cs-contact-fields label>div:focus-within{border-color:#bd9352;box-shadow:0 0 0 3px #bd93521c}
+.cs-contact-fields input{width:100%;min-width:0;height:100%;padding:0;border:0!important;outline:0;background:transparent!important;color:#242620;font-size:14px;box-shadow:none!important}
+.cs-contact-fields input::placeholder{color:#a5a69f}
+.cs-contact-fields label>small{color:#8a8c84;font-size:9px;line-height:1.35}
+@keyframes cs-contact-panel-in{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:none}}
+@keyframes cs-contact-fields-in{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:none}}
+
+@media(max-width:720px){
+  .cs-framing-section{margin-top:14px;padding-top:14px}
+  .cs-framing-options{gap:7px}
+  .cs-framing-options button{min-height:88px;padding:9px 7px;grid-template-columns:31px minmax(0,1fr) 16px;gap:6px;border-radius:11px}
+  .cs-framing-options button>span{width:31px;height:31px;border-radius:9px}
+  .cs-framing-options button>span svg{width:17px}
+  .cs-framing-options button b{font-size:10px}
+  .cs-framing-options button small{font-size:8px}
+  .cs-framing-options button>i{width:16px;height:16px}
+  .cs-contact-toggle{min-height:68px;padding:11px;grid-template-columns:37px minmax(0,1fr) 18px;gap:9px}
+  .cs-contact-toggle>span{width:37px;height:37px;border-radius:11px}
+  .cs-contact-toggle strong{font-size:11px}
+  .cs-contact-toggle small{font-size:9px}
+  .cs-contact-fields{grid-template-columns:1fr;padding:2px 11px 13px;gap:12px}
+  .cs-contact-fields label>div{height:48px}
+  .cs-contact-fields input{font-size:16px}
+}
+
+@media(prefers-reduced-motion:reduce){.cs-framing-section,.cs-contact-panel,.cs-contact-fields{animation:none}.cs-framing-options button,.cs-contact-toggle>svg{transition:none}}

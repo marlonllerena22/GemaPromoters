@@ -113,6 +113,8 @@ test('prompt accepts any product, adapts the editorial model and prepares social
   const editorial = buildPrompt({ brand_name: 'Marjorie Botas', editorial_subject: 'female', product_name: 'vaquita que corre viral', research_context: 'Juguete infantil basado en un personaje viral.' }, PRESETS.editorial, true);
   const masculine = buildPrompt({ editorial_subject: 'male' }, PRESETS.editorial, false);
   const animal = buildPrompt({ editorial_subject: 'animal' }, PRESETS.editorial, false);
+  const closeUp = buildPrompt({ editorial_subject: 'female', editorial_framing: 'close_up' }, PRESETS.editorial, false);
+  const fullBody = buildPrompt({ editorial_subject: 'animal', editorial_framing: 'full_body' }, PRESETS.editorial, false);
   const catalog = buildPrompt({}, PRESETS.catalog, false);
   const story = buildPrompt({ social_format: 'story', social_style: 'playful', product_features: 'suavidad y cierre lateral', creative_instruction: 'Que se sienta listo para regalar' }, PRESETS.social, false);
   const benefits = buildPrompt({ social_format: 'post', social_style: 'product', product_features: 'cuero genuino y plantilla acolchada' }, PRESETS.social, false);
@@ -123,6 +125,10 @@ test('prompt accepts any product, adapts the editorial model and prepares social
   assert.match(masculine, /adult man by default/i);
   assert.match(animal, /believable animal model/i);
   assert.match(animal, /Never force human footwear/i);
+  assert.match(closeUp, /product-led close-up/i);
+  assert.match(closeUp, /lower legs and feet for footwear/i);
+  assert.match(closeUp, /torso and hands for handbags/i);
+  assert.match(fullBody, /completely visible from head to feet or paws/i);
   assert.match(editorial, /Do not include headlines/i);
   assert.match(editorial, /only permitted extra closure is one internal-side zipper/i);
   assert.match(editorial, /second reference image is the exact official brand logo/i);
