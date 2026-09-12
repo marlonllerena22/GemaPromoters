@@ -85,3 +85,13 @@ html[data-content-studio-color=dark] .cs-skeleton-grid span,html[data-content-st
   .cs-appearance-options{grid-template-columns:1fr}
   .cs-appearance-options button{min-height:76px}
 }
+
+/* Explicit contrast for every element in the mobile upload controls. */
+html[data-content-studio-color=dark] .cs-upload-copy>small{color:#d2a45f}
+html[data-content-studio-color=dark] .cs-upload-copy>strong{color:#f3f3ee}
+html[data-content-studio-color=dark] .cs-upload-copy>em,
+html[data-content-studio-color=dark] .cs-upload-copy>i{color:#a4a7a0}
+html[data-content-studio-color=dark] .cs-upload-copy>b{background:#292e42;color:#fff;box-shadow:0 9px 20px #0004}
+html[data-content-studio-color=dark] .cs-upload-copy>b svg{color:inherit}
+html[data-content-studio-color=dark] .cs-take-photo{background:#27261f;border-color:#514839;color:#efc777}
+html[data-content-studio-color=dark] .cs-take-photo svg{color:inherit}

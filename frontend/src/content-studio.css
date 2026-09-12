@@ -171,3 +171,93 @@
   .cs-preset-slider .cs-preset-card{flex-basis:174px}
   .cs-editorial-subject-grid button{min-height:122px;padding-left:3px;padding-right:3px}
 }
+
+/* Keep the first creation step legible and balanced on narrow phones. */
+@media(max-width:720px){
+  .cs-upload-card{overflow:visible;padding:8px}
+  .cs-upload-showcase{
+    -webkit-appearance:none;
+    appearance:none;
+    display:flex;
+    flex-direction:column;
+    align-items:stretch;
+    width:100%;
+    min-height:0;
+    padding:8px 8px 16px;
+    gap:14px;
+    overflow:visible;
+    text-align:center;
+  }
+  .cs-upload-art{
+    display:grid;
+    flex:0 0 168px;
+    width:100%;
+    height:168px;
+    place-items:center;
+  }
+  .cs-upload-copy{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    width:100%;
+    min-width:0;
+    padding:2px 8px 0;
+    opacity:1;
+    visibility:visible;
+  }
+  .cs-upload-copy>small,
+  .cs-upload-copy>strong,
+  .cs-upload-copy>em,
+  .cs-upload-copy>b,
+  .cs-upload-copy>i{
+    position:static;
+    display:flex;
+    opacity:1;
+    visibility:visible;
+  }
+  .cs-upload-copy>small{color:#a17638}
+  .cs-upload-copy>strong{max-width:280px;color:#17181d}
+  .cs-upload-copy>em{color:#777980}
+  .cs-upload-copy>b{
+    align-items:center;
+    justify-content:center;
+    width:100%;
+    min-height:46px;
+    color:#fff;
+    background:#1e2230;
+  }
+  .cs-upload-copy>b svg{display:block;flex:0 0 auto}
+  .cs-upload-copy>i{justify-content:center;color:#85878b}
+  .cs-take-photo{
+    -webkit-appearance:none;
+    appearance:none;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    width:calc(100% - 14px);
+    min-height:44px;
+    color:#765526;
+    background:#fffaf1;
+  }
+  .cs-take-photo svg{display:block;flex:0 0 auto}
+  .cs-content-card{overflow:hidden}
+  .cs-preset-slider{
+    width:100%;
+    margin:0;
+    padding:2px 28px 8px 0;
+    scroll-padding-left:0;
+  }
+  .cs-preset-slider .cs-preset-card{
+    flex-basis:clamp(172px,56vw,202px);
+    min-height:218px;
+  }
+}
+
+@media(max-width:380px){
+  .cs-page{padding-left:10px;padding-right:10px}
+  .cs-create-heading h1{font-size:30px}
+  .cs-upload-art{height:154px;flex-basis:154px}
+  .cs-upload-copy>strong{font-size:19px}
+  .cs-preset-slider .cs-preset-card{flex-basis:170px}
+}
