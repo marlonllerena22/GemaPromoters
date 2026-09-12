@@ -180,6 +180,7 @@ test('a paid client gets its own plan, usage, history and brand management', asy
   assert.equal(calls[0].images.length, 2);
   assert.equal(completed.data.generation.product_name, 'vaquita que corre viral');
   assert.match(calls[0].prompt, /second reference image is the exact official brand logo/i);
+  assert.match(db.prepare('SELECT request_prompt FROM content_studio_generations WHERE id = ?').get(generated.data.generation.id).request_prompt, /Personaje de peluche asociado a un video viral/i);
   assert.equal(db.prepare('SELECT content_studio_user_id FROM content_studio_generations WHERE id = ?').get(generated.data.generation.id).content_studio_user_id, 1);
 
   const unrelated = await request('/generate', { token: clientToken, method: 'POST', body: JSON.stringify({ preset: 'catalog', logo_id: 'none', product_image: sampleImage }) });
@@ -195,6 +196,19 @@ test('a paid client gets its own plan, usage, history and brand management', asy
   const clientHistory = await request('/generations', { token: clientToken });
   assert.equal(clientHistory.data.generations.length, 2);
   assert.equal(clientBootstrap.data.usage, 2);
+});
+
+test('orphaned generations expire with a retryable error and do not consume credits', async (t) => {
+  const { db, server, request, clientToken } = fixture();
+  t.after(() => { server.close(); db.close(); });
+  const inserted = db.prepare(`INSERT INTO content_studio_generations
+    (establishment_id, content_studio_user_id, preset, status, error_message, created_by, created_at)
+    VALUES (1, 1, 'catalog', 'failed', '__processing__', 'cliente.demo', datetime('now', 'localtime', '-7 minutes'))`).run();
+  const status = await request(`/generations/${inserted.lastInsertRowid}`, { token: clientToken });
+  assert.equal(status.status, 200);
+  assert.equal(status.data.generation.status, 'failed');
+  assert.match(status.data.generation.error_message, /servidor se reinició/i);
+  assert.equal(status.data.usage, 0);
 });
 
 test('advanced batches persist their group and enforce the required plan on the server', async (t) => {

@@ -68,6 +68,8 @@ const SELLER_QUINCENIAL_BONUS = 100;
 const SELLER_DEMO_CREDITS = 25;
 const SELLER_TRIAL_CREDITS = 5;
 const SELLER_TRIAL_DAYS = 7;
+const GENERATION_PROCESSING_MARKER = '__processing__';
+const GENERATION_TIMEOUT_MINUTES = 6;
 
 const clean = (value, max = 160) => String(value ?? '').trim().slice(0, max);
 const cleanEmail = (value) => clean(value, 180).toLowerCase();
@@ -366,6 +368,32 @@ function currentQuincena(db) {
   return { start, end };
 }
 
+function expireStaleGenerations(db) {
+  return db.prepare(`UPDATE content_studio_generations
+    SET error_message = 'La creación tardó demasiado o el servidor se reinició. Inténtalo nuevamente; no se descontó ningún crédito.'
+    WHERE status = 'failed' AND error_message = ?
+      AND created_at <= datetime('now', 'localtime', ?)`)
+    .run(GENERATION_PROCESSING_MARKER, `-${GENERATION_TIMEOUT_MINUTES} minutes`).changes;
+}
+
+function listAdminGenerations(db, establishmentId, search = '') {
+  const normalizedSearch = clean(search, 80).toLowerCase();
+  return db.prepare(`SELECT generations.id, generations.preset, generations.product_name,
+    generations.brand_name, generations.headline AS user_instruction, generations.mood,
+    generations.aspect_ratio, generations.status, generations.error_message,
+    generations.request_prompt, generations.revised_prompt, generations.created_by, generations.created_at,
+    users.id AS user_id, users.name AS user_name, users.username AS user_username,
+    sellers.id AS seller_id, sellers.name AS seller_name, sellers.username AS seller_username
+    FROM content_studio_generations generations
+    LEFT JOIN content_studio_users users ON users.id = generations.content_studio_user_id
+    LEFT JOIN content_studio_sellers sellers ON sellers.id = users.created_by_seller_id
+    WHERE generations.establishment_id = ? AND generations.deleted_at IS NULL
+      AND (? = '' OR LOWER(COALESCE(users.name, '') || ' ' || COALESCE(users.username, '') || ' ' ||
+        COALESCE(sellers.name, '') || ' ' || COALESCE(sellers.username, '')) LIKE ?)
+    ORDER BY generations.created_at DESC, generations.id DESC LIMIT 40`)
+    .all(establishmentId, normalizedSearch, `%${normalizedSearch}%`).map(generationRow);
+}
+
 function ensureSellerWorkspace(db, seller) {
   const period = currentQuincena(db);
   const username = `__seller_demo_${seller.id}`;
@@ -496,6 +524,19 @@ function researchKey(value) {
   return clean(value, 70).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ');
 }
 
+async function fetchWithTimeout(url, options, timeoutMs, timeoutMessage) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error(timeoutMessage);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function defaultResearchProduct(db, productName) {
   const queryText = clean(productName, 70);
   const queryKey = researchKey(queryText);
@@ -504,7 +545,7 @@ async function defaultResearchProduct(db, productName) {
   if (cached?.context) return cached.context;
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return '';
-  const response = await fetch('https://api.openai.com/v1/responses', {
+  const response = await fetchWithTimeout('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -515,7 +556,7 @@ async function defaultResearchProduct(db, productName) {
       reasoning: { effort: 'none' },
       store: false
     })
-  });
+  }, Number(process.env.OPENAI_RESEARCH_TIMEOUT_MS || 25000), 'La investigación opcional tardó demasiado');
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error?.message || 'No se pudo investigar el producto');
   const context = clean(responseOutputText(data), 500);
@@ -641,9 +682,9 @@ async function defaultGenerate({ images, prompt, size }) {
     const mime = match[1] === 'jpg' ? 'jpeg' : match[1];
     form.append('image[]', new Blob([Buffer.from(match[2], 'base64')], { type: `image/${mime}` }), `input-${index + 1}.${mime}`);
   });
-  const response = await fetch('https://api.openai.com/v1/images/edits', {
+  const response = await fetchWithTimeout('https://api.openai.com/v1/images/edits', {
     method: 'POST', headers: { Authorization: `Bearer ${apiKey}` }, body: form
-  });
+  }, Number(process.env.OPENAI_IMAGE_TIMEOUT_MS || 240000), 'La generación superó el tiempo máximo de 4 minutos');
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error?.message || 'OpenAI no pudo generar la imagen');
   const encoded = data.data?.[0]?.b64_json;
@@ -669,7 +710,7 @@ async function resizeSocialOutput(imageData, format) {
 }
 
 function generationRow(row) {
-  const processing = row?.status === 'failed' && row?.error_message === '__processing__';
+  const processing = row?.status === 'failed' && row?.error_message === GENERATION_PROCESSING_MARKER;
   return {
     ...row,
     status: processing ? 'processing' : row.status,
@@ -912,6 +953,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
   });
 
   app.get('/api/content-studio/bootstrap', guard, (req, res) => {
+    expireStaleGenerations(db);
     const startedAt = performance.now();
     const establishmentId = req.contentStudioEstablishment.id;
     const establishmentSettings = db.prepare('SELECT * FROM content_studio_settings WHERE establishment_id = ?').get(establishmentId);
@@ -925,7 +967,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
       brand_name, mood, aspect_ratio, status, error_message, created_at
       FROM content_studio_generations WHERE establishment_id = ? ${userCondition}
         AND deleted_at IS NULL AND status = 'failed' AND error_message = '__processing__'
-        AND created_at >= datetime('now', '-30 minutes') ORDER BY created_at DESC, id DESC LIMIT 4`)
+        AND created_at >= datetime('now', 'localtime', '-30 minutes') ORDER BY created_at DESC, id DESC LIMIT 4`)
       .all(establishmentId, ...userParams).map(generationRow);
     const subscriptionActive = activeSubscription(req.contentStudioUser);
     const creditLimit = Math.max(0, Number(settings?.monthly_limit || 0));
@@ -969,6 +1011,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
   });
 
   app.get('/api/content-studio/generations', guard, (req, res) => {
+    expireStaleGenerations(db);
     const condition = req.contentStudioUser ? 'AND content_studio_user_id = ?' : 'AND content_studio_user_id IS NULL';
     const params = req.contentStudioUser ? [req.contentStudioUser.id] : [];
     const generations = db.prepare(`SELECT * FROM content_studio_generations
@@ -979,12 +1022,14 @@ export function registerContentStudioRoutes(app, db, options = {}) {
 
   app.get('/api/content-studio/admin', guard, (req, res) => {
     if (req.contentStudioUser) return res.status(403).json({ message: 'Solo el administrador puede ver las cuentas' });
+    expireStaleGenerations(db);
     const sellerPeriod = sellerPeriodSummary(db, req.contentStudioEstablishment.id);
     res.json({
       users: listStudioUsers(db, req.contentStudioEstablishment.id),
       plan_orders: listPlanOrders(db, req.contentStudioEstablishment.id),
       sellers: sellerPeriod.sellers,
-      seller_period: sellerPeriod
+      seller_period: sellerPeriod,
+      generation_activity: listAdminGenerations(db, req.contentStudioEstablishment.id).slice(0, 16)
     });
   });
 
@@ -1032,6 +1077,12 @@ export function registerContentStudioRoutes(app, db, options = {}) {
       trial: { credits: SELLER_TRIAL_CREDITS, days: SELLER_TRIAL_DAYS },
       plans: STUDIO_PLANS, transfer: studioPaymentSettings(db)
     });
+  });
+
+  app.get('/api/content-studio/admin/generations', guard, (req, res) => {
+    if (req.contentStudioUser) return res.status(403).json({ message: 'Solo el administrador puede revisar las generaciones' });
+    expireStaleGenerations(db);
+    res.json({ generations: listAdminGenerations(db, req.contentStudioEstablishment.id, req.query.search) });
   });
 
   app.post('/api/content-studio/seller/trials', sellerGuard, (req, res) => {
@@ -1327,7 +1378,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     const reservation = db.transaction(() => {
       const occupied = db.prepare(`SELECT COUNT(*) AS total FROM content_studio_generations
         WHERE establishment_id = ? ${userCondition} ${periodCondition}
-          AND (status = 'completed' OR (status = 'failed' AND error_message = '__processing__' AND created_at >= datetime('now', '-30 minutes')))`)
+          AND (status = 'completed' OR (status = 'failed' AND error_message = '__processing__' AND created_at >= datetime('now', 'localtime', '-30 minutes')))`)
         .get(req.contentStudioEstablishment.id, ...userParams, ...periodParams).total;
       if (occupied >= settings.monthly_limit) return null;
       const inserted = db.prepare(`INSERT INTO content_studio_generations
@@ -1344,6 +1395,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     res.status(202).json({ generation: queued, usage: Number(db.prepare(`SELECT COUNT(*) AS total FROM content_studio_generations WHERE establishment_id = ? ${userCondition} AND status = 'completed' ${periodCondition}`).get(req.contentStudioEstablishment.id, ...userParams, ...periodParams).total), monthly_limit: settings.monthly_limit });
 
     void Promise.resolve().then(async () => {
+      const generationStartedAt = Date.now();
       try {
         let researchContext = '';
         if (productName) {
@@ -1363,6 +1415,8 @@ export function registerContentStudioRoutes(app, db, options = {}) {
           brand_name: logo?.name || '',
           brand_direction: logo ? 'Use the supplied official logo reference as a real finished brand asset within the composition.' : 'Create a neutral premium identity around the product.'
         }, preset, Boolean(logo));
+        db.prepare('UPDATE content_studio_generations SET request_prompt = ? WHERE id = ?').run(prompt, reservation);
+        console.info(`[content-studio] generation ${reservation} started (${req.user.username || req.user.role}, ${req.body.preset}, ${generationSize})`);
         const logoReference = logo ? await logoReferenceForGeneration(logo.image_data) : null;
         const generated = await generateImage({ images: logoReference ? [productImage, logoReference] : [productImage], prompt, size: generationSize, preset: req.body.preset });
         // Conserva toda la creación y amplía exclusivamente el fondo de borde
@@ -1370,14 +1424,17 @@ export function registerContentStudioRoutes(app, db, options = {}) {
         const sizedImage = await resizeSocialOutput(generated.imageData, outputFormat);
         db.prepare("UPDATE content_studio_generations SET output_image_data = ?, revised_prompt = ?, status = 'completed', error_message = NULL WHERE id = ?")
           .run(sizedImage, generated.revisedPrompt || '', reservation);
+        console.info(`[content-studio] generation ${reservation} completed in ${Date.now() - generationStartedAt}ms`);
       } catch (error) {
         db.prepare("UPDATE content_studio_generations SET status = 'failed', error_message = ? WHERE id = ?")
           .run(clean(error.message, 500), reservation);
+        console.error(`[content-studio] generation ${reservation} failed after ${Date.now() - generationStartedAt}ms: ${clean(error.message, 500)}`);
       }
     });
   });
 
   app.get('/api/content-studio/generations/:id', guard, (req, res) => {
+    expireStaleGenerations(db);
     const userCondition = req.contentStudioUser ? 'AND content_studio_user_id = ?' : 'AND content_studio_user_id IS NULL';
     const userParams = req.contentStudioUser ? [req.contentStudioUser.id] : [];
     const periodCondition = req.contentStudioUser ? 'AND created_at >= ?' : "AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')";

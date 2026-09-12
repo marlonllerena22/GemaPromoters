@@ -100,6 +100,7 @@ export function initContentStudioDb(db) {
       reference_ids_json TEXT NOT NULL DEFAULT '[]',
       output_image_data TEXT,
       revised_prompt TEXT,
+      request_prompt TEXT,
       creation_group_id TEXT,
       creation_group_type TEXT,
       creation_group_position INTEGER,
@@ -334,6 +335,9 @@ export function initContentStudioDb(db) {
   }
   if (!generationColumns.some((column) => column.name === 'social_copy')) {
     db.exec('ALTER TABLE content_studio_generations ADD COLUMN social_copy TEXT');
+  }
+  if (!generationColumns.some((column) => column.name === 'request_prompt')) {
+    db.exec('ALTER TABLE content_studio_generations ADD COLUMN request_prompt TEXT');
   }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_content_studio_generations_group
     ON content_studio_generations(creation_group_id, creation_group_position)`);

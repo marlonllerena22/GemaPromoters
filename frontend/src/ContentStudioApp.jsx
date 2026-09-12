@@ -56,7 +56,7 @@ function progressForElapsed(seconds, hasResearch = false) {
   if (seconds < 35) return { percent: 48, label: 'Creando la composición' };
   if (seconds < 65) return { percent: 68, label: 'Cuidando el realismo y los detalles' };
   if (seconds < 100) return { percent: 84, label: 'Aplicando el acabado profesional' };
-  return { percent: 94, label: 'Terminando tu imagen' };
+  return { percent: Math.min(97, 84 + Math.floor((seconds - 100) / 8)), label: 'Terminando tu imagen' };
 }
 
 async function imageFileToData(file, maxSide = 1800, quality = 0.9, outputType = 'image/jpeg') {
@@ -179,7 +179,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
     setSectionLoading(true);
     try {
       const response = await apiWithTimeout(`/content-studio/admin${scopeQuery}`);
-      setData((current) => ({ ...current, users: response.users || [], plan_orders: response.plan_orders || [], sellers: response.sellers || [], seller_period: response.seller_period || null }));
+      setData((current) => ({ ...current, users: response.users || [], plan_orders: response.plan_orders || [], sellers: response.sellers || [], seller_period: response.seller_period || null, generation_activity: response.generation_activity || [] }));
       loadedSections.current.add('admin');
     } catch (err) { setError(err.message); }
     finally { setSectionLoading(false); }
@@ -220,14 +220,31 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
     const startedAt = startedAtOverride || (Number.isFinite(parsedCreatedAt) ? parsedCreatedAt : Date.now());
     const hasResearch = Boolean(String(generation?.product_name || '').trim());
     let terminal = false;
+    let consecutiveStatusFailures = 0;
+    const updateVisibleProgress = () => {
+      if (mountedRef.current && activeGenerationRef.current === generationId) {
+        setGenerationProgress(progressForElapsed(Math.max(0, Math.round((Date.now() - startedAt) / 1000)), hasResearch));
+      }
+    };
+    updateVisibleProgress();
+    const progressTimer = window.setInterval(updateVisibleProgress, 1000);
     try {
       let completed;
-      for (let attempt = 0; attempt < 240 && mountedRef.current && activeGenerationRef.current === generationId; attempt += 1) {
-        const statusResponse = await api(`/content-studio/generations/${generationId}${scopeQuery}`);
+      for (let attempt = 0; attempt < 170 && mountedRef.current && activeGenerationRef.current === generationId; attempt += 1) {
+        if (Date.now() - startedAt > 7 * 60 * 1000) throw new Error('La creación superó el tiempo esperado. No se descontó ningún crédito; inténtalo nuevamente.');
+        let statusResponse;
+        try {
+          statusResponse = await apiWithTimeout(`/content-studio/generations/${generationId}${scopeQuery}`, {}, 12000);
+          consecutiveStatusFailures = 0;
+        } catch (statusError) {
+          consecutiveStatusFailures += 1;
+          if (consecutiveStatusFailures >= 3) throw new Error('No pudimos consultar el avance de la creación. Revisa tu conexión y vuelve a intentarlo desde Historial.');
+          await wait(2500);
+          continue;
+        }
         if (statusResponse.generation?.status === 'failed') { terminal = true; throw new Error(statusResponse.generation.error_message || 'No se pudo crear la imagen'); }
         if (statusResponse.generation?.status === 'completed') { terminal = true; completed = statusResponse; break; }
         await wait(2500);
-        if (mountedRef.current) setGenerationProgress(progressForElapsed(Math.round((Date.now() - startedAt) / 1000), hasResearch));
       }
       if (!mountedRef.current || activeGenerationRef.current !== generationId) return;
       if (!completed) throw new Error('La creación sigue procesándose en el servidor. Puedes verla más tarde en Historial.');
@@ -242,6 +259,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
       setNotice('Tu imagen profesional está lista');
       window.setTimeout(() => setNotice(''), 3000);
     } finally {
+      window.clearInterval(progressTimer);
       if (terminal) forgetGeneration();
       if (activeGenerationRef.current === generationId) activeGenerationRef.current = null;
       if (mountedRef.current) { setGenerating(false); window.setTimeout(() => mountedRef.current && setGenerationProgress({ percent: 0, label: '' }), 700); }
@@ -295,7 +313,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
       const outcomes = await Promise.allSettled(queued.map(async (generation) => {
         let completed;
         for (let attempt = 0; attempt < 240; attempt += 1) {
-          const statusResponse = await api(`/content-studio/generations/${generation.id}${scopeQuery}`);
+          const statusResponse = await apiWithTimeout(`/content-studio/generations/${generation.id}${scopeQuery}`, {}, 12000);
           if (statusResponse.generation?.status === 'failed') throw new Error(statusResponse.generation.error_message || 'Una pieza no pudo completarse');
           if (statusResponse.generation?.status === 'completed') { completed = statusResponse; break; }
           await wait(2500);
@@ -353,7 +371,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
         {tab === 'create' && <CreateView data={data} form={form} setForm={setForm} productImage={productImage} inputRef={inputRef} cameraInputRef={cameraInputRef} chooseProduct={chooseProduct} removeProduct={() => { setProductImage(''); if (inputRef.current) inputRef.current.value = ''; if (cameraInputRef.current) cameraInputRef.current.value = ''; }} selectedPreset={selectedPreset} generate={generate} generateAdvanced={generateAdvanced} generating={generating} result={result} generationProgress={generationProgress} newCreation={newCreation} usagePercent={usagePercent} goToHistory={() => setTab('history')} goToProfile={() => setTab(isSellerWorkspace ? 'history' : 'profile')} goToSettings={() => setTab('settings')} openPlans={(planId) => { if (isSellerWorkspace) setError('Las herramientas por lotes requieren más créditos que tu espacio de demostración.'); else { setRequestedPlan(planId || ''); setPlansOpen(true); } }} sellerDemo={isSellerWorkspace} />}
         {tab === 'history' && (sectionLoading && !loadedSections.current.has('history') ? <SectionSkeleton title="Cargando tu historial" /> : <HistoryView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/>) }
         {tab === 'profile' && <AccountProfile data={data} user={user} onLogout={onLogout} onVisitLanding={visitPublicLanding} openPlans={() => setPlansOpen(true)} setData={setData} setError={setError}/>}
-        {tab === 'users' && isStudioAdmin && (sectionLoading && !loadedSections.current.has('admin') ? <SectionSkeleton title="Cargando usuarios y transferencias" /> : <><UsersView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/><div className="cs-settings-divider"><SellersView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/></div></>)}
+        {tab === 'users' && isStudioAdmin && (sectionLoading && !loadedSections.current.has('admin') ? <SectionSkeleton title="Cargando usuarios y transferencias" /> : <><UsersView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/><div className="cs-settings-divider"><SellersView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/></div><div className="cs-settings-divider"><GenerationActivity items={data.generation_activity || []}/></div></>)}
         {tab === 'settings' && <BusinessConfiguration data={data} scopeBody={scopeBody} reload={reload} setError={setError} user={user} appearance={appearance} setAppearance={setAppearance} onSaved={(settings) => setData((current) => ({...current,settings}))} sellerDemo={isSellerWorkspace}/>}
       </>}
     </div>
@@ -951,6 +969,17 @@ function UsersView({ data, scopeBody, reload, setError }) {
         {!data.users?.length && <div className="cs-empty-large"><UsersRound size={38} /><h3>Aún no hay usuarios</h3><p>Crea la primera cuenta desde el formulario.</p></div>}
       </div>
     </div>
+  </section>;
+}
+
+function GenerationActivity({ items }) {
+  return <section className="cs-generation-activity">
+    <div className="cs-section-heading"><span className="cs-eyebrow">Diagnóstico</span><h1>Actividad de generación</h1><p>Revisa trabajos recientes, instrucciones y errores sin descontar créditos por intentos fallidos.</p></div>
+    <div className="cs-generation-activity-list">{items.length ? items.map((item) => {
+      const owner = item.seller_name ? `${item.seller_name} (@${item.seller_username})` : item.user_name ? `${item.user_name} (@${item.user_username})` : item.created_by || 'Administración';
+      const label = item.status === 'completed' ? 'Completada' : item.status === 'processing' ? 'Procesando' : 'Fallida';
+      return <article key={item.id} className={`status-${item.status}`}><div><span>#{item.id} · {item.preset}</span><strong>{owner}</strong><small>{new Date(String(item.created_at).replace(' ', 'T')).toLocaleString('es-EC')}</small></div><b>{label}</b><p><strong>Indicación del usuario:</strong> {item.user_instruction || 'No escribió una indicación adicional.'}</p>{item.product_name && <p><strong>Producto:</strong> {item.product_name}</p>}{item.error_message && <p className="cs-generation-error"><strong>Motivo:</strong> {item.error_message}</p>}{item.request_prompt && <details><summary>Ver prompt técnico enviado</summary><pre>{item.request_prompt}</pre></details>}</article>;
+    }) : <div className="cs-empty-large"><Sparkles size={34}/><h3>Sin generaciones recientes</h3><p>La actividad aparecerá aquí cuando se creen imágenes.</p></div>}</div>
   </section>;
 }
 

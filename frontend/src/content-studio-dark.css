@@ -63,6 +63,7 @@ html[data-content-studio-color=dark] .cs-appearance-options button>span{backgrou
 html[data-content-studio-color=dark] .cs-appearance-options small{color:#9da099}
 html[data-content-studio-color=dark] .cs-primary,html[data-content-studio-color=dark] .cs-account-plan>button{background:#e2ac64;color:#211c15}
 html[data-content-studio-color=dark] .cs-visit-landing{background:#222521;border-color:#3b4039;color:#dcddd8}
+html[data-content-studio-color=dark] .cs-generation-activity-list article{background:#191c19;border-color:#343833;color:#eff0eb}html[data-content-studio-color=dark] .cs-generation-activity-list article>p,html[data-content-studio-color=dark] .cs-generation-activity-list details{color:#b1b4ad}html[data-content-studio-color=dark] .cs-generation-activity-list pre{background:#101310;color:#d9dcd5}
 html[data-content-studio-color=dark] .cs-secondary,html[data-content-studio-color=dark] .cs-password-toggle,html[data-content-studio-color=dark] .cs-user-actions button,html[data-content-studio-color=dark] .cs-seller-list article>button{background:#222521;border-color:#3b4039;color:#dcddd8}
 html[data-content-studio-color=dark] .cs-mobile-nav{background:rgba(18,20,18,.96);border-color:#2d302c}
 html[data-content-studio-color=dark] .cs-mobile-nav button{color:#969a93}
