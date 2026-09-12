@@ -323,3 +323,60 @@
 }
 
 @media(prefers-reduced-motion:reduce){.cs-framing-section,.cs-contact-panel,.cs-contact-fields{animation:none}.cs-framing-options button,.cs-contact-toggle>svg{transition:none}}
+
+/* Step 1: compact product uploader with clear empty and loaded states. */
+.cs-upload-stage{border:1px solid #e4e1d9;border-radius:17px;background:linear-gradient(145deg,#fbfaf7,#f6f3ec);overflow:hidden}
+.cs-upload-empty{min-height:340px;padding:27px 22px 23px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+.cs-upload-symbol{width:112px;height:82px;position:relative;display:grid;place-items:center;color:#b2823e;margin-bottom:10px}
+.cs-upload-symbol>i{position:absolute;left:50%;bottom:4px;width:104px;height:22px;border-radius:50%;background:#d9d5ce;transform:translateX(-50%)}
+.cs-upload-symbol>svg{position:relative;z-index:2;filter:drop-shadow(0 10px 12px #74562422)}
+.cs-upload-symbol>svg:last-child{position:absolute;right:11px;top:4px;color:#c89545;filter:none}
+.cs-upload-title{display:grid;justify-items:center;gap:5px}
+.cs-upload-title>small{font:700 10px 'Manrope';letter-spacing:.2em;text-transform:uppercase;color:#a17638}
+.cs-upload-title>strong{max-width:100%;font:700 25px/1.16 Georgia,serif;color:#1d1f1b;overflow-wrap:anywhere}
+.cs-upload-title>span{color:#868880;font-size:11px}
+.cs-upload-actions{width:min(100%,540px);min-width:0;margin-top:22px;display:grid;grid-template-columns:minmax(230px,300px);justify-content:center;gap:10px}
+.cs-upload-actions button{min-width:0;min-height:68px;padding:10px 15px;border:1px solid #cfd3df;border-radius:14px;background:linear-gradient(145deg,#f1f3fb,#e8ebf5);color:#252b3e;display:flex;align-items:center;gap:12px;text-align:left;cursor:pointer;box-shadow:0 8px 18px #28334b10;transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease,background .18s ease}
+.cs-upload-actions button:hover{transform:translateY(-2px);border-color:#9da7bd;box-shadow:0 12px 24px #28334b18}
+.cs-upload-actions button:active{transform:scale(.985)}
+.cs-upload-actions button>span{width:40px;height:40px;border-radius:12px;background:#353c55;color:#fff;display:grid;place-items:center;flex:0 0 auto}
+.cs-upload-actions button>div{display:grid;gap:3px;min-width:0}
+.cs-upload-actions button strong{font:700 13px 'Manrope';line-height:1.2}
+.cs-upload-actions button small{font-size:10px;color:#777d8c}
+.cs-upload-actions .cs-upload-camera-action{display:none;border-color:#dcc79f;background:linear-gradient(145deg,#fffaf0,#f5eddf);color:#5e4826}
+.cs-upload-actions .cs-upload-camera-action>span{background:#ba8740;color:#fff4dd}
+.cs-upload-actions .cs-upload-camera-action small{color:#8d795b}
+.cs-upload-empty>p{margin:15px 0 0;display:flex;align-items:center;justify-content:center;gap:6px;color:#81837d;font-size:10px}
+.cs-upload-loaded{padding:10px;display:grid;gap:10px;animation:cs-upload-loaded-in .24s ease both}
+.cs-upload-preview-frame{width:100%;height:min(440px,48vw);min-height:280px;position:relative;display:grid;place-items:center;overflow:hidden;border-radius:14px;background:#eae7df}
+.cs-upload-preview-frame>img{display:block;width:100%;height:100%;object-fit:contain}
+.cs-upload-remove{position:absolute;z-index:3;right:12px;top:12px;width:40px;height:40px;padding:0;border:1px solid #ffffff40;border-radius:50%;background:#20231edd;color:#fff;display:grid;place-items:center;cursor:pointer;box-shadow:0 7px 18px #1115;backdrop-filter:blur(8px);transition:transform .18s ease,background .18s ease}
+.cs-upload-remove:hover{transform:scale(1.06);background:#111410}
+.cs-upload-remove:active{transform:scale(.95)}
+.cs-change-photo{width:100%;min-height:50px;border:1px solid #dedbd2;border-radius:12px;background:#f0eee8;color:#373a34;display:flex;align-items:center;justify-content:center;gap:9px;font:700 13px 'Manrope';cursor:pointer;transition:transform .18s ease,background .18s ease,border-color .18s ease}
+.cs-change-photo:hover{background:#e9e6de;border-color:#cbc7bd}.cs-change-photo:active{transform:scale(.99)}
+@keyframes cs-upload-loaded-in{from{opacity:0;transform:scale(.985)}to{opacity:1;transform:none}}
+
+@media(max-width:720px){
+  .cs-upload-stage{border-radius:14px}
+  .cs-upload-empty{min-height:350px;padding:19px 12px 17px}
+  .cs-upload-symbol{width:94px;height:68px;margin-bottom:8px}.cs-upload-symbol>i{width:86px;height:18px}.cs-upload-symbol>svg:nth-child(2){width:42px}.cs-upload-symbol>svg:last-child{right:7px;width:15px}
+  .cs-upload-title>strong{font-size:21px}.cs-upload-title>span{font-size:10px}
+  .cs-upload-actions{grid-template-columns:minmax(0,1fr) minmax(0,1fr);margin-top:19px;gap:8px}
+  .cs-upload-actions .cs-upload-camera-action{display:flex}
+  .cs-upload-actions button{min-height:68px;padding:9px 10px;gap:8px;border-radius:12px}
+  .cs-upload-actions button>span{width:36px;height:36px;border-radius:10px}.cs-upload-actions button>span svg{width:18px}
+  .cs-upload-actions button strong{font-size:11px}.cs-upload-actions button small{font-size:8px}
+  .cs-upload-empty>p{margin-top:13px;font-size:9px}
+  .cs-upload-loaded{padding:7px;gap:8px}
+  .cs-upload-preview-frame{height:auto;min-height:0;aspect-ratio:1/1}
+  .cs-upload-remove{right:10px;top:10px;width:38px;height:38px}
+  .cs-change-photo{min-height:48px;font-size:12px}
+}
+
+@media(max-width:360px){
+  .cs-upload-empty{padding-left:9px;padding-right:9px}
+  .cs-upload-actions button{padding-left:8px;padding-right:8px}.cs-upload-actions button>span{width:33px;height:33px}
+}
+
+@media(prefers-reduced-motion:reduce){.cs-upload-loaded{animation:none}.cs-upload-actions button,.cs-upload-remove,.cs-change-photo{transition:none}}

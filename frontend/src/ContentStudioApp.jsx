@@ -4,7 +4,7 @@ import {
   Gem, Image as ImageIcon, LayoutGrid, LogOut, Mail, MessageCircle, Plus, Settings,
   Share2, ShieldCheck, ShoppingBag, Sparkles, Tag, Trash2, Upload, UserPlus, UserRound,
   UsersRound, WandSparkles, X, BriefcaseBusiness, CalendarCheck, TrendingUp, Camera, Monitor, Moon, Sun,
-  MapPin, PersonStanding, Phone, ScanSearch
+  MapPin, PersonStanding, Phone, ScanSearch, RefreshCw, Info
 } from 'lucide-react';
 import { api, setUser } from './api.js';
 import ContentStudioSocialPublisher, { SocialConnectionsSettings } from './ContentStudioSocial.jsx';
@@ -345,7 +345,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
       {notice && <div className="cs-toast"><Check size={17}/>{notice}</div>}
       {error && <div className="cs-error"><span>{error}</span><button onClick={() => setError('')}><X size={17}/></button>{!data && <button className="cs-error-retry" onClick={() => loadCore()}>Reintentar</button>}</div>}
       {loading && !data ? <StudioShellSkeleton /> : data && <>
-        {tab === 'create' && <CreateView data={data} form={form} setForm={setForm} productImage={productImage} inputRef={inputRef} cameraInputRef={cameraInputRef} chooseProduct={chooseProduct} selectedPreset={selectedPreset} generate={generate} generateAdvanced={generateAdvanced} generating={generating} result={result} generationProgress={generationProgress} newCreation={newCreation} usagePercent={usagePercent} goToHistory={() => setTab('history')} goToProfile={() => setTab(isSellerWorkspace ? 'history' : 'profile')} goToSettings={() => setTab('settings')} openPlans={(planId) => { if (isSellerWorkspace) setError('Las herramientas por lotes requieren más créditos que tu espacio de demostración.'); else { setRequestedPlan(planId || ''); setPlansOpen(true); } }} sellerDemo={isSellerWorkspace} />}
+        {tab === 'create' && <CreateView data={data} form={form} setForm={setForm} productImage={productImage} inputRef={inputRef} cameraInputRef={cameraInputRef} chooseProduct={chooseProduct} removeProduct={() => { setProductImage(''); if (inputRef.current) inputRef.current.value = ''; if (cameraInputRef.current) cameraInputRef.current.value = ''; }} selectedPreset={selectedPreset} generate={generate} generateAdvanced={generateAdvanced} generating={generating} result={result} generationProgress={generationProgress} newCreation={newCreation} usagePercent={usagePercent} goToHistory={() => setTab('history')} goToProfile={() => setTab(isSellerWorkspace ? 'history' : 'profile')} goToSettings={() => setTab('settings')} openPlans={(planId) => { if (isSellerWorkspace) setError('Las herramientas por lotes requieren más créditos que tu espacio de demostración.'); else { setRequestedPlan(planId || ''); setPlansOpen(true); } }} sellerDemo={isSellerWorkspace} />}
         {tab === 'history' && (sectionLoading && !loadedSections.current.has('history') ? <SectionSkeleton title="Cargando tu historial" /> : <HistoryView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/>) }
         {tab === 'profile' && <AccountProfile data={data} user={user} onLogout={onLogout} openPlans={() => setPlansOpen(true)} setData={setData} setError={setError}/>}
         {tab === 'users' && isStudioAdmin && (sectionLoading && !loadedSections.current.has('admin') ? <SectionSkeleton title="Cargando usuarios y transferencias" /> : <><UsersView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/><div className="cs-settings-divider"><SellersView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/></div></>)}
@@ -372,6 +372,7 @@ function LegacyContentStudioApp({ user, onLogout, embedded = false, establishmen
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const inputRef = useRef(null);
+  const cameraInputRef = useRef(null);
   const activeGenerationRef = useRef(null);
   const mountedRef = useRef(true);
 
@@ -550,8 +551,8 @@ function LegacyContentStudioApp({ user, onLogout, embedded = false, establishmen
 
         {tab === 'create' && (
           <CreateView
-            data={data} form={form} setForm={setForm} productImage={productImage} inputRef={inputRef}
-            chooseProduct={chooseProduct} selectedPreset={selectedPreset}
+            data={data} form={form} setForm={setForm} productImage={productImage} inputRef={inputRef} cameraInputRef={cameraInputRef}
+            chooseProduct={chooseProduct} removeProduct={() => { setProductImage(''); if (inputRef.current) inputRef.current.value = ''; if (cameraInputRef.current) cameraInputRef.current.value = ''; }} selectedPreset={selectedPreset}
             generate={generate} generating={generating} result={result}
             generationProgress={generationProgress} newCreation={newCreation} usagePercent={usagePercent}
             goToHistory={() => setTab('history')} goToProfile={() => setTab('profile')}
@@ -590,7 +591,7 @@ function WhatsAppIcon() {
   return <svg className="cs-whatsapp-icon" viewBox="0 0 32 32" role="img" aria-label="WhatsApp"><path fill="currentColor" d="M16 3.2A12.6 12.6 0 0 0 5.1 22.1L3.4 28.8l6.9-1.8A12.6 12.6 0 1 0 16 3.2Zm0 22.9c-2 0-3.9-.5-5.5-1.5l-.4-.2-4.1 1.1 1.1-4-.3-.4A10.3 10.3 0 1 1 16 26.1Zm5.7-7.7c-.3-.2-1.8-.9-2.1-1-.3-.1-.5-.2-.7.2-.2.3-.8 1-.9 1.2-.2.2-.4.2-.7.1-2-.9-3.4-1.8-4.8-4.1-.4-.6.4-.6 1-1.9.1-.2.1-.4 0-.6l-1-2.4c-.3-.6-.6-.5-.9-.5h-.7c-.2 0-.6.1-1 .5-1.2 1.3-1.2 3.1-.3 4.9 1.7 3.5 4.4 5.8 7.9 7.2 1.5.6 2.9.8 4 .5 1.2-.2 2.4-1 2.7-2 .3-1 .3-1.8.2-2-.1-.2-.4-.3-.7-.4Z" /></svg>;
 }
 
-function CreateView({ data, form, setForm, productImage, inputRef, cameraInputRef, chooseProduct, selectedPreset, generate, generateAdvanced, generating, generationProgress, result, newCreation, usagePercent, goToHistory, goToProfile, goToSettings, openPlans, sellerDemo = false }) {
+function CreateView({ data, form, setForm, productImage, inputRef, cameraInputRef, chooseProduct, removeProduct, selectedPreset, generate, generateAdvanced, generating, generationProgress, result, newCreation, usagePercent, goToHistory, goToProfile, goToSettings, openPlans, sellerDemo = false }) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [batchLaunchKey, setBatchLaunchKey] = useState(0);
   if (result) {
@@ -617,6 +618,8 @@ function CreateView({ data, form, setForm, productImage, inputRef, cameraInputRe
   const firstLogo = data.logos?.[0];
   const isBatchCreation = form.preset === BATCH_PRESET.id;
   const creationOptions = [...(data.presets || []), BATCH_PRESET];
+  function openGallery() { if (inputRef?.current) { inputRef.current.value = ''; inputRef.current.click(); } }
+  function openCamera() { if (cameraInputRef?.current) { cameraInputRef.current.value = ''; cameraInputRef.current.click(); } }
   function selectCreationOption(optionId) {
     setForm((current) => ({ ...current, preset: optionId }));
     if (optionId === BATCH_PRESET.id) setBatchLaunchKey((current) => current + 1);
@@ -638,18 +641,23 @@ function CreateView({ data, form, setForm, productImage, inputRef, cameraInputRe
           <section className="cs-card cs-upload-card">
             <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => chooseProduct(event.target.files?.[0])} />
             <input ref={cameraInputRef} type="file" accept="image/png,image/jpeg,image/webp" capture="environment" hidden onChange={(event) => chooseProduct(event.target.files?.[0])} />
-            <button className={`cs-upload-showcase ${productImage ? 'has-image' : ''}`} type="button" onClick={() => inputRef.current?.click()}>
-              <span className="cs-upload-art">
-                {productImage ? <img src={productImage} alt="Producto seleccionado" /> : <><i /><ShoppingBag size={72} /><small>Cualquier producto funciona</small></>}
-              </span>
-              <span className="cs-upload-copy">
-                <small>Paso 1</small><strong>{productImage ? 'Tu producto está listo' : 'Sube la foto de tu producto'}</strong>
-                <em>JPG, PNG o WEBP</em>
-                <b><Upload size={20} /> {productImage ? 'Cambiar foto' : 'Subir foto'}</b>
-                <i>{productImage ? 'Puedes cambiarla antes de crear' : 'Una foto clara desde cualquier celular funciona'}</i>
-              </span>
-            </button>
-            <button className="cs-take-photo" type="button" onClick={() => cameraInputRef.current?.click()}><Camera size={18} /> Tomar foto</button>
+            <div className={`cs-upload-stage ${productImage ? 'has-image' : ''}`}>
+              {productImage ? <div className="cs-upload-loaded">
+                <div className="cs-upload-preview-frame">
+                  <img src={productImage} alt="Producto seleccionado" />
+                  <button type="button" className="cs-upload-remove" onClick={removeProduct} aria-label="Quitar foto"><X size={20} /></button>
+                </div>
+                <button type="button" className="cs-change-photo" onClick={openGallery}><RefreshCw size={18} /> Cambiar foto</button>
+              </div> : <div className="cs-upload-empty">
+                <div className="cs-upload-symbol"><i /><ShoppingBag size={48} /><Sparkles size={17} /></div>
+                <div className="cs-upload-title"><small>Paso 1</small><strong>Sube la foto de tu producto</strong><span>JPG, PNG o WEBP</span></div>
+                <div className="cs-upload-actions">
+                  <button type="button" className="cs-upload-gallery-action" onClick={openGallery}><span><Upload size={20} /></span><div><strong>Subir foto</strong><small>Desde tu galería</small></div></button>
+                  <button type="button" className="cs-upload-camera-action" onClick={openCamera}><span><Camera size={20} /></span><div><strong>Tomar foto</strong><small>Con tu cámara</small></div></button>
+                </div>
+                <p><Info size={14} /> Cualquier foto clara desde tu celular funciona</p>
+              </div>}
+            </div>
             <div className={`cs-advanced-options ${advancedOpen ? 'open' : ''}`}>
               <button type="button" className="cs-advanced-toggle" onClick={() => setAdvancedOpen((open) => !open)} aria-expanded={advancedOpen}><span><Sparkles size={18} /></span><div><strong>Opciones avanzadas <em>Opcionales</em></strong><small>Agrega detalles si quieres orientar más la creación.</small></div><ChevronDown size={19} /></button>
               {advancedOpen && <div className="cs-advanced-fields">
