@@ -57,11 +57,16 @@ export default function ContentStudioSellerApp({ user, onLogout }) {
     try { await navigator.clipboard.writeText(text); setNotice('Acceso copiado para compartir con el cliente'); }
     catch { setError('No pudimos copiar automáticamente. Mantén presionados los datos para copiarlos.'); }
   }
+  function visitPublicLanding(event) {
+    event?.preventDefault();
+    try { window.sessionStorage.setItem('estudios-public-landing', 'requested'); } catch { /* optional */ }
+    window.location.assign('/');
+  }
   const summary = data?.sellers?.[0];
   const goals = data?.goals;
   const navigation = [['home', 'Inicio', Home], ['studio', 'Crear', WandSparkles], ['trials', 'Pruebas', UserPlus], ['sales', 'Ventas', DollarSign], ['profile', 'Perfil', UserRound]];
   return <div className="css-app">
-    <header className="css-header"><a href="/" className="css-brand"><span><img src="/content-studio/brand/mascota-toque.webp" alt=""/></span><img src="/content-studio/brand/estudios-creativos-wordmark.webp" alt="Estudios Creativos"/></a><div><BriefcaseBusiness/><strong>Portal de vendedores</strong></div><button type="button" onClick={onLogout}><LogOut/> Salir</button></header>
+    <header className="css-header"><a href="/" className="css-brand" onClick={visitPublicLanding}><span><img src="/content-studio/brand/mascota-toque.webp" alt=""/></span><img src="/content-studio/brand/estudios-creativos-wordmark.webp" alt="Estudios Creativos"/></a><div><BriefcaseBusiness/><strong>Portal de vendedores</strong></div><button type="button" onClick={onLogout}><LogOut/> Salir</button></header>
     <main className={`css-main ${tab === 'studio' ? 'studio' : ''}`}>
       {notice && <div className="css-notice"><Check/> {notice}</div>}
       {error && <div className="css-error">{error}<button type="button" onClick={() => setError('')}>×</button></div>}
@@ -71,7 +76,7 @@ export default function ContentStudioSellerApp({ user, onLogout }) {
         {tab === 'trials' && <TrialUsersForm value={trial} setValue={setTrial} onSubmit={saveTrial} busy={busy} result={trialResult} copyCredentials={copyTrialCredentials} trials={data.trials} trialConfig={data.trial}/>}
         {tab === 'activity' && <ActivityForm value={activity} setValue={setActivity} onSubmit={saveActivity} busy={busy}/>} 
         {tab === 'sales' && <SalesForm value={sale} setValue={setSale} plans={data.plans} onSubmit={saveSale} busy={busy} result={saleResult} onNew={() => setSaleResult(null)}/>} 
-        {tab === 'profile' && <Profile seller={data.seller} summary={summary} onLogout={onLogout}/>} 
+        {tab === 'profile' && <Profile seller={data.seller} summary={summary} onLogout={onLogout} onVisitLanding={visitPublicLanding}/>}
       </>}
     </main>
     <nav className="css-nav" aria-label="Navegación de vendedor">{navigation.map(([id, label, Icon]) => <button type="button" key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}><Icon/><span>{label}</span></button>)}</nav>
@@ -101,4 +106,4 @@ function SalesForm({ value, setValue, plans, onSubmit, busy, result, onNew }) {
   return <section className="css-form-page"><div className="css-heading"><span>REGISTRAR VENTA</span><h1>Deja lista la activación.</h1><p>Al confirmar la transferencia, administración activará al cliente. El incentivo cuenta cuando empiece a usar el estudio.</p></div><form onSubmit={onSubmit} className="css-form"><label>Nombre del cliente<input required value={value.customer_name} onChange={(event) => setValue({ ...value, customer_name: event.target.value })} placeholder="Nombre completo"/></label><label>Nombre del negocio<input required value={value.business_name} onChange={(event) => setValue({ ...value, business_name: event.target.value })} placeholder="Negocio o local"/></label><label>WhatsApp<input required inputMode="tel" value={value.whatsapp} onChange={(event) => setValue({ ...value, whatsapp: event.target.value })} placeholder="098 376 3419"/></label><label>Correo<input required type="email" value={value.email} onChange={(event) => setValue({ ...value, email: event.target.value })} placeholder="cliente@correo.com"/></label><label>Plan<select value={value.plan_id} onChange={(event) => setValue({ ...value, plan_id: event.target.value })}>{(plans || []).map((plan) => <option key={plan.id} value={plan.id}>{plan.name} · {plan.photos} fotos · ${plan.price}</option>)}</select></label><div className="css-sale-note">Los planes de $10 y $20 se registran, pero el incentivo individual inicia desde $39.</div><button disabled={busy}>{busy ? 'Registrando...' : 'Registrar venta pendiente'}</button></form></section>;
 }
 
-function Profile({ seller, summary, onLogout }) { return <section className="css-profile"><div className="css-heading"><span>MI PERFIL</span><h1>{seller?.name}</h1><p>@{seller?.username}</p></div><article><UserRound/><div><strong>{seller?.email || 'Correo no registrado'}</strong><small>{seller?.phone || 'WhatsApp no registrado'}</small></div></article><article><BriefcaseBusiness/><div><strong>{summary?.affianzadas || 0} clientes afianzados</strong><small>En la quincena actual</small></div></article><button type="button" onClick={onLogout}><LogOut/> Cerrar sesión</button></section>; }
+function Profile({ seller, summary, onLogout, onVisitLanding }) { return <section className="css-profile"><div className="css-heading"><span>MI PERFIL</span><h1>{seller?.name}</h1><p>@{seller?.username}</p></div><article><UserRound/><div><strong>{seller?.email || 'Correo no registrado'}</strong><small>{seller?.phone || 'WhatsApp no registrado'}</small></div></article><article><BriefcaseBusiness/><div><strong>{summary?.affianzadas || 0} clientes afianzados</strong><small>En la quincena actual</small></div></article><button type="button" onClick={onVisitLanding}><Home/> Ver página principal</button><button type="button" onClick={onLogout}><LogOut/> Cerrar sesión</button></section>; }

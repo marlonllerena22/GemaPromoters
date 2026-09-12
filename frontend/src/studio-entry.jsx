@@ -26,6 +26,15 @@ function StudioEntry() {
     || String(user?.establishment_name || '').toUpperCase() === 'ESTUDIOS CREATIVOS'
     || ['content_studio_user', 'content_studio_seller'].includes(user?.role);
   const isSeller = user?.role === 'content_studio_seller';
+  const studioLandingPath = isStudioDomain ? '/' : '/estudio-creativo';
+  const [allowAuthenticatedLanding] = useState(() => {
+    if (!isLandingRoute) return false;
+    try {
+      const requested = sessionStorage.getItem('estudios-public-landing') === 'requested';
+      sessionStorage.removeItem('estudios-public-landing');
+      return requested;
+    } catch { return false; }
+  });
   const [showIntro, setShowIntro] = useState(() => {
     try {
       return isLandingRoute
@@ -40,6 +49,22 @@ function StudioEntry() {
       sessionStorage.removeItem('estudios-intro-after-login');
     } catch { /* The intro still works when browser storage is disabled. */ }
     setShowIntro(false);
+  }
+
+  function logoutToLanding() {
+    window.google?.accounts?.id?.disableAutoSelect?.();
+    clearToken();
+    saveToken(null);
+    saveUser(null);
+    window.location.replace(studioLandingPath);
+  }
+
+  // Browser history can restore the public page that existed before login.
+  // Keep active sessions in their workspace unless the user requested the
+  // public page explicitly from their profile.
+  if (isLandingRoute && token && isStudioUser && !allowAuthenticatedLanding) {
+    window.location.replace(isSeller ? '/vendedores' : '/ingresar');
+    return null;
   }
 
   // A studio session must be created on its own domain, never under Promoters.
@@ -58,18 +83,15 @@ function StudioEntry() {
 
   let page;
   if (isLandingRoute) {
-    page = <ContentStudioLanding />;
+    page = <ContentStudioLanding allowAuthenticatedSession={allowAuthenticatedLanding} />;
   } else if (isSellerRoute && token && isSeller) {
-    page = <ContentStudioSellerApp user={user} onLogout={() => { clearToken(); saveToken(null); saveUser(null); }} />;
+    page = <ContentStudioSellerApp user={user} onLogout={logoutToLanding} />;
   } else if (isSellerRoute) {
     page = <ContentStudioAccess sellerOnly onAuthenticated={(nextToken, nextUser) => {
       setToken(nextToken); setUser(nextUser); saveToken(nextToken); saveUser(nextUser);
     }} />;
   } else if ((pathname === '/ingresar' || isAdminRoute) && token && isStudioUser && !isSeller && !hasAuthCallback && (!isAdminRoute || ['admin', 'supreme'].includes(user?.role))) {
-    page = <ContentStudioApp user={user} initialTab={isAdminRoute ? 'settings' : 'create'} onLogout={() => {
-      window.google?.accounts?.id?.disableAutoSelect?.();
-      clearToken(); saveToken(null); saveUser(null);
-    }} />;
+    page = <ContentStudioApp user={user} initialTab={isAdminRoute ? 'settings' : 'create'} onLogout={logoutToLanding} />;
   } else if (pathname === '/ingresar' || isAdminRoute) {
     page = <ContentStudioAccess adminOnly={isAdminRoute} onAuthenticated={(nextToken, nextUser) => {
       setToken(nextToken); setUser(nextUser); saveToken(nextToken); saveUser(nextUser);

@@ -4,7 +4,7 @@ import {
   Gem, Image as ImageIcon, LayoutGrid, LogOut, Mail, MessageCircle, Plus, Settings,
   Share2, ShieldCheck, ShoppingBag, Sparkles, Tag, Trash2, Upload, UserPlus, UserRound,
   UsersRound, WandSparkles, X, BriefcaseBusiness, CalendarCheck, TrendingUp, Camera, Monitor, Moon, Sun,
-  MapPin, PersonStanding, Phone, ScanSearch, RefreshCw, Info
+  MapPin, PersonStanding, Phone, ScanSearch, RefreshCw, Info, Home
 } from 'lucide-react';
 import { api, setUser } from './api.js';
 import ContentStudioSocialPublisher, { SocialConnectionsSettings } from './ContentStudioSocial.jsx';
@@ -335,6 +335,11 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
   }
 
   function newCreation() { setProductImage(''); setResult(null); setForm((current) => ({ ...emptyForm, logo_id: current.logo_id })); setTab('create'); }
+  function visitPublicLanding() {
+    try { window.sessionStorage.setItem('estudios-public-landing', 'requested'); } catch { /* Navigation still works without storage. */ }
+    const isStudioDomain = ['estudioscreativos.com', 'www.estudioscreativos.com'].includes(window.location.hostname.toLowerCase());
+    window.location.assign(isStudioDomain ? '/' : '/estudio-creativo');
+  }
   const selectedPreset = form.preset === BATCH_PRESET.id ? BATCH_PRESET : data?.presets?.find((item) => item.id === form.preset);
   const usagePercent = Math.min(100, (Number(data?.usage || 0) / Math.max(1, Number(data?.settings?.monthly_limit || 0))) * 100);
 
@@ -347,7 +352,7 @@ export default function ContentStudioApp({ user, onLogout, embedded = false, est
       {loading && !data ? <StudioShellSkeleton /> : data && <>
         {tab === 'create' && <CreateView data={data} form={form} setForm={setForm} productImage={productImage} inputRef={inputRef} cameraInputRef={cameraInputRef} chooseProduct={chooseProduct} removeProduct={() => { setProductImage(''); if (inputRef.current) inputRef.current.value = ''; if (cameraInputRef.current) cameraInputRef.current.value = ''; }} selectedPreset={selectedPreset} generate={generate} generateAdvanced={generateAdvanced} generating={generating} result={result} generationProgress={generationProgress} newCreation={newCreation} usagePercent={usagePercent} goToHistory={() => setTab('history')} goToProfile={() => setTab(isSellerWorkspace ? 'history' : 'profile')} goToSettings={() => setTab('settings')} openPlans={(planId) => { if (isSellerWorkspace) setError('Las herramientas por lotes requieren más créditos que tu espacio de demostración.'); else { setRequestedPlan(planId || ''); setPlansOpen(true); } }} sellerDemo={isSellerWorkspace} />}
         {tab === 'history' && (sectionLoading && !loadedSections.current.has('history') ? <SectionSkeleton title="Cargando tu historial" /> : <HistoryView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/>) }
-        {tab === 'profile' && <AccountProfile data={data} user={user} onLogout={onLogout} openPlans={() => setPlansOpen(true)} setData={setData} setError={setError}/>}
+        {tab === 'profile' && <AccountProfile data={data} user={user} onLogout={onLogout} onVisitLanding={visitPublicLanding} openPlans={() => setPlansOpen(true)} setData={setData} setError={setError}/>}
         {tab === 'users' && isStudioAdmin && (sectionLoading && !loadedSections.current.has('admin') ? <SectionSkeleton title="Cargando usuarios y transferencias" /> : <><UsersView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/><div className="cs-settings-divider"><SellersView data={data} scopeBody={scopeBody} reload={reload} setError={setError}/></div></>)}
         {tab === 'settings' && <BusinessConfiguration data={data} scopeBody={scopeBody} reload={reload} setError={setError} user={user} appearance={appearance} setAppearance={setAppearance} onSaved={(settings) => setData((current) => ({...current,settings}))} sellerDemo={isSellerWorkspace}/>}
       </>}
@@ -753,7 +758,7 @@ function SectionSkeleton({ title }) {
   return <section className="cs-section-skeleton" aria-label={title}><h1>{title}</h1><div><i/><i/><i/><i/></div></section>;
 }
 
-function AccountProfile({ data, user, onLogout, openPlans, setData, setError }) {
+function AccountProfile({ data, user, onLogout, onVisitLanding, openPlans, setData, setError }) {
   const account = data.account || user || {};
   const [form, setForm] = useState({ name: account.name || '', email: account.email || '' });
   const [saving, setSaving] = useState(false);
@@ -785,7 +790,7 @@ function AccountProfile({ data, user, onLogout, openPlans, setData, setError }) 
       <article className="cs-account-plan cs-card"><span><Crown/></span><div><small>PLAN ACTUAL</small><h2>{data.settings?.plan_name || 'Sin plan'}</h2><p><strong>{available}</strong> creaciones disponibles</p><em className={data.subscription?.active ? 'active' : ''}>{data.subscription?.active ? `Activo${data.subscription.paid_until ? ` hasta ${new Date(`${data.subscription.paid_until}T12:00:00`).toLocaleDateString('es-EC')}` : ''}` : 'Aún no tienes un plan activo'}</em></div><button type="button" onClick={openPlans}>{data.subscription?.active ? 'Mejorar plan' : 'Elegir un plan'}</button></article>
     </div>
     {user?.role === 'content_studio_user' && <form className="cs-personal-form cs-card" onSubmit={save}><div><span><UserRound/></span><h2>Información personal</h2></div><label>Nombre<input value={form.name} onChange={(event) => setForm({...form,name:event.target.value})} maxLength="100" required/></label><label>Correo<input type="email" value={form.email} onChange={(event) => setForm({...form,email:event.target.value})} placeholder="nombre@empresa.com" required/></label><button className="cs-primary" disabled={saving}>{saving ? 'Guardando…' : 'Guardar cambios'}</button></form>}
-    <section className="cs-access-methods cs-card"><div><span><ShieldCheck/></span><div><h2>Seguridad y acceso</h2><p>Estas son las formas habilitadas para entrar a tu cuenta.</p></div></div><ul>{(account.auth_methods || user?.auth_methods || ['password']).map((method) => <li key={method}><BadgeCheck/><span><strong>{methodLabels[method] || method}</strong><small>{method === 'magic_link' ? account.email || 'Agrega tu correo para usarlo' : 'Método activo'}</small></span></li>)}</ul>{(account.auth_methods || user?.auth_methods || []).includes('password') && <><button className="cs-password-toggle" type="button" onClick={() => setPasswordOpen((open)=>!open)}>Cambiar contraseña</button>{passwordOpen&&<form className="cs-password-form" onSubmit={changePassword}><input required type="password" autoComplete="current-password" value={passwords.current_password} onChange={(event)=>setPasswords({...passwords,current_password:event.target.value})} placeholder="Contraseña actual"/><input required minLength="8" type="password" autoComplete="new-password" value={passwords.new_password} onChange={(event)=>setPasswords({...passwords,new_password:event.target.value})} placeholder="Nueva contraseña (mínimo 8 caracteres)"/><button disabled={saving}>Guardar contraseña</button></form>}</>}<button className="cs-logout-profile" type="button" onClick={() => { window.google?.accounts?.id?.disableAutoSelect?.(); onLogout?.(); }}><LogOut/> Cerrar sesión</button></section>
+    <section className="cs-access-methods cs-card"><div><span><ShieldCheck/></span><div><h2>Seguridad y acceso</h2><p>Estas son las formas habilitadas para entrar a tu cuenta.</p></div></div><ul>{(account.auth_methods || user?.auth_methods || ['password']).map((method) => <li key={method}><BadgeCheck/><span><strong>{methodLabels[method] || method}</strong><small>{method === 'magic_link' ? account.email || 'Agrega tu correo para usarlo' : 'Método activo'}</small></span></li>)}</ul>{(account.auth_methods || user?.auth_methods || []).includes('password') && <><button className="cs-password-toggle" type="button" onClick={() => setPasswordOpen((open)=>!open)}>Cambiar contraseña</button>{passwordOpen&&<form className="cs-password-form" onSubmit={changePassword}><input required type="password" autoComplete="current-password" value={passwords.current_password} onChange={(event)=>setPasswords({...passwords,current_password:event.target.value})} placeholder="Contraseña actual"/><input required minLength="8" type="password" autoComplete="new-password" value={passwords.new_password} onChange={(event)=>setPasswords({...passwords,new_password:event.target.value})} placeholder="Nueva contraseña (mínimo 8 caracteres)"/><button disabled={saving}>Guardar contraseña</button></form>}</>}<div className="cs-session-actions"><button className="cs-visit-landing" type="button" onClick={onVisitLanding}><Home/> Ver página principal</button><button className="cs-logout-profile" type="button" onClick={() => { window.google?.accounts?.id?.disableAutoSelect?.(); onLogout?.(); }}><LogOut/> Cerrar sesión</button></div></section>
   </section>;
 }
 

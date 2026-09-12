@@ -33,7 +33,7 @@ const FEATURES = [
 
 const formatPlanPrice = (price) => (Number(price) % 1 === 0 ? String(Number(price)) : Number(price).toFixed(2));
 
-export default function ContentStudioLanding() {
+export default function ContentStudioLanding({ allowAuthenticatedSession = false }) {
   const [data, setData] = useState({ plans: FALLBACK_PLANS, contact: { phone_display: '098 376 3419', email: 'estudioscreativosec@gmail.com' }, transfer: {} });
   const [examplesOpen, setExamplesOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -47,6 +47,20 @@ export default function ContentStudioLanding() {
     document.title = 'Estudios Creativos';
     return () => { document.title = previousTitle; };
   }, []);
+  useEffect(() => {
+    if (allowAuthenticatedSession) return undefined;
+    const keepSessionInStudio = () => {
+      const currentUser = getUser();
+      const isStudioUser = currentUser?.establishment_module_type === 'content_studio'
+        || String(currentUser?.establishment_name || '').toUpperCase() === 'ESTUDIOS CREATIVOS'
+        || ['content_studio_user', 'content_studio_seller'].includes(currentUser?.role);
+      if (getToken() && isStudioUser) {
+        window.location.replace(currentUser?.role === 'content_studio_seller' ? '/vendedores' : '/ingresar');
+      }
+    };
+    window.addEventListener('pageshow', keepSessionInStudio);
+    return () => window.removeEventListener('pageshow', keepSessionInStudio);
+  }, [allowAuthenticatedSession]);
   useEffect(() => { api('/content-studio/public').then(setData).catch(() => {}); }, []);
   useEffect(() => {
     const timer = window.setInterval(() => setHeroMode((current) => (current + 1) % HERO_MODES.length), 2600);
@@ -156,7 +170,7 @@ export default function ContentStudioLanding() {
 
     <footer className="csl-footer"><a className="csl-logo csl-logo-art" href={STUDIO_HOME} aria-label="Estudios Creativos"><span><img src="/content-studio/brand/mascota-toque.webp" alt="" /></span><img src="/content-studio/brand/estudios-creativos-wordmark.webp" alt="Estudios Creativos" /></a><p>Contenido profesional para negocios que quieren crecer.</p><div><a href="#planes">Planes</a><a href={STUDIO_LOGIN}>Iniciar sesión</a><a href="/privacidad">Privacidad</a><a href="/terminos">Condiciones</a><a href={`mailto:${data.contact?.email}`}><Mail size={15} /> Contacto</a><a href="https://www.instagram.com" target="_blank" rel="noreferrer"><Instagram size={16} /></a></div></footer>
     {examplesOpen && <ExamplesModal onClose={() => setExamplesOpen(false)} />}
-    {accessOpen && <ContentStudioAccess mode="modal" onClose={() => setAccessOpen(false)} onAuthenticated={() => window.location.assign(`${STUDIO_LOGIN}${requestedPlan?.id ? `?plan=${encodeURIComponent(requestedPlan.id)}` : ''}`)} />}
+    {accessOpen && <ContentStudioAccess mode="modal" onClose={() => setAccessOpen(false)} onAuthenticated={() => window.location.replace(`${STUDIO_LOGIN}${requestedPlan?.id ? `?plan=${encodeURIComponent(requestedPlan.id)}` : ''}`)} />}
   </div>;
 }
 
