@@ -20,8 +20,11 @@ function StudioEntry() {
   const isAdminRoute = pathname === '/administracion';
   const isSellerRoute = pathname === '/vendedores';
   const isLandingRoute = pathname === '/estudio-creativo' || (isStudioDomain && pathname === '/');
+  const authParams = new URLSearchParams(window.location.search);
+  const hasAuthCallback = authParams.has('magic') || authParams.has('handoff');
   const isStudioUser = user?.establishment_module_type === 'content_studio'
-    || String(user?.establishment_name || '').toUpperCase() === 'ESTUDIOS CREATIVOS';
+    || String(user?.establishment_name || '').toUpperCase() === 'ESTUDIOS CREATIVOS'
+    || ['content_studio_user', 'content_studio_seller'].includes(user?.role);
   const isSeller = user?.role === 'content_studio_seller';
   const [showIntro, setShowIntro] = useState(() => {
     try {
@@ -46,6 +49,13 @@ function StudioEntry() {
     return null;
   }
 
+  // Seller credentials are also accepted by the general access form. Always move
+  // that role to its dedicated portal before the creation app requests user-only data.
+  if (token && isSeller && !isSellerRoute && !hasAuthCallback && (pathname === '/ingresar' || isAdminRoute)) {
+    window.location.replace(`/vendedores${window.location.search || ''}`);
+    return null;
+  }
+
   let page;
   if (isLandingRoute) {
     page = <ContentStudioLanding />;
@@ -55,7 +65,7 @@ function StudioEntry() {
     page = <ContentStudioAccess sellerOnly onAuthenticated={(nextToken, nextUser) => {
       setToken(nextToken); setUser(nextUser); saveToken(nextToken); saveUser(nextUser);
     }} />;
-  } else if ((pathname === '/ingresar' || isAdminRoute) && token && isStudioUser && (!isAdminRoute || ['admin', 'supreme'].includes(user?.role))) {
+  } else if ((pathname === '/ingresar' || isAdminRoute) && token && isStudioUser && !isSeller && !hasAuthCallback && (!isAdminRoute || ['admin', 'supreme'].includes(user?.role))) {
     page = <ContentStudioApp user={user} initialTab={isAdminRoute ? 'settings' : 'create'} onLogout={() => {
       window.google?.accounts?.id?.disableAutoSelect?.();
       clearToken(); saveToken(null); saveUser(null);
