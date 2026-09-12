@@ -423,13 +423,22 @@ test('a seller can create five-credit trials and use an isolated demonstration w
   assert.equal(studio.status, 200);
   assert.equal(studio.data.settings.monthly_limit, 25);
   assert.equal(studio.data.available_credits, 25);
+  assert.equal(studio.data.feature_access.advanced_all_plans, true);
+  const advancedGeneration = await request('/generate', {
+    token: sellerToken, method: 'POST', body: JSON.stringify({
+      preset: 'social', logo_id: 'none', product_image: sampleImage,
+      creation_group_id: 'seller-week-demo', creation_group_type: 'week', creation_group_position: 1
+    })
+  });
+  assert.equal(advancedGeneration.status, 202);
+  await waitForGeneration(advancedGeneration.data.generation.id, sellerToken);
   const generation = await request('/generate', {
     token: sellerToken, method: 'POST', body: JSON.stringify({ preset: 'catalog', logo_id: 'none', product_image: sampleImage })
   });
   assert.equal(generation.status, 202);
   await waitForGeneration(generation.data.generation.id, sellerToken);
   const after = await request('/bootstrap', { token: sellerToken });
-  assert.equal(after.data.available_credits, 24);
+  assert.equal(after.data.available_credits, 23);
 
   const adminUsers = await request('/users');
   assert.equal(adminUsers.data.some((user) => user.username.startsWith('__seller_demo_')), false);

@@ -980,6 +980,9 @@ export function registerContentStudioRoutes(app, db, options = {}) {
       can_manage_references: false,
       can_manage_logos: true,
       can_delete_generations: !req.contentStudioUser || Number(req.contentStudioUser.can_delete_generations) !== 0,
+      feature_access: {
+        advanced_all_plans: Boolean(req.contentStudioSeller)
+      },
       subscription: req.contentStudioUser ? { status: req.contentStudioUser.subscription_status, active: subscriptionActive, paid_until: req.contentStudioUser.paid_until } : { status: 'internal', active: true, paid_until: null },
       account: req.contentStudioUser ? studioUserPublic(req.contentStudioUser) : {
         id: null, username: req.user?.username || '', role: req.user?.role || 'admin',
@@ -1360,8 +1363,8 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     const establishmentSettings = db.prepare('SELECT * FROM content_studio_settings WHERE establishment_id = ?').get(req.contentStudioEstablishment.id);
     const settings = planSettings(req, establishmentSettings);
     const advancedMinimum = ['week', 'campaign'].includes(creationGroupType) ? 150 : creationGroupType ? 60 : 0;
-    const managesStudio = ['admin', 'supreme'].includes(req.user.role);
-    if (advancedMinimum && !managesStudio && Number(settings.monthly_limit || 0) < advancedMinimum) {
+    const hasAllPlanFeatures = ['admin', 'supreme', 'content_studio_seller'].includes(req.user.role);
+    if (advancedMinimum && !hasAllPlanFeatures && Number(settings.monthly_limit || 0) < advancedMinimum) {
       return res.status(403).json({
         code: 'ADVANCED_PLAN_REQUIRED',
         message: advancedMinimum === 150 ? 'Esta herramienta está disponible con el plan Pro.' : 'Esta herramienta está disponible desde el plan Negocio.'

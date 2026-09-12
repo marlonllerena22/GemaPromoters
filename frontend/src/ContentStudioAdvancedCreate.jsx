@@ -49,6 +49,7 @@ const SLIDE_PURPOSES = [
 
 function entitlementFor(data, mode) {
   if (['admin', 'supreme'].includes(data?.account?.role)) return true;
+  if (data?.feature_access?.advanced_all_plans) return true;
   const limit = Number(data?.settings?.monthly_limit || 0);
   return mode.plan === 'pro' ? limit >= 150 : limit >= 60;
 }
