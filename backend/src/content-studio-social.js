@@ -243,18 +243,24 @@ async function tiktokJson(url, options = {}) {
   // TikTok includes `{ error: { code: 'ok' } }` on successful v2 responses.
   // Treat only actual error codes as failures, otherwise OAuth and publishing
   // would reject a valid response before reaching its data payload.
-  const errorCode = String(data.error?.code ?? '').toLowerCase();
+  // OAuth failures use a different shape: `{ error: 'invalid_client',
+  // error_description: '...' }`, and may still arrive with a successful HTTP
+  // status. Handle both response formats before consuming the token payload.
+  const rawError = typeof data.error === 'string' ? data.error : data.error?.code;
+  const errorCode = String(rawError ?? '').toLowerCase();
   const hasTikTokError = errorCode && errorCode !== 'ok' && errorCode !== '0';
   if (!response.ok || hasTikTokError) {
-    throw new Error(data.error?.message || data.message || 'TikTok no pudo completar la solicitud');
+    throw new Error(data.error_description || data.error?.message || data.message || 'TikTok no pudo completar la solicitud');
   }
   return data;
 }
 
 async function tiktokToken(params) {
-  return tiktokJson('https://open.tiktokapis.com/v2/oauth/token/', {
+  const token = await tiktokJson('https://open.tiktokapis.com/v2/oauth/token/', {
     method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(params)
   });
+  if (!token.access_token) throw new Error('TikTok no devolvió un token de acceso válido. Revisa que la clave y el secreto pertenezcan al mismo entorno.');
+  return token;
 }
 
 async function tiktokProfile(accessToken) {
