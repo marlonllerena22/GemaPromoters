@@ -626,6 +626,7 @@ function buildPrompt(body, preset, hasBrandLogo = false) {
     body.research_context && `Brief public context found for that clue: ${clean(body.research_context, 500)} Use this only for the campaign concept, setting or tone. Never let it override the visible product.`,
     body.brand_name && !hasBrandLogo && `Brand: ${clean(body.brand_name)}.`,
     body.brand_direction && `Brand art direction: ${clean(body.brand_direction, 220)}.`,
+    body.batch_brief && `User-confirmed brief for this coordinated series: ${clean(body.batch_brief, 1200)}. Use supplied messages, product facts, prices, audience and dates exactly as written. If a factual field was not supplied, keep the message general and do not invent a price, percentage, date, product feature or promotion condition.`,
     body.series_direction && `Internal series art direction: ${clean(body.series_direction, 600)} This is production guidance only. Never print or visibly mention piece, slide, sequence, position, number of images, internal role or art direction in the finished design.`
   ].filter(Boolean).join(' ');
   const logoInstruction = hasBrandLogo
@@ -645,6 +646,11 @@ function buildPrompt(body, preset, hasBrandLogo = false) {
   const socialInstruction = preset === PRESETS.social
     ? SOCIAL_STYLES[body.social_style] || SOCIAL_STYLES.editorial
     : `Do not include headlines, captions, labels, brand names or advertising copy.`;
+  const personInstruction = body.person_mode === 'person'
+    ? `Include one context-appropriate adult person interacting naturally with or demonstrating the product. Keep the product complete, faithful and prominent; do not let the person obscure it.`
+    : body.person_mode === 'none'
+      ? `Do not include people, faces, hands or human body parts in this image.`
+      : '';
   const editorialSubjects = {
     female: `Use one female human model. Use an adult woman by default. Choose a girl only when the optional product clue or public context clearly indicates a children's toy, child character or product intended for children. Any child depiction must be fully clothed, wholesome, age-appropriate and presented in an ordinary family-safe commercial scene.`,
     male: `Use one male human model. Use an adult man by default. Choose a boy only when the optional product clue or public context clearly indicates a children's toy, child character or product intended for children. Any child depiction must be fully clothed, wholesome, age-appropriate and presented in an ordinary family-safe commercial scene.`,
@@ -669,6 +675,7 @@ function buildPrompt(body, preset, hasBrandLogo = false) {
     details,
     outputFormat.instruction,
     socialInstruction,
+    personInstruction,
     logoInstruction,
     contactInstruction,
     promotionInstruction,
@@ -1395,6 +1402,8 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     const seriesDirection = clean(req.body.series_direction, 600);
     const promotionPercent = Math.max(0, Math.min(90, Number(req.body.promotion_percent) || 0));
     const promotionDetails = clean(req.body.promotion_details, 100);
+    const batchBrief = clean(req.body.batch_brief, 1200);
+    const personMode = ['none', 'person'].includes(req.body.person_mode) ? req.body.person_mode : '';
     const creationGroupId = clean(req.body.creation_group_id, 80);
     const creationGroupType = ['carousel', 'collection', 'week', 'campaign'].includes(req.body.creation_group_type) ? req.body.creation_group_type : '';
     const creationGroupPosition = Math.max(0, Math.min(5, Number(req.body.creation_group_position) || 0));
@@ -1473,6 +1482,8 @@ export function registerContentStudioRoutes(app, db, options = {}) {
           series_direction: seriesDirection,
           promotion_percent: promotionPercent,
           promotion_details: promotionDetails,
+          batch_brief: batchBrief,
+          person_mode: personMode,
           editorial_subject: editorialSubject,
           editorial_framing: editorialFraming,
           contact_whatsapp: contactWhatsapp,

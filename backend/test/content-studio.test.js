@@ -118,7 +118,7 @@ test('prompt accepts any product, adapts the editorial model and prepares social
   const catalog = buildPrompt({}, PRESETS.catalog, false);
   const story = buildPrompt({ social_format: 'story', social_style: 'playful', product_features: 'suavidad y cierre lateral', creative_instruction: 'Que se sienta listo para regalar' }, PRESETS.social, false);
   const benefits = buildPrompt({ social_format: 'post', social_style: 'product', product_features: 'cuero genuino y plantilla acolchada' }, PRESETS.social, false);
-  const campaign = buildPrompt({ social_format: 'post', social_style: 'playful', promotion_percent: 25, promotion_details: 'Solo este fin de semana', series_direction: 'Use a distinct closing composition. Piece 4 of 4 is internal metadata.' }, PRESETS.social, false);
+  const campaign = buildPrompt({ social_format: 'post', social_style: 'playful', promotion_percent: 25, promotion_details: 'Solo este fin de semana', batch_brief: 'Precio confirmado: $24. Público objetivo: emprendedoras.', person_mode: 'none', series_direction: 'Use a distinct closing composition. Piece 4 of 4 is internal metadata.' }, PRESETS.social, false);
   assert.match(editorial, /source-of-truth product/i);
   assert.match(editorial, /wearing, carrying, holding or using/i);
   assert.match(editorial, /adult woman by default/i);
@@ -148,6 +148,8 @@ test('prompt accepts any product, adapts the editorial model and prepares social
   assert.match(story, /Do not add a logo/i);
   assert.match(campaign, /25% de descuento/i);
   assert.match(campaign, /Solo este fin de semana/i);
+  assert.match(campaign, /Precio confirmado: \$24/i);
+  assert.match(campaign, /Do not include people, faces, hands/i);
   assert.match(campaign, /production guidance only/i);
   assert.match(campaign, /Never print or visibly mention piece/i);
 });
