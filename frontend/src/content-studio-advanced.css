@@ -24,3 +24,39 @@ html[data-content-studio-color=dark] .cs-more-create{background:linear-gradient(
 .cs-advanced-steps{position:sticky;top:91px;z-index:4;border:1px solid #353931;background:#1b1e1af2;backdrop-filter:blur(12px);border-radius:15px;padding:10px 13px;display:flex;align-items:center;justify-content:center;gap:8px}.cs-advanced-steps>div{display:grid;justify-items:center;gap:4px;min-width:54px;color:#777c73}.cs-advanced-steps>div span{width:25px;height:25px;border:1px solid #555a50;border-radius:50%;display:grid;place-items:center;font:700 9px 'Manrope'}.cs-advanced-steps>div small{font-size:8px}.cs-advanced-steps>div.active{color:#efbc6a}.cs-advanced-steps>div.active span{background:#d49a48;border-color:#efbd70;color:#171811;box-shadow:0 0 0 3px #d49a4820}.cs-advanced-steps>i{width:min(58px,8vw);height:1px;background:#454941}.cs-advanced-toggle-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.cs-advanced-toggle-grid button{height:48px;border:1px solid #3d4139;border-radius:12px;background:#22251f;color:#d7d9d1;padding:0 10px;display:grid;grid-template-columns:19px 1fr 34px;align-items:center;gap:7px;text-align:left;cursor:pointer}.cs-advanced-toggle-grid button>svg{width:17px;color:#d8a253}.cs-advanced-toggle-grid button>span{font-size:10px;font-weight:700}.cs-advanced-toggle-grid button>i{width:32px;height:18px;border-radius:20px;background:#4b4f46;padding:2px;display:flex;align-items:center;transition:.2s}.cs-advanced-toggle-grid button>i b{width:14px;height:14px;border-radius:50%;background:#b7bbb1;transition:.2s}.cs-advanced-toggle-grid button.enabled{border-color:#685235;background:#2a251d}.cs-advanced-toggle-grid button.enabled>i{background:#c78e43}.cs-advanced-toggle-grid button.enabled>i b{background:#fff1d7;transform:translateX(14px)}.cs-advanced-reveal{animation:csAdvancedReveal .22s ease both}.cs-advanced-contact-grid label>small{font-size:9px;color:#8f938a;line-height:1.35}@keyframes csAdvancedReveal{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:none}}
 @media(max-width:720px){.cs-advanced-steps{top:72px;margin:0 -2px;padding:9px 5px;gap:4px}.cs-advanced-steps>div{min-width:48px}.cs-advanced-steps>i{width:min(42px,7vw)}.cs-advanced-toggle-grid{grid-template-columns:1fr 1fr}.cs-advanced-toggle-grid button{grid-template-columns:18px 1fr 34px}.cs-advanced-flow{padding-bottom:max(38px,env(safe-area-inset-bottom))}}
 @media(max-width:380px){.cs-advanced-steps>div{min-width:43px}.cs-advanced-steps>div small{font-size:7px}.cs-advanced-toggle-grid{grid-template-columns:1fr}}
+
+/* La pantalla avanzada siempre respeta el ancho real del dispositivo. */
+.cs-advanced-create-panel{overflow-x:hidden}
+.cs-advanced-flow,.cs-advanced-flow>*{width:100%;max-width:100%;min-width:0;box-sizing:border-box}
+.cs-advanced-products,.cs-advanced-choice-rail,.cs-advanced-counts,.cs-advanced-formats{max-width:100%;min-width:0;box-sizing:border-box;scroll-padding-inline:2px}
+.cs-advanced-steps{width:100%;max-width:100%;box-sizing:border-box;gap:0;overflow:hidden}
+.cs-advanced-steps>div{flex:0 1 64px;min-width:0}
+.cs-advanced-steps>i{flex:1 1 28px;width:auto;min-width:7px;max-width:58px;margin:0 3px}
+
+/* Ejemplos claros para explicar la función de cada pieza. */
+.cs-series-preview article small{grid-column:1/-1;text-align:center;color:#777c73;font:700 7px 'Manrope';letter-spacing:.12em;text-transform:uppercase;margin-top:-1px}
+
+/* Selectores visuales en forma de cápsula con una muestra real del ambiente. */
+.cs-advanced-style-options{gap:9px;padding:2px 2px 7px;scroll-snap-type:x mandatory;scroll-padding-inline:2px}
+.cs-advanced-style-options button{position:relative;min-width:116px;width:116px;height:auto;min-height:92px;border-radius:19px;padding:7px;display:grid;grid-template-columns:minmax(0,1fr) 16px;grid-template-rows:58px 18px;align-items:center;gap:4px 5px;text-align:left;scroll-snap-align:start}
+.cs-advanced-style-options button>img,.cs-advanced-style-options button>span{grid-column:1/-1;width:100%;height:58px;border-radius:999px;object-fit:cover;display:block;border:1px solid #454940;background:#151713}
+.cs-advanced-style-options button>span{display:grid;place-items:center;background:radial-gradient(circle at 35% 35%,#71552c,#2b251b 58%,#171914)}
+.cs-advanced-style-options button>span>svg{width:21px;color:#efb45c}
+.cs-advanced-style-options button>b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:700 10px 'Manrope'}
+.cs-advanced-style-options button>svg{position:static;width:14px;color:#efb45c;justify-self:end}
+.cs-advanced-style-options button.selected>img,.cs-advanced-style-options button.selected>span{border-color:#e1a653;box-shadow:0 0 0 2px #d29a4e33}
+
+@media(max-width:720px){
+  .cs-advanced-flow{padding-left:12px;padding-right:12px}
+  .cs-advanced-steps{top:72px;margin:0;padding:9px 6px;gap:0}
+  .cs-advanced-steps>div{flex:0 1 58px;min-width:0}
+  .cs-advanced-steps>i{flex:1 1 16px;width:auto;min-width:5px;margin:0 2px}
+  .cs-advanced-choice-rail{margin-right:0;padding-right:8px}
+  .cs-series-preview{margin:0;width:100%;border-radius:15px}
+  .cs-advanced-confirm{width:100%;box-sizing:border-box}
+}
+@media(max-width:380px){
+  .cs-advanced-steps>div{flex-basis:52px;min-width:0}
+  .cs-advanced-steps>div small{font-size:7px}
+  .cs-advanced-steps>i{min-width:4px;margin:0 1px}
+}
