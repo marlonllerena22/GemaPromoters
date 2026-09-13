@@ -240,7 +240,12 @@ function callbackPage({ ok, message, provider = 'meta' }) {
 async function tiktokJson(url, options = {}) {
   const response = await fetch(url, options);
   const data = await response.json().catch(() => ({}));
-  if (!response.ok || data.error?.code || data.error?.message) {
+  // TikTok includes `{ error: { code: 'ok' } }` on successful v2 responses.
+  // Treat only actual error codes as failures, otherwise OAuth and publishing
+  // would reject a valid response before reaching its data payload.
+  const errorCode = String(data.error?.code ?? '').toLowerCase();
+  const hasTikTokError = errorCode && errorCode !== 'ok' && errorCode !== '0';
+  if (!response.ok || hasTikTokError) {
     throw new Error(data.error?.message || data.message || 'TikTok no pudo completar la solicitud');
   }
   return data;
