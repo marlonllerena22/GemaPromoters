@@ -151,6 +151,7 @@ export default function ContentStudioAdvancedCreate({ data, baseForm, currentPro
   const [visualStyle, setVisualStyle] = useState('automatic');
   const [visualDirection, setVisualDirection] = useState('');
   const [personMode, setPersonMode] = useState('none');
+  const [enabledOptions, setEnabledOptions] = useState({ logo: false, whatsapp: false, location: false, discount: false, price: false, promotion: false });
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0, label: '' });
   const [error, setError] = useState('');
@@ -163,9 +164,14 @@ export default function ContentStudioAdvancedCreate({ data, baseForm, currentPro
   const canConfirm = choicesReady && type && format && totalCredits > 0;
   const credits = availableCredits(data);
   const selectedTypeName = useMemo(() => TYPE_OPTIONS[modeId]?.find(([id]) => id === type)?.[1] || '', [modeId, type]);
-  const showPromotion = Boolean(modeId);
   const formats = ['week', 'campaign'].includes(modeId) ? [...FORMAT_OPTIONS, MIXED_FORMAT] : FORMAT_OPTIONS;
   const updateOptions = (changes) => updateBaseForm?.(changes);
+  const toggleOption = (key) => {
+    const nextValue = !enabledOptions[key];
+    setEnabledOptions((current) => ({ ...current, [key]: nextValue }));
+    if (key === 'logo' && nextValue && String(baseForm.logo_id) === 'none' && data.logos?.[0]) updateOptions({ logo_id: data.logos[0].id });
+  };
+  const progressStep = !productsReady ? 1 : !type ? 2 : !choicesReady || !format ? 3 : 4;
 
   useEffect(() => {
     if (!open) return undefined;
@@ -186,6 +192,7 @@ export default function ContentStudioAdvancedCreate({ data, baseForm, currentPro
     setModeId(nextMode); setProducts(currentProduct ? [currentProduct] : []); setCount(0); setType(''); setFormat('');
     setPromotionPercent(''); setPromotionDetails(''); setHeadline(''); setBenefits(''); setPriceDetails(''); setCollectionName('');
     setDailyTopics(''); setValidity(''); setAudience(''); setVisualStyle('automatic'); setVisualDirection(''); setPersonMode('none');
+    setEnabledOptions({ logo: false, whatsapp: false, location: false, discount: false, price: false, promotion: false });
     setError(''); setProgress({ done: 0, total: 0, label: '' });
   }
 
@@ -214,7 +221,7 @@ export default function ContentStudioAdvancedCreate({ data, baseForm, currentPro
       collectionName && `Nombre de la colección: ${collectionName}`,
       headline && `Mensaje principal: ${headline}`,
       benefits && `Beneficios o características confirmadas: ${benefits}`,
-      priceDetails && `Precio o precios confirmados: ${priceDetails}`,
+      enabledOptions.price && priceDetails && `Precio o precios confirmados: ${priceDetails}`,
       dailyTopics && `Temas sugeridos por el usuario: ${dailyTopics}`,
       validity && `Vigencia confirmada: ${validity}`,
       audience && `Público objetivo: ${audience}`,
@@ -224,14 +231,17 @@ export default function ContentStudioAdvancedCreate({ data, baseForm, currentPro
     ].filter(Boolean).join('. ');
     const jobs = Array.from({ length: totalCredits }, (_, index) => ({
       ...baseForm,
+      logo_id: enabledOptions.logo ? baseForm.logo_id : 'none',
+      contact_whatsapp: enabledOptions.whatsapp ? baseForm.contact_whatsapp : '',
+      contact_location: enabledOptions.location ? baseForm.contact_location : '',
       preset: modeId === 'collection' && type === 'catalog' && personMode === 'none' ? 'catalog' : 'social',
       social_style: visualStyle === 'bold' ? 'playful' : visualStyle === 'minimal' ? 'product' : type === 'promotion' || type === 'offer' ? 'playful' : type === 'benefits' ? 'product' : 'editorial',
       output_format: format === 'mixed' ? (index % 2 === 0 ? 'post' : 'story') : format,
       product_image: products[index % products.length],
       creative_instruction: userContext,
       series_direction: `${seriesDirection(modeId, type, index + 1, totalCredits)} Shared direction: ${sharedDirection}.`,
-      promotion_percent: Number(promotionPercent) || 0,
-      promotion_details: String(promotionDetails || '').trim(),
+      promotion_percent: enabledOptions.discount ? Number(promotionPercent) || 0 : 0,
+      promotion_details: enabledOptions.promotion ? String(promotionDetails || '').trim() : '',
       batch_brief: batchBrief,
       person_mode: personMode === 'mixed' ? (index % 2 === 0 ? 'person' : 'none') : personMode,
       creation_group_id: groupId,
@@ -275,19 +285,20 @@ export default function ContentStudioAdvancedCreate({ data, baseForm, currentPro
       })}</div>}
 
       {mode && <div className="cs-advanced-flow">
+        <div className="cs-advanced-steps">{[['Producto', 1], ['Objetivo', 2], ['Estructura', 3], ['Opcionales', 4]].map(([label, step]) => <React.Fragment key={step}><div className={progressStep >= step ? 'active' : ''}><span>{step}</span><small>{label}</small></div>{step < 4 && <i/>}</React.Fragment>)}</div>
         <div className="cs-flow-step active"><span>1</span><div><strong>{modeId === 'carousel' ? 'Elige el producto' : 'Elige tus productos'}</strong><small>{modeId === 'carousel' ? 'Usaremos una foto para toda la secuencia.' : modeId === 'collection' ? 'Agrega entre 2 y 5 fotografías.' : 'Agrega entre 1 y 5 fotografías.'}</small></div></div>
         <input ref={inputRef} hidden type="file" multiple={modeId !== 'carousel'} accept="image/png,image/jpeg,image/webp" onChange={(event) => { void chooseFiles(event.target.files); event.target.value = ''; }} />
-        <div className="cs-advanced-products">{products.map((image, index) => <div key={`${image.slice(-30)}-${index}`}><img src={image} alt={`Producto ${index + 1}`} /><button type="button" aria-label={`Quitar producto ${index + 1}`} onClick={() => setProducts((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Trash2 /></button><small>{index + 1}</small></div>)}<button type="button" className="add" onClick={() => inputRef.current?.click()}><Upload /><strong>{products.length ? 'Agregar' : 'Subir foto'}</strong></button></div>
+        <div className="cs-advanced-products">{products.map((image, index) => <div key={`${image.slice(-30)}-${index}`}><img src={image} alt={`Producto ${index + 1}`} /><button type="button" aria-label={`Quitar producto ${index + 1}`} onClick={() => setProducts((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Trash2 /></button><small>{index + 1}</small></div>)}{(modeId === 'carousel' || products.length < 5) && <button type="button" className="add" onClick={() => inputRef.current?.click()}><Upload /><strong>{products.length ? modeId === 'carousel' ? 'Cambiar' : 'Agregar' : 'Subir foto'}</strong></button>}</div>
 
-        {productsReady && COUNT_OPTIONS[modeId] && <><div className="cs-flow-step active"><span>2</span><div><strong>¿Cuántas piezas necesitas?</strong><small>El consumo cambia con la cantidad. Máximo 5.</small></div></div><div className="cs-advanced-counts">{COUNT_OPTIONS[modeId].map(([value, label]) => <button key={value} type="button" className={count === value ? 'selected' : ''} onClick={() => { setCount(value); setType(''); setFormat(''); setPromotionPercent(''); setPromotionDetails(''); }}><strong>{value}</strong><small>{label.replace(/^\d+ /, '')}</small>{count === value && <Check />}</button>)}</div></>}
+        {productsReady && <><div className="cs-flow-step active"><span>2</span><div><strong>{modeId === 'carousel' ? 'Objetivo del carrusel' : modeId === 'week' ? 'Tipo de publicación' : modeId === 'campaign' ? 'Tipo de campaña' : 'Objetivo de la colección'}</strong><small>Desliza y toca una opción. Automático decide por ti.</small></div></div><div className="cs-advanced-choice-rail">{TYPE_OPTIONS[modeId].map(([id, name, description]) => <button key={id} type="button" className={type === id ? 'selected' : ''} onClick={() => { setType(id); setFormat(''); }}><i>{name.startsWith('✨') ? '✨' : name.slice(0, 1)}</i><strong>{name}</strong><small>{description}</small>{type === id && <Check />}</button>)}</div></>}
+
+        {productsReady && type && COUNT_OPTIONS[modeId] && <><div className="cs-flow-step active"><span>3</span><div><strong>¿Cuántas piezas necesitas?</strong><small>El consumo cambia con la cantidad. Máximo 5.</small></div></div><div className="cs-advanced-counts">{COUNT_OPTIONS[modeId].map(([value, label]) => <button key={value} type="button" className={count === value ? 'selected' : ''} onClick={() => { setCount(value); setFormat(''); }}><strong>{value}</strong><small>{label.replace(/^\d+ /, '')}</small>{count === value && <Check />}</button>)}</div></>}
 
         {choicesReady && <section className="cs-series-preview"><div><strong>Así se construirá tu {modeId === 'week' ? 'semana' : modeId === 'collection' ? 'colección' : modeId === 'campaign' ? 'campaña' : 'carrusel'}</strong><small>Una identidad consistente con una composición diferente en cada pieza.</small></div><div>{Array.from({ length: totalCredits }, (_, index) => { const roleIndex = distributedIndex(index + 1, totalCredits); return <article key={index}><img src={GUIDE_IMAGES[roleIndex % GUIDE_IMAGES.length]} alt=""/><span>{String(index + 1).padStart(2, '0')}</span><b>{STRUCTURE_LABELS[modeId][roleIndex]}</b></article>; })}</div></section>}
 
-        {choicesReady && <><div className="cs-flow-step active"><span>{COUNT_OPTIONS[modeId] ? 3 : 2}</span><div><strong>{modeId === 'week' ? '¿Cuál es el objetivo?' : 'Elige el enfoque'}</strong><small>Desliza y toca una opción. Automático decide por ti.</small></div></div><div className="cs-advanced-choice-rail">{TYPE_OPTIONS[modeId].map(([id, name, description]) => <button key={id} type="button" className={type === id ? 'selected' : ''} onClick={() => { setType(id); setFormat(''); setPromotionPercent(''); setPromotionDetails(''); }}><i>{name.startsWith('✨') ? '✨' : name.slice(0, 1)}</i><strong>{name}</strong><small>{description}</small>{type === id && <Check />}</button>)}</div></>}
+        {choicesReady && <><div className="cs-flow-step active"><span>4</span><div><strong>Tamaño de publicación</strong><small>La escena se crea completa en el formato seleccionado.</small></div></div><div className="cs-advanced-formats">{formats.map(([id, name, size]) => <button key={id} type="button" className={format === id ? 'selected' : ''} onClick={() => setFormat(id)}><span>{id === 'story' ? '▯' : id === 'mixed' ? '▣▯' : '▣'}</span><div><strong>{name}</strong><small>{size}</small></div>{format === id && <Check />}</button>)}</div></>}
 
-        {type && <><div className="cs-flow-step active"><span>{COUNT_OPTIONS[modeId] ? 4 : 3}</span><div><strong>Tamaño de publicación</strong><small>La escena se crea completa en el formato seleccionado.</small></div></div><div className="cs-advanced-formats">{formats.map(([id, name, size]) => <button key={id} type="button" className={format === id ? 'selected' : ''} onClick={() => setFormat(id)}><span>{id === 'story' ? '▯' : id === 'mixed' ? '▣▯' : '▣'}</span><div><strong>{name}</strong><small>{size}</small></div>{format === id && <Check />}</button>)}</div></>}
-
-        {format && <section className="cs-advanced-extras">
+        {choicesReady && <section className="cs-advanced-extras">
           <div className="cs-advanced-extras-heading"><span><WandSparkles /></span><div><strong>{EXTRAS_TITLES[modeId]}</strong><small>Opcional · fácil de cambiar</small></div></div>
           {modeId === 'collection' && <label className="cs-advanced-text-field"><span>Nombre de la colección <em>Opcional</em></span><input maxLength="80" value={collectionName} onChange={(event) => setCollectionName(event.target.value)} placeholder="Ej. Esenciales de verano"/></label>}
           <label className="cs-advanced-objective"><span>{modeId === 'carousel' ? 'Objetivo del carrusel' : modeId === 'week' ? 'Objetivo de contenido' : 'Objetivo comercial'}</span><textarea maxLength="260" value={baseForm.creative_instruction || ''} onChange={(event) => updateOptions({ creative_instruction: event.target.value })} placeholder={modeId === 'week' ? 'Ej. Mantener activa mi cuenta y presentar diferentes usos del producto.' : 'Ej. Presentar esta colección y motivar visitas al local.'}/><small>La IA lo usa para orientar toda la serie sin copiar instrucciones internas.</small></label>
@@ -303,19 +314,24 @@ export default function ContentStudioAdvancedCreate({ data, baseForm, currentPro
           <div className="cs-advanced-style-options">{VISUAL_STYLES.map(([id, label]) => <button type="button" key={id} className={visualStyle === id ? 'selected' : ''} onClick={() => setVisualStyle(id)}>{label}{visualStyle === id && <Check/>}</button>)}</div>
           <label className="cs-advanced-text-field"><span>Fondo o ambiente que imaginas <em>Opcional</em></span><input maxLength="120" value={visualDirection} onChange={(event) => setVisualDirection(event.target.value)} placeholder="Ej. Fondo claro con madera y luz natural"/></label>
 
-          <label className="cs-advanced-text-field"><span><DollarSign/> {modeId === 'collection' ? 'Precio individual o lista de precios' : 'Precio'} <em>Opcional</em></span><input maxLength="220" value={priceDetails} onChange={(event) => setPriceDetails(event.target.value)} placeholder={modeId === 'collection' ? 'Ej. Vela $12 · Taza $15' : 'Ej. $24,99'}/><small>Solo se mostrará exactamente el precio que escribas.</small></label>
-          {showPromotion && <div className="cs-advanced-promotion-fields"><label className="cs-advanced-discount"><span><Percent /> Descuento <em>Opcional</em></span><div><input type="number" inputMode="numeric" min="1" max="90" value={promotionPercent} onChange={(event) => { const value = event.target.value.replace(/\D/g, '').slice(0, 2); setPromotionPercent(value ? String(Math.min(90, Number(value))) : ''); }} placeholder="20"/><b>%</b></div><small>Solo mostraremos el porcentaje exacto.</small></label><label className="cs-advanced-promotion-detail"><span>Promoción o condición <em>Opcional</em></span><input maxLength="100" value={promotionDetails} onChange={(event) => setPromotionDetails(event.target.value)} placeholder="Ej. Solo este fin de semana"/><small>Déjalo vacío si prefieres un mensaje comercial sin promoción.</small></label></div>}
-          <div className="cs-advanced-brand-title"><Tag /><div><strong>Marca / logo</strong><small>Usaremos el archivo original dentro de cada diseño.</small></div></div>
-          <div className="cs-advanced-brand-options">
-            <button type="button" className={String(baseForm.logo_id) === 'none' ? 'selected' : ''} onClick={() => updateOptions({ logo_id: 'none' })}><span><EyeOff /></span><strong>Sin logo</strong>{String(baseForm.logo_id) === 'none' && <Check />}</button>
-            {(data.logos || []).map((logo) => <button type="button" key={logo.id} className={Number(baseForm.logo_id) === Number(logo.id) ? 'selected' : ''} onClick={() => updateOptions({ logo_id: logo.id })}><img src={logo.image_data} alt=""/><strong>{logo.name}</strong>{Number(baseForm.logo_id) === Number(logo.id) && <Check />}</button>)}
+          <div className="cs-advanced-option-heading"><Sparkles /><div><strong>Personaliza tu {modeId === 'week' ? 'semana' : modeId === 'collection' ? 'colección' : modeId === 'campaign' ? 'campaña' : 'carrusel'}</strong><small>Activa únicamente lo que quieras mostrar en las piezas.</small></div></div>
+          <div className="cs-advanced-toggle-grid">
+            {[
+              ['logo', 'Logo', Tag], ['whatsapp', 'WhatsApp', Phone], ['location', 'Dirección', MapPin],
+              ['discount', 'Descuento %', Percent], ['price', 'Precio', DollarSign], ['promotion', 'Texto / promoción', Megaphone]
+            ].map(([id, label, Icon]) => <button key={id} type="button" className={enabledOptions[id] ? 'enabled' : ''} onClick={() => toggleOption(id)}><Icon/><span>{label}</span><i><b/></i></button>)}
           </div>
-          {!(data.logos || []).length && <small className="cs-advanced-no-logo">Puedes agregar un logo desde Marca y volver a esta pantalla.</small>}
-          <div className="cs-advanced-contact-title"><Phone /><div><strong>WhatsApp y dirección</strong><small>Se guardan para tus próximas creaciones.</small></div></div>
-          <div className="cs-advanced-contact-grid">
-            <label><span>WhatsApp <em>Opcional</em></span><div><Phone /><input inputMode="tel" autoComplete="tel" maxLength="30" value={baseForm.contact_whatsapp || ''} onChange={(event) => updateOptions({ contact_whatsapp: event.target.value })} placeholder="0999999999"/></div></label>
-            <label><span>Dirección o ubicación <em>Opcional</em></span><div><MapPin /><input maxLength="80" value={baseForm.contact_location || ''} onChange={(event) => updateOptions({ contact_location: event.target.value })} placeholder="Ej. Centro de Ambato"/></div></label>
-          </div>
+
+          {enabledOptions.logo && <div className="cs-advanced-reveal"><div className="cs-advanced-brand-title"><Tag /><div><strong>Selecciona tu logo</strong><small>La IA recibe el archivo original y lo integra en cada diseño.</small></div></div><div className="cs-advanced-brand-options">{(data.logos || []).map((logo) => <button type="button" key={logo.id} className={Number(baseForm.logo_id) === Number(logo.id) ? 'selected' : ''} onClick={() => updateOptions({ logo_id: logo.id })}><img src={logo.image_data} alt=""/><strong>{logo.name}</strong>{Number(baseForm.logo_id) === Number(logo.id) && <Check />}</button>)}</div>{!(data.logos || []).length && <small className="cs-advanced-no-logo">Agrega primero un logo desde Configuración → Marca.</small>}</div>}
+          {(enabledOptions.whatsapp || enabledOptions.location) && <div className="cs-advanced-contact-grid cs-advanced-reveal">
+            {enabledOptions.whatsapp && <label><span>WhatsApp <em>Opcional</em></span><div><Phone /><input inputMode="tel" autoComplete="tel" maxLength="30" value={baseForm.contact_whatsapp || ''} onChange={(event) => updateOptions({ contact_whatsapp: event.target.value })} placeholder="0999999999"/></div><small>Se guarda para tus próximas creaciones.</small></label>}
+            {enabledOptions.location && <label><span>Dirección o ubicación <em>Opcional</em></span><div><MapPin /><input maxLength="80" value={baseForm.contact_location || ''} onChange={(event) => updateOptions({ contact_location: event.target.value })} placeholder="Ej. Centro de Ambato"/></div><small>Se guarda para tus próximas creaciones.</small></label>}
+          </div>}
+          {(enabledOptions.discount || enabledOptions.promotion) && <div className="cs-advanced-promotion-fields cs-advanced-reveal">
+            {enabledOptions.discount && <label className="cs-advanced-discount"><span><Percent /> Descuento <em>Opcional</em></span><div><input type="number" inputMode="numeric" min="1" max="90" value={promotionPercent} onChange={(event) => { const value = event.target.value.replace(/\D/g, '').slice(0, 2); setPromotionPercent(value ? String(Math.min(90, Number(value))) : ''); }} placeholder="20"/><b>%</b></div><small>Solo mostraremos el porcentaje exacto.</small></label>}
+            {enabledOptions.promotion && <label className="cs-advanced-promotion-detail"><span>Promoción o condición <em>Opcional</em></span><input maxLength="100" value={promotionDetails} onChange={(event) => setPromotionDetails(event.target.value)} placeholder="Ej. Solo este fin de semana"/><small>Escribe únicamente información real.</small></label>}
+          </div>}
+          {enabledOptions.price && <label className="cs-advanced-text-field cs-advanced-reveal"><span><DollarSign/> {modeId === 'collection' ? 'Precio individual o lista de precios' : 'Precio'} <em>Opcional</em></span><input maxLength="220" value={priceDetails} onChange={(event) => setPriceDetails(event.target.value)} placeholder={modeId === 'collection' ? 'Ej. Vela $12 · Taza $15' : 'Ej. $24,99'}/><small>Solo se mostrará exactamente el precio que escribas.</small></label>}
         </section>}
 
         {canConfirm && <div className="cs-advanced-confirm"><div><span>Esta creación utilizará</span><strong>{totalCredits} créditos</strong><small>{selectedTypeName} · {formats.find(([id]) => id === format)?.[1]}</small></div><button type="button" disabled={busy} onClick={createBatch}>{busy ? 'Creando…' : credits < totalCredits ? 'Mejorar plan' : 'Crear contenido'}<ChevronRight /></button></div>}
