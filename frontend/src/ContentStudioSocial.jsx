@@ -118,18 +118,55 @@ const tiktokPrivacyLabel = (value) => ({
 }[value] || value.replaceAll('_', ' '));
 
 function TikTokPublisher({ generation, data, setError }) {
-  const [connectionId, setConnectionId] = useState(''); const [copy, setCopy] = useState(generation?.social_copy || ''); const [creator, setCreator] = useState(null); const [privacy, setPrivacy] = useState(''); const [commentsOff, setCommentsOff] = useState(false); const [music, setMusic] = useState(true); const [busy, setBusy] = useState(''); const [results, setResults] = useState([]);
+  const [connectionId, setConnectionId] = useState('');
+  const [title, setTitle] = useState(generation?.product_name || generation?.brand_name || 'Nueva creación');
+  const [copy, setCopy] = useState(generation?.social_copy || '');
+  const [creator, setCreator] = useState(null);
+  const [privacy, setPrivacy] = useState('');
+  const [allowComment, setAllowComment] = useState(false);
+  const [music, setMusic] = useState(true);
+  const [commercial, setCommercial] = useState(false);
+  const [ownBrand, setOwnBrand] = useState(false);
+  const [brandedContent, setBrandedContent] = useState(false);
+  const [musicConsent, setMusicConsent] = useState(false);
+  const [busy, setBusy] = useState('');
+  const [results, setResults] = useState([]);
   const selected = useMemo(() => (data?.tiktok_connections || []).find((item) => String(item.id) === String(connectionId)) || data?.tiktok_connections?.[0], [data?.tiktok_connections, connectionId]);
   useEffect(() => { if (!connectionId && data?.tiktok_connections?.[0]) setConnectionId(String(data.tiktok_connections[0].id)); }, [data?.tiktok_connections, connectionId]);
-  useEffect(() => { if (!selected?.id) return; let active = true; setCreator(null); setPrivacy(''); api(`/content-studio/social/tiktok/creator-info/${selected.id}`).then((info) => { if (!active) return; setCreator(info); setCommentsOff(Boolean(info.comment_disabled)); }).catch((err) => active && setError(err.message)); return () => { active = false; }; }, [selected?.id]);
+  useEffect(() => { if (!selected?.id) return; let active = true; setCreator(null); setPrivacy(''); setAllowComment(false); api(`/content-studio/social/tiktok/creator-info/${selected.id}`).then((info) => { if (!active) return; setCreator(info); }).catch((err) => active && setError(err.message)); return () => { active = false; }; }, [selected?.id]);
+  useEffect(() => { if (privacy === 'SELF_ONLY' && brandedContent) setBrandedContent(false); }, [privacy, brandedContent]);
   async function generateCopy() { setBusy('copy'); setError(''); try { const response = await api('/content-studio/social/copy', { method: 'POST', body: JSON.stringify({ generation_id: generation.id, network: 'tiktok' }) }); setCopy(response.copy || ''); } catch (err) { setError(err.message); } finally { setBusy(''); } }
-  async function publish() { setBusy('publish'); setError(''); setResults([]); try { const response = await api('/content-studio/social/tiktok/publish', { method: 'POST', body: JSON.stringify({ generation_id: generation.id, connection_id: selected?.id, copy, privacy_level: privacy, disable_comment: commentsOff, auto_add_music: music }) }); setResults([response.result]); } catch (err) { setError(err.message); } finally { setBusy(''); } }
+  async function pollStatus(publishId) {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 2500));
+      const response = await api('/content-studio/social/tiktok/status', { method: 'POST', body: JSON.stringify({ connection_id: selected?.id, publish_id: publishId }) });
+      setResults([response.result]);
+      if (!response.result?.processing) return;
+    }
+  }
+  async function publish() {
+    setBusy('publish'); setError(''); setResults([]);
+    try {
+      const response = await api('/content-studio/social/tiktok/publish', { method: 'POST', body: JSON.stringify({ generation_id: generation.id, connection_id: selected?.id, title, copy, privacy_level: privacy, allow_comment: allowComment, auto_add_music: music, commercial_content: commercial, brand_organic: commercial && ownBrand, brand_content: commercial && brandedContent, music_consent: musicConsent }) });
+      setResults([response.result]);
+      if (response.result?.id) await pollStatus(response.result.id);
+    } catch (err) { setError(err.message); }
+    finally { setBusy(''); }
+  }
+  const commercialIncomplete = commercial && !ownBrand && !brandedContent;
+  const brandedPrivate = brandedContent && privacy === 'SELF_ONLY';
+  const disabled = Boolean(busy) || !title.trim() || !copy.trim() || !privacy || !musicConsent || commercialIncomplete || brandedPrivate;
   if (!data?.tiktok_configured) return null;
   return <section className="cs-social-network-panel cs-tiktok-publisher"><div className="cs-social-network-title"><span className="cs-tiktok-mark">♪</span><div><strong>TikTok</strong><small>Foto con copy y música sugerida por TikTok.</small></div></div>{!data?.tiktok_connections?.length ? <div className="cs-social-empty"><Music2 /><div><strong>Conecta TikTok desde Configuración</strong><p>Después podrás publicar directamente desde tu creación.</p></div></div> : <>
+    <div className="cs-tiktok-preview"><img src={generation.output_image_data} alt="Vista previa de la imagen que se publicará en TikTok"/><div><small>VISTA PREVIA</small><strong>{creator?.creator_nickname || selected?.display_name}</strong><span>{creator?.creator_username ? `@${creator.creator_username}` : 'Cuenta seleccionada'}</span></div></div>
     <label className="cs-social-account">Cuenta TikTok<select value={selected?.id || ''} onChange={(event) => setConnectionId(event.target.value)}>{data.tiktok_connections.map((connection) => <option key={connection.id} value={connection.id}>{connection.display_name}</option>)}</select></label>
+    <label className="cs-tiktok-title">Título de la publicación<input maxLength="90" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Ej. Nueva colección"/><small>{title.length}/90 caracteres · Puedes editarlo antes de publicar.</small></label>
     <CopyEditor generation={generation} suffix="-tiktok" copy={copy} setCopy={setCopy} busy={busy} generateCopy={generateCopy}/>
-    <div className="cs-tiktok-options"><label>Privacidad<select value={privacy} onChange={(event) => setPrivacy(event.target.value)} disabled={!creator}><option value="">Selecciona la privacidad</option>{creator?.privacy_level_options?.map((item) => <option key={item} value={item}>{tiktokPrivacyLabel(item)}</option>)}</select></label><label className="cs-tiktok-toggle"><input type="checkbox" checked={music} onChange={(event) => setMusic(event.target.checked)}/><span><Music2 /> TikTok elegirá la música</span><small>La podrá cambiar antes de publicar.</small></label><label className="cs-tiktok-toggle"><input type="checkbox" checked={commentsOff} onChange={(event) => setCommentsOff(event.target.checked)} disabled={Boolean(creator?.comment_disabled)}/><span>Desactivar comentarios</span></label></div>
-    <p className="cs-tiktok-note">{creator?.sandboxed ? 'Prueba de TikTok: selecciona “Solo yo”. La cuenta debe estar configurada como privada mientras la aplicación aún no está auditada.' : 'La imagen se identificará como contenido generado con IA. Revisa el copy y elige manualmente la privacidad antes de publicar.'}</p><button className="cs-social-publish cs-tiktok-publish" type="button" disabled={Boolean(busy) || !copy.trim() || !privacy} onClick={publish}><Music2 /> {busy === 'publish' ? 'Enviando a TikTok…' : 'Publicar en TikTok'}</button><Results results={results}/></>}</section>;
+    <div className="cs-tiktok-options"><label>Privacidad<select value={privacy} onChange={(event) => setPrivacy(event.target.value)} disabled={!creator}><option value="">Selecciona la privacidad</option>{creator?.privacy_level_options?.map((item) => <option key={item} value={item}>{tiktokPrivacyLabel(item)}</option>)}</select></label><label className="cs-tiktok-toggle"><input type="checkbox" checked={music} onChange={(event) => setMusic(event.target.checked)}/><span><Music2 /> TikTok elegirá la música</span><small>Podrás cambiarla luego desde TikTok.</small></label><label className="cs-tiktok-toggle"><input type="checkbox" checked={allowComment} onChange={(event) => setAllowComment(event.target.checked)} disabled={Boolean(creator?.comment_disabled)}/><span>Permitir comentarios</span><small>{creator?.comment_disabled ? 'Tu cuenta no permite comentarios.' : 'Actívalo si quieres recibir comentarios.'}</small></label></div>
+    <div className="cs-tiktok-disclosure"><label className="cs-tiktok-toggle"><input type="checkbox" checked={commercial} onChange={(event) => { setCommercial(event.target.checked); if (!event.target.checked) { setOwnBrand(false); setBrandedContent(false); } }}/><span>Contenido comercial</span><small>Actívalo si promocionas una marca, producto o servicio.</small></label>{commercial && <div className="cs-tiktok-commercial-options"><label className="cs-tiktok-toggle"><input type="checkbox" checked={ownBrand} onChange={(event) => setOwnBrand(event.target.checked)}/><span>Mi negocio o mi marca</span><small>Se etiquetará como “Contenido promocional”.</small></label><label className="cs-tiktok-toggle"><input type="checkbox" checked={brandedContent} onChange={(event) => setBrandedContent(event.target.checked)} disabled={privacy === 'SELF_ONLY'}/><span>Otra marca o colaboración pagada</span><small>{privacy === 'SELF_ONLY' ? 'No está disponible con privacidad “Solo yo”.' : 'Se etiquetará como “Colaboración pagada”.'}</small></label>{commercialIncomplete && <p>Elige al menos una opción de contenido comercial.</p>}</div>}</div>
+    <p className="cs-tiktok-note">{creator?.sandboxed ? 'Prueba de TikTok: selecciona “Solo yo”. La cuenta debe estar configurada como privada mientras la aplicación aún no está auditada.' : 'La imagen se identificará como contenido generado con IA. El procesamiento puede tardar unos minutos antes de aparecer en tu perfil.'}</p>
+    <label className="cs-tiktok-consent"><input type="checkbox" checked={musicConsent} onChange={(event) => setMusicConsent(event.target.checked)}/><span>Al publicar, acepto la <a href="https://www.tiktok.com/legal/page/global/music-usage-confirmation/en" target="_blank" rel="noreferrer">Confirmación de uso de música de TikTok</a>{brandedContent ? <> y la <a href="https://www.tiktok.com/legal/page/global/bc-policy/en" target="_blank" rel="noreferrer">Política de contenido de marca</a></> : null}.</span></label>
+    <button className="cs-social-publish cs-tiktok-publish" type="button" disabled={disabled} onClick={publish}><Music2 /> {busy === 'publish' ? 'TikTok está procesando…' : 'Publicar en TikTok'}</button><Results results={results}/></>}</section>;
 }
 
 function PublisherPanel({ generation, onClose }) {

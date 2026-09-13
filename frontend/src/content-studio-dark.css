@@ -77,7 +77,9 @@ html[data-content-studio-color=dark] .cs-plan-close{background:#2b2f2b;color:#f1
 html[data-content-studio-color=dark] .cs-social-settings-card,html[data-content-studio-color=dark] .cs-social-publisher{background:#191c19;border-color:#343833;color:#eff0eb}
 html[data-content-studio-color=dark] .cs-social-locked,html[data-content-studio-color=dark] .cs-social-setup-note,html[data-content-studio-color=dark] .cs-social-empty,html[data-content-studio-color=dark] .cs-social-connections article,html[data-content-studio-color=dark] .cs-social-connect-first,html[data-content-studio-color=dark] .cs-social-targets button{background:#22251f;border-color:#3b4038;color:#eff0eb}
 html[data-content-studio-color=dark] .cs-social-setup-note code{background:#121411}
-html[data-content-studio-color=dark] .cs-social-account select,html[data-content-studio-color=dark] .cs-social-copy textarea{background:#111311;border-color:#3b4038;color:#eff0eb}
+html[data-content-studio-color=dark] .cs-social-account select,html[data-content-studio-color=dark] .cs-social-copy textarea,html[data-content-studio-color=dark] .cs-tiktok-title input,html[data-content-studio-color=dark] .cs-tiktok-options select{background:#111311;border-color:#3b4038;color:#eff0eb}
+html[data-content-studio-color=dark] .cs-social-network-panel,html[data-content-studio-color=dark] .cs-tiktok-preview,html[data-content-studio-color=dark] .cs-tiktok-toggle,html[data-content-studio-color=dark] .cs-tiktok-consent{background:#1d201c;border-color:#3b4038;color:#eff0eb}
+html[data-content-studio-color=dark] .cs-tiktok-commercial-options,html[data-content-studio-color=dark] .cs-tiktok-note{background:#242720;color:#b9bcb4}
 html[data-content-studio-color=dark] .cs-shell-skeleton,html[data-content-studio-color=dark] .cs-loading{background:#101210;color:#a3a69f}
 html[data-content-studio-color=dark] .cs-skeleton-grid span,html[data-content-studio-color=dark] .cs-section-skeleton i{background:linear-gradient(100deg,#20231f 20%,#2c302b 42%,#20231f 64%);background-size:220% 100%}
 

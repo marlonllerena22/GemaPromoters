@@ -292,6 +292,37 @@ async function tiktokCreatorInfo(accessToken) {
   return data.data || {};
 }
 
+async function tiktokPublishStatus(accessToken, publishId) {
+  const data = await tiktokJson('https://open.tiktokapis.com/v2/post/publish/status/fetch/', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json; charset=UTF-8' },
+    body: JSON.stringify({ publish_id: publishId })
+  });
+  return data.data || {};
+}
+
+function publicTikTokStatus(data = {}) {
+  const status = clean(data.status, 80).toUpperCase();
+  const completed = status === 'PUBLISH_COMPLETE';
+  const failed = status === 'FAILED';
+  const labels = {
+    PROCESSING_UPLOAD: 'TikTok está recibiendo la imagen',
+    PROCESSING_DOWNLOAD: 'TikTok está preparando la imagen',
+    SEND_TO_USER_INBOX: 'La imagen está lista en TikTok',
+    PUBLISH_COMPLETE: 'Publicado correctamente en TikTok',
+    FAILED: 'TikTok no pudo completar la publicación'
+  };
+  return {
+    network: 'tiktok',
+    ok: !failed,
+    status: labels[status] || (status ? 'TikTok está procesando la publicación' : 'Publicación enviada a TikTok'),
+    processing: !completed && !failed,
+    completed,
+    error: failed ? clean(data.fail_reason, 300) || 'TikTok rechazó la publicación' : '',
+    post_ids: Array.isArray(data.publicaly_available_post_id) ? data.publicaly_available_post_id : []
+  };
+}
+
 async function tiktokAccessToken(db, connection) {
   let token;
   try { token = JSON.parse(decryptToken(connection.token_ciphertext)); }
@@ -560,6 +591,8 @@ export function registerContentStudioSocialRoutes(app, db, guard) {
       const privacyOptions = Array.isArray(info.privacy_level_options) ? info.privacy_level_options : [];
       res.json({
         creator_nickname: clean(info.creator_nickname, 160),
+        creator_username: clean(info.creator_username, 160),
+        creator_avatar_url: clean(info.creator_avatar_url, 1000),
         privacy_level_options: tiktokSandboxed() ? privacyOptions.filter((item) => item === 'SELF_ONLY') : privacyOptions,
         comment_disabled: Boolean(info.comment_disabled),
         sandboxed: tiktokSandboxed()
@@ -577,6 +610,15 @@ export function registerContentStudioSocialRoutes(app, db, guard) {
     if (!connection) return res.status(404).json({ message: 'Selecciona una conexión de TikTok válida' });
     const copyText = clean(req.body?.copy, 2200);
     if (!copyText) return res.status(400).json({ message: 'Escribe o genera el copy antes de publicar' });
+    const title = clean(req.body?.title, 90);
+    if (!title) return res.status(400).json({ message: 'Escribe un título para la publicación' });
+    const commercialContent = Boolean(req.body?.commercial_content);
+    const brandOrganic = commercialContent && Boolean(req.body?.brand_organic);
+    const brandContent = commercialContent && Boolean(req.body?.brand_content);
+    if (commercialContent && !brandOrganic && !brandContent) {
+      return res.status(400).json({ message: 'Indica si promocionas tu negocio, otra marca o ambas opciones.' });
+    }
+    if (!req.body?.music_consent) return res.status(400).json({ message: 'Confirma las condiciones de música de TikTok antes de publicar.' });
     try {
       const accessToken = await tiktokAccessToken(db, connection);
       const creator = await tiktokCreatorInfo(accessToken);
@@ -586,27 +628,46 @@ export function registerContentStudioSocialRoutes(app, db, guard) {
       if (tiktokSandboxed() && privacy !== 'SELF_ONLY') {
         throw new Error('Durante las pruebas TikTok solo permite publicar con privacidad “Solo yo”.');
       }
+      if (brandContent && privacy === 'SELF_ONLY') {
+        throw new Error('El contenido de marca de terceros no se puede publicar con privacidad “Solo yo”.');
+      }
       const data = await tiktokJson('https://open.tiktokapis.com/v2/post/publish/content/init/', {
         method: 'POST',
         headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json; charset=UTF-8' },
         body: JSON.stringify({
           post_info: {
-            title: clean(generation.product_name || generation.brand_name || 'Nueva creación', 90),
+            title,
             description: copyText,
             privacy_level: privacy,
-            disable_comment: Boolean(req.body?.disable_comment),
+            disable_comment: !Boolean(req.body?.allow_comment) || Boolean(creator.comment_disabled),
             auto_add_music: Boolean(req.body?.auto_add_music !== false),
-            brand_content_toggle: false,
-            brand_organic_toggle: true
+            brand_content_toggle: brandContent,
+            brand_organic_toggle: brandOrganic
           },
           source_info: { source: 'PULL_FROM_URL', photo_cover_index: 0, photo_images: [signedMediaUrl(generation.id)] },
           post_mode: 'DIRECT_POST', media_type: 'PHOTO', is_aigc: true
         })
       });
       const publishId = clean(data.data?.publish_id || data.data?.share_id, 200);
-      res.json({ result: { network: 'tiktok', ok: true, id: publishId, status: publishId ? 'enviado' : 'publicado' } });
+      res.json({ result: { network: 'tiktok', ok: true, id: publishId, status: publishId ? 'Enviado; TikTok está procesando la imagen' : 'Enviado a TikTok', processing: Boolean(publishId) } });
     } catch (error) {
       res.status(502).json({ message: error.message || 'TikTok no pudo publicar la imagen' });
+    }
+  });
+
+  app.post('/api/content-studio/social/tiktok/status', guard, async (req, res) => {
+    if (!tiktokConfigured()) return res.status(503).json({ message: 'La publicación con TikTok todavía no está configurada' });
+    if (!hasSocialPlan(req)) return res.status(403).json({ code: 'SOCIAL_PLAN_REQUIRED', message: 'La publicación directa está disponible desde el plan Negocio.' });
+    const owner = ownerFor(req);
+    const publishId = clean(req.body?.publish_id, 200);
+    if (!publishId) return res.status(400).json({ message: 'Falta identificar la publicación de TikTok' });
+    const connection = db.prepare(`SELECT * FROM content_studio_social_connections WHERE id = ? AND owner_key = ? AND provider = 'tiktok' AND status = 'active'`).get(req.body?.connection_id, owner.key);
+    if (!connection) return res.status(404).json({ message: 'Selecciona una conexión de TikTok válida' });
+    try {
+      const status = await tiktokPublishStatus(await tiktokAccessToken(db, connection), publishId);
+      res.json({ result: { ...publicTikTokStatus(status), id: publishId } });
+    } catch (error) {
+      res.status(502).json({ message: error.message || 'No se pudo consultar el estado de la publicación' });
     }
   });
 
