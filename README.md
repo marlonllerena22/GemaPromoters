@@ -297,5 +297,6 @@ Variables necesarias en el servidor:
 - `SOCIAL_TOKEN_ENCRYPTION_KEY`: valor aleatorio largo para cifrar tokens.
 - `SOCIAL_MEDIA_SIGNING_KEY`: valor aleatorio largo y diferente para firmar las URL temporales de las imagenes.
 - `OPENAI_COPY_MODEL`: modelo utilizado para crear el texto de la publicacion.
+- `TIKTOK_CLIENT_KEY` y `TIKTOK_CLIENT_SECRET`: credenciales de la aplicación de TikTok para Login Kit y Content Posting API. Configura como redirect URI `https://estudioscreativos.com/api/content-studio/social/tiktok/callback`. Los tokens se cifran con las mismas claves sociales.
 
 La app solicita `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`, `business_management`, `instagram_basic` e `instagram_content_publish`. Para que clientes ajenos al equipo de desarrollo conecten sus cuentas, el portfolio y los permisos solicitados deben completar la verificacion y revision de Meta.

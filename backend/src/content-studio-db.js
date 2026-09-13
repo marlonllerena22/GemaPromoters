@@ -249,6 +249,22 @@ export function initContentStudioDb(db) {
       FOREIGN KEY (content_studio_user_id) REFERENCES content_studio_users(id)
     );
 
+    CREATE TABLE IF NOT EXISTS content_studio_tiktok_oauth_states (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      state_hash TEXT NOT NULL UNIQUE,
+      establishment_id INTEGER NOT NULL,
+      content_studio_user_id INTEGER,
+      owner_key TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (content_studio_user_id) REFERENCES content_studio_users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_content_studio_tiktok_oauth_states_expiry
+      ON content_studio_tiktok_oauth_states(expires_at);
+
     CREATE TABLE IF NOT EXISTS content_studio_social_connections (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       establishment_id INTEGER NOT NULL,

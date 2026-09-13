@@ -21,6 +21,10 @@ function callbackUrl() {
   return `${studioOrigin()}/api/content-studio/social/meta/callback`;
 }
 
+function tiktokCallbackUrl() {
+  return `${studioOrigin()}/api/content-studio/social/tiktok/callback`;
+}
+
 function tokenKey() {
   const secret = process.env.SOCIAL_TOKEN_ENCRYPTION_KEY || '';
   return secret ? crypto.createHash('sha256').update(secret).digest() : null;
@@ -39,6 +43,10 @@ function metaConfigured() {
     && tokenKey()
     && mediaSigningKey()
   );
+}
+
+function tiktokConfigured() {
+  return Boolean(process.env.TIKTOK_CLIENT_KEY && process.env.TIKTOK_CLIENT_SECRET && tokenKey() && mediaSigningKey());
 }
 
 function encryptToken(value) {
@@ -76,6 +84,10 @@ function hasSocialPlan(req) {
   const until = clean(req.contentStudioUser.paid_until, 10);
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Guayaquil' });
   return active && (!until || until >= today) && Number(req.contentStudioUser.credit_limit || req.contentStudioUser.monthly_limit || 0) >= 60;
+}
+
+function publicTikTokConnection(row) {
+  return { id: row.id, open_id: row.page_id, display_name: row.page_name, status: row.status, connected_at: row.created_at };
 }
 
 function publicConnection(row) {
@@ -126,7 +138,7 @@ function responseText(data) {
     .trim();
 }
 
-async function createCopy(generation, brandName) {
+async function createCopy(generation, brandName, network = 'meta') {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('La generación de copy todavía no está disponible');
   const response = await fetch('https://api.openai.com/v1/responses', {
@@ -134,7 +146,7 @@ async function createCopy(generation, brandName) {
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: process.env.OPENAI_COPY_MODEL || process.env.OPENAI_RESEARCH_MODEL || 'gpt-5.4-nano',
-      input: `Escribe un copy breve en español para publicar esta creación comercial en Instagram y Facebook.
+      input: `Escribe un copy breve en español para publicar esta creación comercial en ${network === 'tiktok' ? 'TikTok' : 'Instagram y Facebook'}.
 Marca: ${clean(brandName, 100) || 'sin nombre indicado'}.
 Producto: ${clean(generation.product_name, 100) || 'producto visible en la imagen'}.
 Tipo de creación: ${clean(generation.preset, 40)}.
@@ -219,10 +231,56 @@ async function publishFacebook(connection, accessToken, imageUrl, caption) {
   return { id: published.post_id || published.id || '', permalink: '' };
 }
 
-function callbackPage({ ok, message }) {
+function callbackPage({ ok, message, provider = 'meta' }) {
   const origin = studioOrigin();
-  const payload = JSON.stringify({ type: 'estudios-meta-connected', ok, message }).replace(/</g, '\\u003c');
+  const payload = JSON.stringify({ type: `estudios-${provider}-connected`, ok, message }).replace(/</g, '\\u003c');
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Estudios Creativos</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f5f3ee;color:#20231e;font:16px system-ui;text-align:center}.card{margin:20px;padding:32px;border:1px solid #dedbd2;border-radius:20px;background:white;max-width:430px}h1{margin:0 0 12px}p{color:#6f716a;line-height:1.55}</style></head><body><main class="card"><h1>${ok ? 'Conexión terminada' : 'No se pudo conectar'}</h1><p>${String(message).replace(/[&<>"']/g, '')}</p><p>Esta ventana se cerrará automáticamente.</p></main><script>window.opener&&window.opener.postMessage(${payload},${JSON.stringify(origin)});setTimeout(()=>window.close(),900);</script></body></html>`;
+}
+
+async function tiktokJson(url, options = {}) {
+  const response = await fetch(url, options);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.error?.code || data.error?.message) {
+    throw new Error(data.error?.message || data.message || 'TikTok no pudo completar la solicitud');
+  }
+  return data;
+}
+
+async function tiktokToken(params) {
+  return tiktokJson('https://open.tiktokapis.com/v2/oauth/token/', {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(params)
+  });
+}
+
+async function tiktokProfile(accessToken) {
+  const data = await tiktokJson('https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name,avatar_url', {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+  return data.data?.user || data.data || {};
+}
+
+async function tiktokCreatorInfo(accessToken) {
+  const data = await tiktokJson('https://open.tiktokapis.com/v2/post/publish/creator_info/query/', {
+    method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json; charset=UTF-8' }, body: '{}'
+  });
+  return data.data || {};
+}
+
+async function tiktokAccessToken(db, connection) {
+  let token;
+  try { token = JSON.parse(decryptToken(connection.token_ciphertext)); }
+  catch { throw new Error('La conexión de TikTok necesita renovarse'); }
+  if (!token.access_token) throw new Error('La conexión de TikTok necesita renovarse');
+  const expiresAt = Date.parse(connection.token_expires_at || '');
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now() + 5 * 60 * 1000) {
+    if (!token.refresh_token) throw new Error('La conexión de TikTok venció. Conéctala nuevamente.');
+    const refreshed = await tiktokToken({ client_key: process.env.TIKTOK_CLIENT_KEY, client_secret: process.env.TIKTOK_CLIENT_SECRET, grant_type: 'refresh_token', refresh_token: token.refresh_token });
+    token = { ...token, access_token: refreshed.access_token, refresh_token: refreshed.refresh_token || token.refresh_token, open_id: refreshed.open_id || token.open_id };
+    const expires = new Date(Date.now() + Number(refreshed.expires_in || 86400) * 1000).toISOString();
+    db.prepare("UPDATE content_studio_social_connections SET token_ciphertext = ?, token_expires_at = ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
+      .run(encryptToken(JSON.stringify(token)), expires, connection.id);
+  }
+  return token.access_token;
 }
 
 function signedRequestPayload(value) {
@@ -279,8 +337,10 @@ export function registerContentStudioSocialRoutes(app, db, guard) {
 
   app.get('/api/content-studio/social', guard, (req, res) => {
     const owner = ownerFor(req);
-    const connections = db.prepare(`SELECT * FROM content_studio_social_connections
-      WHERE owner_key = ? AND status = 'active' ORDER BY updated_at DESC, id DESC`).all(owner.key).map(publicConnection);
+    const allConnections = db.prepare(`SELECT * FROM content_studio_social_connections
+      WHERE owner_key = ? AND status = 'active' ORDER BY updated_at DESC, id DESC`).all(owner.key);
+    const connections = allConnections.filter((row) => row.provider === 'meta').map(publicConnection);
+    const tiktokConnections = allConnections.filter((row) => row.provider === 'tiktok').map(publicTikTokConnection);
     const publications = db.prepare(`SELECT publications.id, publications.generation_id, publications.network,
       publications.status, publications.external_post_id, publications.permalink, publications.error_message,
       publications.created_at, connections.page_name, connections.instagram_username
@@ -290,11 +350,14 @@ export function registerContentStudioSocialRoutes(app, db, guard) {
       ORDER BY publications.id DESC LIMIT 20`).all(owner.establishmentId, ...(owner.userId ? [owner.userId] : []));
     res.json({
       configured: metaConfigured(),
+      tiktok_configured: tiktokConfigured(),
       entitled: hasSocialPlan(req),
       minimum_plan: 'Negocio',
       connections,
       publications,
-      callback_url: callbackUrl()
+      tiktok_connections: tiktokConnections,
+      callback_url: callbackUrl(),
+      tiktok_callback_url: tiktokCallbackUrl()
     });
   });
 
@@ -316,6 +379,58 @@ export function registerContentStudioSocialRoutes(app, db, guard) {
     authorization.searchParams.set('config_id', clean(process.env.META_LOGIN_CONFIG_ID, 100));
     authorization.searchParams.set('scope', 'pages_show_list,pages_read_engagement,pages_manage_posts,business_management,instagram_basic,instagram_content_publish');
     res.json({ authorization_url: authorization.toString() });
+  });
+
+  app.post('/api/content-studio/social/tiktok/connect', guard, (req, res) => {
+    if (!tiktokConfigured()) return res.status(503).json({ message: 'La conexión con TikTok todavía necesita las credenciales del servidor' });
+    if (!hasSocialPlan(req)) return res.status(403).json({ code: 'SOCIAL_PLAN_REQUIRED', message: 'La publicación directa está disponible desde el plan Negocio.' });
+    const owner = ownerFor(req);
+    const state = crypto.randomBytes(32).toString('base64url');
+    db.prepare("DELETE FROM content_studio_tiktok_oauth_states WHERE expires_at < datetime('now', 'localtime') OR used_at IS NOT NULL").run();
+    db.prepare(`INSERT INTO content_studio_tiktok_oauth_states
+      (state_hash, establishment_id, content_studio_user_id, owner_key, expires_at)
+      VALUES (?, ?, ?, ?, datetime('now', 'localtime', '+10 minutes'))`)
+      .run(hash(state), owner.establishmentId, owner.userId, owner.key);
+    const authorization = new URL('https://www.tiktok.com/v2/auth/authorize/');
+    authorization.searchParams.set('client_key', process.env.TIKTOK_CLIENT_KEY);
+    authorization.searchParams.set('response_type', 'code');
+    authorization.searchParams.set('scope', 'user.info.basic,video.publish');
+    authorization.searchParams.set('redirect_uri', tiktokCallbackUrl());
+    authorization.searchParams.set('state', state);
+    res.json({ authorization_url: authorization.toString() });
+  });
+
+  app.get('/api/content-studio/social/tiktok/callback', async (req, res) => {
+    const state = clean(req.query.state, 240);
+    const code = clean(req.query.code, 2000);
+    if (!state || !code || req.query.error) {
+      return res.status(400).type('html').send(callbackPage({ ok: false, provider: 'tiktok', message: clean(req.query.error_description, 300) || 'TikTok canceló la autorización.' }));
+    }
+    try {
+      const oauth = db.transaction(() => {
+        const row = db.prepare(`SELECT * FROM content_studio_tiktok_oauth_states WHERE state_hash = ? AND used_at IS NULL AND expires_at >= datetime('now', 'localtime')`).get(hash(state));
+        if (!row) throw new Error('La solicitud de conexión venció. Inténtalo nuevamente.');
+        const consumed = db.prepare("UPDATE content_studio_tiktok_oauth_states SET used_at = datetime('now', 'localtime') WHERE id = ? AND used_at IS NULL").run(row.id);
+        if (!consumed.changes) throw new Error('Esta solicitud ya fue utilizada.');
+        return row;
+      })();
+      const tokens = await tiktokToken({ client_key: process.env.TIKTOK_CLIENT_KEY, client_secret: process.env.TIKTOK_CLIENT_SECRET, code, grant_type: 'authorization_code', redirect_uri: tiktokCallbackUrl() });
+      const profile = await tiktokProfile(tokens.access_token).catch(() => ({}));
+      const openId = clean(tokens.open_id || profile.open_id, 160);
+      if (!openId) throw new Error('TikTok no devolvió la cuenta autorizada. Inténtalo nuevamente.');
+      const name = clean(profile.display_name, 160) || 'Cuenta de TikTok';
+      const expiry = new Date(Date.now() + Number(tokens.expires_in || 86400) * 1000).toISOString();
+      db.prepare(`INSERT INTO content_studio_social_connections
+        (establishment_id, content_studio_user_id, owner_key, provider, page_id, page_name, token_ciphertext, token_expires_at, status)
+        VALUES (?, ?, ?, 'tiktok', ?, ?, ?, ?, 'active')
+        ON CONFLICT(owner_key, provider, page_id) DO UPDATE SET page_name = excluded.page_name, token_ciphertext = excluded.token_ciphertext,
+          token_expires_at = excluded.token_expires_at, status = 'active', updated_at = datetime('now', 'localtime')`)
+        .run(oauth.establishment_id, oauth.content_studio_user_id, oauth.owner_key, openId, name,
+          encryptToken(JSON.stringify({ access_token: tokens.access_token, refresh_token: tokens.refresh_token, open_id: openId })), expiry);
+      return res.type('html').send(callbackPage({ ok: true, provider: 'tiktok', message: `${name} quedó conectado a Estudios Creativos.` }));
+    } catch (error) {
+      return res.status(400).type('html').send(callbackPage({ ok: false, provider: 'tiktok', message: error.message || 'No se pudo completar la conexión.' }));
+    }
   });
 
   app.get('/api/content-studio/social/meta/callback', async (req, res) => {
@@ -395,11 +510,62 @@ export function registerContentStudioSocialRoutes(app, db, guard) {
     try {
       const brandName = req.contentStudioUser?.business_name
         || db.prepare('SELECT brand_name FROM content_studio_settings WHERE establishment_id = ?').get(req.contentStudioEstablishment.id)?.brand_name;
-      const copy = await createCopy(generation, brandName);
+      const copy = await createCopy(generation, brandName, clean(req.body?.network, 20) === 'tiktok' ? 'tiktok' : 'meta');
       db.prepare('UPDATE content_studio_generations SET social_copy = ? WHERE id = ?').run(copy, generation.id);
       res.json({ copy });
     } catch (error) {
       res.status(502).json({ message: error.message || 'No se pudo crear el copy' });
+    }
+  });
+
+  app.get('/api/content-studio/social/tiktok/creator-info/:id', guard, async (req, res) => {
+    if (!tiktokConfigured()) return res.status(503).json({ message: 'La publicación con TikTok todavía no está configurada' });
+    const owner = ownerFor(req);
+    const connection = db.prepare(`SELECT * FROM content_studio_social_connections WHERE id = ? AND owner_key = ? AND provider = 'tiktok' AND status = 'active'`).get(Number(req.params.id), owner.key);
+    if (!connection) return res.status(404).json({ message: 'Selecciona una conexión de TikTok válida' });
+    try {
+      const info = await tiktokCreatorInfo(await tiktokAccessToken(db, connection));
+      res.json({ creator_nickname: clean(info.creator_nickname, 160), privacy_level_options: Array.isArray(info.privacy_level_options) ? info.privacy_level_options : [], comment_disabled: Boolean(info.comment_disabled) });
+    } catch (error) { res.status(502).json({ message: error.message || 'No se pudo consultar las opciones de TikTok' }); }
+  });
+
+  app.post('/api/content-studio/social/tiktok/publish', guard, async (req, res) => {
+    if (!tiktokConfigured()) return res.status(503).json({ message: 'La publicación con TikTok todavía no está configurada' });
+    if (!hasSocialPlan(req)) return res.status(403).json({ code: 'SOCIAL_PLAN_REQUIRED', message: 'La publicación directa está disponible desde el plan Negocio.' });
+    const owner = ownerFor(req);
+    const generation = ownedGeneration(db, req, Number(req.body?.generation_id || 0));
+    if (!generation) return res.status(404).json({ message: 'Creación no encontrada' });
+    const connection = db.prepare(`SELECT * FROM content_studio_social_connections WHERE id = ? AND owner_key = ? AND provider = 'tiktok' AND status = 'active'`).get(req.body?.connection_id, owner.key);
+    if (!connection) return res.status(404).json({ message: 'Selecciona una conexión de TikTok válida' });
+    const copyText = clean(req.body?.copy, 2200);
+    if (!copyText) return res.status(400).json({ message: 'Escribe o genera el copy antes de publicar' });
+    try {
+      const accessToken = await tiktokAccessToken(db, connection);
+      const creator = await tiktokCreatorInfo(accessToken);
+      const privacy = clean(req.body?.privacy_level, 80);
+      const options = Array.isArray(creator.privacy_level_options) ? creator.privacy_level_options : [];
+      if (!privacy || !options.includes(privacy)) throw new Error('Selecciona una privacidad permitida por la cuenta de TikTok.');
+      const data = await tiktokJson('https://open.tiktokapis.com/v2/post/publish/content/init/', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json; charset=UTF-8' },
+        body: JSON.stringify({
+          post_info: {
+            title: clean(generation.product_name || generation.brand_name || 'Nueva creación', 90),
+            description: copyText,
+            privacy_level: privacy,
+            disable_comment: Boolean(req.body?.disable_comment),
+            auto_add_music: Boolean(req.body?.auto_add_music !== false),
+            brand_content_toggle: false,
+            brand_organic_toggle: true
+          },
+          source_info: { source: 'PULL_FROM_URL', photo_cover_index: 0, photo_images: [signedMediaUrl(generation.id)] },
+          post_mode: 'DIRECT_POST', media_type: 'PHOTO', is_aigc: true
+        })
+      });
+      const publishId = clean(data.data?.publish_id || data.data?.share_id, 200);
+      res.json({ result: { network: 'tiktok', ok: true, id: publishId, status: publishId ? 'enviado' : 'publicado' } });
+    } catch (error) {
+      res.status(502).json({ message: error.message || 'TikTok no pudo publicar la imagen' });
     }
   });
 
