@@ -147,7 +147,7 @@ export default function ContentStudioLumi({ onUpgrade, setGlobalError }) {
       if (!['https://www.facebook.com', 'https://web.facebook.com'].includes(event.origin)) return;
       let payload = event.data;
       try { if (typeof payload === 'string') payload = JSON.parse(payload); } catch { return; }
-      if (payload?.type === 'WA_EMBEDDED_SIGNUP' && payload.event === 'FINISH') {
+      if (payload?.type === 'WA_EMBEDDED_SIGNUP' && ['FINISH', 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING'].includes(payload.event)) {
         connectionRef.current.waba_id = payload.data?.waba_id || '';
         connectionRef.current.phone_number_id = payload.data?.phone_number_id || '';
       }
@@ -164,7 +164,11 @@ export default function ContentStudioLumi({ onUpgrade, setGlobalError }) {
           config_id: data.embed.config_id,
           response_type: 'code',
           override_default_response_type: true,
-          extras: { setup: {} }
+          extras: {
+            setup: {},
+            featureType: 'whatsapp_business_app_onboarding',
+            sessionInfoVersion: '3'
+          }
         });
       });
       connectionRef.current.code = auth?.authResponse?.code || '';
