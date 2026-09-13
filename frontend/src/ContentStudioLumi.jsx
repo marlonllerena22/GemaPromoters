@@ -128,7 +128,10 @@ export default function ContentStudioLumi({ onUpgrade, setGlobalError }) {
   }
 
   async function loadFacebookSdk(appId, version) {
-    if (window.FB) return;
+    if (window.FB) {
+      window.FB.init({ appId, cookie: true, xfbml: false, version });
+      return;
+    }
     await new Promise((resolve, reject) => {
       window.fbAsyncInit = () => { window.FB.init({ appId, cookie: true, xfbml: false, version }); resolve(); };
       const script = document.createElement('script'); script.id = 'facebook-jssdk'; script.async = true; script.defer = true;
@@ -159,9 +162,10 @@ export default function ContentStudioLumi({ onUpgrade, setGlobalError }) {
           resolve(response);
         }, {
           config_id: data.embed.config_id,
+          auth_type: 'rerequest',
           response_type: 'code',
           override_default_response_type: true,
-          extras: { feature: 'whatsapp_embedded_signup', sessionInfoVersion: 3 }
+          extras: { setup: {}, sessionInfoVersion: '3' }
         });
       });
       connectionRef.current.code = auth?.authResponse?.code || '';
