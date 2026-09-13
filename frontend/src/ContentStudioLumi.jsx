@@ -78,6 +78,10 @@ export default function ContentStudioLumi({ onUpgrade, setGlobalError }) {
     const timer = window.setInterval(() => load({ quiet: true }), 12000);
     return () => window.clearInterval(timer);
   }, [data?.entitled, selected?.id]);
+  useEffect(() => {
+    if (!data?.connection_ready || !data?.embed || data.account?.connected) return;
+    loadFacebookSdk(data.embed.app_id, data.embed.graph_version).catch(() => {});
+  }, [data?.connection_ready, data?.embed?.app_id, data?.embed?.graph_version, data?.account?.connected]);
 
   async function saveSettings(event) {
     event?.preventDefault(); setSaving(true); setNotice('');
@@ -148,12 +152,18 @@ export default function ContentStudioLumi({ onUpgrade, setGlobalError }) {
     window.addEventListener('message', onMessage);
     try {
       await loadFacebookSdk(data.embed.app_id, data.embed.graph_version);
-      const auth = await new Promise((resolve) => window.FB.login(resolve, {
-        config_id: data.embed.config_id,
-        response_type: 'code',
-        override_default_response_type: true,
-        extras: { feature: 'whatsapp_embedded_signup', sessionInfoVersion: 3 }
-      }));
+      const auth = await new Promise((resolve, reject) => {
+        const timer = window.setTimeout(() => reject(new Error('Meta no abrió la autorización. Actualiza la página e inténtalo otra vez.')), 20000);
+        window.FB.login((response) => {
+          window.clearTimeout(timer);
+          resolve(response);
+        }, {
+          config_id: data.embed.config_id,
+          response_type: 'code',
+          override_default_response_type: true,
+          extras: { feature: 'whatsapp_embedded_signup', sessionInfoVersion: 3 }
+        });
+      });
       connectionRef.current.code = auth?.authResponse?.code || '';
       await new Promise((resolve) => window.setTimeout(resolve, 700));
       if (!connectionRef.current.code || !connectionRef.current.waba_id) throw new Error('Meta no devolvió todos los datos. Completa todas las pantallas e inténtalo otra vez.');
