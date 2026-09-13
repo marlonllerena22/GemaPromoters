@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { BriefcaseBusiness, CalendarCheck, Check, ClipboardCheck, Copy, DollarSign, Home, LogOut, Plus, RefreshCw, Sparkles, TrendingUp, UserPlus, UserRound, UsersRound, WandSparkles } from 'lucide-react';
+import { BookOpen, BriefcaseBusiness, CalendarCheck, Camera, Check, ClipboardCheck, Copy, Crown, DollarSign, Home, LogOut, Plus, RefreshCw, Sparkles, TrendingUp, UserPlus, UserRound, UsersRound, WandSparkles } from 'lucide-react';
 import { api } from './api.js';
 import ContentStudioApp from './ContentStudioApp.jsx';
 import './content-studio-seller.css';
@@ -9,6 +9,8 @@ const activityLabels = { visit: 'Visita', demo: 'Demostración', followup: 'Segu
 const money = (value) => `$${Number(value || 0).toFixed(2)}`;
 
 export default function ContentStudioSellerApp({ user, onLogout }) {
+  // A seller always lands in the live creation workspace after signing in or
+  // reopening a page restored by the browser.
   const [tab, setTab] = useState('studio');
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -24,7 +26,14 @@ export default function ContentStudioSellerApp({ user, onLogout }) {
     try { setData(await api('/content-studio/seller/bootstrap')); setError(''); }
     catch (err) { setError(err.message); }
   }
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    void load();
+    const restoreCreationWorkspace = (event) => {
+      if (event.persisted) setTab('studio');
+    };
+    window.addEventListener('pageshow', restoreCreationWorkspace);
+    return () => window.removeEventListener('pageshow', restoreCreationWorkspace);
+  }, []);
 
   async function saveActivity(event) {
     event.preventDefault(); setBusy(true); setError('');
@@ -64,7 +73,7 @@ export default function ContentStudioSellerApp({ user, onLogout }) {
   }
   const summary = data?.sellers?.[0];
   const goals = data?.goals;
-  const navigation = [['home', 'Inicio', Home], ['studio', 'Crear', WandSparkles], ['trials', 'Pruebas', UserPlus], ['sales', 'Ventas', DollarSign], ['profile', 'Perfil', UserRound]];
+  const navigation = [['home', 'Inicio', Home], ['information', 'Información', BookOpen], ['studio', 'Crear', WandSparkles], ['trials', 'Pruebas', UserPlus], ['sales', 'Ventas', DollarSign], ['profile', 'Perfil', UserRound]];
   return <div className="css-app">
     <header className="css-header"><a href="/" className="css-brand" onClick={visitPublicLanding}><span><img src="/content-studio/brand/mascota-toque.webp" alt=""/></span><img src="/content-studio/brand/estudios-creativos-wordmark.webp" alt="Estudios Creativos"/></a><div><BriefcaseBusiness/><strong>Portal de vendedores</strong></div><button type="button" onClick={onLogout}><LogOut/> Salir</button></header>
     <main className={`css-main ${tab === 'studio' ? 'studio' : ''}`}>
@@ -72,6 +81,7 @@ export default function ContentStudioSellerApp({ user, onLogout }) {
       {error && <div className="css-error">{error}<button type="button" onClick={() => setError('')}>×</button></div>}
       {!data ? <div className="css-loading"><Sparkles/> Preparando tu panel...</div> : <>
         {tab === 'home' && <HomeView summary={summary} goals={goals} period={data.period} activities={data.activities} sales={data.sales} demo={data.demo} onCreate={() => setTab('studio')} onAddActivity={() => setTab('activity')} onAddSale={() => setTab('sales')} reload={load}/>}
+        {tab === 'information' && <InformationView plans={data.plans}/>}
         {tab === 'studio' && <ContentStudioApp user={user} embedded sellerDemo/>}
         {tab === 'trials' && <TrialUsersForm value={trial} setValue={setTrial} onSubmit={saveTrial} busy={busy} result={trialResult} copyCredentials={copyTrialCredentials} trials={data.trials} trialConfig={data.trial}/>}
         {tab === 'activity' && <ActivityForm value={activity} setValue={setActivity} onSubmit={saveActivity} busy={busy}/>} 
@@ -81,6 +91,62 @@ export default function ContentStudioSellerApp({ user, onLogout }) {
     </main>
     <nav className="css-nav" aria-label="Navegación de vendedor">{navigation.map(([id, label, Icon]) => <button type="button" key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}><Icon/><span>{label}</span></button>)}</nav>
   </div>;
+}
+
+const planMessages = {
+  inicio: { description: 'Una entrada práctica para probar el estudio y crear las primeras publicaciones.', benefit: 'Ideal para una necesidad puntual' },
+  emprendedor: { description: 'Más contenido para negocios que empiezan a publicar con regularidad.', benefit: 'Buen equilibrio para comenzar' },
+  negocio: { description: 'Volumen mensual para mantener redes, catálogo y campañas activas.', benefit: 'Plan recomendado', incentive: '$5 de incentivo al afianzarse' },
+  pro: { description: 'La mayor capacidad para marcas con publicaciones y campañas frecuentes.', benefit: 'Máximo volumen', incentive: '$10 de incentivo al afianzarse' }
+};
+
+const resultExamples = [
+  {
+    title: 'De una foto sencilla a una escena editorial',
+    description: 'La IA conserva el producto y lo presenta en una composición lista para publicar.',
+    before: '/content-studio/results/botin-antes-nuevo.png',
+    after: '/content-studio/results/botin-despues-nuevo.png',
+    beforeAlt: 'Fotografía original de un botín café',
+    afterAlt: 'Resultado editorial del botín café creado con Estudios Creativos'
+  },
+  {
+    title: 'De una foto cotidiana a un post comercial',
+    description: 'El mismo producto puede transformarse en contenido con escenario, texto y dirección visual.',
+    before: '/content-studio/results/vaquita-antes.png',
+    after: '/content-studio/results/vaquita-resultado.webp',
+    beforeAlt: 'Fotografía original de un peluche de vaquita',
+    afterAlt: 'Post comercial del peluche creado con Estudios Creativos'
+  }
+];
+
+function InformationView({ plans = [] }) {
+  return <section className="css-information">
+    <div className="css-heading"><span>GUÍA PARA VENDER</span><h1>Todo lo que necesitas para presentarlo.</h1><p>Consulta los planes vigentes y enseña resultados reales durante tu visita al cliente.</p></div>
+    <section className="css-info-section css-plan-guide">
+      <div className="css-info-heading"><div><small>PLANES DISPONIBLES</small><h2>Una opción para cada etapa del negocio</h2></div><span><Crown/></span></div>
+      <div className="css-plan-guide-grid">{plans.map((plan) => {
+        const message = planMessages[plan.id] || {};
+        return <article key={plan.id} className={plan.id === 'negocio' ? 'recommended' : ''}>
+          <div className="css-plan-top"><span>{plan.name}</span>{plan.id === 'negocio' && <em>RECOMENDADO</em>}</div>
+          <strong>{money(plan.price)}</strong><small>{plan.days} días</small>
+          <p>{message.description || 'Contenido profesional listo para el negocio.'}</p>
+          <ul><li><Camera/> {plan.photos} fotos incluidas</li><li><Check/> {message.benefit || 'Acceso a Estudios Creativos'}</li></ul>
+          {message.incentive && <b>{message.incentive}</b>}
+        </article>;
+      })}</div>
+      <p className="css-plan-guide-note">Los planes de $39 y $69 suman incentivos individuales cuando el cliente paga, activa su cuenta y comienza a utilizar el estudio.</p>
+    </section>
+    <section className="css-info-section css-result-guide">
+      <div className="css-info-heading"><div><small>EJEMPLOS REALES</small><h2>La foto que sube y el resultado que recibe</h2></div><span><Sparkles/></span></div>
+      <div className="css-result-guide-grid">{resultExamples.map((example) => <article key={example.title}>
+        <div className="css-comparison">
+          <figure><span>ANTES</span><img src={example.before} alt={example.beforeAlt}/></figure>
+          <figure><span>DESPUÉS</span><img src={example.after} alt={example.afterAlt}/></figure>
+        </div>
+        <div><h3>{example.title}</h3><p>{example.description}</p></div>
+      </article>)}</div>
+    </section>
+  </section>;
 }
 
 function HomeView({ summary, goals, period, activities, sales, demo, onCreate, onAddActivity, onAddSale, reload }) {

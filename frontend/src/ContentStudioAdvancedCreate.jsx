@@ -54,12 +54,19 @@ const VISUAL_STYLES = [
 const PERSON_OPTIONS = [
   ['none', 'Sin persona', EyeOff], ['person', 'Con persona', UserRound], ['mixed', 'Variado', Users]
 ];
-const GUIDE_IMAGES = ['cover', 'product', 'benefit', 'detail', 'cta'].map((name) => `/content-studio/advanced/preview-${name}.webp`);
-const STRUCTURE_LABELS = {
-  carousel: ['Portada', 'Producto', 'Beneficio', 'Detalle', 'Cierre / CTA'],
-  collection: ['Portada', 'Producto', 'Beneficio', 'Detalle', 'Cierre colección'],
-  week: ['Presentación', 'Producto', 'Beneficio', 'Detalle', 'Publicar / CTA'],
-  campaign: ['Impacto', 'Producto', 'Beneficio', 'Detalle / oferta', 'Cierre / CTA']
+const TYPE_EXAMPLE_IMAGES = {
+  automatic: '/content-studio/advanced/type-automatic.webp',
+  sell: '/content-studio/advanced/type-sell.webp',
+  presentation: '/content-studio/advanced/type-presentation.webp',
+  launch: '/content-studio/advanced/type-launch.webp',
+  informational: '/content-studio/advanced/type-informational.webp',
+  promotion: '/content-studio/advanced/type-sell.webp',
+  catalog: '/content-studio/advanced/type-presentation.webp',
+  show: '/content-studio/advanced/type-presentation.webp',
+  promote: '/content-studio/advanced/type-sell.webp',
+  visit: '/content-studio/advanced/type-automatic.webp',
+  offer: '/content-studio/advanced/type-sell.webp',
+  new_collection: '/content-studio/advanced/type-launch.webp'
 };
 
 const EXTRAS_TITLES = {
@@ -165,7 +172,6 @@ export default function ContentStudioAdvancedCreate({ data, baseForm, currentPro
   const productsReady = products.length >= requiredProducts;
   const totalCredits = modeId === 'collection' ? products.length : count;
   const choicesReady = productsReady && (modeId === 'collection' || count > 0);
-  const previewCount = choicesReady ? totalCredits : 5;
   const canConfirm = choicesReady && type && format && totalCredits > 0;
   const credits = availableCredits(data);
   const selectedTypeName = useMemo(() => TYPE_OPTIONS[modeId]?.find(([id]) => id === type)?.[1] || '', [modeId, type]);
@@ -295,11 +301,9 @@ export default function ContentStudioAdvancedCreate({ data, baseForm, currentPro
         <input ref={inputRef} hidden type="file" multiple={modeId !== 'carousel'} accept="image/png,image/jpeg,image/webp" onChange={(event) => { void chooseFiles(event.target.files); event.target.value = ''; }} />
         <div className="cs-advanced-products">{products.map((image, index) => <div key={`${image.slice(-30)}-${index}`}><img src={image} alt={`Producto ${index + 1}`} /><button type="button" aria-label={`Quitar producto ${index + 1}`} onClick={() => setProducts((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Trash2 /></button><small>{index + 1}</small></div>)}{(modeId === 'carousel' || products.length < 5) && <button type="button" className="add" onClick={() => inputRef.current?.click()}><Upload /><strong>{products.length ? modeId === 'carousel' ? 'Cambiar' : 'Agregar' : 'Subir foto'}</strong></button>}</div>
 
-        <><div className="cs-flow-step active"><span>2</span><div><strong>{modeId === 'carousel' ? 'Objetivo del carrusel' : modeId === 'week' ? 'Tipo de publicación' : modeId === 'campaign' ? 'Tipo de campaña' : 'Objetivo de la colección'}</strong><small>Desliza y toca una opción. Automático decide por ti.</small></div></div><div className="cs-advanced-choice-rail">{TYPE_OPTIONS[modeId].map(([id, name, description]) => <button key={id} type="button" className={type === id ? 'selected' : ''} onClick={() => { setType(id); setFormat(''); }}><i>{name.startsWith('✨') ? '✨' : name.slice(0, 1)}</i><strong>{name}</strong><small>{description}</small>{type === id && <Check />}</button>)}</div></>
+        <><div className="cs-flow-step active"><span>2</span><div><strong>{modeId === 'carousel' ? 'Objetivo del carrusel' : modeId === 'week' ? 'Tipo de publicación' : modeId === 'campaign' ? 'Tipo de campaña' : 'Objetivo de la colección'}</strong><small>Los ejemplos muestran el resultado que busca cada opción.</small></div></div><div className="cs-advanced-choice-rail">{TYPE_OPTIONS[modeId].map(([id, name, description]) => <button key={id} type="button" className={type === id ? 'selected' : ''} onClick={() => { setType(id); setFormat(''); }}><img src={TYPE_EXAMPLE_IMAGES[id]} alt={`Ejemplo para ${name.replace('✨ ', '')}`}/><i>{name.startsWith('✨') ? '✨' : name.slice(0, 1)}</i><strong>{name}</strong><small>{description}</small>{type === id && <Check />}</button>)}</div></>
 
-        {COUNT_OPTIONS[modeId] && <><div className="cs-flow-step active"><span>3</span><div><strong>¿Cuántas piezas necesitas?</strong><small>El consumo cambia con la cantidad. Máximo 5.</small></div></div><div className="cs-advanced-counts">{COUNT_OPTIONS[modeId].map(([value, label]) => <button key={value} type="button" className={count === value ? 'selected' : ''} onClick={() => { setCount(value); setFormat(''); }}><strong>{value}</strong><small>{label.replace(/^\d+ /, '')}</small>{count === value && <Check />}</button>)}</div></>}
-
-        <section className="cs-series-preview"><div><strong>Así se construirá tu {modeId === 'week' ? 'semana' : modeId === 'collection' ? 'colección' : modeId === 'campaign' ? 'campaña' : 'carrusel'}</strong><small>Cada ejemplo representa la función real de esa pieza. El producto y la identidad cambiarán por los tuyos.</small></div><div>{Array.from({ length: previewCount }, (_, index) => { const roleIndex = distributedIndex(index + 1, previewCount); return <article key={index}><img src={GUIDE_IMAGES[roleIndex]} alt={`Ejemplo de ${STRUCTURE_LABELS[modeId][roleIndex]}`}/><span>{String(index + 1).padStart(2, '0')}</span><b>{STRUCTURE_LABELS[modeId][roleIndex]}</b><small>Ejemplo</small></article>; })}</div></section>
+        {COUNT_OPTIONS[modeId] && <><div className="cs-flow-step active"><span>3</span><div><strong>¿Cuántas fotos necesitas?</strong><small>Cada foto usa un crédito. Puedes crear un máximo de 5.</small></div></div><div className="cs-advanced-counts">{COUNT_OPTIONS[modeId].map(([value, label]) => <button key={value} type="button" className={count === value ? 'selected' : ''} onClick={() => { setCount(value); setFormat(''); }}><strong>{value}</strong><small>{label.replace(/^\d+ /, '')}</small>{count === value && <Check />}</button>)}</div></>}
 
         <><div className="cs-flow-step active"><span>4</span><div><strong>Tamaño de publicación</strong><small>La escena se crea completa en el formato seleccionado.</small></div></div><div className="cs-advanced-formats">{formats.map(([id, name, size]) => <button key={id} type="button" className={format === id ? 'selected' : ''} onClick={() => setFormat(id)}><span>{id === 'story' ? '▯' : id === 'mixed' ? '▣▯' : '▣'}</span><div><strong>{name}</strong><small>{size}</small></div>{format === id && <Check />}</button>)}</div></>
 

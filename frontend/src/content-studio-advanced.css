@@ -60,3 +60,22 @@ html[data-content-studio-color=dark] .cs-more-create{background:linear-gradient(
   .cs-advanced-steps>div small{font-size:7px}
   .cs-advanced-steps>i{min-width:4px;margin:0 1px}
 }
+
+/* Las opciones explican su objetivo con un ejemplo publicitario real. */
+.cs-advanced-choice-rail button{width:168px;flex-basis:168px;min-height:230px;padding:8px;gap:6px}
+.cs-advanced-choice-rail button>img{width:100%;height:112px;display:block;object-fit:cover;border-radius:11px;border:1px solid #41453d;background:#141613}
+.cs-advanced-choice-rail button>i{width:32px;height:32px;margin-top:-23px;margin-left:7px;position:relative;z-index:1;border:2px solid #20231e;border-radius:10px;font-size:14px}
+.cs-advanced-choice-rail button strong{padding:0 5px;font-size:13px}
+.cs-advanced-choice-rail button small{padding:0 5px 5px;font-size:9px}
+.cs-advanced-choice-rail button>svg{right:13px;top:101px;padding:3px;border-radius:50%;background:#d49a48;color:#171811}
+.cs-advanced-choice-rail button.selected>img{border-color:#daa252;box-shadow:0 0 0 2px #d29a4e25}
+
+/* Los campos incluyen padding y borde dentro de su ancho para no salir de la tarjeta. */
+.cs-advanced-extras,.cs-advanced-objective,.cs-advanced-text-field,.cs-advanced-promotion-detail,.cs-advanced-discount,.cs-advanced-contact-grid,.cs-advanced-two-fields,.cs-advanced-two-fields>*{min-width:0;max-width:100%;box-sizing:border-box}
+.cs-advanced-objective textarea,.cs-advanced-text-field>input,.cs-advanced-promotion-detail>input,.cs-advanced-discount>div,.cs-advanced-contact-grid label>div{width:100%;min-width:0;max-width:100%;box-sizing:border-box}
+
+@media(max-width:720px){
+  .cs-advanced-choice-rail button{width:154px;flex-basis:154px;min-height:218px}
+  .cs-advanced-choice-rail button>img{height:102px}
+  .cs-advanced-choice-rail button>svg{top:91px}
+}
