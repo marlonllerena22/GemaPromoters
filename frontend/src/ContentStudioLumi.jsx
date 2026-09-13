@@ -162,10 +162,9 @@ export default function ContentStudioLumi({ onUpgrade, setGlobalError }) {
           resolve(response);
         }, {
           config_id: data.embed.config_id,
-          auth_type: 'rerequest',
           response_type: 'code',
           override_default_response_type: true,
-          extras: { setup: {}, sessionInfoVersion: '3' }
+          extras: { setup: {} }
         });
       });
       connectionRef.current.code = auth?.authResponse?.code || '';
