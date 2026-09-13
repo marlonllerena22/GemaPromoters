@@ -49,6 +49,10 @@ function tiktokConfigured() {
   return Boolean(process.env.TIKTOK_CLIENT_KEY && process.env.TIKTOK_CLIENT_SECRET && tokenKey() && mediaSigningKey());
 }
 
+function tiktokSandboxed() {
+  return /^sb/i.test(clean(process.env.TIKTOK_CLIENT_KEY, 100));
+}
+
 function encryptToken(value) {
   const key = tokenKey();
   if (!key) throw new Error('Falta configurar el cifrado de las conexiones sociales');
@@ -250,7 +254,11 @@ async function tiktokJson(url, options = {}) {
   const errorCode = String(rawError ?? '').toLowerCase();
   const hasTikTokError = errorCode && errorCode !== 'ok' && errorCode !== '0';
   if (!response.ok || hasTikTokError) {
-    throw new Error(data.error_description || data.error?.message || data.message || 'TikTok no pudo completar la solicitud');
+    const message = data.error_description || data.error?.message || data.message || 'TikTok no pudo completar la solicitud';
+    if (/content-sharing-guidelines|review our integration guidelines/i.test(message)) {
+      throw new Error('En el entorno de prueba TikTok solo permite publicar como “Solo yo” y desde una cuenta privada. Selecciona “Solo yo” y verifica que tu cuenta de TikTok sea privada.');
+    }
+    throw new Error(message);
   }
   return data;
 }
@@ -369,6 +377,7 @@ export function registerContentStudioSocialRoutes(app, db, guard) {
     res.json({
       configured: metaConfigured(),
       tiktok_configured: tiktokConfigured(),
+      tiktok_sandboxed: tiktokSandboxed(),
       entitled: hasSocialPlan(req),
       minimum_plan: 'Negocio',
       connections,
@@ -548,7 +557,13 @@ export function registerContentStudioSocialRoutes(app, db, guard) {
     if (!connection) return res.status(404).json({ message: 'Selecciona una conexión de TikTok válida' });
     try {
       const info = await tiktokCreatorInfo(await tiktokAccessToken(db, connection));
-      res.json({ creator_nickname: clean(info.creator_nickname, 160), privacy_level_options: Array.isArray(info.privacy_level_options) ? info.privacy_level_options : [], comment_disabled: Boolean(info.comment_disabled) });
+      const privacyOptions = Array.isArray(info.privacy_level_options) ? info.privacy_level_options : [];
+      res.json({
+        creator_nickname: clean(info.creator_nickname, 160),
+        privacy_level_options: tiktokSandboxed() ? privacyOptions.filter((item) => item === 'SELF_ONLY') : privacyOptions,
+        comment_disabled: Boolean(info.comment_disabled),
+        sandboxed: tiktokSandboxed()
+      });
     } catch (error) { res.status(502).json({ message: error.message || 'No se pudo consultar las opciones de TikTok' }); }
   });
 
@@ -568,6 +583,9 @@ export function registerContentStudioSocialRoutes(app, db, guard) {
       const privacy = clean(req.body?.privacy_level, 80);
       const options = Array.isArray(creator.privacy_level_options) ? creator.privacy_level_options : [];
       if (!privacy || !options.includes(privacy)) throw new Error('Selecciona una privacidad permitida por la cuenta de TikTok.');
+      if (tiktokSandboxed() && privacy !== 'SELF_ONLY') {
+        throw new Error('Durante las pruebas TikTok solo permite publicar con privacidad “Solo yo”.');
+      }
       const data = await tiktokJson('https://open.tiktokapis.com/v2/post/publish/content/init/', {
         method: 'POST',
         headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json; charset=UTF-8' },
