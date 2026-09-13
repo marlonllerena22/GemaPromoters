@@ -256,9 +256,16 @@ async function tiktokJson(url, options = {}) {
 }
 
 async function tiktokToken(params) {
-  const token = await tiktokJson('https://open.tiktokapis.com/v2/oauth/token/', {
+  const response = await tiktokJson('https://open.tiktokapis.com/v2/oauth/token/', {
     method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(params)
   });
+  // TikTok's OAuth response is normally flat, while some environments and
+  // older-compatible responses wrap the token fields in `data`. Normalize
+  // both shapes so Sandbox and Production follow the same callback path.
+  const token = response?.data && typeof response.data === 'object' ? response.data : response;
+  if (Number(token?.error_code || 0) !== 0) {
+    throw new Error(token.description || token.error_description || response.message || 'TikTok no pudo entregar el acceso a la cuenta');
+  }
   if (!token.access_token) throw new Error('TikTok no devolvió un token de acceso válido. Revisa que la clave y el secreto pertenezcan al mismo entorno.');
   return token;
 }
@@ -426,7 +433,12 @@ export function registerContentStudioSocialRoutes(app, db, guard) {
         return row;
       })();
       const tokens = await tiktokToken({ client_key: process.env.TIKTOK_CLIENT_KEY, client_secret: process.env.TIKTOK_CLIENT_SECRET, code, grant_type: 'authorization_code', redirect_uri: tiktokCallbackUrl() });
-      const profile = await tiktokProfile(tokens.access_token).catch(() => ({}));
+      // The token normally includes open_id. If it does not, the profile
+      // request must succeed; do not hide its error behind a generic message.
+      const profile = await tiktokProfile(tokens.access_token).catch((error) => {
+        if (tokens.open_id) return {};
+        throw error;
+      });
       const openId = clean(tokens.open_id || profile.open_id, 160);
       if (!openId) throw new Error('TikTok no devolvió la cuenta autorizada. Inténtalo nuevamente.');
       const name = clean(profile.display_name, 160) || 'Cuenta de TikTok';
