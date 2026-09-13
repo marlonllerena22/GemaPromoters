@@ -16,6 +16,7 @@ const dataDir = path.dirname(dbPath);
 fs.mkdirSync(dataDir, { recursive: true });
 
 export const db = new Database(dbPath);
+export const databasePath = dbPath;
 db.pragma('journal_mode = WAL');
 
 export function initDb() {

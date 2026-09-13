@@ -40,7 +40,7 @@ async function moveLegacyStudioSession(session) {
   }
 }
 
-const legacySession = isLegacyStudioHost ? storedStudioSession() : null;
+const legacySession = isLegacyStudioHost && isStudioEntry ? storedStudioSession() : null;
 
 if (legacySession) {
   void moveLegacyStudioSession(legacySession);

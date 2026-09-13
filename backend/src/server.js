@@ -1,13 +1,15 @@
 import cors from 'cors';
+import crypto from 'node:crypto';
 import dotenv from 'dotenv';
 import express from 'express';
 import nodemailer from 'nodemailer';
-import { readFile } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { PDFParse } from 'pdf-parse';
 import { fileURLToPath } from 'node:url';
 import { createToken, requireAdmin, requireAuth, requirePromoter, requireSupreme } from './auth.js';
-import { db, initDb, normalizeCode, normalizeLookup, toMoney } from './db.js';
+import { databasePath, db, initDb, normalizeCode, normalizeLookup, toMoney } from './db.js';
 import {
   findProductionUserForLogin,
   productionLoginResponse,
@@ -36,6 +38,31 @@ app.use(express.json({
   }
 }));
 app.use(express.urlencoded({ extended: false, limit: '1mb' }));
+
+function safeSecretMatch(expected, provided) {
+  const left = Buffer.from(String(expected || ''));
+  const right = Buffer.from(String(provided || ''));
+  return left.length > 20 && left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+app.get('/api/content-studio/internal/snapshot', async (req, res) => {
+  const expected = process.env.CONTENT_STUDIO_MIGRATION_KEY;
+  if (!safeSecretMatch(expected, req.get('x-studio-migration-key'))) {
+    return res.status(404).json({ message: 'No encontrado' });
+  }
+
+  const snapshotPath = path.join(os.tmpdir(), `estudios-creativos-${Date.now()}-${crypto.randomUUID()}.sqlite`);
+  try {
+    await db.backup(snapshotPath);
+    return res.download(snapshotPath, path.basename(databasePath), async () => {
+      await rm(snapshotPath, { force: true }).catch(() => {});
+    });
+  } catch (error) {
+    await rm(snapshotPath, { force: true }).catch(() => {});
+    console.error('[content-studio] snapshot failed:', error.message);
+    return res.status(500).json({ message: 'No se pudo preparar la migración' });
+  }
+});
 
 function getDefaultEstablishment() {
   return db.prepare("SELECT * FROM establishments WHERE name = 'GEMASHOW'").get()
