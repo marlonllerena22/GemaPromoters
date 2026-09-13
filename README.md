@@ -300,3 +300,18 @@ Variables necesarias en el servidor:
 - `TIKTOK_CLIENT_KEY` y `TIKTOK_CLIENT_SECRET`: credenciales de la aplicación de TikTok para Login Kit y Content Posting API. Configura como redirect URI `https://estudioscreativos.com/api/content-studio/social/tiktok/callback`. Los tokens se cifran con las mismas claves sociales.
 
 La app solicita `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`, `business_management`, `instagram_basic` e `instagram_content_publish`. Para que clientes ajenos al equipo de desarrollo conecten sus cuentas, el portfolio y los permisos solicitados deben completar la verificacion y revision de Meta.
+
+## Lumi Business y WhatsApp
+
+Lumi Business usa WhatsApp Business Platform con registro insertado de Meta para que cada negocio conecte su propio numero sin compartir credenciales con Estudios Creativos. El webhook publico es:
+
+`https://estudioscreativos.com/api/content-studio/lumi/webhook`
+
+Variables adicionales:
+
+- `WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID`: configuracion de Facebook Login for Business creada para WhatsApp Embedded Signup.
+- `WHATSAPP_WEBHOOK_VERIFY_TOKEN`: valor secreto que debe coincidir con el configurado en el webhook de Meta.
+- `LUMI_TOKEN_ENCRYPTION_KEY`: valor aleatorio largo para cifrar los tokens de WhatsApp de cada negocio.
+- `LUMI_OPENAI_MODEL`: modelo de texto para las respuestas del asistente; por defecto `gpt-5.4-nano`.
+
+En Meta, la app debe tener el producto WhatsApp, suscribirse al campo `messages` y obtener acceso avanzado a `whatsapp_business_management`, `whatsapp_business_messaging` y `business_management` antes de habilitar conexiones para negocios externos. Cada cuenta mantiene una bandeja separada, puede pausar a Lumi y puede tomar o devolver conversaciones individualmente.

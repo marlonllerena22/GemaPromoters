@@ -70,6 +70,14 @@ services:
         sync: false
       - key: META_GRAPH_API_VERSION
         value: v26.0
+      - key: WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID
+        sync: false
+      - key: WHATSAPP_WEBHOOK_VERIFY_TOKEN
+        generateValue: true
+      - key: LUMI_TOKEN_ENCRYPTION_KEY
+        generateValue: true
+      - key: LUMI_OPENAI_MODEL
+        value: gpt-5.4-nano
       - key: SOCIAL_TOKEN_ENCRYPTION_KEY
         generateValue: true
       - key: SOCIAL_MEDIA_SIGNING_KEY

@@ -80,6 +80,7 @@ export function initContentStudioDb(db) {
       created_by_seller_id INTEGER,
       is_seller_workspace INTEGER NOT NULL DEFAULT 0 CHECK (is_seller_workspace IN (0, 1)),
       can_delete_generations INTEGER NOT NULL DEFAULT 1 CHECK (can_delete_generations IN (0, 1)),
+      lumi_enabled INTEGER NOT NULL DEFAULT 0 CHECK (lumi_enabled IN (0, 1)),
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       updated_at TEXT,
@@ -311,6 +312,70 @@ export function initContentStudioDb(db) {
     CREATE INDEX IF NOT EXISTS idx_content_studio_social_publications_generation
       ON content_studio_social_publications(generation_id, created_at);
 
+    CREATE TABLE IF NOT EXISTS content_studio_lumi_accounts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      content_studio_user_id INTEGER,
+      owner_key TEXT NOT NULL UNIQUE,
+      subscription_status TEXT NOT NULL DEFAULT 'inactive' CHECK (subscription_status IN ('inactive', 'active', 'paused')),
+      assistant_active INTEGER NOT NULL DEFAULT 0 CHECK (assistant_active IN (0, 1)),
+      whatsapp_business_account_id TEXT,
+      phone_number_id TEXT UNIQUE,
+      phone_display TEXT,
+      business_name TEXT,
+      token_ciphertext TEXT,
+      token_expires_at TEXT,
+      products_services TEXT,
+      prices TEXT,
+      business_hours TEXT,
+      addresses TEXT,
+      shipping TEXT,
+      payment_methods TEXT,
+      faqs TEXT,
+      tone TEXT NOT NULL DEFAULT 'Cercano, profesional y claro',
+      welcome_message TEXT,
+      last_webhook_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT,
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (content_studio_user_id) REFERENCES content_studio_users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS content_studio_lumi_conversations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id INTEGER NOT NULL,
+      wa_contact_id TEXT NOT NULL,
+      customer_name TEXT,
+      customer_phone TEXT,
+      status TEXT NOT NULL DEFAULT 'lumi_attending' CHECK (status IN ('lumi_attending', 'waiting', 'needs_attention', 'human')),
+      unread_count INTEGER NOT NULL DEFAULT 0,
+      last_message_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      last_message_preview TEXT,
+      human_taken_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT,
+      UNIQUE(account_id, wa_contact_id),
+      FOREIGN KEY (account_id) REFERENCES content_studio_lumi_accounts(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS content_studio_lumi_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      conversation_id INTEGER NOT NULL,
+      external_message_id TEXT UNIQUE,
+      direction TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
+      sender TEXT NOT NULL CHECK (sender IN ('customer', 'lumi', 'human', 'system')),
+      body TEXT NOT NULL,
+      delivery_status TEXT NOT NULL DEFAULT 'received',
+      metadata_json TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (conversation_id) REFERENCES content_studio_lumi_conversations(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_content_studio_lumi_conversations_account
+      ON content_studio_lumi_conversations(account_id, last_message_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_content_studio_lumi_messages_conversation
+      ON content_studio_lumi_messages(conversation_id, created_at, id);
+
     CREATE TABLE IF NOT EXISTS content_studio_social_deletions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       confirmation_code TEXT NOT NULL UNIQUE,
@@ -408,6 +473,9 @@ export function initContentStudioDb(db) {
     db.prepare(`UPDATE content_studio_users SET can_delete_generations = 0
       WHERE LOWER(username) IN ('martha.bosque', 'norma.llamuca')
          OR LOWER(TRIM(name)) IN ('martha bosque', 'norma llamuca')`).run();
+  }
+  if (!userColumns.some((column) => column.name === 'lumi_enabled')) {
+    db.exec('ALTER TABLE content_studio_users ADD COLUMN lumi_enabled INTEGER NOT NULL DEFAULT 0 CHECK (lumi_enabled IN (0, 1))');
   }
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_content_studio_users_email ON content_studio_users(LOWER(email)) WHERE email IS NOT NULL AND email != ''");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_content_studio_users_google_sub ON content_studio_users(google_sub) WHERE google_sub IS NOT NULL AND google_sub != ''");

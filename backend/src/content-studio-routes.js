@@ -3,6 +3,7 @@ import { OAuth2Client } from 'google-auth-library';
 import { createToken, requireAuth } from './auth.js';
 import { hashContentStudioPassword, verifyContentStudioPassword } from './content-studio-db.js';
 import { registerContentStudioSocialRoutes } from './content-studio-social.js';
+import { registerContentStudioLumiRoutes } from './content-studio-lumi.js';
 import nodemailer from 'nodemailer';
 import sharp from 'sharp';
 
@@ -58,7 +59,8 @@ const STUDIO_PLANS = [
   { id: 'inicio', name: 'Inicio', photos: 10, price: 9.5, days: 8 },
   { id: 'emprendedor', name: 'Emprendedor', photos: 25, price: 20, days: 15 },
   { id: 'negocio', name: 'Negocio', photos: 60, price: 39, days: 30 },
-  { id: 'pro', name: 'Pro', photos: 150, price: 69, days: 30 }
+  { id: 'pro', name: 'Pro', photos: 150, price: 69, days: 30 },
+  { id: 'lumi', name: 'Lumi Business', photos: 150, price: 180, days: 30, lumi: true }
 ];
 
 const SELLER_ACTIVITY_GOAL = { total: 12, visits: 4, demos: 3, followups: 3 };
@@ -125,6 +127,7 @@ function studioUserPublic(user) {
     avatar_url: user.avatar_url || '',
     business_name: user.business_name || '',
     can_delete_generations: Number(user.can_delete_generations) !== 0,
+    lumi_enabled: Number(user.lumi_enabled) === 1,
     auth_methods: methods,
     establishment_id: user.establishment_id,
     establishment_name: user.establishment_name || 'ESTUDIOS CREATIVOS',
@@ -333,7 +336,7 @@ function listStudioUsers(db, establishmentId) {
     SELECT users.id, users.name, users.business_name, users.username, users.email, users.avatar_url,
            users.plan_name, users.credit_limit AS monthly_limit, users.credit_limit,
            users.subscription_status, users.paid_at, users.paid_until,
-           users.brand_tone, users.contact_whatsapp, users.contact_location, users.can_delete_generations,
+           users.brand_tone, users.contact_whatsapp, users.contact_location, users.can_delete_generations, users.lumi_enabled,
            users.status, users.created_at, users.updated_at,
            (SELECT COUNT(*) FROM content_studio_generations generations
             WHERE generations.content_studio_user_id = users.id
@@ -492,6 +495,7 @@ function sellerPeriodSummary(db, establishmentId, sellerId = null) {
 
 function activateStudioPlan(db, order, reviewedBy = 'system', transferReference = '') {
   let user;
+  const lumiEnabled = order.plan_id === 'lumi' ? 1 : 0;
   if (order.content_studio_user_id) {
     user = db.prepare('SELECT * FROM content_studio_users WHERE id = ? AND establishment_id = ?')
       .get(order.content_studio_user_id, order.establishment_id);
@@ -499,21 +503,25 @@ function activateStudioPlan(db, order, reviewedBy = 'system', transferReference 
     db.prepare(`UPDATE content_studio_users SET
       plan_name = ?, monthly_limit = ?, credit_limit = ?, subscription_status = 'paid',
       paid_at = datetime('now', 'localtime'), paid_until = date('now', 'localtime', ?),
-      status = 'active', updated_at = datetime('now', 'localtime')
+      status = 'active', lumi_enabled = ?, updated_at = datetime('now', 'localtime')
       WHERE id = ? AND establishment_id = ?`)
-      .run(order.plan_name, order.monthly_limit, order.monthly_limit, `+${order.duration_days} days`, user.id, order.establishment_id);
+      .run(order.plan_name, order.monthly_limit, order.monthly_limit, `+${order.duration_days} days`, lumiEnabled, user.id, order.establishment_id);
   } else {
     if (db.prepare('SELECT id FROM content_studio_users WHERE LOWER(username) = LOWER(?)').get(order.username)) {
       throw new Error('Ese usuario ya existe');
     }
     const inserted = db.prepare(`INSERT INTO content_studio_users
       (establishment_id, name, business_name, username, password_hash, email, credit_limit,
-       plan_name, monthly_limit, subscription_status, paid_at, paid_until, brand_tone, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', datetime('now', 'localtime'), date('now', 'localtime', ?), 'premium', 'active')`)
+       plan_name, monthly_limit, subscription_status, paid_at, paid_until, brand_tone, lumi_enabled, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', datetime('now', 'localtime'), date('now', 'localtime', ?), 'premium', ?, 'active')`)
       .run(order.establishment_id, order.customer_name, order.business_name, order.username, order.password_hash,
-        cleanEmail(order.email), order.monthly_limit, order.plan_name, order.monthly_limit, `+${order.duration_days} days`);
+        cleanEmail(order.email), order.monthly_limit, order.plan_name, order.monthly_limit, `+${order.duration_days} days`, lumiEnabled);
     user = db.prepare('SELECT * FROM content_studio_users WHERE id = ?').get(inserted.lastInsertRowid);
   }
+  db.prepare(`UPDATE content_studio_lumi_accounts SET subscription_status = ?,
+    assistant_active = CASE WHEN ? = 1 THEN assistant_active ELSE 0 END,
+    updated_at = datetime('now', 'localtime') WHERE owner_key = ?`)
+    .run(lumiEnabled ? 'active' : 'inactive', lumiEnabled, `user:${user.id}`);
   db.prepare(`UPDATE content_studio_plan_orders SET
     status = 'confirmed', transfer_reference = ?, content_studio_user_id = ?, reviewed_by = ?,
     reviewed_at = datetime('now', 'localtime') WHERE id = ? AND status = 'pending'`)
@@ -768,6 +776,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
   const researchProduct = options.researchProduct || ((productName) => defaultResearchProduct(db, productName));
 
   registerContentStudioSocialRoutes(app, db, guard);
+  registerContentStudioLumiRoutes(app, db, guard);
 
   app.get('/api/content-studio/auth/config', (_req, res) => {
     res.json({
@@ -1022,7 +1031,8 @@ export function registerContentStudioRoutes(app, db, options = {}) {
       can_manage_logos: true,
       can_delete_generations: !req.contentStudioUser || Number(req.contentStudioUser.can_delete_generations) !== 0,
       feature_access: {
-        advanced_all_plans: Boolean(req.contentStudioSeller)
+        advanced_all_plans: Boolean(req.contentStudioSeller),
+        lumi_business: !req.contentStudioSeller && (!req.contentStudioUser || Number(req.contentStudioUser.lumi_enabled) === 1)
       },
       subscription: req.contentStudioUser ? { status: req.contentStudioUser.subscription_status, active: subscriptionActive, paid_until: req.contentStudioUser.paid_until } : { status: 'internal', active: true, paid_until: null },
       account: req.contentStudioUser ? studioUserPublic(req.contentStudioUser) : {
@@ -1241,15 +1251,16 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     const monthlyLimit = Math.max(1, Math.min(10000, Number(req.body.monthly_limit) || 25));
     const durationDays = Math.max(1, Math.min(365, Number(req.body.duration_days) || 15));
     const planName = clean(req.body.plan_name, 60) || 'Emprendedor';
+    const lumiEnabled = req.body.lumi_enabled === true || planName === 'Lumi Business' ? 1 : 0;
     if (!name || !username || password.length < 8) return res.status(400).json({ message: 'Nombre, usuario y contraseña de al menos 8 caracteres son obligatorios' });
     if (db.prepare('SELECT id FROM content_studio_users WHERE LOWER(username) = ?').get(username)) {
       return res.status(409).json({ message: 'Ese nombre de usuario ya existe' });
     }
     const result = db.prepare(
       `INSERT INTO content_studio_users
-       (establishment_id, name, business_name, username, password_hash, credit_limit, plan_name, monthly_limit, subscription_status, paid_at, paid_until, brand_tone, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'paid', datetime('now', 'localtime'), date('now', 'localtime', ?), 'premium', 'active')`
-    ).run(req.contentStudioEstablishment.id, name, businessName, username, hashContentStudioPassword(password), monthlyLimit, planName, monthlyLimit, `+${durationDays} days`);
+       (establishment_id, name, business_name, username, password_hash, credit_limit, plan_name, monthly_limit, subscription_status, paid_at, paid_until, brand_tone, lumi_enabled, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'paid', datetime('now', 'localtime'), date('now', 'localtime', ?), 'premium', ?, 'active')`
+    ).run(req.contentStudioEstablishment.id, name, businessName, username, hashContentStudioPassword(password), monthlyLimit, planName, monthlyLimit, `+${durationDays} days`, lumiEnabled);
     res.status(201).json(db.prepare(
       `SELECT id, name, business_name, username, plan_name, monthly_limit, subscription_status, paid_at, paid_until, status, created_at
        FROM content_studio_users WHERE id = ?`
@@ -1269,6 +1280,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     const canDeleteGenerations = typeof req.body.can_delete_generations === 'boolean'
       ? Number(req.body.can_delete_generations)
       : Number(current.can_delete_generations) !== 0 ? 1 : 0;
+    const lumiEnabled = typeof req.body.lumi_enabled === 'boolean' ? Number(req.body.lumi_enabled) : Number(current.lumi_enabled) === 1 ? 1 : 0;
     const subscriptionStatus = renewDays ? 'paid' : (['paid', 'trial', 'inactive'].includes(req.body.subscription_status) ? req.body.subscription_status : current.subscription_status);
     const paidUntil = renewDays
       ? db.prepare("SELECT date('now', 'localtime', ?) AS value").get(`+${renewDays} days`).value
@@ -1276,7 +1288,7 @@ export function registerContentStudioRoutes(app, db, options = {}) {
     db.prepare(`UPDATE content_studio_users SET
       name = ?, business_name = ?, plan_name = ?, monthly_limit = ?, credit_limit = ?, subscription_status = ?,
        paid_at = CASE WHEN ? > 0 THEN datetime('now', 'localtime') ELSE paid_at END,
-      paid_until = ?, status = ?, can_delete_generations = ?, password_hash = ?, updated_at = datetime('now', 'localtime')
+       paid_until = ?, status = ?, can_delete_generations = ?, lumi_enabled = ?, password_hash = ?, updated_at = datetime('now', 'localtime')
       WHERE id = ? AND establishment_id = ?`).run(
       clean(req.body.name, 100) || current.name,
       clean(req.body.business_name, 100) || current.business_name,
@@ -1288,10 +1300,15 @@ export function registerContentStudioRoutes(app, db, options = {}) {
       paidUntil,
       status,
       canDeleteGenerations,
+      lumiEnabled,
       password ? hashContentStudioPassword(password) : current.password_hash,
       current.id,
       req.contentStudioEstablishment.id
     );
+    db.prepare(`UPDATE content_studio_lumi_accounts SET subscription_status = ?,
+      assistant_active = CASE WHEN ? = 1 THEN assistant_active ELSE 0 END,
+      updated_at = datetime('now', 'localtime') WHERE owner_key = ?`)
+      .run(lumiEnabled ? 'active' : 'inactive', lumiEnabled, `user:${current.id}`);
     res.json(listStudioUsers(db, req.contentStudioEstablishment.id).find((item) => item.id === current.id));
   });
 
