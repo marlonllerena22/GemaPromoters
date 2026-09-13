@@ -2,10 +2,11 @@ const CONTACT_EMAIL = 'estudioscreativosec@gmail.com';
 const CONTACT_PHONE = '098 376 3419';
 
 const privacySections = [
-  ['Información que tratamos', 'Guardamos los datos necesarios para crear y mantener tu cuenta, administrar tu plan, procesar solicitudes de pago, conservar tus marcas y preferencias, y mostrar el historial de creaciones. Cuando conectas Meta, recibimos las páginas de Facebook que administras, la cuenta profesional de Instagram vinculada y los permisos que aprobaste.'],
+  ['Información que tratamos', 'Guardamos los datos necesarios para crear y mantener tu cuenta, administrar tu plan, procesar solicitudes de pago, conservar tus marcas y preferencias, y mostrar el historial de creaciones. Cuando conectas Meta, recibimos los activos comerciales que autorizas y los permisos que aprobaste. Si contratas Lumi Business, también tratamos el número de WhatsApp Business conectado, los mensajes de esa cuenta y la información comercial que proporcionas para configurar al asistente.'],
   ['Cómo usamos la información', 'Utilizamos estos datos para prestar Estudios Creativos, generar el contenido solicitado, mantener tu sesión, brindar soporte, prevenir usos indebidos y, solo cuando pulsas Publicar, enviar la imagen y el texto a las cuentas sociales seleccionadas.'],
   ['Imágenes e inteligencia artificial', 'Las fotografías, instrucciones y referencias que entregas se procesan para producir la creación solicitada. Pueden intervenir proveedores de infraestructura y servicios de inteligencia artificial bajo sus propias medidas de seguridad. No vendemos tus fotografías ni tus datos personales.'],
-  ['Conexiones con Meta', 'Los tokens de acceso se cifran en el servidor. Puedes desconectar Meta desde Configuración. Al hacerlo revocamos la conexión almacenada; también atendemos las solicitudes de eliminación enviadas por Meta.'],
+  ['Lumi Business y WhatsApp', 'Lumi usa los mensajes entrantes y la información configurada por el negocio para preparar respuestas de atención y ventas. El propietario puede revisar cada conversación, pausar el asistente o tomar el control para responder personalmente. No usamos el contenido de los chats para publicidad ni lo vendemos.'],
+  ['Conexiones con Meta', 'Los tokens de Facebook, Instagram y WhatsApp se cifran en el servidor y se separan por cuenta. Puedes desconectar Meta o solicitar que eliminemos la conexión. Al hacerlo revocamos los accesos almacenados; también atendemos las solicitudes de eliminación enviadas por Meta.'],
   ['Conservación y seguridad', 'Conservamos la información mientras tu cuenta esté activa o mientras sea necesaria para prestar el servicio, resolver pagos y cumplir obligaciones aplicables. Aplicamos controles de acceso, enlaces temporales y cifrado para reducir el acceso no autorizado.'],
   ['Tus opciones', `Puedes solicitar acceso, corrección o eliminación de tus datos y desconectar tus redes cuando quieras. Escríbenos a ${CONTACT_EMAIL} desde el correo asociado a tu cuenta para verificar la solicitud.`]
 ];
@@ -16,12 +17,12 @@ const termsSections = [
   ['Pagos y activación', 'Mientras el cobro sea por transferencia, el plan se activa después de verificar el comprobante. Los créditos y beneficios corresponden al plan confirmado y a su vigencia indicada.'],
   ['Contenido y derechos', 'Debes contar con autorización para usar las fotografías, productos, marcas, logos y demás materiales que subas. No puedes usar el servicio para contenido ilegal, engañoso o que vulnere derechos de terceros.'],
   ['Resultados generados', 'La inteligencia artificial puede producir variaciones. Debes revisar textos, detalles del producto, precios y datos de contacto antes de descargar o publicar una creación.'],
-  ['Publicación en redes', 'La publicación ocurre únicamente cuando eliges las cuentas, revisas el texto y pulsas Publicar. Meta puede rechazar contenido o limitar permisos según sus propias políticas.'],
+  ['Publicación y mensajería', 'La publicación ocurre únicamente cuando eliges las cuentas, revisas el texto y pulsas Publicar. Si activas Lumi Business, autorizas al asistente a responder los mensajes entrantes del WhatsApp Business conectado con la información que configuraste. Puedes pausarlo o tomar una conversación en cualquier momento. Meta puede rechazar contenido o limitar permisos según sus propias políticas.'],
   ['Soporte y cambios', `Puedes escribir a ${CONTACT_EMAIL}. Podemos actualizar estas condiciones para reflejar mejoras del servicio o requisitos legales, mostrando la versión vigente en esta página.`]
 ];
 
 const deletionSections = [
-  ['Desde Estudios Creativos', 'Entra a Configuración, abre Redes sociales y pulsa Desconectar. Eliminaremos la conexión almacenada con Facebook e Instagram.'],
+  ['Desde Estudios Creativos', 'Entra a Configuración, abre Redes sociales y pulsa Desconectar para eliminar las conexiones almacenadas con Facebook, Instagram o TikTok. Para WhatsApp Business puedes pausar Lumi inmediatamente y solicitar la eliminación completa de la conexión y sus conversaciones.'],
   ['Solicitar eliminación completa', `Escribe desde el correo asociado a tu cuenta a ${CONTACT_EMAIL} con el asunto “Eliminar datos de Estudios Creativos”. Confirmaremos tu identidad y atenderemos la solicitud.`],
   ['Desde Meta', 'Si eliminas Estudios Creativos desde la configuración de Facebook, Meta nos enviará una solicitud firmada. Revocaremos los tokens almacenados y registraremos la eliminación.']
 ];
@@ -55,7 +56,7 @@ function legalHtml({ title, description, sections, confirmationCode = '' }) {
   <main>
     <div class="kicker">Información legal</div>
     <h1>${escapeHtml(title)}</h1>
-    <p class="updated">Última actualización: 11 de septiembre de 2026</p>
+    <p class="updated">Última actualización: 13 de septiembre de 2026</p>
     <p class="lead">${escapeHtml(description)}</p>
     ${confirmationHtml}
     ${sectionHtml}
