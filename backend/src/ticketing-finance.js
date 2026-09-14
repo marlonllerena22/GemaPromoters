@@ -39,7 +39,9 @@ function allocate(total, weights) {
 
 export function buildTicketSalesReport(orders, items, defaultFeePercent) {
   const groups = new Map();
+  const simpleGroups = new Map();
   const totals = { quantity: 0, subtotal: 0, service_fee: 0, gross: 0, payphone_fee: 0, protickets_net: 0, event_net: 0 };
+  const simpleTotals = { ...totals, transfer_total: 0, payphone_total: 0 };
   let estimatedOrders = 0;
   for (const order of orders) {
     const lines = items.filter((item) => item.order_id === order.id);
@@ -70,10 +72,39 @@ export function buildTicketSalesReport(orders, items, defaultFeePercent) {
         totals[field] += value;
       }
       groups.set(key, row);
+
+      const simpleKey = JSON.stringify([order.event_id, item.ticket_type_id, item.ticket_name]);
+      const simpleRow = simpleGroups.get(simpleKey) || {
+        event_title: order.event_title, locality: item.ticket_name, unit_price_cents: 0, purchase_quantity: 0,
+        quantity: 0, subtotal: 0, service_fee: 0, gross: 0, payphone_fee: 0,
+        protickets_net: 0, event_net: 0, transfer_total: 0, payphone_total: 0
+      };
+      const purchaseQuantity = Number(item.quantity);
+      const normalizedName = String(item.ticket_name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+      const admissionQuantity = purchaseQuantity * (normalizedName.includes('promo golden') ? 2 : 1);
+      simpleRow.unit_price_cents += cents(item.unit_price) * purchaseQuantity;
+      simpleRow.purchase_quantity += purchaseQuantity;
+      simpleRow.quantity += admissionQuantity;
+      for (const field of ['subtotal', 'service_fee', 'gross', 'payphone_fee', 'protickets_net', 'event_net']) {
+        simpleRow[field] += values[field];
+        simpleTotals[field] += values[field];
+      }
+      const methodField = order.payment_method === 'transfer' ? 'transfer_total' : 'payphone_total';
+      simpleRow[methodField] += values.gross;
+      simpleTotals[methodField] += values.gross;
+      simpleTotals.quantity += admissionQuantity;
+      simpleGroups.set(simpleKey, simpleRow);
     });
   }
-  const convert = (row) => Object.fromEntries(Object.entries(row).map(([key, value]) => [key,
-    key !== 'quantity' && Object.hasOwn(totals, key) ? dollars(value) : value
-  ]));
-  return { rows: [...groups.values()].map(convert), totals: convert(totals), orders: orders.length, estimated_orders: estimatedOrders };
+  const moneyFields = new Set(['subtotal', 'service_fee', 'gross', 'payphone_fee', 'protickets_net', 'event_net', 'transfer_total', 'payphone_total']);
+  const convert = (row) => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, moneyFields.has(key) ? dollars(value) : value]));
+  const simpleRows = [...simpleGroups.values()].map((row) => {
+    const { unit_price_cents, purchase_quantity, ...values } = row;
+    return { ...convert(values), unit_price: dollars(purchase_quantity ? Math.round(unit_price_cents / purchase_quantity) : 0) };
+  });
+  return {
+    rows: [...groups.values()].map(convert), totals: convert(totals),
+    simple_rows: simpleRows, simple_totals: convert(simpleTotals),
+    orders: orders.length, estimated_orders: estimatedOrders
+  };
 }

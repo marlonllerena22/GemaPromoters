@@ -106,13 +106,18 @@ test('report rounds once per payment, distinguishes methods and reconciles every
   ];
   const items = [
     { order_id: 1, ticket_type_id: 1, ticket_name: 'General', quantity: 1, unit_price: 15 },
-    { order_id: 1, ticket_type_id: 2, ticket_name: 'Golden', quantity: 1, unit_price: 85 },
-    { order_id: 2, ticket_type_id: 2, ticket_name: 'Golden', quantity: 1, unit_price: 40 }
+    { order_id: 1, ticket_type_id: 2, ticket_name: 'Promo Golden', quantity: 1, unit_price: 85 },
+    { order_id: 2, ticket_type_id: 2, ticket_name: 'Promo Golden', quantity: 1, unit_price: 40 }
   ];
   const report = buildTicketSalesReport(orders, items, 5.75);
   assert.equal(report.totals.gross, 152); assert.equal(report.totals.payphone_fee, 6.33);
   assert.equal(report.totals.protickets_net, 5.67); assert.equal(report.totals.event_net, 140);
   assert.equal(report.rows.reduce((sum, r) => sum + Math.round(r.payphone_fee * 100), 0), 633);
+  assert.equal(report.totals.quantity, 3); assert.equal(report.simple_totals.quantity, 5);
+  assert.equal(report.simple_totals.payphone_total, 110); assert.equal(report.simple_totals.transfer_total, 42);
+  const golden = report.simple_rows.find((row) => row.locality === 'Promo Golden');
+  assert.equal(golden.quantity, 4); assert.equal(golden.gross, 135.5);
+  assert.equal(golden.payphone_total, 93.5); assert.equal(golden.transfer_total, 42);
 });
 
 test('card checkout retains 10% surcharge and snapshots PayPhone commission', async (t) => {
