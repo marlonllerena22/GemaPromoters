@@ -15,6 +15,7 @@ import {
   Edit3,
   ExternalLink,
   Eye,
+  EyeOff,
   Image as ImageIcon,
   KeyRound,
   LayoutDashboard,
@@ -36,7 +37,7 @@ import {
   UserRound,
   X
 } from 'lucide-react';
-import { API_URL, getToken } from './api.js';
+import { API_URL, api, getToken, setToken, setUser } from './api.js';
 import { TransferDetails, TransfersAdmin, PaymentSettings, TicketSalesReport } from './TicketingPayments.jsx';
 import './protickets.css';
 
@@ -231,6 +232,7 @@ function GoogleButton({ clientId, onSuccess, onError }) {
 function AccountDialog({ open, googleClientId, onClose, onAuthenticated }) {
   const [mode, setMode] = useState('login');
   const [form, setForm] = useState({ name: '', email: '', password: '', cedula: '', phone: '' });
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -248,6 +250,40 @@ function AccountDialog({ open, googleClientId, onClose, onAuthenticated }) {
         setMessage(payload.message);
         return;
       }
+
+      if (mode === 'login') {
+        const identifier = form.email.trim();
+        if (identifier.includes('@')) {
+          try {
+            const payload = await ticketingApi('/auth/login', {
+              method: 'POST',
+              body: JSON.stringify({ email: identifier, password: form.password })
+            });
+            saveCustomerSession(payload);
+            onAuthenticated(payload.customer);
+            onClose();
+            return;
+          } catch {
+            // An email-shaped staff username should still reach unified access.
+          }
+        }
+
+        const credentials = { username: identifier, password: form.password };
+        for (const path of ['/auth/login', '/ticketing/validator/login']) {
+          try {
+            const payload = await api(path, { method: 'POST', body: JSON.stringify(credentials) });
+            setToken(payload.token);
+            setUser(payload.user);
+            window.location.assign('/');
+            return;
+          } catch {
+            // Try the next ProTickets staff access type.
+          }
+        }
+
+        throw new Error('Correo, usuario o contrasena incorrectos');
+      }
+
       const payload = await ticketingApi(`/auth/${mode}`, { method: 'POST', body: JSON.stringify(form) });
       saveCustomerSession(payload);
       onAuthenticated(payload.customer);
@@ -281,9 +317,9 @@ function AccountDialog({ open, googleClientId, onClose, onAuthenticated }) {
         <Logo compact />
         <p className="pt-eyebrow">TU CUENTA</p>
         <h2>{mode === 'login' ? 'Bienvenido de vuelta' : mode === 'register' ? 'Crea tu cuenta' : 'Recupera tu acceso'}</h2>
-        <p>{mode === 'login' ? 'Ingresa para comprar y consultar tus entradas.' : mode === 'register' ? 'Tus entradas quedaran vinculadas a este correo.' : 'Te enviaremos un enlace seguro para crear una contrasena nueva.'}</p>
+        <p>{mode === 'login' ? 'Ingresa con tu correo o usuario. ProTickets abrira automaticamente el espacio que corresponde a tu cuenta.' : mode === 'register' ? 'Tus entradas quedaran vinculadas a este correo.' : 'Te enviaremos un enlace seguro para crear una contrasena nueva.'}</p>
         {mode !== 'forgot-password' && <GoogleButton clientId={googleClientId} onSuccess={googleSuccess} onError={setError} />}
-        {mode !== 'forgot-password' && googleClientId && <div className="pt-divider"><span>o continua con correo</span></div>}
+        {mode !== 'forgot-password' && googleClientId && <div className="pt-divider"><span>o continua con tus datos</span></div>}
         <form onSubmit={submit}>
           {mode === 'register' && (
             <>
@@ -294,9 +330,9 @@ function AccountDialog({ open, googleClientId, onClose, onAuthenticated }) {
               </div>
             </>
           )}
-          <label>Correo electronico<input required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label>
-          {mode !== 'forgot-password' && <label>Contrasena<input required type="password" minLength={8} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></label>}
-          {mode === 'login' && <button className="pt-forgot-link" type="button" onClick={() => { setMode('forgot-password'); setError(''); setMessage(''); }}>Olvide mi contrasena</button>}
+          <label>{mode === 'login' ? 'Correo o usuario' : 'Correo electronico'}<input required type={mode === 'login' ? 'text' : 'email'} autoComplete={mode === 'login' ? 'username' : 'email'} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label>
+          {mode !== 'forgot-password' && <label>Contrasena<span className="pt-password-field"><input required type={showPassword ? 'text' : 'password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={mode === 'register' ? 8 : undefined} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /><button type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? 'Ocultar contrasena' : 'Mostrar contrasena'} title={showPassword ? 'Ocultar contrasena' : 'Mostrar contrasena'}>{showPassword ? <EyeOff size={19} /> : <Eye size={19} />}</button></span></label>}
+          {mode === 'login' && <button className="pt-forgot-link" type="button" onClick={() => { setMode('forgot-password'); setForm({ ...form, email: '' }); setShowPassword(false); setError(''); setMessage(''); }}>Olvide mi contrasena</button>}
           {error && <div className="pt-alert error">{error}</div>}
           {message && <div className="pt-alert success">{message}</div>}
           <button className="pt-primary wide" disabled={busy} type="submit">

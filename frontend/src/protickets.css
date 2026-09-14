@@ -849,6 +849,36 @@
   outline: none;
 }
 
+.pt-password-field {
+  display: block;
+  position: relative;
+}
+
+.pt-password-field input {
+  padding-right: 48px;
+}
+
+.pt-password-field button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #6d6d74;
+  display: flex;
+  height: 38px;
+  justify-content: center;
+  padding: 0;
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 40px;
+}
+
+.pt-password-field button:hover,
+.pt-password-field button:focus-visible {
+  color: var(--pt-red-dark);
+}
+
 .pt-checkout-modal input[readonly] {
   background: #f3f3f5;
   color: #66666c;
