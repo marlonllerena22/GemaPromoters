@@ -76,14 +76,17 @@ export function buildTicketSalesReport(orders, items, defaultFeePercent) {
       const simpleKey = JSON.stringify([order.event_id, item.ticket_type_id, item.ticket_name]);
       const simpleRow = simpleGroups.get(simpleKey) || {
         event_title: order.event_title, locality: item.ticket_name, unit_price_cents: 0, purchase_quantity: 0,
+        is_promo_golden: false,
         quantity: 0, subtotal: 0, service_fee: 0, gross: 0, payphone_fee: 0,
         protickets_net: 0, event_net: 0, transfer_total: 0, payphone_total: 0
       };
       const purchaseQuantity = Number(item.quantity);
       const normalizedName = String(item.ticket_name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-      const admissionQuantity = purchaseQuantity * (normalizedName.includes('promo golden') ? 2 : 1);
+      const isPromoGolden = normalizedName.includes('promo golden');
+      const admissionQuantity = purchaseQuantity * (isPromoGolden ? 2 : 1);
       simpleRow.unit_price_cents += cents(item.unit_price) * purchaseQuantity;
       simpleRow.purchase_quantity += purchaseQuantity;
+      simpleRow.is_promo_golden ||= isPromoGolden;
       simpleRow.quantity += admissionQuantity;
       for (const field of ['subtotal', 'service_fee', 'gross', 'payphone_fee', 'protickets_net', 'event_net']) {
         simpleRow[field] += values[field];
@@ -99,8 +102,8 @@ export function buildTicketSalesReport(orders, items, defaultFeePercent) {
   const moneyFields = new Set(['subtotal', 'service_fee', 'gross', 'payphone_fee', 'protickets_net', 'event_net', 'transfer_total', 'payphone_total']);
   const convert = (row) => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, moneyFields.has(key) ? dollars(value) : value]));
   const simpleRows = [...simpleGroups.values()].map((row) => {
-    const { unit_price_cents, purchase_quantity, ...values } = row;
-    return { ...convert(values), unit_price: dollars(purchase_quantity ? Math.round(unit_price_cents / purchase_quantity) : 0) };
+    const { unit_price_cents, ...values } = row;
+    return { ...convert(values), unit_price: dollars(values.purchase_quantity ? Math.round(unit_price_cents / values.purchase_quantity) : 0) };
   });
   return {
     rows: [...groups.values()].map(convert), totals: convert(totals),

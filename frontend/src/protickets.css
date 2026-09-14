@@ -2176,6 +2176,7 @@
 .pt-report-table td, .pt-report-table th { border: 1px solid #d2d6d4; padding: 10px 8px; text-align: right; }
 .pt-report-table td:first-child, .pt-report-table th:first-child { text-align: left; }
 .pt-report-table td small { color: #8a5b24; font-weight: 700; }
+.pt-combo-count { color: #8a5b24; font-size: 11px; font-weight: 700; white-space: nowrap; }
 .pt-report-table thead, .pt-report-table tfoot { background: #eef2f0; }
 .pt-finance-report > p { font-size: 12px; color: #626862; }
 @media (max-width: 900px) {

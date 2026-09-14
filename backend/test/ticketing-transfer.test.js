@@ -117,6 +117,7 @@ test('report rounds once per payment, distinguishes methods and reconciles every
   assert.equal(report.simple_totals.payphone_total, 110); assert.equal(report.simple_totals.transfer_total, 42);
   const golden = report.simple_rows.find((row) => row.locality === 'Promo Golden');
   assert.equal(golden.quantity, 4); assert.equal(golden.gross, 135.5);
+  assert.equal(golden.purchase_quantity, 2); assert.equal(golden.is_promo_golden, true);
   assert.equal(golden.payphone_total, 93.5); assert.equal(golden.transfer_total, 42);
 });
 
