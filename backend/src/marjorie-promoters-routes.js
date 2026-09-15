@@ -2,12 +2,14 @@ import crypto from 'node:crypto';
 import nodemailer from 'nodemailer';
 import QRCode from 'qrcode';
 import { createToken, requireAuth } from './auth.js';
+import { marjorieCodeFor } from './marjorie-promoters-db.js';
 
 export const MARJORIE_TERMS_VERSION = '2026-09-06';
 
 const clean = (value, max = 500) => String(value ?? '').trim().slice(0, max);
 const money = (value) => Math.round((Number(value) || 0) * 100) / 100;
 const bool = (value) => value ? 1 : 0;
+const normalizePromoterCode = (value) => clean(value, 40).replace(/[^a-z0-9]/gi, '').toUpperCase();
 const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Guayaquil' });
 const dayDate = (value) => new Date(`${String(value).slice(0, 10)}T12:00:00Z`);
 const isoDay = (date) => date.toISOString().slice(0, 10);
@@ -115,6 +117,12 @@ export function registerMarjoriePromotersRoutes(app, db) {
     db.prepare(`INSERT INTO marjorie_promoter_audit
       (promoter_id, actor, action, entity_type, entity_id, details) VALUES (?, ?, ?, ?, ?, ?)`)
       .run(promoterId || null, actor || 'system', action, entityType, entityId, clean(details, 2000));
+  }
+
+  function findPromoterByCode(code) {
+    const normalized = normalizePromoterCode(code);
+    if (!normalized) return null;
+    return db.prepare("SELECT * FROM marjorie_promoters WHERE REPLACE(REPLACE(UPPER(code), '-', ''), ' ', '') = ?").get(normalized);
   }
 
   function requireMember(req, res, next) {
@@ -329,13 +337,15 @@ export function registerMarjoriePromotersRoutes(app, db) {
       (name, cedula, whatsapp, email, instagram, city, photo_url, password_hash, terms_version, terms_accepted_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))`)
       .run(name, cedula, whatsapp, email, instagram, city, photoUrl, hashPassword(password), MARJORIE_TERMS_VERSION);
-    audit(result.lastInsertRowid, email, 'register', 'promoter', result.lastInsertRowid, `Condiciones ${MARJORIE_TERMS_VERSION}`);
-    res.status(201).json({ ok: true, message: 'Solicitud enviada. La administracion revisara tus datos antes de activar el perfil.' });
+    const code = marjorieCodeFor(result.lastInsertRowid);
+    db.prepare("UPDATE marjorie_promoters SET code = ?, updated_at = datetime('now','localtime') WHERE id = ?").run(code, result.lastInsertRowid);
+    audit(result.lastInsertRowid, email, 'register', 'promoter', result.lastInsertRowid, `Codigo ${code} · Condiciones ${MARJORIE_TERMS_VERSION}`);
+    res.status(201).json({ ok: true, code, message: 'Solicitud enviada. Tu codigo ya fue creado y la administracion revisara tus datos antes de activar el perfil.' });
   });
 
   app.post('/api/marjorie/auth/login', (req, res) => {
     const username = clean(req.body.username, 180);
-    const promoter = db.prepare('SELECT * FROM marjorie_promoters WHERE LOWER(email) = LOWER(?) OR UPPER(code) = UPPER(?)').get(username, username);
+    const promoter = db.prepare('SELECT * FROM marjorie_promoters WHERE LOWER(email) = LOWER(?)').get(username) || findPromoterByCode(username);
     if (!promoter || !verifyPassword(String(req.body.password || ''), promoter.password_hash)) return res.status(401).json({ message: 'Usuario o contrasena incorrectos' });
     if (['rejected', 'revoked'].includes(promoter.status)) return res.status(403).json({ message: 'Esta cuenta no se encuentra habilitada' });
     res.json({
@@ -347,20 +357,20 @@ export function registerMarjoriePromotersRoutes(app, db) {
   app.get('/api/marjorie/terms', (_req, res) => res.json({ version: MARJORIE_TERMS_VERSION }));
 
   app.get('/api/marjorie/ref/:code', (req, res) => {
-    const promoter = db.prepare("SELECT code, status FROM marjorie_promoters WHERE UPPER(code) = UPPER(?)").get(clean(req.params.code, 40));
+    const promoter = findPromoterByCode(req.params.code);
     if (!promoter) return res.status(404).json({ message: 'Codigo no registrado' });
     res.json({ code: promoter.code, active: promoter.status === 'active', status: statusLabel(promoter.status), branches: realBranches() });
   });
 
   app.get('/api/marjorie/ref/:code/qr', async (req, res) => {
-    const promoter = db.prepare("SELECT code, status FROM marjorie_promoters WHERE UPPER(code) = UPPER(?)").get(clean(req.params.code, 40));
+    const promoter = findPromoterByCode(req.params.code);
     if (!promoter || promoter.status !== 'active') return res.status(404).end();
     const png = await QRCode.toBuffer(marjorieReferralUrl(promoter.code), { width: 360, margin: 1, color: { dark: '#4f2f21', light: '#fffaf4' } });
     res.type('png').send(png);
   });
 
   app.get('/api/integrations/marjorie/promoters/:code', requireInventoryIntegration, (req, res) => {
-    const promoter = db.prepare("SELECT * FROM marjorie_promoters WHERE UPPER(code) = UPPER(?)").get(clean(req.params.code, 40));
+    const promoter = findPromoterByCode(req.params.code);
     if (!promoter) return res.status(404).json({ valid: false, message: 'Codigo no registrado' });
     const detail = promoterPayload(promoter);
     res.json({
@@ -374,7 +384,7 @@ export function registerMarjoriePromotersRoutes(app, db) {
   });
 
   app.get('/api/v1/referral-codes/:code', requireInventoryIntegration, (req, res) => {
-    const promoter = db.prepare("SELECT * FROM marjorie_promoters WHERE UPPER(code) = UPPER(?)").get(clean(req.params.code, 40));
+    const promoter = findPromoterByCode(req.params.code);
     if (!promoter) return res.status(404).json({ message: 'Codigo no registrado' });
     const detail = promoterPayload(promoter);
     const active = promoter.status === 'active';
@@ -393,7 +403,7 @@ export function registerMarjoriePromotersRoutes(app, db) {
   function saveIntegratedSale(payload) {
     const source = clean(payload.source || 'inventory', 80).toLowerCase();
     const externalId = clean(payload.sale_id || payload.invoice_id, 120);
-    const promoter = db.prepare("SELECT * FROM marjorie_promoters WHERE UPPER(code) = UPPER(?)").get(clean(payload.promoter_code, 40));
+    const promoter = findPromoterByCode(payload.promoter_code);
     const branch = findIntegrationBranch(payload.branch_client_id, payload.branch_name);
     const pairs = Math.floor(Number(payload.pairs));
     const returnedPairs = Math.floor(Number(payload.returned_pairs || 0));
@@ -588,7 +598,7 @@ export function registerMarjoriePromotersRoutes(app, db) {
     const promoter = db.prepare('SELECT * FROM marjorie_promoters WHERE id = ?').get(req.params.id);
     if (!promoter) return res.status(404).json({ message: 'Promotora no encontrada' });
     if (promoter.status === 'rejected' || promoter.status === 'revoked') return res.status(409).json({ message: 'Cambia primero el estado de esta solicitud' });
-    const code = promoter.code || `MB-${String(promoter.id).padStart(4, '0')}`;
+    const code = promoter.code || marjorieCodeFor(promoter.id);
     db.prepare(`UPDATE marjorie_promoters SET code = ?, status = 'active', activated_at = COALESCE(activated_at, date('now','localtime')), updated_at = datetime('now','localtime') WHERE id = ?`).run(code, promoter.id);
     audit(promoter.id, req.user.username || req.user.role, 'approve', 'promoter', promoter.id, code);
     const approved = db.prepare('SELECT * FROM marjorie_promoters WHERE id = ?').get(promoter.id);

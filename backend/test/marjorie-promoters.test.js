@@ -61,16 +61,19 @@ test('registration, approval, QR, sales, bonuses, payments and reversals remain 
     name: 'Maria Jose Andrade', cedula: '1801234567', whatsapp: '0991234567', email: 'maria@example.com',
     instagram: 'maria.andrade', city: 'Ambato', photo_url: 'data:image/png;base64,AA==', password: 'clave-segura', accepted_terms: true
   };
-  assert.equal((await request('/marjorie/register', { method: 'POST', body: JSON.stringify(registration) })).status, 201);
+  const created = await request('/marjorie/register', { method: 'POST', body: JSON.stringify(registration) });
+  assert.equal(created.status, 201);
+  assert.equal(created.data.code, 'MB0001');
   assert.equal((await request('/marjorie/register', { method: 'POST', body: JSON.stringify(registration) })).status, 409);
   assert.notEqual(db.prepare('SELECT password_hash FROM marjorie_promoters').get().password_hash, registration.password);
+  assert.equal(db.prepare('SELECT code FROM marjorie_promoters').get().code, 'MB0001');
 
   const pendingLogin = await request('/marjorie/auth/login', { method: 'POST', body: JSON.stringify({ username: registration.email, password: registration.password }) });
   assert.equal(pendingLogin.status, 200);
   assert.equal(pendingLogin.data.user.status, 'pending');
   const approval = await request('/marjorie/admin/promoters/1/approve', { method: 'POST', token: adminToken });
   assert.equal(approval.status, 200);
-  assert.equal(approval.data.code, 'MB-0001');
+  assert.equal(approval.data.code, 'MB0001');
   assert.equal(approval.data.email_sent, false);
   assert.equal(approval.data.password_hash, undefined);
   const adminList = await request('/marjorie/admin/promoters', { token: adminToken });
@@ -82,8 +85,8 @@ test('registration, approval, QR, sales, bonuses, payments and reversals remain 
   assert.equal(me.status, 200);
   assert.equal(me.data.password_hash, undefined);
   assert.equal(me.data.branches.length, 4);
-  assert.match(me.data.qr_url, /MB-0001\/qr$/);
-  assert.equal(me.data.referral_url, 'https://shop.example.test/?codigo=MB-0001');
+  assert.match(me.data.qr_url, /MB0001\/qr$/);
+  assert.equal(me.data.referral_url, 'https://shop.example.test/?codigo=MB0001');
 
   const firstSale = await request('/marjorie/admin/sales', { method: 'POST', token: adminToken, body: JSON.stringify({ promoter_id: 1, branch_client_id: 10, customer_name: 'Cliente uno', pairs: 4, sale_date: '2026-08-08', is_paid: true, is_delivered: true }) });
   assert.equal(firstSale.status, 201);
@@ -110,12 +113,25 @@ test('registration, approval, QR, sales, bonuses, payments and reversals remain 
   assert.ok(detail.audit.some((row) => row.entity_type === 'sale' && row.action === 'update'));
 });
 
+test('database startup backfills missing codes and removes legacy hyphens', () => {
+  const db = new Database(':memory:');
+  initMarjoriePromotersDb(db);
+  const insert = db.prepare(`INSERT INTO marjorie_promoters
+    (name,cedula,whatsapp,email,instagram,city,photo_url,password_hash,code,status,terms_version,terms_accepted_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
+  insert.run('Una', '1', '1', 'una@test.com', 'una', 'Quito', '/a.png', 'hash', 'MB-0001', 'active', 'v', '2026-01-01');
+  insert.run('Dos', '2', '2', 'dos@test.com', 'dos', 'Quito', '/b.png', 'hash', null, 'pending', 'v', '2026-01-01');
+  initMarjoriePromotersDb(db);
+  assert.deepEqual(db.prepare('SELECT code FROM marjorie_promoters ORDER BY id').all(), [{ code: 'MB0001' }, { code: 'MB0002' }]);
+  db.close();
+});
+
 test('inventory integration validates codes and updates each external sale idempotently', async (t) => {
   const { db, server, request, adminToken } = fixture();
   t.after(() => { server.close(); db.close(); });
   db.prepare(`INSERT INTO marjorie_promoters
     (name,cedula,whatsapp,email,instagram,city,photo_url,password_hash,code,status,terms_version,terms_accepted_at,activated_at)
-    VALUES ('Ana','1800000000','099','ana@test.com','ana','Ambato','/a.png','hash','MB-0010','active','v','2026-01-01','2026-08-20')`).run();
+    VALUES ('Ana','1800000000','099','ana@test.com','ana','Ambato','/a.png','hash','MB0010','active','v','2026-01-01','2026-08-20')`).run();
   const auth = { Authorization: 'Bearer inventory-test-key' };
   assert.equal((await request('/marjorie/admin/settings')).status, 401);
   assert.deepEqual((await request('/marjorie/admin/settings', { token: adminToken })).data, { discount_percent: 0 });
@@ -123,8 +139,8 @@ test('inventory integration validates codes and updates each external sale idemp
   const settings = await request('/marjorie/admin/settings', { method: 'PUT', token: adminToken, body: JSON.stringify({ discount_percent: 12.5 }) });
   assert.deepEqual(settings.data, { discount_percent: 12.5 });
   const validate = await request('/integrations/marjorie/promoters/MB-0010', { headers: auth });
-  assert.deepEqual({ valid: validate.data.valid, code: validate.data.code, discount_percent: validate.data.discount_percent }, { valid: true, code: 'MB-0010', discount_percent: 12.5 });
-  const sale = { source: 'facturacion', sale_id: 'FAC-44', promoter_code: 'MB-0010', branch_name: 'Local Marjorie Botas Norte', customer_name: 'Comprador', pairs: 10, discount_percent: 12.5, sale_date: '2026-09-01', is_paid: true, is_delivered: true };
+  assert.deepEqual({ valid: validate.data.valid, code: validate.data.code, discount_percent: validate.data.discount_percent }, { valid: true, code: 'MB0010', discount_percent: 12.5 });
+  const sale = { source: 'facturacion', sale_id: 'FAC-44', promoter_code: 'MB0010', branch_name: 'Local Marjorie Botas Norte', customer_name: 'Comprador', pairs: 10, discount_percent: 12.5, sale_date: '2026-09-01', is_paid: true, is_delivered: true };
   assert.equal((await request('/integrations/marjorie/sales', { method: 'POST', headers: auth, body: JSON.stringify(sale) })).status, 201);
   const update = await request('/integrations/marjorie/sales', { method: 'POST', headers: auth, body: JSON.stringify({ ...sale, returned_pairs: 3 }) });
   assert.equal(update.status, 200);
@@ -140,14 +156,14 @@ test('AlfaBusiness contract exposes referral lookup and accepts idempotent sale 
   t.after(() => { server.close(); db.close(); });
   db.prepare(`INSERT INTO marjorie_promoters
     (name,cedula,whatsapp,email,instagram,city,photo_url,password_hash,code,status,terms_version,terms_accepted_at,activated_at)
-    VALUES ('Ana','1800000000','099','ana@test.com','ana','Ambato','/a.png','hash','MB-0001','active','v','2026-01-01','2026-08-20')`).run();
+    VALUES ('Ana','1800000000','099','ana@test.com','ana','Ambato','/a.png','hash','MB0001','active','v','2026-01-01','2026-08-20')`).run();
   const auth = { Authorization: 'Bearer inventory-test-key' };
   await request('/marjorie/admin/settings', { method: 'PUT', token: adminToken, body: JSON.stringify({ discount_percent: 10 }) });
 
   const lookup = await request('/v1/referral-codes/mb-0001', { headers: auth });
   assert.equal(lookup.status, 200);
   assert.deepEqual(lookup.data, {
-    code: 'MB-0001', active: true, discount_percent: 10,
+    code: 'MB0001', active: true, discount_percent: 10,
     promoter: { id: 'prc_1', name: 'Ana', level: 'inicial' }
   });
   assert.equal((await request('/v1/referral-codes/MB-0001')).status, 401);

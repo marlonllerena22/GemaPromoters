@@ -37,7 +37,7 @@ El lookup acordado es `GET /api/v1/referral-codes/{code}`. El webhook acepta `sa
 ### Validar un codigo
 
 ```http
-GET /api/integrations/marjorie/promoters/MB-0001
+GET /api/integrations/marjorie/promoters/MB0001
 ```
 
 La respuesta indica si el codigo esta activo, devuelve el descuento general configurado por administracion y los pares validos del ciclo:
@@ -45,7 +45,7 @@ La respuesta indica si el codigo esta activo, devuelve el descuento general conf
 ```json
 {
   "valid": true,
-  "code": "MB-0001",
+  "code": "MB0001",
   "status": "active",
   "discount_percent": 10,
   "cycle_points": 4,
@@ -66,7 +66,7 @@ Content-Type: application/json
 {
   "source": "sistema-facturacion",
   "sale_id": "FAC-000123",
-  "promoter_code": "MB-0001",
+  "promoter_code": "MB0001",
   "branch_name": "Local Marjorie Botas Norte",
   "customer_name": "Cliente",
   "customer_whatsapp": "0999999999",
@@ -93,6 +93,8 @@ La venta solo suma para comision cuando esta pagada, entregada, no anulada y con
 4. Al quedar pagada y entregada, facturacion envia la venta a PROMOTERS.
 5. Una anulacion o devolucion vuelve a enviar el mismo `sale_id` con el estado actualizado.
 6. PROMOTERS recalcula pares, nivel, comision retroactiva y ajustes pendientes.
+
+Los codigos canonicos no usan guiones: `MB0001`, `MB0002`, etc. El sistema sigue aceptando el formato anterior con guion para mantener compatibilidad.
 
 El QR `MI CODIGO` abre `https://marjoriebotas.alfabusiness.app/?codigo={CODE}` para que la tienda reciba automaticamente el codigo compartido.
 

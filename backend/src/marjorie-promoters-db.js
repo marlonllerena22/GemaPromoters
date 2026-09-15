@@ -1,3 +1,7 @@
+export function marjorieCodeFor(id) {
+  return `MB${String(id).padStart(4, '0')}`;
+}
+
 export function initMarjoriePromotersDb(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS marjorie_promoters (
@@ -140,4 +144,13 @@ export function initMarjoriePromotersDb(db) {
     INSERT OR IGNORE INTO marjorie_promoter_settings (key, value)
     VALUES ('customer_discount_percent', '0');
   `);
+
+  const promoters = db.prepare('SELECT id, code FROM marjorie_promoters ORDER BY id').all();
+  if (promoters.some((row) => row.code !== marjorieCodeFor(row.id))) {
+    db.transaction(() => {
+      db.prepare('UPDATE marjorie_promoters SET code = NULL').run();
+      const assign = db.prepare("UPDATE marjorie_promoters SET code = ?, updated_at = datetime('now','localtime') WHERE id = ?");
+      for (const promoter of promoters) assign.run(marjorieCodeFor(promoter.id), promoter.id);
+    })();
+  }
 }

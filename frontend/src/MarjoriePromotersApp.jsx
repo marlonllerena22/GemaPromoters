@@ -61,15 +61,15 @@ export function MarjorieRegistration() {
   const empty = { name: '', cedula: '', whatsapp: '', email: '', instagram: '', city: '', photo_url: '', password: '', accepted_terms: false };
   const [form, setForm] = useState(empty);
   const [error, setError] = useState('');
-  const [done, setDone] = useState(false);
+  const [done, setDone] = useState(null);
   const [saving, setSaving] = useState(false);
 
   async function submit(event) {
     event.preventDefault();
     setSaving(true); setError('');
     try {
-      await api('/marjorie/register', { method: 'POST', body: JSON.stringify(form) });
-      setDone(true); setForm(empty);
+      const result = await api('/marjorie/register', { method: 'POST', body: JSON.stringify(form) });
+      setDone(result); setForm(empty);
     } catch (err) { setError(err.message); } finally { setSaving(false); }
   }
 
@@ -79,7 +79,7 @@ export function MarjorieRegistration() {
   }
 
   return <main className="mb-register-page">
-    {done && <div className="mb-success-overlay"><section><BadgeCheck /><h2>Solicitud enviada</h2><p>Revisaremos tus datos. Cuando tu perfil sea aprobado podrás ingresar con tu correo y contraseña.</p><button onClick={() => { setDone(false); window.location.href = '/'; }}>Entendido</button></section></div>}
+    {done && <div className="mb-success-overlay"><section><BadgeCheck /><h2>Solicitud enviada</h2><p>Tu código es <strong>{done.code}</strong>. Revisaremos tus datos y, cuando tu perfil sea aprobado, podrás ingresar con tu correo, código y contraseña.</p><button onClick={() => { setDone(null); window.location.href = '/'; }}>Entendido</button></section></div>}
     <header className="mb-public-header"><a href="/"><img src={LOGO} alt="Calzado Marjorie Botas" /></a><a href="/">Ya tengo una cuenta</a></header>
     <section className="mb-register-intro"><span>PROGRAMA DE PROMOTORAS</span><h1>Convierte tus recomendaciones en oportunidades</h1><p>Regístrate para formar parte del programa oficial de promotoras de Calzado Marjorie Botas.</p></section>
     <form className="mb-register-form" onSubmit={submit}>
