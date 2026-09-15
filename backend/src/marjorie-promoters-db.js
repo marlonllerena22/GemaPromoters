@@ -143,6 +143,9 @@ export function initMarjoriePromotersDb(db) {
 
     INSERT OR IGNORE INTO marjorie_promoter_settings (key, value)
     VALUES ('customer_discount_percent', '0');
+
+    INSERT OR IGNORE INTO marjorie_promoter_settings (key, value)
+    VALUES ('support_whatsapp', '');
   `);
 
   const promoters = db.prepare('SELECT id, code FROM marjorie_promoters ORDER BY id').all();

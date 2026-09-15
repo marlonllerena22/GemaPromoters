@@ -192,6 +192,10 @@ export function registerMarjoriePromotersRoutes(app, db) {
     return Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : 0;
   }
 
+  function promoterSupportWhatsapp() {
+    return clean(db.prepare("SELECT value FROM marjorie_promoter_settings WHERE key = 'support_whatsapp'").get()?.value, 30);
+  }
+
   function effectivePairs(row) {
     return row.is_paid && row.is_delivered && !row.is_voided ? Math.max(0, Number(row.pairs) - Number(row.returned_pairs || 0)) : 0;
   }
@@ -306,6 +310,7 @@ export function registerMarjoriePromotersRoutes(app, db) {
       payable_cut: payableCut,
       payable_total: payableCut?.total || 0,
       performance_alert: lowCycleAlert(promoter, ledger, targetDate),
+      support_whatsapp: promoterSupportWhatsapp(),
       referral_url: promoter.code ? marjorieReferralUrl(promoter.code) : '',
       qr_url: promoter.code ? `${publicUrl()}/api/marjorie/ref/${encodeURIComponent(promoter.code)}/qr` : '',
       sales,
@@ -569,7 +574,7 @@ export function registerMarjoriePromotersRoutes(app, db) {
   });
 
   app.get('/api/marjorie/admin/settings', requireMarjorieAdmin, (_req, res) => {
-    res.json({ discount_percent: promoterDiscountPercent() });
+    res.json({ discount_percent: promoterDiscountPercent(), support_whatsapp: promoterSupportWhatsapp() });
   });
 
   app.put('/api/marjorie/admin/settings', requireMarjorieAdmin, (req, res) => {
@@ -578,12 +583,21 @@ export function registerMarjoriePromotersRoutes(app, db) {
     if (!/^\d+(\.\d{1,2})?$/.test(raw) || !Number.isFinite(discountPercent) || discountPercent > 100) {
       return res.status(400).json({ message: 'El descuento debe estar entre 0 y 100, con hasta dos decimales' });
     }
+    const supportWhatsapp = clean(req.body.support_whatsapp, 30);
+    const supportDigits = supportWhatsapp.replace(/\D/g, '');
+    if (supportWhatsapp && !/^\d{8,15}$/.test(supportDigits)) {
+      return res.status(400).json({ message: 'Ingresa un número de soporte válido con código de país' });
+    }
     db.prepare(`INSERT INTO marjorie_promoter_settings (key, value, updated_at)
       VALUES ('customer_discount_percent', ?, datetime('now','localtime'))
       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`)
       .run(String(discountPercent));
-    audit(null, req.user.username || req.user.role, 'update', 'settings', null, `Descuento general ${discountPercent}%`);
-    res.json({ discount_percent: promoterDiscountPercent() });
+    db.prepare(`INSERT INTO marjorie_promoter_settings (key, value, updated_at)
+      VALUES ('support_whatsapp', ?, datetime('now','localtime'))
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`)
+      .run(supportDigits);
+    audit(null, req.user.username || req.user.role, 'update', 'settings', null, `Descuento general ${discountPercent}% · Soporte ${supportDigits || 'sin configurar'}`);
+    res.json({ discount_percent: promoterDiscountPercent(), support_whatsapp: promoterSupportWhatsapp() });
   });
 
   app.patch('/api/marjorie/admin/promoters/:id', requireMarjorieAdmin, (req, res) => {

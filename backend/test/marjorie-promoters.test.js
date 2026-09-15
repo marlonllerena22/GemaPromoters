@@ -150,10 +150,10 @@ test('inventory integration validates codes and updates each external sale idemp
     VALUES ('Ana','1800000000','099','ana@test.com','ana','Ambato','/a.png','hash','MB0010','active','v','2026-01-01','2026-08-20')`).run();
   const auth = { Authorization: 'Bearer inventory-test-key' };
   assert.equal((await request('/marjorie/admin/settings')).status, 401);
-  assert.deepEqual((await request('/marjorie/admin/settings', { token: adminToken })).data, { discount_percent: 0 });
+  assert.deepEqual((await request('/marjorie/admin/settings', { token: adminToken })).data, { discount_percent: 0, support_whatsapp: '' });
   assert.equal((await request('/marjorie/admin/settings', { method: 'PUT', token: adminToken, body: JSON.stringify({ discount_percent: 101 }) })).status, 400);
-  const settings = await request('/marjorie/admin/settings', { method: 'PUT', token: adminToken, body: JSON.stringify({ discount_percent: 12.5 }) });
-  assert.deepEqual(settings.data, { discount_percent: 12.5 });
+  const settings = await request('/marjorie/admin/settings', { method: 'PUT', token: adminToken, body: JSON.stringify({ discount_percent: 12.5, support_whatsapp: '+593 98 765 4321' }) });
+  assert.deepEqual(settings.data, { discount_percent: 12.5, support_whatsapp: '593987654321' });
   const validate = await request('/integrations/marjorie/promoters/MB-0010', { headers: auth });
   assert.deepEqual({ valid: validate.data.valid, code: validate.data.code, discount_percent: validate.data.discount_percent }, { valid: true, code: 'MB0010', discount_percent: 12.5 });
   const sale = { source: 'facturacion', sale_id: 'FAC-44', promoter_code: 'MB0010', branch_name: 'Local Marjorie Botas Norte', customer_name: 'Comprador', pairs: 10, discount_percent: 12.5, sale_date: '2026-09-01', is_paid: true, is_delivered: true };

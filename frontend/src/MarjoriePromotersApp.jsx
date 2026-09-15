@@ -3,13 +3,13 @@ import {
   BadgeCheck, BarChart3, CalendarDays, Check, ChevronRight, ClipboardCheck, Copy,
   DollarSign, ExternalLink, Eye, EyeOff, FileText, Gift, Home, Image as ImageIcon, KeyRound,
   Link as LinkIcon, LogOut, MapPin, Menu, PackageCheck, Pencil, Plus, Save,
-  Search, Settings, Share2, ShoppingBag, Smartphone, Sparkles, Store, Trash2, UserRound,
+  QrCode, Search, Settings, Share2, ShoppingBag, Smartphone, Sparkles, Store, Trash2, UserRound,
   UsersRound, WalletCards, X
 } from 'lucide-react';
 import { api, clearToken, setToken, setUser } from './api.js';
 import './marjorie-promoters.css';
 
-const LOGO = '/marjorie-botas-logo.png';
+const LOGO = '/marjorie-botas-logo-transparent.png';
 const money = (value) => new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD' }).format(Number(value || 0));
 const date = (value, long = false) => value ? new Date(`${String(value).slice(0, 10)}T12:00:00`).toLocaleDateString('es-EC', long ? { day: 'numeric', month: 'long', year: 'numeric' } : undefined) : '-';
 const today = () => new Date().toLocaleDateString('en-CA');
@@ -125,9 +125,9 @@ function DigitalCard({ profile, onNotice }) {
     return copy(profile.referral_url, 'Enlace copiado');
   }
   return <article className="mb-digital-card">
-    <div className="mb-card-brand"><img src={LOGO} alt="" /><span>PERSONAS QUE<br />INSPIRAN PASOS</span></div>
-    <div className="mb-card-code"><small>MI CÓDIGO</small><strong>{profile.code}</strong>{profile.qr_url && <img src={profile.qr_url} alt={`QR ${profile.code}`} />}<span><Sparkles /> Nivel {profile.level.name}</span></div>
-    <div className="mb-card-actions"><button title="Copiar código" onClick={() => copy(profile.code, 'Código copiado')}><Copy /></button><button title="Compartir enlace" onClick={share}><Share2 /></button></div>
+    <div className="mb-qr-heading"><span>TU QR PERSONAL</span><h2>Comparte y gana más oportunidades</h2></div>
+    <div className="mb-card-code"><small>CÓDIGO DE PROMOTORA</small><strong>{profile.code}</strong>{profile.qr_url && <img src={profile.qr_url} alt={`QR ${profile.code}`} />}</div>
+    <div className="mb-card-actions"><button title="Copiar código" onClick={() => copy(profile.code, 'Código copiado')}><Copy /></button><button className="mb-share-qr" onClick={share}><Share2 /><span>Compartir</span></button></div>
   </article>;
 }
 
@@ -135,16 +135,42 @@ function Metric({ icon: Icon, label, value, note }) {
   return <article className="mb-metric"><Icon /><div><span>{label}</span><strong>{value}</strong>{note && <small>{note}</small>}</div></article>;
 }
 
-function PromoterHome({ profile, setNotice }) {
+function promoterSupportLink(value) {
+  let digits = String(value || '').replace(/\D/g, '');
+  if (digits.startsWith('0')) digits = `593${digits.slice(1)}`;
+  return digits ? `https://wa.me/${digits}?text=${encodeURIComponent('Hola, necesito ayuda con mi cuenta de promotora Marjorie Botas.')}` : '';
+}
+
+function PromoterHome({ profile, setNotice, setView }) {
+  const lastSale = profile.sales[0];
+  const support = promoterSupportLink(profile.support_whatsapp);
+  const quickActions = [
+    ['Mis ventas', 'Revisa tus ventas registradas', BarChart3, () => setView('sales')],
+    ['Comisiones', 'Saldo, cortes y pagos', WalletCards, () => setView('payments')],
+    ['Soporte', support ? 'Escríbenos por WhatsApp' : 'Próximamente disponible', Smartphone, () => support ? window.open(support, '_blank', 'noopener,noreferrer') : setNotice('Administración todavía no ha configurado el número de soporte')],
+    ['Historial', 'Consulta toda tu actividad', FileText, () => setView('history')]
+  ];
   return <>
-    <section className="mb-profile-head"><div className="mb-avatar">{profile.photo_url ? <img src={profile.photo_url} alt={profile.name} /> : <UserRound />}</div><div><img src={LOGO} alt="Calzado Marjorie Botas" /><h1>{profile.name}</h1><span><BadgeCheck /> Promotora Autorizada</span></div></section>
+    <section className="mb-welcome"><div><span>PERFIL DE PROMOTORA</span><h1>Hola, {profile.name.split(' ')[0]}</h1><p>Gestiona tus ventas, comisiones y comparte tu QR.</p></div><div className="mb-welcome-mark">Juntas llevamos<br />más mujeres<br />más lejos <span>♡</span></div></section>
     {profile.status !== 'active' && <Notice value={profile.status === 'pending' ? 'Tu solicitud está pendiente de aprobación. Aquí aparecerán tu código, ciclos y beneficios cuando sea activada.' : `Estado de tu cuenta: ${profile.status_label}.`} error={profile.status !== 'pending'} />}
     {profile.status === 'active' && <>
-      <DigitalCard profile={profile} onNotice={setNotice} />
+      <section className="mb-home-hero"><article className="mb-profile-card"><div className="mb-avatar">{profile.photo_url ? <img src={profile.photo_url} alt={profile.name} /> : <UserRound />}</div><div className="mb-profile-card-info"><h2>{profile.name}</h2><p>Código {profile.code}</p><span className="mb-active-pill"><i />Activa</span><p><MapPin />{profile.city}</p><strong><Sparkles /> Nivel {profile.level.name}</strong></div><div className="mb-profile-message">♡ <span>Tu energía impulsa más ventas</span></div></article><DigitalCard profile={profile} onNotice={setNotice} /></section>
+      <div className="mb-home-section-title"><h2>Tu actividad</h2><span>Pequeños pasos, grandes logros ♡</span></div>
+      <section className="mb-activity-grid"><Metric icon={CalendarDays} label="Última venta" value={lastSale ? date(lastSale.sale_date) : 'Sin ventas'} note={lastSale ? `${lastSale.effective_pairs} pares válidos` : 'Comparte tu código para comenzar'} /><Metric icon={DollarSign} label="Comisión del ciclo" value={money(profile.cycle_commission)} note={`${profile.cycle_pairs} pares · ${money(profile.cycle_rate)} por par`} /><Metric icon={WalletCards} label="Próximo pago" value={date(profile.payable_cut?.due_date)} note={`${money(profile.pending_total)} pendiente`} /></section>
       <section className="mb-progress"><div><span>Tu próximo nivel: <strong>{profile.level.next || profile.level.name}</strong></span><small>{profile.level.next ? `${profile.level.remaining} pares más para subir` : 'Nivel máximo alcanzado'}</small></div><div><span style={{ width: `${profile.level.progress}%` }} /></div></section>
-      <section className="mb-metrics"><Metric icon={BarChart3} label="Pares del ciclo" value={profile.cycle_pairs} note={`${money(profile.cycle_rate)} por par`} /><Metric icon={DollarSign} label="Comisiones" value={money(profile.cycle_commission)} /><Metric icon={CalendarDays} label="Próximo corte" value={date(profile.payable_cut?.due_date)} /><Metric icon={Gift} label="Bono digital" value={`${money(profile.bonuses.filter((item) => item.cycle_start === profile.cycle?.start && item.status === 'approved').reduce((sum, item) => sum + Number(item.amount), 0))} / $50`} /></section>
+      <div className="mb-home-section-title"><h2>Accesos rápidos</h2><span>Todo lo que necesitas, más cerca ♡</span></div>
+      <section className="mb-quick-grid">{quickActions.map(([label, note, Icon, action]) => <button key={label} onClick={action}><span><Icon /></span><strong>{label}</strong><small>{note}</small><ChevronRight /></button>)}</section>
+      <button className="mb-cheer-card" onClick={() => setView('sales')}><span>🏆</span><strong>Sigues haciendo la diferencia<small>Gracias por ser parte de Marjorie Botas</small></strong><ChevronRight /></button>
     </>}
   </>;
+}
+
+function PromoterQr({ profile, setNotice }) {
+  return <section className="mb-member-section mb-qr-page"><div className="mb-section-title"><span>COMPARTE TU CÓDIGO</span><h2>Tu QR personal</h2><p>Tu cliente puede escanearlo o abrir tu enlace para que la venta quede asociada a ti.</p></div><DigitalCard profile={profile} onNotice={setNotice} /></section>;
+}
+
+function PromoterHistory({ profile }) {
+  return <section className="mb-member-section"><div className="mb-section-title"><span>TODA TU ACTIVIDAD</span><h2>Historial</h2></div><div className="mb-history-bands"><div><h3>Ventas recientes</h3><PromoterSales profile={profile} /></div><div><h3>Pagos recibidos</h3><PromoterPayments profile={profile} /></div></div></section>;
 }
 
 function PromoterSales({ profile }) {
@@ -188,10 +214,11 @@ export function MarjoriePromoterApp({ onLogout }) {
   async function load() { setProfile(await api('/marjorie/me')); }
   useEffect(() => { load().catch(() => onLogout()); }, []);
   if (!profile) return <main className="mb-member-app"><p className="mb-loading">Preparando tu perfil…</p></main>;
-  const nav = [['home', 'Inicio', Home], ['sales', 'Ventas', BarChart3], ['payments', 'Pagos', WalletCards], ['content', 'Contenido', ImageIcon], ['profile', 'Perfil', UserRound]];
-  return <main className="mb-member-app"><header className="mb-member-top"><img src={LOGO} alt="Calzado Marjorie Botas" /><button onClick={onLogout}><LogOut /> Salir</button></header>{notice && <Notice value={notice} />}
-    <div className="mb-member-body">{view === 'home' && <PromoterHome profile={profile} setNotice={setNotice} />}{view === 'sales' && <PromoterSales profile={profile} />}{view === 'payments' && <PromoterPayments profile={profile} />}{view === 'content' && <PromoterContent profile={profile} />}{view === 'profile' && <PromoterProfile profile={profile} reload={load} />}</div>
-    <nav className="mb-member-nav">{nav.map(([key, label, Icon]) => <button key={key} className={view === key ? 'active' : ''} onClick={() => setView(key)}><Icon /><span>{label}</span></button>)}</nav>
+  const navigate = (next) => { setView(next); setNotice(''); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  const nav = [['home', 'Inicio', Home], ['sales', 'Ventas', BarChart3], ['qr', 'QR', QrCode], ['profile', 'Perfil', UserRound]];
+  return <main className="mb-member-app"><header className="mb-member-top"><img src={LOGO} alt="Calzado Marjorie Botas" /><button onClick={onLogout}><LogOut /> Salir</button></header>{notice && <div className="mb-member-notice"><Notice value={notice} /></div>}
+    <div className="mb-member-body">{view === 'home' && <PromoterHome profile={profile} setNotice={setNotice} setView={navigate} />}{view === 'sales' && <PromoterSales profile={profile} />}{view === 'payments' && <PromoterPayments profile={profile} />}{view === 'history' && <PromoterHistory profile={profile} />}{view === 'qr' && <PromoterQr profile={profile} setNotice={setNotice} />}{view === 'profile' && <PromoterProfile profile={profile} reload={load} />}</div>
+    <nav className="mb-member-nav">{nav.map(([key, label, Icon]) => <button key={key} className={view === key ? 'active' : ''} onClick={() => navigate(key)}><Icon /><span>{label}</span></button>)}</nav>
   </main>;
 }
 
@@ -239,23 +266,25 @@ function AdminContent({ data, reload }) {
 
 function AdminSettings({ settings, reload }) {
   const [discount, setDiscount] = useState(String(settings?.discount_percent ?? 0));
+  const [supportWhatsapp, setSupportWhatsapp] = useState(settings?.support_whatsapp || '');
   const [notice, setNotice] = useState('');
   const [saving, setSaving] = useState(false);
   useEffect(() => { setDiscount(String(settings?.discount_percent ?? 0)); }, [settings?.discount_percent]);
+  useEffect(() => { setSupportWhatsapp(settings?.support_whatsapp || ''); }, [settings?.support_whatsapp]);
   async function submit(event) {
     event.preventDefault();
     setSaving(true); setNotice('');
     try {
-      await api('/marjorie/admin/settings', { method: 'PUT', body: JSON.stringify({ discount_percent: discount }) });
+      await api('/marjorie/admin/settings', { method: 'PUT', body: JSON.stringify({ discount_percent: discount, support_whatsapp: supportWhatsapp }) });
       await reload();
-      setNotice('Descuento general actualizado. El inventario recibirá este porcentaje al validar un código activo.');
+      setNotice('Configuración actualizada. El nuevo soporte ya está disponible para las promotoras.');
     } catch (err) { setNotice(err.message); } finally { setSaving(false); }
   }
-  return <section className="mba-settings-layout"><form className="mba-band mba-settings-form" onSubmit={submit}><div className="mba-heading"><div><span>INTEGRACIÓN CON INVENTARIO</span><h2>Descuento de promotoras</h2></div></div><p>Este porcentaje se aplica a todos los códigos activos de Promotoras Marjorie. El sistema de inventario lo consultará antes de confirmar la venta.</p><label>Descuento general (%)<input required type="number" min="0" max="100" step="0.01" inputMode="decimal" value={discount} onChange={(event) => setDiscount(event.target.value)} /></label><Notice value={notice} error={/debe|error|no /i.test(notice)} /><button className="mb-primary" disabled={saving}><Save />{saving ? 'Guardando…' : 'Guardar descuento'}</button></form><section className="mba-band mba-integration-flow"><div className="mba-heading"><div><span>FLUJO AUTOMÁTICO</span><h2>Qué recibe cada sistema</h2></div></div><ol><li><strong>Inventario valida el código</strong><span>Promoters responde si está activo y devuelve el porcentaje de descuento.</span></li><li><strong>Inventario confirma la venta</strong><span>Descuenta el valor correspondiente y registra la salida del producto.</span></li><li><strong>Inventario informa a Promoters</strong><span>Promoters registra los pares vendidos y recalcula la comisión de la promotora.</span></li><li><strong>Inventario informa a Azure</strong><span>Azure recibe la venta confirmada para emitir la factura.</span></li></ol></section></section>;
+  return <section className="mba-settings-layout"><form className="mba-band mba-settings-form" onSubmit={submit}><div className="mba-heading"><div><span>CONFIGURACIÓN GENERAL</span><h2>Promotoras y soporte</h2></div></div><p>Controla el descuento que recibe el inventario y el WhatsApp que verán las promotoras al tocar Soporte.</p><label>Descuento general (%)<input required type="number" min="0" max="100" step="0.01" inputMode="decimal" value={discount} onChange={(event) => setDiscount(event.target.value)} /></label><label>Número de soporte por WhatsApp<input type="tel" inputMode="tel" placeholder="Ej. 593987654321" value={supportWhatsapp} onChange={(event) => setSupportWhatsapp(event.target.value)} /><small>Incluye el código de país. Puedes cambiarlo cuando quieras.</small></label><Notice value={notice} error={/debe|error|no |válido/i.test(notice)} /><button className="mb-primary" disabled={saving}><Save />{saving ? 'Guardando…' : 'Guardar configuración'}</button></form><section className="mba-band mba-integration-flow"><div className="mba-heading"><div><span>FLUJO AUTOMÁTICO</span><h2>Qué recibe cada sistema</h2></div></div><ol><li><strong>Inventario valida el código</strong><span>Promoters responde si está activo y devuelve el porcentaje de descuento.</span></li><li><strong>Inventario confirma la venta</strong><span>Descuenta el valor correspondiente y registra la salida del producto.</span></li><li><strong>Inventario informa a Promoters</strong><span>Promoters registra los pares vendidos y recalcula la comisión de la promotora.</span></li><li><strong>Inventario informa a Azure</strong><span>Azure recibe la venta confirmada para emitir la factura.</span></li></ol></section></section>;
 }
 
 export function MarjoriePromotersAdmin({ embedded = false }) {
-  const [view, setView] = useState('overview'); const [dashboard, setDashboard] = useState(null); const [promoters, setPromoters] = useState([]); const [content, setContent] = useState({ library: [], requests: [] }); const [settings, setSettings] = useState({ discount_percent: 0 }); const [selectedId, setSelectedId] = useState(null); const [detail, setDetail] = useState(null); const [error, setError] = useState(''); const [menu, setMenu] = useState(false);
+  const [view, setView] = useState('overview'); const [dashboard, setDashboard] = useState(null); const [promoters, setPromoters] = useState([]); const [content, setContent] = useState({ library: [], requests: [] }); const [settings, setSettings] = useState({ discount_percent: 0, support_whatsapp: '' }); const [selectedId, setSelectedId] = useState(null); const [detail, setDetail] = useState(null); const [error, setError] = useState(''); const [menu, setMenu] = useState(false);
   async function load() { try { const [nextDashboard, nextPromoters, nextContent, nextSettings] = await Promise.all([api('/marjorie/admin/dashboard'), api('/marjorie/admin/promoters'), api('/marjorie/admin/content'), api('/marjorie/admin/settings')]); setDashboard(nextDashboard); setPromoters(nextPromoters); setContent(nextContent); setSettings(nextSettings); if (selectedId) setDetail(await api(`/marjorie/admin/promoters/${selectedId}`)); setError(''); } catch (err) { setError(err.message); } }
   useEffect(() => { load(); }, []);
   useEffect(() => { if (selectedId) api(`/marjorie/admin/promoters/${selectedId}`).then(setDetail).catch((err) => setError(err.message)); else setDetail(null); }, [selectedId]);
