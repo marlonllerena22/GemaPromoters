@@ -47,9 +47,11 @@ function fixture() {
 test('commission scale and individual 30-day cycle boundaries are exact', () => {
   assert.equal(marjorieCommissionRate(0), 0);
   assert.equal(marjorieCommissionRate(4), 2.5);
-  assert.equal(marjorieCommissionRate(5), 4);
-  assert.equal(marjorieCommissionRate(9), 4);
-  assert.equal(marjorieCommissionRate(10), 5);
+  assert.equal(marjorieCommissionRate(5), 5);
+  assert.equal(marjorieCommissionRate(9), 5);
+  assert.equal(marjorieCommissionRate(10), 7.5);
+  assert.equal(marjorieCommissionRate(29), 7.5);
+  assert.equal(marjorieCommissionRate(30), 10);
   assert.deepEqual(marjorieCycleFor('2026-09-08', '2026-09-22'), { index: 0, start: '2026-09-08', first_cut: '2026-09-23', end: '2026-10-08', days_remaining: 16 });
   assert.equal(marjorieCycleFor('2026-09-08', '2026-10-08').start, '2026-10-08');
 });
@@ -100,16 +102,16 @@ test('registration, approval, QR, sales, bonuses, payments and reversals remain 
   assert.equal(secondSale.status, 201);
   await request('/marjorie/admin/bonuses', { method: 'PUT', token: adminToken, body: JSON.stringify({ promoter_id: 1, cycle_start: '2026-08-07', cut_number: 2, active_page: true, published_content: true, stories_reels: true, correct_information: true, appropriate_content: true, status: 'approved' }) });
   detail = (await request('/marjorie/admin/promoters/1', { token: adminToken })).data;
-  assert.equal(detail.commission_total, 50);
-  assert.equal(detail.pending_total, 65);
+  assert.equal(detail.commission_total, 75);
+  assert.equal(detail.pending_total, 90);
   const secondPayment = await request('/marjorie/admin/promoters/1/pay', { method: 'POST', token: adminToken, body: '{}' });
-  assert.equal(secondPayment.data.payment.total_amount, 65);
+  assert.equal(secondPayment.data.payment.total_amount, 90);
   assert.equal((await request('/marjorie/admin/promoters/1/pay', { method: 'POST', token: adminToken, body: '{}' })).status, 409);
 
   await request(`/marjorie/admin/sales/${secondSale.data.id}`, { method: 'PATCH', token: adminToken, body: JSON.stringify({ returned_pairs: 2, is_paid: true, is_delivered: true }) });
   detail = (await request('/marjorie/admin/promoters/1', { token: adminToken })).data;
-  assert.equal(detail.commission_total, 32);
-  assert.equal(detail.ledger_balance, -18);
+  assert.equal(detail.commission_total, 40);
+  assert.equal(detail.ledger_balance, -35);
   assert.ok(detail.audit.some((row) => row.entity_type === 'sale' && row.action === 'update'));
 });
 
@@ -163,7 +165,7 @@ test('inventory integration validates codes and updates each external sale idemp
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM marjorie_promoter_sales').get().count, 1);
   assert.equal(update.data.discount_percent, 12.5);
   assert.equal(update.data.cycle_points, 7);
-  assert.equal(update.data.commission, 28);
+  assert.equal(update.data.commission, 35);
   assert.equal((await request('/integrations/marjorie/promoters/MB-0010')).status, 401);
 });
 

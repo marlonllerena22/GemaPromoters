@@ -85,6 +85,17 @@ Content-Type: application/json
 
 La venta solo suma para comision cuando esta pagada, entregada, no anulada y conserva pares no devueltos. Para registrar una devolucion se vuelve a enviar la misma venta con `returned_pairs`; para anularla se usa `is_cancelled: true`.
 
+## Escala de comisiones
+
+La tarifa se calcula con los pares validos acumulados dentro del ciclo personal de 30 dias:
+
+- 1 a 4 pares: $2,50 por par (Inicial).
+- 5 a 9 pares: $5 por par (Plata).
+- 10 a 29 pares: $7,50 por par (Oro).
+- 30 pares o mas: $10 por par (Platino).
+
+El calculo es retroactivo dentro del ciclo. Al alcanzar un nuevo nivel, todos los pares validos de ese ciclo adoptan la nueva tarifa. Si ya se pago un corte, el siguiente corte incluye la diferencia pendiente.
+
 ## Flujo recomendado
 
 1. El cajero escribe o escanea el codigo de la promotora.

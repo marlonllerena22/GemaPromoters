@@ -21,8 +21,9 @@ const addDays = (value, days) => {
 const dayDiff = (from, to) => Math.floor((dayDate(to) - dayDate(from)) / 86400000);
 
 export function marjorieCommissionRate(pairs) {
-  if (pairs >= 10) return 5;
-  if (pairs >= 5) return 4;
+  if (pairs >= 30) return 10;
+  if (pairs >= 10) return 7.5;
+  if (pairs >= 5) return 5;
   if (pairs >= 1) return 2.5;
   return 0;
 }
