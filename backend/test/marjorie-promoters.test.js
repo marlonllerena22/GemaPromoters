@@ -8,6 +8,7 @@ import { marjorieCommissionRate, marjorieCycleFor, registerMarjoriePromotersRout
 
 process.env.JWT_SECRET = 'marjorie-test-secret';
 process.env.PUBLIC_APP_URL = 'https://example.test';
+process.env.MARJORIE_STORE_URL = 'https://shop.example.test';
 process.env.MARJORIE_INVENTORY_API_KEY = 'inventory-test-key';
 
 function fixture() {
@@ -82,6 +83,7 @@ test('registration, approval, QR, sales, bonuses, payments and reversals remain 
   assert.equal(me.data.password_hash, undefined);
   assert.equal(me.data.branches.length, 4);
   assert.match(me.data.qr_url, /MB-0001\/qr$/);
+  assert.equal(me.data.referral_url, 'https://shop.example.test/?codigo=MB-0001');
 
   const firstSale = await request('/marjorie/admin/sales', { method: 'POST', token: adminToken, body: JSON.stringify({ promoter_id: 1, branch_client_id: 10, customer_name: 'Cliente uno', pairs: 4, sale_date: '2026-08-08', is_paid: true, is_delivered: true }) });
   assert.equal(firstSale.status, 201);
@@ -131,4 +133,39 @@ test('inventory integration validates codes and updates each external sale idemp
   assert.equal(update.data.cycle_points, 7);
   assert.equal(update.data.commission, 28);
   assert.equal((await request('/integrations/marjorie/promoters/MB-0010')).status, 401);
+});
+
+test('AlfaBusiness contract exposes referral lookup and accepts idempotent sale webhooks', async (t) => {
+  const { db, server, request, adminToken } = fixture();
+  t.after(() => { server.close(); db.close(); });
+  db.prepare(`INSERT INTO marjorie_promoters
+    (name,cedula,whatsapp,email,instagram,city,photo_url,password_hash,code,status,terms_version,terms_accepted_at,activated_at)
+    VALUES ('Ana','1800000000','099','ana@test.com','ana','Ambato','/a.png','hash','MB-0001','active','v','2026-01-01','2026-08-20')`).run();
+  const auth = { Authorization: 'Bearer inventory-test-key' };
+  await request('/marjorie/admin/settings', { method: 'PUT', token: adminToken, body: JSON.stringify({ discount_percent: 10 }) });
+
+  const lookup = await request('/v1/referral-codes/mb-0001', { headers: auth });
+  assert.equal(lookup.status, 200);
+  assert.deepEqual(lookup.data, {
+    code: 'MB-0001', active: true, discount_percent: 10,
+    promoter: { id: 'prc_1', name: 'Ana', level: 'inicial' }
+  });
+  assert.equal((await request('/v1/referral-codes/MB-0001')).status, 401);
+  assert.equal((await request('/v1/referral-codes/NO-EXISTE', { headers: auth })).status, 404);
+
+  const webhookHeaders = { ...auth, 'Idempotency-Key': 'mb-sale-1842' };
+  const webhook = {
+    event: 'sale.registered', occurred_at: '2026-09-01T16:57:00-05:00', promo_code: 'MB-0001',
+    sale: { id: 1842, sold_at: '2026-09-01T16:57:00-05:00', branch_id: 3, branch_name: 'Valle de los Chillos', pairs: 2, subtotal: 78.17, discount: 8.9, total: 80.1, currency: 'USD', comprobante_type: 'factura_electronica', promo_discount_percent: 10 }
+  };
+  const accepted = await request('/v1/webhooks/marjorie-sales', { method: 'POST', headers: webhookHeaders, body: JSON.stringify(webhook) });
+  assert.equal(accepted.status, 202);
+  assert.equal(accepted.data.accepted, true);
+  assert.equal(accepted.data.duplicate, false);
+  const repeated = await request('/v1/webhooks/marjorie-sales', { method: 'POST', headers: webhookHeaders, body: JSON.stringify(webhook) });
+  assert.equal(repeated.status, 202);
+  assert.equal(repeated.data.duplicate, true);
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM marjorie_promoter_sales').get().count, 1);
+  const stored = db.prepare('SELECT branch_name, pairs, external_source, external_sale_id FROM marjorie_promoter_sales').get();
+  assert.deepEqual(stored, { branch_name: 'Local Marjorie Botas Valle', pairs: 2, external_source: 'marjorie-alfabusiness', external_sale_id: 'mb-sale-1842' });
 });

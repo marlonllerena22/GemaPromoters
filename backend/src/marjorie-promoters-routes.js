@@ -77,6 +77,8 @@ function escapeHtml(value) {
 
 export function registerMarjoriePromotersRoutes(app, db) {
   const publicUrl = () => String(process.env.PUBLIC_APP_URL || 'http://localhost:5173').replace(/\/$/, '');
+  const marjorieStoreUrl = () => String(process.env.MARJORIE_STORE_URL || 'https://marjoriebotas.alfabusiness.app').replace(/\/$/, '');
+  const marjorieReferralUrl = (code) => `${marjorieStoreUrl()}/?codigo=${encodeURIComponent(code)}`;
 
   async function sendApprovalEmail(promoter) {
     if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
@@ -152,6 +154,28 @@ export function registerMarjoriePromotersRoutes(app, db) {
     return db.prepare(`SELECT id, name, city, address, phone
       FROM production_clients WHERE local_store_key IS NOT NULL
       ORDER BY CASE WHEN name LIKE '%Norte%' THEN 1 WHEN name LIKE '%Sur%' THEN 2 WHEN name LIKE '%Valle%' THEN 3 ELSE 4 END, name`).all();
+  }
+
+  function normalizeBranch(value) {
+    return clean(value, 180).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  }
+
+  function findIntegrationBranch(branchClientId, branchName) {
+    const branches = realBranches();
+    const lookup = normalizeBranch(branchName);
+    const direct = branches.find((row) => Number(row.id) === Number(branchClientId))
+      || branches.find((row) => normalizeBranch(row.name) === lookup)
+      || branches.find((row) => lookup && (normalizeBranch(row.name).includes(lookup) || lookup.includes(normalizeBranch(row.name))));
+    if (direct) return direct;
+    const aliases = [
+      ['norte', 'norte'],
+      ['sur', 'sur'],
+      ['valle', 'valle'],
+      ['bosque', 'sebastian'],
+      ['sebastian', 'sebastian']
+    ];
+    const alias = aliases.find(([external]) => lookup.includes(external));
+    return alias ? branches.find((row) => normalizeBranch(row.name).includes(alias[1])) : null;
   }
 
   function promoterDiscountPercent() {
@@ -274,7 +298,7 @@ export function registerMarjoriePromotersRoutes(app, db) {
       payable_cut: payableCut,
       payable_total: payableCut?.total || 0,
       performance_alert: lowCycleAlert(promoter, ledger, targetDate),
-      referral_url: promoter.code ? `${publicUrl()}/r/${encodeURIComponent(promoter.code)}` : '',
+      referral_url: promoter.code ? marjorieReferralUrl(promoter.code) : '',
       qr_url: promoter.code ? `${publicUrl()}/api/marjorie/ref/${encodeURIComponent(promoter.code)}/qr` : '',
       sales,
       payments,
@@ -331,7 +355,7 @@ export function registerMarjoriePromotersRoutes(app, db) {
   app.get('/api/marjorie/ref/:code/qr', async (req, res) => {
     const promoter = db.prepare("SELECT code, status FROM marjorie_promoters WHERE UPPER(code) = UPPER(?)").get(clean(req.params.code, 40));
     if (!promoter || promoter.status !== 'active') return res.status(404).end();
-    const png = await QRCode.toBuffer(`${publicUrl()}/r/${encodeURIComponent(promoter.code)}`, { width: 360, margin: 1, color: { dark: '#4f2f21', light: '#fffaf4' } });
+    const png = await QRCode.toBuffer(marjorieReferralUrl(promoter.code), { width: 360, margin: 1, color: { dark: '#4f2f21', light: '#fffaf4' } });
     res.type('png').send(png);
   });
 
@@ -349,23 +373,48 @@ export function registerMarjoriePromotersRoutes(app, db) {
     });
   });
 
-  app.post('/api/integrations/marjorie/sales', requireInventoryIntegration, (req, res) => {
-    const source = clean(req.body.source || 'inventory', 80).toLowerCase();
-    const externalId = clean(req.body.sale_id || req.body.invoice_id, 120);
-    const promoter = db.prepare("SELECT * FROM marjorie_promoters WHERE UPPER(code) = UPPER(?)").get(clean(req.body.promoter_code, 40));
-    const branches = realBranches();
-    const branchLookup = clean(req.body.branch_name, 180).toLowerCase();
-    const branch = branches.find((row) => Number(row.id) === Number(req.body.branch_client_id))
-      || branches.find((row) => row.name.toLowerCase() === branchLookup)
-      || branches.find((row) => branchLookup && (row.name.toLowerCase().includes(branchLookup) || branchLookup.includes(row.name.toLowerCase())));
-    const pairs = Math.floor(Number(req.body.pairs));
-    const returnedPairs = Math.floor(Number(req.body.returned_pairs || 0));
-    const saleDate = clean(req.body.sale_date, 10);
-    if (!externalId || !promoter || promoter.status !== 'active') return res.status(400).json({ message: 'La venta requiere un identificador y un codigo de promotora activo' });
-    if (!branch || pairs < 1 || returnedPairs < 0 || returnedPairs > pairs || !/^\d{4}-\d{2}-\d{2}$/.test(saleDate) || saleDate > today() || saleDate < String(promoter.activated_at).slice(0, 10)) return res.status(400).json({ message: 'Revisa el local, la fecha, los pares vendidos y las devoluciones' });
+  app.get('/api/v1/referral-codes/:code', requireInventoryIntegration, (req, res) => {
+    const promoter = db.prepare("SELECT * FROM marjorie_promoters WHERE UPPER(code) = UPPER(?)").get(clean(req.params.code, 40));
+    if (!promoter) return res.status(404).json({ message: 'Codigo no registrado' });
+    const detail = promoterPayload(promoter);
+    const active = promoter.status === 'active';
+    res.json({
+      code: promoter.code,
+      active,
+      discount_percent: active ? Math.min(60, promoterDiscountPercent()) : 0,
+      promoter: {
+        id: `prc_${promoter.id}`,
+        name: promoter.name,
+        level: String(detail.level?.name || 'Inicial').toLowerCase()
+      }
+    });
+  });
+
+  function saveIntegratedSale(payload) {
+    const source = clean(payload.source || 'inventory', 80).toLowerCase();
+    const externalId = clean(payload.sale_id || payload.invoice_id, 120);
+    const promoter = db.prepare("SELECT * FROM marjorie_promoters WHERE UPPER(code) = UPPER(?)").get(clean(payload.promoter_code, 40));
+    const branch = findIntegrationBranch(payload.branch_client_id, payload.branch_name);
+    const pairs = Math.floor(Number(payload.pairs));
+    const returnedPairs = Math.floor(Number(payload.returned_pairs || 0));
+    const saleDate = clean(payload.sale_date, 10);
+    if (!externalId || !promoter || promoter.status !== 'active') {
+      const error = new Error('La venta requiere un identificador y un codigo de promotora activo');
+      error.status = 400;
+      throw error;
+    }
+    if (!branch || pairs < 1 || returnedPairs < 0 || returnedPairs > pairs || !/^\d{4}-\d{2}-\d{2}$/.test(saleDate) || saleDate > today() || saleDate < String(promoter.activated_at).slice(0, 10)) {
+      const error = new Error('Revisa el local, la fecha, los pares vendidos y las devoluciones');
+      error.status = 400;
+      throw error;
+    }
     const existing = db.prepare('SELECT * FROM marjorie_promoter_sales WHERE external_source = ? AND external_sale_id = ?').get(source, externalId);
-    if (existing && Number(existing.promoter_id) !== Number(promoter.id)) return res.status(409).json({ message: 'Esta venta ya pertenece a otra promotora' });
-    const values = [promoter.id, branch.id, branch.name, clean(req.body.customer_name, 160) || 'Cliente facturacion', clean(req.body.customer_whatsapp, 30), pairs, returnedPairs, saleDate, bool(req.body.is_paid), bool(req.body.is_delivered), bool(req.body.is_voided || req.body.is_cancelled), clean(req.body.notes, 1200), source, externalId, JSON.stringify(req.body).slice(0, 12000)];
+    if (existing && Number(existing.promoter_id) !== Number(promoter.id)) {
+      const error = new Error('Esta venta ya pertenece a otra promotora');
+      error.status = 409;
+      throw error;
+    }
+    const values = [promoter.id, branch.id, branch.name, clean(payload.customer_name, 160) || 'Cliente facturacion', clean(payload.customer_whatsapp, 30), pairs, returnedPairs, saleDate, bool(payload.is_paid), bool(payload.is_delivered), bool(payload.is_voided || payload.is_cancelled), clean(payload.notes, 1200), source, externalId, JSON.stringify(payload).slice(0, 12000)];
     let id;
     if (existing) {
       db.prepare(`UPDATE marjorie_promoter_sales SET promoter_id=?, branch_client_id=?, branch_name=?, customer_name=?, customer_whatsapp=?, pairs=?, returned_pairs=?, sale_date=?, is_paid=?, is_delivered=?, is_voided=?, notes=?, external_source=?, external_sale_id=?, external_payload=?, updated_at=datetime('now','localtime') WHERE id=?`).run(...values, existing.id);
@@ -380,7 +429,45 @@ export function registerMarjoriePromotersRoutes(app, db) {
       audit(promoter.id, `integration:${source}`, 'create', 'sale', id, externalId);
     }
     const detail = promoterPayload(promoter);
-    res.status(existing ? 200 : 201).json({ ok: true, id, promoter_code: promoter.code, discount_percent: promoterDiscountPercent(), cycle_points: detail.cycle_pairs, cycle_pairs: detail.cycle_pairs, commission: detail.cycle_commission, pending_payment: detail.pending_total });
+    return { existing: Boolean(existing), id, promoter, detail };
+  }
+
+  app.post('/api/integrations/marjorie/sales', requireInventoryIntegration, (req, res) => {
+    try {
+      const result = saveIntegratedSale(req.body);
+      res.status(result.existing ? 200 : 201).json({ ok: true, id: result.id, promoter_code: result.promoter.code, discount_percent: promoterDiscountPercent(), cycle_points: result.detail.cycle_pairs, cycle_pairs: result.detail.cycle_pairs, commission: result.detail.cycle_commission, pending_payment: result.detail.pending_total });
+    } catch (error) {
+      res.status(error.status || 500).json({ message: error.message || 'No se pudo registrar la venta' });
+    }
+  });
+
+  app.post('/api/v1/webhooks/marjorie-sales', requireInventoryIntegration, (req, res) => {
+    try {
+      if (req.body?.event !== 'sale.registered' || !req.body?.sale) return res.status(400).json({ message: 'Evento de venta no valido' });
+      const idempotencyKey = clean(req.headers['idempotency-key'], 160);
+      const saleId = clean(req.body.sale.id, 120);
+      if (!idempotencyKey || !saleId) return res.status(400).json({ message: 'Falta Idempotency-Key o sale.id' });
+      const soldAt = clean(req.body.sale.sold_at || req.body.occurred_at, 40);
+      const result = saveIntegratedSale({
+        source: 'marjorie-alfabusiness',
+        sale_id: idempotencyKey,
+        promoter_code: req.body.promo_code,
+        branch_name: req.body.sale.branch_name,
+        customer_name: req.body.sale.customer_name || 'Cliente Marjorie',
+        customer_whatsapp: req.body.sale.customer_whatsapp,
+        pairs: req.body.sale.pairs,
+        returned_pairs: req.body.sale.returned_pairs || 0,
+        sale_date: soldAt.slice(0, 10),
+        is_paid: true,
+        is_delivered: true,
+        is_cancelled: false,
+        notes: `Venta Marjorie ${saleId}`,
+        event_payload: req.body
+      });
+      res.status(202).json({ accepted: true, id: result.id, promoter_code: result.promoter.code, duplicate: result.existing });
+    } catch (error) {
+      res.status(error.status || 500).json({ message: error.message || 'No se pudo procesar la venta' });
+    }
   });
 
   app.get('/api/marjorie/me', requireMember, (req, res) => res.json({ ...promoterPayload(req.marjoriePromoter), branches: realBranches() }));

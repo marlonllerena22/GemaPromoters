@@ -18,6 +18,8 @@ services:
         value: /var/data/gemapromoters.sqlite
       - key: PUBLIC_APP_URL
         value: https://promotersec.com
+      - key: MARJORIE_STORE_URL
+        value: https://marjoriebotas.alfabusiness.app
       - key: SMTP_HOST
         value: smtp.gmail.com
       - key: SMTP_PORT

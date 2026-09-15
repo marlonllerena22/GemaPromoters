@@ -25,6 +25,15 @@ Authorization: Bearer MARJORIE_INVENTORY_API_KEY
 
 La credencial se configura de forma privada en Render. Nunca debe incluirse en el frontend.
 
+Contrato compatible con AlfaBusiness:
+
+```text
+PROMOTERSEC_API_BASE=https://www.promotersec.com/api
+PROMOTERSEC_SALES_WEBHOOK_URL=https://www.promotersec.com/api/v1/webhooks/marjorie-sales
+```
+
+El lookup acordado es `GET /api/v1/referral-codes/{code}`. El webhook acepta `sale.registered`, usa `Idempotency-Key` para evitar duplicados y responde `202 Accepted`.
+
 ### Validar un codigo
 
 ```http
@@ -84,6 +93,8 @@ La venta solo suma para comision cuando esta pagada, entregada, no anulada y con
 4. Al quedar pagada y entregada, facturacion envia la venta a PROMOTERS.
 5. Una anulacion o devolucion vuelve a enviar el mismo `sale_id` con el estado actualizado.
 6. PROMOTERS recalcula pares, nivel, comision retroactiva y ajustes pendientes.
+
+El QR `MI CODIGO` abre `https://marjoriebotas.alfabusiness.app/?codigo={CODE}` para que la tienda reciba automaticamente el codigo compartido.
 
 El sistema de inventario es quien confirma la venta y coordina los dos avisos posteriores:
 
