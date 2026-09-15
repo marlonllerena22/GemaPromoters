@@ -113,17 +113,33 @@ test('registration, approval, QR, sales, bonuses, payments and reversals remain 
   assert.ok(detail.audit.some((row) => row.entity_type === 'sale' && row.action === 'update'));
 });
 
-test('database startup backfills missing codes and removes legacy hyphens', () => {
+test('database startup backfills missing codes, activation dates and removes legacy hyphens', () => {
   const db = new Database(':memory:');
   initMarjoriePromotersDb(db);
   const insert = db.prepare(`INSERT INTO marjorie_promoters
-    (name,cedula,whatsapp,email,instagram,city,photo_url,password_hash,code,status,terms_version,terms_accepted_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
-  insert.run('Una', '1', '1', 'una@test.com', 'una', 'Quito', '/a.png', 'hash', 'MB-0001', 'active', 'v', '2026-01-01');
-  insert.run('Dos', '2', '2', 'dos@test.com', 'dos', 'Quito', '/b.png', 'hash', null, 'pending', 'v', '2026-01-01');
+    (name,cedula,whatsapp,email,instagram,city,photo_url,password_hash,code,status,terms_version,terms_accepted_at,registered_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  insert.run('Una', '1', '1', 'una@test.com', 'una', 'Quito', '/a.png', 'hash', 'MB-0001', 'active', 'v', '2026-01-01', '2026-01-01 12:00:00');
+  insert.run('Dos', '2', '2', 'dos@test.com', 'dos', 'Quito', '/b.png', 'hash', null, 'pending', 'v', '2026-01-01', '2026-01-01 12:00:00');
   initMarjoriePromotersDb(db);
   assert.deepEqual(db.prepare('SELECT code FROM marjorie_promoters ORDER BY id').all(), [{ code: 'MB0001' }, { code: 'MB0002' }]);
+  assert.equal(db.prepare('SELECT activated_at FROM marjorie_promoters WHERE id = 1').get().activated_at, '2026-01-01');
+  assert.equal(db.prepare('SELECT activated_at FROM marjorie_promoters WHERE id = 2').get().activated_at, null);
   db.close();
+});
+
+test('admin activation sets the cycle date even when status changes through the editor', async (t) => {
+  const { db, server, request, adminToken } = fixture();
+  t.after(() => { server.close(); db.close(); });
+  db.prepare(`INSERT INTO marjorie_promoters
+    (name,cedula,whatsapp,email,instagram,city,password_hash,code,status,terms_version,terms_accepted_at)
+    VALUES ('Morelia','1800000001','099','morelia@test.com','morelia','Ambato','hash','MB0002','pending','v','2026-09-15')`).run();
+
+  const updated = await request('/marjorie/admin/promoters/1', {
+    method: 'PATCH', token: adminToken, body: JSON.stringify({ status: 'active' })
+  });
+  assert.equal(updated.status, 200);
+  assert.match(updated.data.activated_at, /^\d{4}-\d{2}-\d{2}$/);
 });
 
 test('inventory integration validates codes and updates each external sale idempotently', async (t) => {

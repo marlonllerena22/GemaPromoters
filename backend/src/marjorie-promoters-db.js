@@ -153,4 +153,12 @@ export function initMarjoriePromotersDb(db) {
       for (const promoter of promoters) assign.run(marjorieCodeFor(promoter.id), promoter.id);
     })();
   }
+
+  // Older records could be marked active from the admin editor without going
+  // through the approval action. Give those promoters a valid cycle start so
+  // integrated sales are not rejected and commissions can be calculated.
+  db.prepare(`UPDATE marjorie_promoters
+    SET activated_at = COALESCE(date(registered_at), date('now','localtime')),
+        updated_at = datetime('now','localtime')
+    WHERE status = 'active' AND activated_at IS NULL`).run();
 }

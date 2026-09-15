@@ -403,7 +403,7 @@ export function registerMarjoriePromotersRoutes(app, db) {
   function saveIntegratedSale(payload) {
     const source = clean(payload.source || 'inventory', 80).toLowerCase();
     const externalId = clean(payload.sale_id || payload.invoice_id, 120);
-    const promoter = findPromoterByCode(payload.promoter_code);
+    let promoter = findPromoterByCode(payload.promoter_code);
     const branch = findIntegrationBranch(payload.branch_client_id, payload.branch_name);
     const pairs = Math.floor(Number(payload.pairs));
     const returnedPairs = Math.floor(Number(payload.returned_pairs || 0));
@@ -412,6 +412,13 @@ export function registerMarjoriePromotersRoutes(app, db) {
       const error = new Error('La venta requiere un identificador y un codigo de promotora activo');
       error.status = 400;
       throw error;
+    }
+    if (!promoter.activated_at) {
+      db.prepare(`UPDATE marjorie_promoters
+        SET activated_at = COALESCE(date(registered_at), date('now','localtime')),
+            updated_at = datetime('now','localtime')
+        WHERE id = ?`).run(promoter.id);
+      promoter = db.prepare('SELECT * FROM marjorie_promoters WHERE id = ?').get(promoter.id);
     }
     if (!branch || pairs < 1 || returnedPairs < 0 || returnedPairs > pairs || !/^\d{4}-\d{2}-\d{2}$/.test(saleDate) || saleDate > today() || saleDate < String(promoter.activated_at).slice(0, 10)) {
       const error = new Error('Revisa el local, la fecha, los pares vendidos y las devoluciones');
@@ -585,8 +592,10 @@ export function registerMarjoriePromotersRoutes(app, db) {
     const allowedStatuses = ['pending', 'active', 'review', 'suspended', 'revoked', 'rejected'];
     const status = allowedStatuses.includes(req.body.status) ? req.body.status : promoter.status;
     try {
-      db.prepare(`UPDATE marjorie_promoters SET name = ?, cedula = ?, whatsapp = ?, email = ?, instagram = ?, city = ?, photo_url = ?, status = ?, admin_notes = ?, updated_at = datetime('now','localtime') WHERE id = ?`)
-        .run(clean(req.body.name || promoter.name, 160), clean(req.body.cedula || promoter.cedula, 20), clean(req.body.whatsapp || promoter.whatsapp, 30), clean(req.body.email || promoter.email, 180).toLowerCase(), clean(req.body.instagram || promoter.instagram, 120).replace(/^@/, ''), clean(req.body.city || promoter.city, 120), clean(req.body.photo_url ?? promoter.photo_url, 6000000), status, clean(req.body.admin_notes ?? promoter.admin_notes, 2000), promoter.id);
+      db.prepare(`UPDATE marjorie_promoters SET name = ?, cedula = ?, whatsapp = ?, email = ?, instagram = ?, city = ?, photo_url = ?, status = ?,
+          activated_at = CASE WHEN ? = 'active' THEN COALESCE(activated_at, date('now','localtime')) ELSE activated_at END,
+          admin_notes = ?, updated_at = datetime('now','localtime') WHERE id = ?`)
+        .run(clean(req.body.name || promoter.name, 160), clean(req.body.cedula || promoter.cedula, 20), clean(req.body.whatsapp || promoter.whatsapp, 30), clean(req.body.email || promoter.email, 180).toLowerCase(), clean(req.body.instagram || promoter.instagram, 120).replace(/^@/, ''), clean(req.body.city || promoter.city, 120), clean(req.body.photo_url ?? promoter.photo_url, 6000000), status, status, clean(req.body.admin_notes ?? promoter.admin_notes, 2000), promoter.id);
     } catch {
       return res.status(409).json({ message: 'La cedula o el correo ya pertenecen a otra solicitud' });
     }
