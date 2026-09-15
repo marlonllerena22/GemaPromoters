@@ -34,6 +34,7 @@ export function initMarjoriePromotersDb(db) {
       customer_whatsapp TEXT,
       pairs INTEGER NOT NULL CHECK (pairs > 0),
       returned_pairs INTEGER NOT NULL DEFAULT 0 CHECK (returned_pairs >= 0),
+      sale_total REAL,
       sale_date TEXT NOT NULL,
       is_paid INTEGER NOT NULL DEFAULT 0 CHECK (is_paid IN (0, 1)),
       is_delivered INTEGER NOT NULL DEFAULT 0 CHECK (is_delivered IN (0, 1)),
@@ -147,6 +148,22 @@ export function initMarjoriePromotersDb(db) {
     INSERT OR IGNORE INTO marjorie_promoter_settings (key, value)
     VALUES ('support_whatsapp', '');
   `);
+
+  const saleColumns = new Set(db.prepare('PRAGMA table_info(marjorie_promoter_sales)').all().map((column) => column.name));
+  if (!saleColumns.has('sale_total')) db.exec('ALTER TABLE marjorie_promoter_sales ADD COLUMN sale_total REAL');
+
+  const missingTotals = db.prepare(`SELECT id, external_payload FROM marjorie_promoter_sales
+    WHERE sale_total IS NULL AND external_payload IS NOT NULL AND external_payload != ''`).all();
+  const saveRecoveredTotal = db.prepare('UPDATE marjorie_promoter_sales SET sale_total = ? WHERE id = ?');
+  for (const sale of missingTotals) {
+    try {
+      const payload = JSON.parse(sale.external_payload);
+      const recovered = Number(payload.total ?? payload.event_payload?.sale?.total);
+      if (Number.isFinite(recovered) && recovered >= 0) saveRecoveredTotal.run(recovered, sale.id);
+    } catch {
+      // Historical payloads without valid JSON remain visible but ineligible.
+    }
+  }
 
   const promoters = db.prepare('SELECT id, code FROM marjorie_promoters ORDER BY id').all();
   if (promoters.some((row) => row.code !== marjorieCodeFor(row.id))) {

@@ -72,6 +72,7 @@ Content-Type: application/json
   "customer_whatsapp": "0999999999",
   "pairs": 2,
   "returned_pairs": 0,
+  "total": 80.00,
   "discount_percent": 10,
   "sale_date": "2026-09-06",
   "is_paid": true,
@@ -83,7 +84,7 @@ Content-Type: application/json
 
 `source + sale_id` es la llave de idempotencia. Enviar nuevamente esos valores actualiza la venta existente y no crea otra.
 
-La venta solo suma para comision cuando esta pagada, entregada, no anulada y conserva pares no devueltos. Para registrar una devolucion se vuelve a enviar la misma venta con `returned_pairs`; para anularla se usa `is_cancelled: true`.
+`total` es el valor final pagado por toda la venta despues de promociones y descuentos. La venta solo suma pares, nivel y comision cuando ese total es de $65 o mas, esta pagada, entregada, no anulada y conserva pares no devueltos. Una venta menor a $65 queda guardada para auditoria, pero sus pares no cuentan. Para registrar una devolucion se vuelve a enviar la misma venta con `returned_pairs`; para anularla se usa `is_cancelled: true`.
 
 ## Escala de comisiones
 
@@ -101,7 +102,7 @@ El calculo es retroactivo dentro del ciclo. Al alcanzar un nuevo nivel, todos lo
 1. El cajero escribe o escanea el codigo de la promotora.
 2. Facturacion consulta el endpoint de validacion.
 3. La factura conserva el codigo como referencia.
-4. Al quedar pagada y entregada, facturacion envia la venta a PROMOTERS.
+4. Al quedar pagada y entregada, facturacion envia la venta y su total final a PROMOTERS.
 5. Una anulacion o devolucion vuelve a enviar el mismo `sale_id` con el estado actualizado.
 6. PROMOTERS recalcula pares, nivel, comision retroactiva y ajustes pendientes.
 

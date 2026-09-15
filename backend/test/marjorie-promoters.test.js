@@ -4,7 +4,7 @@ import Database from 'better-sqlite3';
 import express from 'express';
 import { createToken } from '../src/auth.js';
 import { initMarjoriePromotersDb } from '../src/marjorie-promoters-db.js';
-import { marjorieCommissionRate, marjorieCycleFor, registerMarjoriePromotersRoutes } from '../src/marjorie-promoters-routes.js';
+import { MARJORIE_MIN_ELIGIBLE_TOTAL, marjorieCommissionRate, marjorieCycleFor, registerMarjoriePromotersRoutes } from '../src/marjorie-promoters-routes.js';
 
 process.env.JWT_SECRET = 'marjorie-test-secret';
 process.env.PUBLIC_APP_URL = 'https://example.test';
@@ -45,6 +45,7 @@ function fixture() {
 }
 
 test('commission scale and individual 30-day cycle boundaries are exact', () => {
+  assert.equal(MARJORIE_MIN_ELIGIBLE_TOTAL, 65);
   assert.equal(marjorieCommissionRate(0), 0);
   assert.equal(marjorieCommissionRate(4), 2.5);
   assert.equal(marjorieCommissionRate(5), 5);
@@ -90,7 +91,7 @@ test('registration, approval, QR, sales, bonuses, payments and reversals remain 
   assert.match(me.data.qr_url, /MB0001\/qr$/);
   assert.equal(me.data.referral_url, 'https://shop.example.test/?codigo=MB0001');
 
-  const firstSale = await request('/marjorie/admin/sales', { method: 'POST', token: adminToken, body: JSON.stringify({ promoter_id: 1, branch_client_id: 10, customer_name: 'Cliente uno', pairs: 4, sale_date: '2026-08-08', is_paid: true, is_delivered: true }) });
+  const firstSale = await request('/marjorie/admin/sales', { method: 'POST', token: adminToken, body: JSON.stringify({ promoter_id: 1, branch_client_id: 10, customer_name: 'Cliente uno', pairs: 4, sale_total: 100, sale_date: '2026-08-08', is_paid: true, is_delivered: true }) });
   assert.equal(firstSale.status, 201);
   let detail = (await request('/marjorie/admin/promoters/1', { token: adminToken })).data;
   assert.equal(detail.commission_total, 10);
@@ -98,7 +99,7 @@ test('registration, approval, QR, sales, bonuses, payments and reversals remain 
   const firstPayment = await request('/marjorie/admin/promoters/1/pay', { method: 'POST', token: adminToken, body: '{}' });
   assert.equal(firstPayment.data.payment.total_amount, 10);
 
-  const secondSale = await request('/marjorie/admin/sales', { method: 'POST', token: adminToken, body: JSON.stringify({ promoter_id: 1, branch_client_id: 11, customer_name: 'Cliente dos', pairs: 6, sale_date: '2026-08-24', is_paid: true, is_delivered: true }) });
+  const secondSale = await request('/marjorie/admin/sales', { method: 'POST', token: adminToken, body: JSON.stringify({ promoter_id: 1, branch_client_id: 11, customer_name: 'Cliente dos', pairs: 6, sale_total: 100, sale_date: '2026-08-24', is_paid: true, is_delivered: true }) });
   assert.equal(secondSale.status, 201);
   await request('/marjorie/admin/bonuses', { method: 'PUT', token: adminToken, body: JSON.stringify({ promoter_id: 1, cycle_start: '2026-08-07', cut_number: 2, active_page: true, published_content: true, stories_reels: true, correct_information: true, appropriate_content: true, status: 'approved' }) });
   detail = (await request('/marjorie/admin/promoters/1', { token: adminToken })).data;
@@ -123,10 +124,15 @@ test('database startup backfills missing codes, activation dates and removes leg
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`);
   insert.run('Una', '1', '1', 'una@test.com', 'una', 'Quito', '/a.png', 'hash', 'MB-0001', 'active', 'v', '2026-01-01', '2026-01-01 12:00:00');
   insert.run('Dos', '2', '2', 'dos@test.com', 'dos', 'Quito', '/b.png', 'hash', null, 'pending', 'v', '2026-01-01', '2026-01-01 12:00:00');
+  db.prepare(`INSERT INTO marjorie_promoter_sales
+    (promoter_id, customer_name, pairs, sale_date, external_payload)
+    VALUES (1, 'Venta historica', 1, '2026-01-02', ?)`)
+    .run(JSON.stringify({ event_payload: { sale: { total: 80.1 } } }));
   initMarjoriePromotersDb(db);
   assert.deepEqual(db.prepare('SELECT code FROM marjorie_promoters ORDER BY id').all(), [{ code: 'MB0001' }, { code: 'MB0002' }]);
   assert.equal(db.prepare('SELECT activated_at FROM marjorie_promoters WHERE id = 1').get().activated_at, '2026-01-01');
   assert.equal(db.prepare('SELECT activated_at FROM marjorie_promoters WHERE id = 2').get().activated_at, null);
+  assert.equal(db.prepare('SELECT sale_total FROM marjorie_promoter_sales').get().sale_total, 80.1);
   db.close();
 });
 
@@ -158,12 +164,14 @@ test('inventory integration validates codes and updates each external sale idemp
   assert.deepEqual(settings.data, { discount_percent: 12.5, support_whatsapp: '593987654321' });
   const validate = await request('/integrations/marjorie/promoters/MB-0010', { headers: auth });
   assert.deepEqual({ valid: validate.data.valid, code: validate.data.code, discount_percent: validate.data.discount_percent }, { valid: true, code: 'MB0010', discount_percent: 12.5 });
-  const sale = { source: 'facturacion', sale_id: 'FAC-44', promoter_code: 'MB0010', branch_name: 'Local Marjorie Botas Norte', customer_name: 'Comprador', pairs: 10, discount_percent: 12.5, sale_date: '2026-09-01', is_paid: true, is_delivered: true };
+  const sale = { source: 'facturacion', sale_id: 'FAC-44', promoter_code: 'MB0010', branch_name: 'Local Marjorie Botas Norte', customer_name: 'Comprador', pairs: 10, total: 100, discount_percent: 12.5, sale_date: '2026-09-01', is_paid: true, is_delivered: true };
   assert.equal((await request('/integrations/marjorie/sales', { method: 'POST', headers: auth, body: JSON.stringify(sale) })).status, 201);
   const update = await request('/integrations/marjorie/sales', { method: 'POST', headers: auth, body: JSON.stringify({ ...sale, returned_pairs: 3 }) });
   assert.equal(update.status, 200);
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM marjorie_promoter_sales').get().count, 1);
   assert.equal(update.data.discount_percent, 12.5);
+  assert.equal(update.data.eligible, true);
+  assert.equal(update.data.minimum_total, 65);
   assert.equal(update.data.cycle_points, 7);
   assert.equal(update.data.commission, 35);
   assert.equal((await request('/integrations/marjorie/promoters/MB-0010')).status, 401);
@@ -196,10 +204,35 @@ test('AlfaBusiness contract exposes referral lookup and accepts idempotent sale 
   assert.equal(accepted.status, 202);
   assert.equal(accepted.data.accepted, true);
   assert.equal(accepted.data.duplicate, false);
+  assert.equal(accepted.data.eligible, true);
+  assert.equal(accepted.data.minimum_total, 65);
   const repeated = await request('/v1/webhooks/marjorie-sales', { method: 'POST', headers: webhookHeaders, body: JSON.stringify(webhook) });
   assert.equal(repeated.status, 202);
   assert.equal(repeated.data.duplicate, true);
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM marjorie_promoter_sales').get().count, 1);
-  const stored = db.prepare('SELECT branch_name, pairs, external_source, external_sale_id FROM marjorie_promoter_sales').get();
-  assert.deepEqual(stored, { branch_name: 'Local Marjorie Botas Valle', pairs: 2, external_source: 'marjorie-alfabusiness', external_sale_id: 'mb-sale-1842' });
+  const stored = db.prepare('SELECT branch_name, pairs, sale_total, external_source, external_sale_id FROM marjorie_promoter_sales').get();
+  assert.deepEqual(stored, { branch_name: 'Local Marjorie Botas Valle', pairs: 2, sale_total: 80.1, external_source: 'marjorie-alfabusiness', external_sale_id: 'mb-sale-1842' });
+});
+
+test('a sale counts only when its final total reaches 65 dollars', async (t) => {
+  const { db, server, request } = fixture();
+  t.after(() => { server.close(); db.close(); });
+  db.prepare(`INSERT INTO marjorie_promoters
+    (name,cedula,whatsapp,email,instagram,city,password_hash,code,status,terms_version,terms_accepted_at,activated_at)
+    VALUES ('Ana','1800000000','099','ana@test.com','ana','Ambato','hash','MB0001','active','v','2026-01-01','2026-08-20')`).run();
+  const headers = { Authorization: 'Bearer inventory-test-key' };
+  const sale = { source: 'facturacion', sale_id: 'FAC-65', promoter_code: 'MB0001', branch_name: 'Local Marjorie Botas Norte', customer_name: 'Comprador', pairs: 3, total: 64.99, sale_date: '2026-09-01', is_paid: true, is_delivered: true };
+
+  const below = await request('/integrations/marjorie/sales', { method: 'POST', headers, body: JSON.stringify(sale) });
+  assert.equal(below.status, 201);
+  assert.equal(below.data.eligible, false);
+  assert.equal(below.data.cycle_pairs, 0);
+  assert.equal(below.data.commission, 0);
+
+  const boundary = await request('/integrations/marjorie/sales', { method: 'POST', headers, body: JSON.stringify({ ...sale, total: 65 }) });
+  assert.equal(boundary.status, 200);
+  assert.equal(boundary.data.eligible, true);
+  assert.equal(boundary.data.cycle_pairs, 3);
+  assert.equal(boundary.data.commission, 7.5);
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM marjorie_promoter_sales').get().count, 1);
 });

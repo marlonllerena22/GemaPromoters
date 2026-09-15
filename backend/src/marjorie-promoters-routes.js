@@ -5,6 +5,7 @@ import { createToken, requireAuth } from './auth.js';
 import { marjorieCodeFor } from './marjorie-promoters-db.js';
 
 export const MARJORIE_TERMS_VERSION = '2026-09-06';
+export const MARJORIE_MIN_ELIGIBLE_TOTAL = 65;
 
 const clean = (value, max = 500) => String(value ?? '').trim().slice(0, max);
 const money = (value) => Math.round((Number(value) || 0) * 100) / 100;
@@ -198,12 +199,23 @@ export function registerMarjoriePromotersRoutes(app, db) {
   }
 
   function effectivePairs(row) {
-    return row.is_paid && row.is_delivered && !row.is_voided ? Math.max(0, Number(row.pairs) - Number(row.returned_pairs || 0)) : 0;
+    return row.is_paid && row.is_delivered && !row.is_voided && Number(row.sale_total) >= MARJORIE_MIN_ELIGIBLE_TOTAL
+      ? Math.max(0, Number(row.pairs) - Number(row.returned_pairs || 0))
+      : 0;
   }
 
   function salesFor(promoterId) {
     return db.prepare('SELECT * FROM marjorie_promoter_sales WHERE promoter_id = ? ORDER BY sale_date DESC, id DESC').all(promoterId)
-      .map((row) => ({ ...row, effective_pairs: effectivePairs(row) }));
+      .map((row) => ({
+        ...row,
+        effective_pairs: effectivePairs(row),
+        commission_eligible: Number(row.sale_total) >= MARJORIE_MIN_ELIGIBLE_TOTAL,
+        eligibility_reason: row.sale_total == null
+          ? 'Falta registrar el total de la venta'
+          : Number(row.sale_total) < MARJORIE_MIN_ELIGIBLE_TOTAL
+            ? `Venta menor a $${MARJORIE_MIN_ELIGIBLE_TOTAL}`
+            : null
+      }));
   }
 
   function cycleStartFor(promoter, saleDate) {
@@ -413,6 +425,8 @@ export function registerMarjoriePromotersRoutes(app, db) {
     const branch = findIntegrationBranch(payload.branch_client_id, payload.branch_name);
     const pairs = Math.floor(Number(payload.pairs));
     const returnedPairs = Math.floor(Number(payload.returned_pairs || 0));
+    const parsedSaleTotal = Number(payload.total ?? payload.sale_total);
+    const saleTotal = Number.isFinite(parsedSaleTotal) && parsedSaleTotal >= 0 ? money(parsedSaleTotal) : null;
     const saleDate = clean(payload.sale_date, 10);
     if (!externalId || !promoter || promoter.status !== 'active') {
       const error = new Error('La venta requiere un identificador y un codigo de promotora activo');
@@ -437,16 +451,16 @@ export function registerMarjoriePromotersRoutes(app, db) {
       error.status = 409;
       throw error;
     }
-    const values = [promoter.id, branch.id, branch.name, clean(payload.customer_name, 160) || 'Cliente facturacion', clean(payload.customer_whatsapp, 30), pairs, returnedPairs, saleDate, bool(payload.is_paid), bool(payload.is_delivered), bool(payload.is_voided || payload.is_cancelled), clean(payload.notes, 1200), source, externalId, JSON.stringify(payload).slice(0, 12000)];
+    const values = [promoter.id, branch.id, branch.name, clean(payload.customer_name, 160) || 'Cliente facturacion', clean(payload.customer_whatsapp, 30), pairs, returnedPairs, saleTotal, saleDate, bool(payload.is_paid), bool(payload.is_delivered), bool(payload.is_voided || payload.is_cancelled), clean(payload.notes, 1200), source, externalId, JSON.stringify(payload).slice(0, 12000)];
     let id;
     if (existing) {
-      db.prepare(`UPDATE marjorie_promoter_sales SET promoter_id=?, branch_client_id=?, branch_name=?, customer_name=?, customer_whatsapp=?, pairs=?, returned_pairs=?, sale_date=?, is_paid=?, is_delivered=?, is_voided=?, notes=?, external_source=?, external_sale_id=?, external_payload=?, updated_at=datetime('now','localtime') WHERE id=?`).run(...values, existing.id);
+      db.prepare(`UPDATE marjorie_promoter_sales SET promoter_id=?, branch_client_id=?, branch_name=?, customer_name=?, customer_whatsapp=?, pairs=?, returned_pairs=?, sale_total=?, sale_date=?, is_paid=?, is_delivered=?, is_voided=?, notes=?, external_source=?, external_sale_id=?, external_payload=?, updated_at=datetime('now','localtime') WHERE id=?`).run(...values, existing.id);
       id = existing.id;
       audit(promoter.id, `integration:${source}`, 'update', 'sale', id, externalId);
     } else {
       const result = db.prepare(`INSERT INTO marjorie_promoter_sales
-        (promoter_id, branch_client_id, branch_name, customer_name, customer_whatsapp, pairs, returned_pairs, sale_date, is_paid, is_delivered, is_voided, notes, external_source, external_sale_id, external_payload, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        (promoter_id, branch_client_id, branch_name, customer_name, customer_whatsapp, pairs, returned_pairs, sale_total, sale_date, is_paid, is_delivered, is_voided, notes, external_source, external_sale_id, external_payload, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(...values, `integration:${source}`);
       id = result.lastInsertRowid;
       audit(promoter.id, `integration:${source}`, 'create', 'sale', id, externalId);
@@ -458,7 +472,8 @@ export function registerMarjoriePromotersRoutes(app, db) {
   app.post('/api/integrations/marjorie/sales', requireInventoryIntegration, (req, res) => {
     try {
       const result = saveIntegratedSale(req.body);
-      res.status(result.existing ? 200 : 201).json({ ok: true, id: result.id, promoter_code: result.promoter.code, discount_percent: promoterDiscountPercent(), cycle_points: result.detail.cycle_pairs, cycle_pairs: result.detail.cycle_pairs, commission: result.detail.cycle_commission, pending_payment: result.detail.pending_total });
+      const storedSale = result.detail.sales.find((sale) => Number(sale.id) === Number(result.id));
+      res.status(result.existing ? 200 : 201).json({ ok: true, id: result.id, promoter_code: result.promoter.code, eligible: Boolean(storedSale?.commission_eligible), minimum_total: MARJORIE_MIN_ELIGIBLE_TOTAL, discount_percent: promoterDiscountPercent(), cycle_points: result.detail.cycle_pairs, cycle_pairs: result.detail.cycle_pairs, commission: result.detail.cycle_commission, pending_payment: result.detail.pending_total });
     } catch (error) {
       res.status(error.status || 500).json({ message: error.message || 'No se pudo registrar la venta' });
     }
@@ -480,6 +495,7 @@ export function registerMarjoriePromotersRoutes(app, db) {
         customer_whatsapp: req.body.sale.customer_whatsapp,
         pairs: req.body.sale.pairs,
         returned_pairs: req.body.sale.returned_pairs || 0,
+        total: req.body.sale.total,
         sale_date: soldAt.slice(0, 10),
         is_paid: true,
         is_delivered: true,
@@ -487,7 +503,8 @@ export function registerMarjoriePromotersRoutes(app, db) {
         notes: `Venta Marjorie ${saleId}`,
         event_payload: req.body
       });
-      res.status(202).json({ accepted: true, id: result.id, promoter_code: result.promoter.code, duplicate: result.existing });
+      const storedSale = result.detail.sales.find((sale) => Number(sale.id) === Number(result.id));
+      res.status(202).json({ accepted: true, id: result.id, promoter_code: result.promoter.code, duplicate: result.existing, eligible: Boolean(storedSale?.commission_eligible), minimum_total: MARJORIE_MIN_ELIGIBLE_TOTAL });
     } catch (error) {
       res.status(error.status || 500).json({ message: error.message || 'No se pudo procesar la venta' });
     }
@@ -640,12 +657,13 @@ export function registerMarjoriePromotersRoutes(app, db) {
     if (!promoter?.activated_at) return res.status(400).json({ message: 'Selecciona una promotora activa' });
     const branch = realBranches().find((row) => Number(row.id) === Number(req.body.branch_client_id));
     const pairs = Math.floor(Number(req.body.pairs));
+    const saleTotal = Number(req.body.sale_total);
     const saleDate = clean(req.body.sale_date, 10);
-    if (!branch || pairs < 1 || !/^\d{4}-\d{2}-\d{2}$/.test(saleDate) || saleDate > today() || saleDate < String(promoter.activated_at).slice(0, 10)) return res.status(400).json({ message: 'Revisa el local, los pares y la fecha de venta' });
+    if (!branch || pairs < 1 || !Number.isFinite(saleTotal) || saleTotal < 0 || !/^\d{4}-\d{2}-\d{2}$/.test(saleDate) || saleDate > today() || saleDate < String(promoter.activated_at).slice(0, 10)) return res.status(400).json({ message: 'Revisa el local, los pares, el total pagado y la fecha de venta' });
     const result = db.prepare(`INSERT INTO marjorie_promoter_sales
-      (promoter_id, branch_client_id, branch_name, customer_name, customer_whatsapp, pairs, sale_date, is_paid, is_delivered, notes, created_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(promoter.id, branch.id, branch.name, clean(req.body.customer_name, 160) || 'Cliente local', clean(req.body.customer_whatsapp, 30), pairs, saleDate, bool(req.body.is_paid), bool(req.body.is_delivered), clean(req.body.notes, 1200), req.user.username || req.user.role);
+      (promoter_id, branch_client_id, branch_name, customer_name, customer_whatsapp, pairs, sale_total, sale_date, is_paid, is_delivered, notes, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(promoter.id, branch.id, branch.name, clean(req.body.customer_name, 160) || 'Cliente local', clean(req.body.customer_whatsapp, 30), pairs, money(saleTotal), saleDate, bool(req.body.is_paid), bool(req.body.is_delivered), clean(req.body.notes, 1200), req.user.username || req.user.role);
     audit(promoter.id, req.user.username || req.user.role, 'create', 'sale', result.lastInsertRowid, `${pairs} pares ${branch.name}`);
     res.status(201).json({ ok: true, id: result.lastInsertRowid });
   });
@@ -654,9 +672,10 @@ export function registerMarjoriePromotersRoutes(app, db) {
     const sale = db.prepare('SELECT * FROM marjorie_promoter_sales WHERE id = ?').get(req.params.id);
     if (!sale) return res.status(404).json({ message: 'Venta no encontrada' });
     const returned = Math.floor(Number(req.body.returned_pairs ?? sale.returned_pairs));
-    if (returned < 0 || returned > sale.pairs) return res.status(400).json({ message: 'Los pares devueltos no pueden superar los pares vendidos' });
-    db.prepare(`UPDATE marjorie_promoter_sales SET is_paid = ?, is_delivered = ?, returned_pairs = ?, is_voided = ?, notes = ?, updated_at = datetime('now','localtime') WHERE id = ?`)
-      .run(bool(req.body.is_paid ?? sale.is_paid), bool(req.body.is_delivered ?? sale.is_delivered), returned, bool(req.body.is_voided ?? sale.is_voided), clean(req.body.notes ?? sale.notes, 1200), sale.id);
+    const saleTotal = Number(req.body.sale_total ?? sale.sale_total);
+    if (returned < 0 || returned > sale.pairs || !Number.isFinite(saleTotal) || saleTotal < 0) return res.status(400).json({ message: 'Revisa los pares devueltos y el total pagado' });
+    db.prepare(`UPDATE marjorie_promoter_sales SET is_paid = ?, is_delivered = ?, returned_pairs = ?, sale_total = ?, is_voided = ?, notes = ?, updated_at = datetime('now','localtime') WHERE id = ?`)
+      .run(bool(req.body.is_paid ?? sale.is_paid), bool(req.body.is_delivered ?? sale.is_delivered), returned, money(saleTotal), bool(req.body.is_voided ?? sale.is_voided), clean(req.body.notes ?? sale.notes, 1200), sale.id);
     audit(sale.promoter_id, req.user.username || req.user.role, 'update', 'sale', sale.id, `Pagada ${bool(req.body.is_paid ?? sale.is_paid)} entregada ${bool(req.body.is_delivered ?? sale.is_delivered)} devueltos ${returned}`);
     res.json({ ok: true });
   });
