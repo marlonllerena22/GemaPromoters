@@ -937,6 +937,14 @@ function App() {
     }} />;
   }
 
+  if (user?.role === 'marjorie_admin') {
+    return <MarjoriePromotersAdmin user={user} onLogout={() => {
+      clearToken();
+      saveToken(null);
+      saveUser(null);
+    }} />;
+  }
+
   const isProductionSession =
     ['production_admin', 'production_vendor'].includes(user?.role) ||
     user?.establishment_module_type === 'production' ||

@@ -145,12 +145,52 @@ export function registerMarjoriePromotersRoutes(app, db) {
 
   function requireMarjorieAdmin(req, res, next) {
     requireAuth(req, res, () => {
-      if (req.user?.role === 'supreme' || req.user?.role === 'production_admin' || (req.user?.role === 'production_vendor' && req.user?.isLocalSecretary)) return next();
+      const allPermissions = {
+        manage_promoters: true, manage_content: true, review_bonuses: true, view_sales: true,
+        manage_sales: true, manage_payments: true, manage_settings: true
+      };
+      if (req.user?.role === 'supreme' || req.user?.role === 'production_admin' || (req.user?.role === 'production_vendor' && req.user?.isLocalSecretary)) {
+        req.marjoriePermissions = allPermissions;
+        return next();
+      }
       if (req.user?.role === 'admin') {
         const establishment = db.prepare('SELECT name, theme FROM establishments WHERE id = ?').get(req.user.establishmentId || 0);
-        if (establishment?.theme === 'marjorie' || /marjorie/i.test(establishment?.name || '')) return next();
+        if (establishment?.theme === 'marjorie' || /marjorie/i.test(establishment?.name || '')) {
+          req.marjoriePermissions = allPermissions;
+          return next();
+        }
+      }
+      if (req.user?.role === 'marjorie_admin' && req.user.marjorieAdminId) {
+        const manager = db.prepare("SELECT * FROM marjorie_admin_users WHERE id = ? AND status = 'active'").get(req.user.marjorieAdminId);
+        if (manager) {
+          req.marjorieManager = manager;
+          req.marjoriePermissions = {
+            manage_promoters: Boolean(manager.can_manage_promoters),
+            manage_content: Boolean(manager.can_manage_content),
+            review_bonuses: Boolean(manager.can_review_bonuses),
+            view_sales: Boolean(manager.can_view_sales),
+            manage_sales: Boolean(manager.can_manage_sales),
+            manage_payments: Boolean(manager.can_manage_payments),
+            manage_settings: Boolean(manager.can_manage_settings)
+          };
+          return next();
+        }
       }
       return res.status(403).json({ message: 'No tienes acceso a la administracion de promotoras Marjorie' });
+    });
+  }
+
+  function requireMarjoriePermission(permission) {
+    return (req, res, next) => requireMarjorieAdmin(req, res, () => {
+      if (!req.marjoriePermissions?.[permission]) return res.status(403).json({ message: 'Tu cuenta no tiene permiso para realizar esta acción' });
+      next();
+    });
+  }
+
+  function requireMarjorieOwner(req, res, next) {
+    requireMarjorieAdmin(req, res, () => {
+      if (req.user?.role === 'marjorie_admin') return res.status(403).json({ message: 'Solo la cuenta principal puede administrar al equipo' });
+      next();
     });
   }
 
@@ -605,7 +645,65 @@ export function registerMarjoriePromotersRoutes(app, db) {
     res.json({ discount_percent: promoterDiscountPercent(), support_whatsapp: promoterSupportWhatsapp() });
   });
 
-  app.put('/api/marjorie/admin/settings', requireMarjorieAdmin, (req, res) => {
+  const managerFields = `id, name, username, email, status, can_manage_promoters, can_manage_content,
+    can_review_bonuses, can_view_sales, can_manage_sales, can_manage_payments, can_manage_settings,
+    must_change_password, last_login_at, created_at, updated_at`;
+
+  app.get('/api/marjorie/admin/managers', requireMarjorieOwner, (_req, res) => {
+    res.json(db.prepare(`SELECT ${managerFields} FROM marjorie_admin_users ORDER BY name`).all());
+  });
+
+  app.post('/api/marjorie/admin/managers', requireMarjorieOwner, (req, res) => {
+    const name = clean(req.body.name, 120);
+    const username = clean(req.body.username, 80).toLowerCase();
+    const email = clean(req.body.email, 180).toLowerCase() || null;
+    const password = String(req.body.password || '');
+    if (!name || !/^[a-z0-9._-]{4,80}$/.test(username)) return res.status(400).json({ message: 'Ingresa un nombre y un usuario válido de al menos 4 caracteres' });
+    if (email && !validEmail(email)) return res.status(400).json({ message: 'El correo no es válido' });
+    if (password.length < 10) return res.status(400).json({ message: 'La contraseña temporal debe tener al menos 10 caracteres' });
+    try {
+      const result = db.prepare(`INSERT INTO marjorie_admin_users
+        (name, username, email, password_hash, can_manage_promoters, can_manage_content, can_review_bonuses,
+         can_view_sales, can_manage_sales, can_manage_payments, can_manage_settings, must_change_password,
+         temp_password_expires_at, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now', '+7 days'), ?)`)
+        .run(name, username, email, hashPassword(password), bool(req.body.can_manage_promoters ?? true),
+          bool(req.body.can_manage_content ?? true), bool(req.body.can_review_bonuses ?? true),
+          bool(req.body.can_view_sales ?? true), bool(req.body.can_manage_sales), bool(req.body.can_manage_payments),
+          bool(req.body.can_manage_settings), req.user.username || req.user.role);
+      audit(null, req.user.username || req.user.role, 'create', 'marjorie_admin', result.lastInsertRowid, username);
+      return res.status(201).json(db.prepare(`SELECT ${managerFields} FROM marjorie_admin_users WHERE id = ?`).get(result.lastInsertRowid));
+    } catch {
+      return res.status(409).json({ message: 'Ese usuario o correo ya está registrado' });
+    }
+  });
+
+  app.patch('/api/marjorie/admin/managers/:id', requireMarjorieOwner, (req, res) => {
+    const current = db.prepare('SELECT * FROM marjorie_admin_users WHERE id = ?').get(req.params.id);
+    if (!current) return res.status(404).json({ message: 'Administradora no encontrada' });
+    const email = clean(req.body.email ?? current.email, 180).toLowerCase() || null;
+    if (email && !validEmail(email)) return res.status(400).json({ message: 'El correo no es válido' });
+    const status = ['active', 'inactive'].includes(req.body.status) ? req.body.status : current.status;
+    try {
+      db.prepare(`UPDATE marjorie_admin_users SET name = ?, email = ?, status = ?,
+        can_manage_promoters = ?, can_manage_content = ?, can_review_bonuses = ?, can_view_sales = ?,
+        can_manage_sales = ?, can_manage_payments = ?, can_manage_settings = ?, updated_at = datetime('now','localtime')
+        WHERE id = ?`).run(clean(req.body.name, 120) || current.name, email, status,
+          bool(req.body.can_manage_promoters ?? current.can_manage_promoters),
+          bool(req.body.can_manage_content ?? current.can_manage_content),
+          bool(req.body.can_review_bonuses ?? current.can_review_bonuses),
+          bool(req.body.can_view_sales ?? current.can_view_sales),
+          bool(req.body.can_manage_sales ?? current.can_manage_sales),
+          bool(req.body.can_manage_payments ?? current.can_manage_payments),
+          bool(req.body.can_manage_settings ?? current.can_manage_settings), current.id);
+    } catch {
+      return res.status(409).json({ message: 'Ese correo ya pertenece a otra cuenta' });
+    }
+    audit(null, req.user.username || req.user.role, 'update', 'marjorie_admin', current.id, status);
+    return res.json(db.prepare(`SELECT ${managerFields} FROM marjorie_admin_users WHERE id = ?`).get(current.id));
+  });
+
+  app.put('/api/marjorie/admin/settings', requireMarjoriePermission('manage_settings'), (req, res) => {
     const raw = String(req.body.discount_percent ?? '').trim();
     const discountPercent = Number(raw);
     if (!/^\d+(\.\d{1,2})?$/.test(raw) || !Number.isFinite(discountPercent) || discountPercent > 100) {
@@ -628,7 +726,7 @@ export function registerMarjoriePromotersRoutes(app, db) {
     res.json({ discount_percent: promoterDiscountPercent(), support_whatsapp: promoterSupportWhatsapp() });
   });
 
-  app.patch('/api/marjorie/admin/promoters/:id', requireMarjorieAdmin, (req, res) => {
+  app.patch('/api/marjorie/admin/promoters/:id', requireMarjoriePermission('manage_promoters'), (req, res) => {
     const promoter = db.prepare('SELECT * FROM marjorie_promoters WHERE id = ?').get(req.params.id);
     if (!promoter) return res.status(404).json({ message: 'Promotora no encontrada' });
     const allowedStatuses = ['pending', 'active', 'review', 'suspended', 'revoked', 'rejected'];
@@ -645,7 +743,7 @@ export function registerMarjoriePromotersRoutes(app, db) {
     res.json(promoterPayload(db.prepare('SELECT * FROM marjorie_promoters WHERE id = ?').get(promoter.id)));
   });
 
-  app.post('/api/marjorie/admin/promoters/:id/approve', requireMarjorieAdmin, async (req, res) => {
+  app.post('/api/marjorie/admin/promoters/:id/approve', requireMarjoriePermission('manage_promoters'), async (req, res) => {
     const promoter = db.prepare('SELECT * FROM marjorie_promoters WHERE id = ?').get(req.params.id);
     if (!promoter) return res.status(404).json({ message: 'Promotora no encontrada' });
     if (promoter.status === 'rejected' || promoter.status === 'revoked') return res.status(409).json({ message: 'Cambia primero el estado de esta solicitud' });
@@ -662,7 +760,7 @@ export function registerMarjoriePromotersRoutes(app, db) {
     res.json({ ...promoterPayload(approved), email_sent: Boolean(email.sent), email_reason: email.reason || null });
   });
 
-  app.post('/api/marjorie/admin/sales', requireMarjorieAdmin, (req, res) => {
+  app.post('/api/marjorie/admin/sales', requireMarjoriePermission('manage_sales'), (req, res) => {
     const promoter = db.prepare('SELECT * FROM marjorie_promoters WHERE id = ?').get(req.body.promoter_id);
     if (!promoter?.activated_at) return res.status(400).json({ message: 'Selecciona una promotora activa' });
     const branch = realBranches().find((row) => Number(row.id) === Number(req.body.branch_client_id));
@@ -678,7 +776,7 @@ export function registerMarjoriePromotersRoutes(app, db) {
     res.status(201).json({ ok: true, id: result.lastInsertRowid });
   });
 
-  app.patch('/api/marjorie/admin/sales/:id', requireMarjorieAdmin, (req, res) => {
+  app.patch('/api/marjorie/admin/sales/:id', requireMarjoriePermission('manage_sales'), (req, res) => {
     const sale = db.prepare('SELECT * FROM marjorie_promoter_sales WHERE id = ?').get(req.params.id);
     if (!sale) return res.status(404).json({ message: 'Venta no encontrada' });
     const returned = Math.floor(Number(req.body.returned_pairs ?? sale.returned_pairs));
@@ -690,7 +788,7 @@ export function registerMarjoriePromotersRoutes(app, db) {
     res.json({ ok: true });
   });
 
-  app.put('/api/marjorie/admin/bonuses', requireMarjorieAdmin, (req, res) => {
+  app.put('/api/marjorie/admin/bonuses', requireMarjoriePermission('review_bonuses'), (req, res) => {
     const promoter = db.prepare('SELECT * FROM marjorie_promoters WHERE id = ?').get(req.body.promoter_id);
     const cycleStart = clean(req.body.cycle_start, 10);
     const cutNumber = Number(req.body.cut_number);
@@ -710,7 +808,7 @@ export function registerMarjoriePromotersRoutes(app, db) {
     res.json(bonus);
   });
 
-  app.post('/api/marjorie/admin/promoters/:id/pay', requireMarjorieAdmin, (req, res) => {
+  app.post('/api/marjorie/admin/promoters/:id/pay', requireMarjoriePermission('manage_payments'), (req, res) => {
     const promoter = db.prepare('SELECT * FROM marjorie_promoters WHERE id = ?').get(req.params.id);
     if (!promoter?.activated_at) return res.status(404).json({ message: 'Promotora no encontrada o sin activar' });
     const detail = promoterPayload(promoter);
@@ -741,7 +839,7 @@ export function registerMarjoriePromotersRoutes(app, db) {
       ORDER BY CASE requests.status WHEN 'pending' THEN 0 ELSE 1 END, requests.desired_date, requests.id DESC`).all()
   }));
 
-  app.post('/api/marjorie/admin/content', requireMarjorieAdmin, (req, res) => {
+  app.post('/api/marjorie/admin/content', requireMarjoriePermission('manage_content'), (req, res) => {
     const title = clean(req.body.title, 180);
     const type = ['image', 'video', 'reel', 'promotion', 'text', 'link'].includes(req.body.content_type) ? req.body.content_type : 'image';
     const assetUrl = clean(req.body.asset_url, 6000000);
@@ -752,7 +850,7 @@ export function registerMarjoriePromotersRoutes(app, db) {
     res.status(201).json({ ok: true, id: result.lastInsertRowid });
   });
 
-  app.patch('/api/marjorie/admin/content/:id', requireMarjorieAdmin, (req, res) => {
+  app.patch('/api/marjorie/admin/content/:id', requireMarjoriePermission('manage_content'), (req, res) => {
     const current = db.prepare('SELECT * FROM marjorie_content_library WHERE id = ?').get(req.params.id);
     if (!current) return res.status(404).json({ message: 'Contenido no encontrado' });
     db.prepare(`UPDATE marjorie_content_library SET title=?, content_type=?, asset_url=?, description=?, status=?, updated_at=datetime('now','localtime') WHERE id=?`)
@@ -760,7 +858,7 @@ export function registerMarjoriePromotersRoutes(app, db) {
     res.json({ ok: true });
   });
 
-  app.patch('/api/marjorie/admin/content-requests/:id', requireMarjorieAdmin, (req, res) => {
+  app.patch('/api/marjorie/admin/content-requests/:id', requireMarjoriePermission('manage_content'), (req, res) => {
     const status = ['pending', 'approved', 'rejected'].includes(req.body.status) ? req.body.status : 'pending';
     const request = db.prepare('SELECT * FROM marjorie_content_requests WHERE id = ?').get(req.params.id);
     if (!request) return res.status(404).json({ message: 'Solicitud no encontrada' });

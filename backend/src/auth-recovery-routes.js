@@ -83,6 +83,13 @@ function findRecoveryAccount(db, identifier) {
     LIMIT 1`).get(lookup, lookup, lookup);
   if (promoter?.email && validEmail(promoter.email)) return { ...promoter, type: 'promoter' };
 
+  const marjorieAdmin = db.prepare(`SELECT id, name, username, email,
+      password_recovery_requested_at AS requested_at
+    FROM marjorie_admin_users
+    WHERE status = 'active' AND (LOWER(username) = ? OR LOWER(COALESCE(email, '')) = ?)
+    LIMIT 1`).get(lookup, lookup);
+  if (marjorieAdmin?.email && validEmail(marjorieAdmin.email)) return { ...marjorieAdmin, type: 'marjorie_admin' };
+
   const marjorie = db.prepare(`SELECT id, name, COALESCE(NULLIF(code, ''), email) AS username, email,
       password_recovery_requested_at AS requested_at
     FROM marjorie_promoters
@@ -110,6 +117,12 @@ function saveTemporaryPassword(db, account, temporaryPassword) {
       WHERE id = ?`).run(temporaryPassword, account.id);
     return;
   }
+  if (account.type === 'marjorie_admin') {
+    db.prepare(`UPDATE marjorie_admin_users SET password_hash = ?, must_change_password = 1,
+      temp_password_expires_at = datetime('now', '+30 minutes'), password_recovery_requested_at = datetime('now'),
+      updated_at = datetime('now','localtime') WHERE id = ?`).run(hashRecoveryPassword(temporaryPassword), account.id);
+    return;
+  }
   db.prepare(`UPDATE marjorie_promoters SET password_hash = ?, must_change_password = 1,
     temp_password_expires_at = datetime('now', '+30 minutes'), password_recovery_requested_at = datetime('now'),
     updated_at = datetime('now','localtime') WHERE id = ?`).run(hashRecoveryPassword(temporaryPassword), account.id);
@@ -131,6 +144,12 @@ function completePasswordChange(db, claims, newPassword) {
       temp_password_expires_at = NULL, updated_at = datetime('now','localtime')
       WHERE id = ? AND must_change_password = 1`)
       .run(hashRecoveryPassword(newPassword), claims.marjoriePromoterId).changes;
+  }
+  if (claims.passwordAccountType === 'marjorie_admin' && claims.marjorieAdminId) {
+    return db.prepare(`UPDATE marjorie_admin_users SET password_hash = ?, must_change_password = 0,
+      temp_password_expires_at = NULL, updated_at = datetime('now','localtime')
+      WHERE id = ? AND must_change_password = 1`)
+      .run(hashRecoveryPassword(newPassword), claims.marjorieAdminId).changes;
   }
   return 0;
 }

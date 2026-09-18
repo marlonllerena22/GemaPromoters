@@ -133,6 +133,29 @@ export function initMarjoriePromotersDb(db) {
       updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
     );
 
+    CREATE TABLE IF NOT EXISTS marjorie_admin_users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+      email TEXT COLLATE NOCASE UNIQUE,
+      password_hash TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+      can_manage_promoters INTEGER NOT NULL DEFAULT 1 CHECK (can_manage_promoters IN (0, 1)),
+      can_manage_content INTEGER NOT NULL DEFAULT 1 CHECK (can_manage_content IN (0, 1)),
+      can_review_bonuses INTEGER NOT NULL DEFAULT 1 CHECK (can_review_bonuses IN (0, 1)),
+      can_view_sales INTEGER NOT NULL DEFAULT 1 CHECK (can_view_sales IN (0, 1)),
+      can_manage_sales INTEGER NOT NULL DEFAULT 0 CHECK (can_manage_sales IN (0, 1)),
+      can_manage_payments INTEGER NOT NULL DEFAULT 0 CHECK (can_manage_payments IN (0, 1)),
+      can_manage_settings INTEGER NOT NULL DEFAULT 0 CHECK (can_manage_settings IN (0, 1)),
+      must_change_password INTEGER NOT NULL DEFAULT 1 CHECK (must_change_password IN (0, 1)),
+      temp_password_expires_at TEXT,
+      password_recovery_requested_at TEXT,
+      last_login_at TEXT,
+      created_by TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_marjorie_promoters_status ON marjorie_promoters(status, registered_at);
     CREATE INDEX IF NOT EXISTS idx_marjorie_sales_promoter_date ON marjorie_promoter_sales(promoter_id, sale_date);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_marjorie_sales_external
@@ -141,6 +164,7 @@ export function initMarjoriePromotersDb(db) {
     CREATE INDEX IF NOT EXISTS idx_marjorie_bonuses_promoter_cycle ON marjorie_promoter_bonuses(promoter_id, cycle_start);
     CREATE INDEX IF NOT EXISTS idx_marjorie_payments_promoter_date ON marjorie_promoter_payments(promoter_id, paid_at);
     CREATE INDEX IF NOT EXISTS idx_marjorie_requests_status ON marjorie_content_requests(status, desired_date);
+    CREATE INDEX IF NOT EXISTS idx_marjorie_admin_users_status ON marjorie_admin_users(status, name);
 
     INSERT OR IGNORE INTO marjorie_promoter_settings (key, value)
     VALUES ('customer_discount_percent', '0');

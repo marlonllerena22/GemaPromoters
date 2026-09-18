@@ -57,6 +57,27 @@ test('commission scale and individual 30-day cycle boundaries are exact', () => 
   assert.equal(marjorieCycleFor('2026-09-08', '2026-10-08').start, '2026-10-08');
 });
 
+test('a Marjorie manager can activate promoters but cannot change settings, sales or payments', async (t) => {
+  const { db, server, request } = fixture();
+  t.after(() => { server.close(); db.close(); });
+  db.prepare(`INSERT INTO marjorie_admin_users
+    (name, username, password_hash, status, can_manage_promoters, can_manage_content, can_review_bonuses,
+     can_view_sales, can_manage_sales, can_manage_payments, can_manage_settings, must_change_password)
+    VALUES ('Martha Bosque', 'martha.bosque', 'unused', 'active', 1, 1, 1, 1, 0, 0, 0, 0)`).run();
+  const managerToken = createToken({ role: 'marjorie_admin', marjorieAdminId: 1, username: 'martha.bosque' });
+  const registration = {
+    name: 'Promotora Pendiente', cedula: '1801234999', whatsapp: '0991234999', email: 'pendiente@example.com',
+    instagram: 'pendiente', city: 'Ambato', photo_url: 'data:image/png;base64,AA==', password: 'clave-segura', accepted_terms: true
+  };
+  assert.equal((await request('/marjorie/register', { method: 'POST', body: JSON.stringify(registration) })).status, 201);
+  assert.equal((await request('/marjorie/admin/promoters/1/approve', { method: 'POST', token: managerToken })).status, 200);
+  assert.equal((await request('/marjorie/admin/dashboard', { token: managerToken })).status, 200);
+  assert.equal((await request('/marjorie/admin/settings', { method: 'PUT', token: managerToken, body: JSON.stringify({ discount_percent: 5 }) })).status, 403);
+  assert.equal((await request('/marjorie/admin/sales', { method: 'POST', token: managerToken, body: JSON.stringify({}) })).status, 403);
+  assert.equal((await request('/marjorie/admin/promoters/1/pay', { method: 'POST', token: managerToken, body: JSON.stringify({}) })).status, 403);
+  assert.equal((await request('/marjorie/admin/managers', { token: managerToken })).status, 403);
+});
+
 test('registration, approval, QR, sales, bonuses, payments and reversals remain auditable', async (t) => {
   const { db, server, request, adminToken } = fixture();
   t.after(() => { server.close(); db.close(); });

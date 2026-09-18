@@ -18,7 +18,7 @@ import {
 import { registerRenjiRoutes } from './renji-routes.js';
 import { registerTicketingRoutes } from './ticketing-routes.js';
 import { registerMarjoriePromotersRoutes } from './marjorie-promoters-routes.js';
-import { registerAuthRecoveryRoutes } from './auth-recovery-routes.js';
+import { registerAuthRecoveryRoutes, verifyRecoveryPassword } from './auth-recovery-routes.js';
 import { registerContentStudioRoutes } from './content-studio-routes.js';
 import { registerContentStudioLegalRoutes } from './content-studio-legal.js';
 import { findContentStudioSellerForLogin, findContentStudioUserForLogin } from './content-studio-db.js';
@@ -558,6 +558,38 @@ app.post('/api/auth/login', (req, res) => {
     return res.json({
       token: createToken({ role: 'admin', username, establishmentId: establishment?.id || 1 }),
       user: { username, role: 'admin', establishment_id: establishment?.id || 1, establishment_name: establishment?.name || 'GEMASHOW', establishment_display_name: establishment?.display_name || 'GEMASHOW' }
+    });
+  }
+
+  const marjorieAdmin = db.prepare(`SELECT * FROM marjorie_admin_users
+    WHERE status = 'active' AND (LOWER(username) = LOWER(?) OR LOWER(COALESCE(email, '')) = LOWER(?))
+    LIMIT 1`).get(String(username || '').trim(), String(username || '').trim());
+  if (marjorieAdmin && verifyRecoveryPassword(password, marjorieAdmin.password_hash)) {
+    if (temporaryPasswordExpired(marjorieAdmin.must_change_password, marjorieAdmin.temp_password_expires_at)) {
+      return res.status(401).json({ message: 'La contraseña temporal venció. Solicita una nueva.' });
+    }
+    const permissions = {
+      manage_promoters: Boolean(marjorieAdmin.can_manage_promoters),
+      manage_content: Boolean(marjorieAdmin.can_manage_content),
+      review_bonuses: Boolean(marjorieAdmin.can_review_bonuses),
+      view_sales: Boolean(marjorieAdmin.can_view_sales),
+      manage_sales: Boolean(marjorieAdmin.can_manage_sales),
+      manage_payments: Boolean(marjorieAdmin.can_manage_payments),
+      manage_settings: Boolean(marjorieAdmin.can_manage_settings)
+    };
+    const mustChangePassword = Boolean(marjorieAdmin.must_change_password);
+    db.prepare("UPDATE marjorie_admin_users SET last_login_at = datetime('now','localtime') WHERE id = ?").run(marjorieAdmin.id);
+    return res.json({
+      token: createToken({
+        role: 'marjorie_admin', username: marjorieAdmin.username, marjorieAdminId: marjorieAdmin.id,
+        passwordAccountType: 'marjorie_admin', mustChangePassword, permissions
+      }),
+      user: {
+        id: marjorieAdmin.id, username: marjorieAdmin.username, email: marjorieAdmin.email || '',
+        role: 'marjorie_admin', name: marjorieAdmin.name, establishment_name: 'MARJORIE BOTAS',
+        establishment_display_name: 'Marjorie Botas', establishment_module_type: 'marjorie',
+        must_change_password: mustChangePassword, permissions
+      }
     });
   }
 

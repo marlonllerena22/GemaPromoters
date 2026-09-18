@@ -23,9 +23,15 @@ function fixture() {
       must_change_password INTEGER DEFAULT 0, temp_password_expires_at TEXT,
       password_recovery_requested_at TEXT, updated_at TEXT
     );
+    CREATE TABLE marjorie_admin_users (
+      id INTEGER PRIMARY KEY, name TEXT, username TEXT, email TEXT, password_hash TEXT, status TEXT,
+      must_change_password INTEGER DEFAULT 0, temp_password_expires_at TEXT,
+      password_recovery_requested_at TEXT, updated_at TEXT
+    );
     INSERT INTO establishments VALUES (1, 'Marjorie Botas', 'marjorie', 'ventas@marjorie.test', 'actual', 'active', 0, NULL, NULL);
     INSERT INTO promoters VALUES (2, 'Promotor Uno', 'promotor.uno', 'promotor@test.com', 'PR-0002', 'actual', 'active', NULL, 0, NULL, NULL);
     INSERT INTO marjorie_promoters VALUES (3, 'Promotora MB', 'mb@test.com', 'MB-0003', '${hashRecoveryPassword('actual')}', 'active', 0, NULL, NULL, NULL);
+    INSERT INTO marjorie_admin_users VALUES (4, 'Martha Bosque', 'martha.bosque', 'martha@test.com', '${hashRecoveryPassword('actual')}', 'active', 0, NULL, NULL, NULL);
   `);
   const deliveries = [];
   const app = express();
@@ -78,4 +84,21 @@ test('recovery accepts promoter email and preserves the Marjorie password hash f
   const marjorie = db.prepare('SELECT password_hash, must_change_password FROM marjorie_promoters WHERE id = 3').get();
   assert.equal(marjorie.must_change_password, 1);
   assert.equal(verifyRecoveryPassword(temporaryPassword, marjorie.password_hash), true);
+});
+
+test('recovery supports a Marjorie administrator and forces a new password', async (t) => {
+  const { db, server, deliveries, request } = fixture();
+  t.after(() => { server.close(); db.close(); });
+
+  assert.equal((await request('/forgot-password', { body: { identifier: 'martha@test.com' } })).status, 200);
+  const temporaryPassword = deliveries.at(-1).password;
+  const manager = db.prepare('SELECT * FROM marjorie_admin_users WHERE id = 4').get();
+  assert.equal(manager.must_change_password, 1);
+  assert.equal(verifyRecoveryPassword(temporaryPassword, manager.password_hash), true);
+
+  const token = createToken({ role: 'marjorie_admin', marjorieAdminId: 4, passwordAccountType: 'marjorie_admin', mustChangePassword: true });
+  assert.equal((await request('/change-temporary-password', { token, body: { new_password: 'ClaveNueva25!' } })).status, 200);
+  const changed = db.prepare('SELECT * FROM marjorie_admin_users WHERE id = 4').get();
+  assert.equal(changed.must_change_password, 0);
+  assert.equal(verifyRecoveryPassword('ClaveNueva25!', changed.password_hash), true);
 });
