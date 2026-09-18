@@ -349,6 +349,10 @@ export function initDb() {
   addColumnIfMissing('establishments', 'logo_url', 'TEXT');
   addColumnIfMissing('establishments', 'admin_username', 'TEXT');
   addColumnIfMissing('establishments', 'admin_password', 'TEXT');
+  addColumnIfMissing('establishments', 'admin_email', 'TEXT');
+  addColumnIfMissing('establishments', 'admin_must_change_password', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing('establishments', 'admin_temp_password_expires_at', 'TEXT');
+  addColumnIfMissing('establishments', 'admin_password_recovery_requested_at', 'TEXT');
   const defaultEstablishment = ensureDefaultEstablishments();
   addColumnIfMissing('events', 'establishment_id', `INTEGER NOT NULL DEFAULT ${defaultEstablishment.id}`);
   addColumnIfMissing('promoters', 'establishment_id', `INTEGER NOT NULL DEFAULT ${defaultEstablishment.id}`);
@@ -359,6 +363,9 @@ export function initDb() {
   addColumnIfMissing('promoters', 'username', 'TEXT');
   addColumnIfMissing('promoters', 'password', 'TEXT');
   addColumnIfMissing('promoters', 'email', 'TEXT');
+  addColumnIfMissing('promoters', 'must_change_password', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing('promoters', 'temp_password_expires_at', 'TEXT');
+  addColumnIfMissing('promoters', 'password_recovery_requested_at', 'TEXT');
   addColumnIfMissing('promoters', 'photo_url', 'TEXT');
   addColumnIfMissing('promoters', 'can_sell', 'INTEGER NOT NULL DEFAULT 1');
   addColumnIfMissing('promoters', 'manual_points', 'REAL NOT NULL DEFAULT 0');
@@ -677,6 +684,8 @@ function ensureMarjorieEstablishment() {
     db.prepare("UPDATE establishments SET admin_password = 'marjorie123' WHERE id = ? AND (admin_password IS NULL OR admin_password = '' OR admin_password = 'marjoriepromotoras123')").run(establishment.id);
     establishment = db.prepare('SELECT * FROM establishments WHERE id = ?').get(establishment.id);
   }
+
+  db.prepare("UPDATE establishments SET admin_email = COALESCE(NULLIF(admin_email, ''), 'marjoriebotasventas@gmail.com') WHERE id = ?").run(establishment.id);
 
   db.prepare('INSERT OR IGNORE INTO branches (establishment_id, name, address, status) VALUES (?, ?, ?, ?)')
     .run(establishment.id, 'Sucursal principal', '', 'active');

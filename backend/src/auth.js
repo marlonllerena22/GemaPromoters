@@ -16,6 +16,9 @@ export function requireAuth(req, res, next) {
 
   try {
     req.user = jwt.verify(token, process.env.JWT_SECRET || 'dev-secret');
+    if (req.user?.mustChangePassword && req.originalUrl !== '/api/auth/change-temporary-password') {
+      return res.status(428).json({ message: 'Debes crear una contraseña nueva para continuar', code: 'PASSWORD_CHANGE_REQUIRED' });
+    }
     return next();
   } catch {
     return res.status(401).json({ message: 'Sesion expirada' });

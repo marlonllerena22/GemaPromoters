@@ -18,6 +18,7 @@ import {
 import { registerRenjiRoutes } from './renji-routes.js';
 import { registerTicketingRoutes } from './ticketing-routes.js';
 import { registerMarjoriePromotersRoutes } from './marjorie-promoters-routes.js';
+import { registerAuthRecoveryRoutes } from './auth-recovery-routes.js';
 import { registerContentStudioRoutes } from './content-studio-routes.js';
 import { registerContentStudioLegalRoutes } from './content-studio-legal.js';
 import { findContentStudioSellerForLogin, findContentStudioUserForLogin } from './content-studio-db.js';
@@ -38,6 +39,7 @@ app.use(express.json({
   }
 }));
 app.use(express.urlencoded({ extended: false, limit: '1mb' }));
+registerAuthRecoveryRoutes(app, db);
 
 function safeSecretMatch(expected, provided) {
   const left = Buffer.from(String(expected || ''));
@@ -162,9 +164,15 @@ function findPromoterForLogin(username, password) {
   const lookup = normalizeLookup(username);
   const cleanPassword = String(password || '').trim();
   return db
-    .prepare('SELECT id, establishment_id, name, username, code, status, can_sell FROM promoters WHERE deleted_at IS NULL AND password = ?')
+    .prepare('SELECT id, establishment_id, name, username, email, code, status, can_sell, must_change_password, temp_password_expires_at FROM promoters WHERE deleted_at IS NULL AND password = ?')
     .all(cleanPassword)
-    .find((promoter) => normalizeLookup(promoter.username) === lookup || normalizeLookup(promoter.code) === lookup);
+    .find((promoter) => normalizeLookup(promoter.username) === lookup || normalizeLookup(promoter.email) === lookup || normalizeLookup(promoter.code) === lookup);
+}
+
+function temporaryPasswordExpired(mustChangePassword, expiresAt) {
+  if (!mustChangePassword) return false;
+  if (!expiresAt) return true;
+  return Boolean(db.prepare("SELECT datetime(?) <= datetime('now') AS expired").get(expiresAt)?.expired);
 }
 
 function containsBlockedWords(...values) {
@@ -554,12 +562,16 @@ app.post('/api/auth/login', (req, res) => {
   }
 
   const owner = db
-    .prepare("SELECT * FROM establishments WHERE status = 'active' AND admin_username = ? AND admin_password = ?")
-    .get(String(username || '').trim(), String(password || '').trim());
+    .prepare("SELECT * FROM establishments WHERE status = 'active' AND (LOWER(admin_username) = LOWER(?) OR LOWER(admin_email) = LOWER(?)) AND admin_password = ?")
+    .get(String(username || '').trim(), String(username || '').trim(), String(password || '').trim());
   if (owner) {
+    if (temporaryPasswordExpired(owner.admin_must_change_password, owner.admin_temp_password_expires_at)) {
+      return res.status(401).json({ message: 'La contraseña temporal venció. Solicita una nueva.' });
+    }
     const ownerRole = owner.module_type === 'production' ? 'production_admin' : 'admin';
+    const mustChangePassword = Boolean(owner.admin_must_change_password);
     return res.json({
-      token: createToken({ role: ownerRole, username, establishmentId: owner.id }),
+      token: createToken({ role: ownerRole, username, establishmentId: owner.id, passwordAccountType: 'establishment', mustChangePassword }),
       user: {
         username,
         role: ownerRole,
@@ -567,7 +579,8 @@ app.post('/api/auth/login', (req, res) => {
         establishment_id: owner.id,
         establishment_name: owner.name,
         establishment_display_name: owner.display_name || owner.name,
-        establishment_module_type: owner.module_type || 'promoters'
+        establishment_module_type: owner.module_type || 'promoters',
+        must_change_password: mustChangePassword
       }
     });
   }
@@ -636,9 +649,15 @@ app.post('/api/auth/promoter-login', (req, res) => {
     return res.status(401).json({ message: 'Usuario o contrasena incorrectos' });
   }
 
+  if (temporaryPasswordExpired(promoter.must_change_password, promoter.temp_password_expires_at)) {
+    return res.status(401).json({ message: 'La contraseña temporal venció. Solicita una nueva.' });
+  }
+
+  const mustChangePassword = Boolean(promoter.must_change_password);
+
   return res.json({
-    token: createToken({ role: 'promoter', promoterId: promoter.id, establishmentId: promoter.establishment_id, username: promoter.username }),
-    user: { role: 'promoter', id: promoter.id, name: promoter.name, code: promoter.code, status: promoter.status, can_sell: promoter.can_sell, establishment_id: promoter.establishment_id }
+    token: createToken({ role: 'promoter', promoterId: promoter.id, establishmentId: promoter.establishment_id, username: promoter.username, passwordAccountType: 'promoter', mustChangePassword }),
+    user: { role: 'promoter', id: promoter.id, name: promoter.name, code: promoter.code, status: promoter.status, can_sell: promoter.can_sell, establishment_id: promoter.establishment_id, must_change_password: mustChangePassword }
   });
 });
 
@@ -773,17 +792,19 @@ app.post('/api/establishments', requireSupreme, (req, res) => {
   const logoUrl = String(req.body.logo_url || '').trim();
   const adminUsername = String(req.body.admin_username || '').trim();
   const adminPassword = String(req.body.admin_password || '').trim();
+  const adminEmail = String(req.body.admin_email || '').trim().toLowerCase();
   const status = ['active', 'inactive'].includes(req.body.status) ? req.body.status : 'active';
   const promoterSalesEnabled = businessType === 'commercial' ? 0 : req.body.promoter_sales_enabled ? 1 : 0;
 
   if (!name || !adminUsername || !adminPassword) {
     return res.status(400).json({ message: 'Nombre, usuario admin y contrasena admin son obligatorios' });
   }
+  if (adminEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(adminEmail)) return res.status(400).json({ message: 'Ingresa un correo de recuperación válido' });
 
   try {
     const result = db
-      .prepare('INSERT INTO establishments (name, display_name, business_type, module_type, code_prefix, theme, logo_url, admin_username, admin_password, status, promoter_sales_enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(name, displayName || name, businessType, moduleType, codePrefix, theme, logoUrl, adminUsername, adminPassword, status, promoterSalesEnabled);
+      .prepare('INSERT INTO establishments (name, display_name, business_type, module_type, code_prefix, theme, logo_url, admin_username, admin_password, admin_email, status, promoter_sales_enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(name, displayName || name, businessType, moduleType, codePrefix, theme, logoUrl, adminUsername, adminPassword, adminEmail, status, promoterSalesEnabled);
     if (moduleType === 'promoters') {
       const eventResult = db
         .prepare('INSERT INTO events (establishment_id, name, description, status, is_active) VALUES (?, ?, ?, ?, 1)')
@@ -808,17 +829,19 @@ app.put('/api/establishments/:id', requireSupreme, (req, res) => {
   const logoUrl = String(req.body.logo_url || '').trim();
   const adminUsername = String(req.body.admin_username || '').trim();
   const adminPassword = String(req.body.admin_password || '').trim();
+  const adminEmail = String(req.body.admin_email || '').trim().toLowerCase();
   const status = ['active', 'inactive'].includes(req.body.status) ? req.body.status : 'active';
   const promoterSalesEnabled = businessType === 'commercial' ? 0 : req.body.promoter_sales_enabled ? 1 : 0;
 
   if (!name || !adminUsername || !adminPassword) {
     return res.status(400).json({ message: 'Nombre, usuario admin y contrasena admin son obligatorios' });
   }
+  if (adminEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(adminEmail)) return res.status(400).json({ message: 'Ingresa un correo de recuperación válido' });
 
   try {
     const result = db
-      .prepare('UPDATE establishments SET name = ?, display_name = ?, business_type = ?, module_type = ?, code_prefix = ?, theme = ?, logo_url = ?, admin_username = ?, admin_password = ?, status = ?, promoter_sales_enabled = ? WHERE id = ?')
-      .run(name, displayName || name, businessType, moduleType, codePrefix, theme, logoUrl, adminUsername, adminPassword, status, promoterSalesEnabled, req.params.id);
+      .prepare('UPDATE establishments SET name = ?, display_name = ?, business_type = ?, module_type = ?, code_prefix = ?, theme = ?, logo_url = ?, admin_username = ?, admin_password = ?, admin_email = ?, status = ?, promoter_sales_enabled = ? WHERE id = ?')
+      .run(name, displayName || name, businessType, moduleType, codePrefix, theme, logoUrl, adminUsername, adminPassword, adminEmail, status, promoterSalesEnabled, req.params.id);
     if (!result.changes) {
       return res.status(404).json({ message: 'Establecimiento no encontrado' });
     }

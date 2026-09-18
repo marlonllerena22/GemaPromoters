@@ -152,6 +152,11 @@ export function initMarjoriePromotersDb(db) {
   const saleColumns = new Set(db.prepare('PRAGMA table_info(marjorie_promoter_sales)').all().map((column) => column.name));
   if (!saleColumns.has('sale_total')) db.exec('ALTER TABLE marjorie_promoter_sales ADD COLUMN sale_total REAL');
 
+  const promoterColumns = new Set(db.prepare('PRAGMA table_info(marjorie_promoters)').all().map((column) => column.name));
+  if (!promoterColumns.has('must_change_password')) db.exec('ALTER TABLE marjorie_promoters ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0');
+  if (!promoterColumns.has('temp_password_expires_at')) db.exec('ALTER TABLE marjorie_promoters ADD COLUMN temp_password_expires_at TEXT');
+  if (!promoterColumns.has('password_recovery_requested_at')) db.exec('ALTER TABLE marjorie_promoters ADD COLUMN password_recovery_requested_at TEXT');
+
   const missingTotals = db.prepare(`SELECT id, external_payload FROM marjorie_promoter_sales
     WHERE sale_total IS NULL AND external_payload IS NOT NULL AND external_payload != ''`).all();
   const saveRecoveredTotal = db.prepare('UPDATE marjorie_promoter_sales SET sale_total = ? WHERE id = ?');

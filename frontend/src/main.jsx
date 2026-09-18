@@ -17,6 +17,7 @@ import {
   Link as LinkIcon,
   Lock,
   LogOut,
+  Mail,
   Medal,
   Menu,
   Plus,
@@ -138,6 +139,7 @@ const emptyEstablishment = {
   logo_url: '',
   admin_username: '',
   admin_password: '',
+  admin_email: '',
   status: 'active',
   promoter_sales_enabled: true
 };
@@ -905,6 +907,20 @@ function App() {
     }} />;
   }
 
+  if (user?.must_change_password) {
+    return <TemporaryPasswordChange user={user} onComplete={(nextToken) => {
+      const nextUser = { ...user, must_change_password: false };
+      setToken(nextToken);
+      setUser(nextUser);
+      saveToken(nextToken);
+      saveUser(nextUser);
+    }} onLogout={() => {
+      clearToken();
+      saveToken(null);
+      saveUser(null);
+    }} />;
+  }
+
   if (user?.role === 'promoter') {
     return <PromoterAppPremium user={user} onLogout={() => {
       clearToken();
@@ -990,6 +1006,10 @@ function Login({ onLogin }) {
   const [rememberMe, setRememberMe] = useState(Boolean(savedCredentials.username && savedCredentials.password));
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [recoveryIdentifier, setRecoveryIdentifier] = useState(savedCredentials.username || '');
+  const [recoveryMessage, setRecoveryMessage] = useState('');
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
 
   useEffect(() => {
     if (!isStudioLogin) return undefined;
@@ -1024,7 +1044,7 @@ function Login({ onLogin }) {
 
       setToken(data.token);
       setUser(data.user);
-      if (rememberMe) {
+      if (rememberMe && !data.user?.must_change_password) {
         localStorage.setItem('promoters_remember_credentials', JSON.stringify(form));
       } else {
         localStorage.removeItem('promoters_remember_credentials');
@@ -1032,6 +1052,23 @@ function Login({ onLogin }) {
       onLogin(data.token, data.user);
     } catch (err) {
       setError(err.message);
+    }
+  }
+
+  async function recoverPassword(event) {
+    event.preventDefault();
+    setRecoveryBusy(true);
+    setRecoveryMessage('');
+    try {
+      const result = await api('/auth/forgot-password', {
+        method: 'POST',
+        body: JSON.stringify({ identifier: recoveryIdentifier })
+      });
+      setRecoveryMessage(result.message);
+    } catch (err) {
+      setRecoveryMessage(err.message);
+    } finally {
+      setRecoveryBusy(false);
     }
   }
 
@@ -1052,7 +1089,7 @@ function Login({ onLogin }) {
         </div>
         <form onSubmit={submit} className="form-grid">
           <label>
-            Usuario
+            Usuario o correo
             <input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
           </label>
           <label>
@@ -1068,6 +1105,11 @@ function Login({ onLogin }) {
               </button>
             </span>
           </label>
+          {!isStudioLogin && <button className="login-forgot-button" type="button" onClick={() => {
+            setRecoveryIdentifier(form.username || recoveryIdentifier);
+            setRecoveryOpen((value) => !value);
+            setRecoveryMessage('');
+          }}>Olvidé mi contraseña</button>}
           <label className="remember-control">
             <input
               type="checkbox"
@@ -1082,6 +1124,12 @@ function Login({ onLogin }) {
             Entrar
           </button>
         </form>
+        {recoveryOpen && <form className="login-recovery-card" onSubmit={recoverPassword}>
+          <div><Mail size={20} /><span><strong>Recupera tu acceso</strong><small>Te enviaremos una contraseña temporal al correo registrado.</small></span></div>
+          <label>Usuario o correo<input required autoComplete="username" value={recoveryIdentifier} onChange={(event) => setRecoveryIdentifier(event.target.value)} /></label>
+          {recoveryMessage && <div className="alert info">{recoveryMessage}</div>}
+          <button className="primary-button" type="submit" disabled={recoveryBusy}>{recoveryBusy ? 'Enviando…' : 'Enviar contraseña temporal'}</button>
+        </form>}
         {isStudioLogin ? <div className="login-secondary-actions studio-login-back"><a href="/">Volver a Estudios Creativos</a></div> : <div className="login-secondary-actions">
           <a href="/registro">Quiero registrarme como promotor</a>
           <a href="/marjorie/registro">Promotoras Marjorie Botas</a>
@@ -1090,6 +1138,45 @@ function Login({ onLogin }) {
       </section>
     </main>
   );
+}
+
+function TemporaryPasswordChange({ user, onComplete, onLogout }) {
+  const [form, setForm] = useState({ password: '', confirmation: '' });
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event) {
+    event.preventDefault();
+    setError('');
+    if (form.password !== form.confirmation) return setError('Las contraseñas no coinciden');
+    setBusy(true);
+    try {
+      const result = await api('/auth/change-temporary-password', {
+        method: 'POST',
+        body: JSON.stringify({ new_password: form.password })
+      });
+      onComplete(result.token);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <main className="login-shell">
+    <section className="login-panel forced-password-panel">
+      <div className="login-brand-row"><div className="brand-mark"><Lock size={23} /></div><div><span className="login-eyebrow">Protege tu cuenta</span><h1>Nueva contraseña</h1></div></div>
+      <p>Hola {user?.name || user?.username}. La contraseña que recibiste era temporal. Crea una nueva para continuar.</p>
+      <form className="form-grid" onSubmit={submit}>
+        <label>Nueva contraseña<span className="login-password-field"><input required minLength="8" autoComplete="new-password" type={showPassword ? 'text' : 'password'} value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /><button type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}>{showPassword ? <EyeOff size={19} /> : <Eye size={19} />}</button></span></label>
+        <label>Confirmar contraseña<input required minLength="8" autoComplete="new-password" type={showPassword ? 'text' : 'password'} value={form.confirmation} onChange={(event) => setForm({ ...form, confirmation: event.target.value })} /></label>
+        {error && <div className="alert error">{error}</div>}
+        <button className="primary-button" type="submit" disabled={busy}><KeyRound size={18} />{busy ? 'Guardando…' : 'Guardar y continuar'}</button>
+        <button className="login-cancel-button" type="button" onClick={onLogout}>Salir</button>
+      </form>
+    </section>
+  </main>;
 }
 
 function RegisterPage() {
@@ -1575,6 +1662,7 @@ function Establishments({ establishments, onRefresh }) {
       logo_url: establishment.logo_url || '',
       admin_username: establishment.admin_username || '',
       admin_password: establishment.admin_password || '',
+      admin_email: establishment.admin_email || '',
       status: establishment.status,
       promoter_sales_enabled: Boolean(establishment.promoter_sales_enabled)
     });
@@ -1650,6 +1738,7 @@ function Establishments({ establishments, onRefresh }) {
           </label>
           <Input label="Usuario administrador del negocio" value={form.admin_username} onChange={(admin_username) => setForm({ ...form, admin_username })} />
           <Input label="Contrasena administrador del negocio" value={form.admin_password} onChange={(admin_password) => setForm({ ...form, admin_password })} />
+          <Input type="email" label="Correo para recuperar la contraseña" value={form.admin_email} onChange={(admin_email) => setForm({ ...form, admin_email })} />
           <label>
             Estado
             <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>

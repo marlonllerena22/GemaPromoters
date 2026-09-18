@@ -599,6 +599,7 @@ button:disabled {
   box-shadow: 0 34px 100px rgba(0, 0, 0, 0.38);
   margin: auto;
   max-width: 460px;
+  min-width: 0;
   padding: 32px;
   color: #f7f4ff;
   width: 100%;
@@ -735,6 +736,64 @@ input[type="file"] {
   box-shadow: 0 16px 36px rgba(142, 93, 255, 0.28);
 }
 
+.login-forgot-button {
+  background: transparent;
+  border: 0;
+  color: #c5b2ff;
+  font-size: 13px;
+  font-weight: 850;
+  justify-self: end;
+  margin-top: -8px;
+  padding: 2px 0;
+}
+
+.login-forgot-button:hover {
+  color: #ffffff;
+}
+
+.login-recovery-card {
+  background: rgba(142, 93, 255, 0.1);
+  border: 1px solid rgba(185, 167, 255, 0.24);
+  border-radius: 8px;
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+  padding: 16px;
+}
+
+.login-recovery-card > div:first-child {
+  align-items: flex-start;
+  color: #c5b2ff;
+  display: flex;
+  gap: 10px;
+}
+
+.login-recovery-card > div:first-child span {
+  display: grid;
+  gap: 3px;
+}
+
+.login-recovery-card > div:first-child small {
+  color: #b8b3ca;
+  line-height: 1.4;
+}
+
+.login-recovery-card .primary-button {
+  min-height: 43px;
+}
+
+.forced-password-panel > p {
+  line-height: 1.55;
+}
+
+.login-cancel-button {
+  background: transparent;
+  border: 0;
+  color: #b8b3ca;
+  font-weight: 800;
+  min-height: 38px;
+}
+
 .login-secondary-actions {
   display: flex;
   flex-wrap: wrap;
@@ -748,6 +807,30 @@ input[type="file"] {
   font-size: 13px;
   font-weight: 850;
   text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 520px) {
+  .login-shell {
+    padding: 14px;
+  }
+
+  .login-panel {
+    padding: 24px 20px;
+  }
+
+  .login-brand-row {
+    gap: 12px;
+  }
+
+  .login-brand-row h1 {
+    font-size: 32px;
+  }
+
+  .login-secondary-actions {
+    display: grid;
+    gap: 10px;
+  }
 }
 
 .studio-login-shell {

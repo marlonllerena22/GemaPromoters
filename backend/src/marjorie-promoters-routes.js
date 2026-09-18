@@ -69,7 +69,13 @@ function statusLabel(status) {
 }
 
 function safePromoter(promoter) {
-  const { password_hash: _passwordHash, ...safe } = promoter;
+  const {
+    password_hash: _passwordHash,
+    must_change_password: _mustChangePassword,
+    temp_password_expires_at: _temporaryPasswordExpiresAt,
+    password_recovery_requested_at: _passwordRecoveryRequestedAt,
+    ...safe
+  } = promoter;
   return safe;
 }
 
@@ -99,17 +105,17 @@ export function registerMarjoriePromotersRoutes(app, db) {
       from: process.env.SMTP_FROM || process.env.SMTP_USER,
       to: promoter.email,
       subject: 'Tu cuenta de promotora Marjorie Botas fue aprobada',
-      text: `Hola ${promoter.name},\n\nTu registro fue aprobado y tu cuenta ya esta activa.\n\nUsuario: ${promoter.email}\nCodigo de promotora: ${promoter.code}\nContrasena: utiliza la que creaste al registrarte.\n\nIngresa aqui: ${loginUrl}\n\nTambien puedes iniciar sesion usando tu codigo de promotora como usuario.`,
+      text: `Hola ${promoter.name},\n\nTu registro fue aprobado y tu cuenta ya está activa.\n\nUsuario: ${promoter.email}\nCódigo de promotora: ${promoter.code}\nContraseña: La que pusiste al ingresar tus datos.\n\nIngresa aquí directo: ${loginUrl}\n\nTambién puedes iniciar sesión usando tu código de promotora como usuario.`,
       html: `<div style="font-family:Arial,sans-serif;background:#fff8f2;color:#3f2924;padding:28px;border:1px solid #ead8cb;border-radius:8px">
         <h2 style="margin:0 0 12px;color:#a5211c">Bienvenida a Marjorie Botas</h2>
         <p>Hola <strong>${escapeHtml(promoter.name)}</strong>, tu registro fue aprobado y tu cuenta ya esta activa.</p>
         <div style="background:#fff;border:1px solid #e5cfc0;padding:16px;border-radius:6px">
           <p><strong>Usuario:</strong> ${escapeHtml(promoter.email)}</p>
-          <p><strong>Codigo de promotora:</strong> ${escapeHtml(promoter.code)}</p>
-          <p><strong>Contrasena:</strong> utiliza la que creaste al registrarte.</p>
+          <p><strong>Código de promotora:</strong> ${escapeHtml(promoter.code)}</p>
+          <p><strong>Contraseña:</strong> La que pusiste al ingresar tus datos.</p>
         </div>
-        <p><a href="${escapeHtml(loginUrl)}" style="display:inline-block;background:#a5211c;color:#fff;text-decoration:none;padding:11px 18px;border-radius:5px">Ingresar a PROMOTERS</a></p>
-        <p style="color:#75625b;font-size:13px">Tambien puedes iniciar sesion usando tu codigo de promotora como usuario.</p>
+        <p><a href="${escapeHtml(loginUrl)}" style="display:inline-block;background:#a5211c;color:#fff;text-decoration:none;padding:11px 18px;border-radius:5px">Ingresa aquí directo</a></p>
+        <p style="color:#75625b;font-size:13px">También puedes iniciar sesión usando tu código de promotora como usuario.</p>
       </div>`
     });
     return { sent: true };
@@ -366,9 +372,13 @@ export function registerMarjoriePromotersRoutes(app, db) {
     const promoter = db.prepare('SELECT * FROM marjorie_promoters WHERE LOWER(email) = LOWER(?)').get(username) || findPromoterByCode(username);
     if (!promoter || !verifyPassword(String(req.body.password || ''), promoter.password_hash)) return res.status(401).json({ message: 'Usuario o contrasena incorrectos' });
     if (['rejected', 'revoked'].includes(promoter.status)) return res.status(403).json({ message: 'Esta cuenta no se encuentra habilitada' });
+    if (promoter.must_change_password && (!promoter.temp_password_expires_at || db.prepare("SELECT datetime(?) <= datetime('now') AS expired").get(promoter.temp_password_expires_at)?.expired)) {
+      return res.status(401).json({ message: 'La contraseña temporal venció. Solicita una nueva.' });
+    }
+    const mustChangePassword = Boolean(promoter.must_change_password);
     res.json({
-      token: createToken({ role: 'marjorie_promoter', marjoriePromoterId: promoter.id, username: promoter.code || promoter.email }),
-      user: { role: 'marjorie_promoter', id: promoter.id, name: promoter.name, code: promoter.code, status: promoter.status }
+      token: createToken({ role: 'marjorie_promoter', marjoriePromoterId: promoter.id, username: promoter.code || promoter.email, passwordAccountType: 'marjorie_promoter', mustChangePassword }),
+      user: { role: 'marjorie_promoter', id: promoter.id, name: promoter.name, code: promoter.code, status: promoter.status, must_change_password: mustChangePassword }
     });
   });
 
@@ -534,7 +544,7 @@ export function registerMarjoriePromotersRoutes(app, db) {
     const next = String(req.body.new_password || '');
     if (!verifyPassword(current, req.marjoriePromoter.password_hash)) return res.status(400).json({ message: 'La contrasena actual no coincide' });
     if (next.length < 6) return res.status(400).json({ message: 'La nueva contrasena debe tener al menos 6 caracteres' });
-    db.prepare("UPDATE marjorie_promoters SET password_hash = ?, updated_at = datetime('now','localtime') WHERE id = ?").run(hashPassword(next), req.marjoriePromoter.id);
+    db.prepare("UPDATE marjorie_promoters SET password_hash = ?, must_change_password = 0, temp_password_expires_at = NULL, updated_at = datetime('now','localtime') WHERE id = ?").run(hashPassword(next), req.marjoriePromoter.id);
     audit(req.marjoriePromoter.id, req.marjoriePromoter.email, 'password', 'promoter', req.marjoriePromoter.id);
     res.json({ ok: true });
   });
