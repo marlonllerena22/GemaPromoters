@@ -3,6 +3,7 @@ import nodemailer from 'nodemailer';
 import QRCode from 'qrcode';
 import { createToken, requireAuth } from './auth.js';
 import { transferSettings, transferInstructions, buildTicketSalesReport } from './ticketing-finance.js';
+import { registerTicketingPromotionRoutes } from './ticketing-promotions.js';
 
 function money(value) {
   return Math.round((Number(value || 0) || 0) * 100) / 100;
@@ -224,6 +225,13 @@ export function registerTicketingRoutes(app, db) {
       return next();
     });
   }
+
+  registerTicketingPromotionRoutes(app, db, {
+    requireTicketAdmin,
+    expireOldOrders: (establishmentId) => expireOldOrders(establishmentId),
+    ticketingTransporter,
+    publicAppUrl
+  });
 
   function requireTicketValidationAccess(req, res, next) {
     requireAuth(req, res, () => {

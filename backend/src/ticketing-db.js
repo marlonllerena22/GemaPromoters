@@ -251,7 +251,42 @@ export function initTicketingDb(db) {
   addColumnIfMissing(db, 'ticketing_orders', 'provider_fee_rate', 'REAL');
   addColumnIfMissing(db, 'ticketing_orders', 'transfer_reference', 'TEXT');
   addColumnIfMissing(db, 'ticketing_orders', 'transfer_checked_by', 'TEXT');
+  addColumnIfMissing(db, 'ticketing_customers', 'marketing_opt_out', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'ticketing_customers', 'marketing_unsubscribe_token', 'TEXT');
   addColumnIfMissing(db, 'ticketing_validators', 'access_scope', "TEXT NOT NULL DEFAULT 'qr'");
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ticketing_marketing_unsubscribe
+      ON ticketing_customers(marketing_unsubscribe_token) WHERE marketing_unsubscribe_token IS NOT NULL;
+    CREATE TABLE IF NOT EXISTS ticketing_promotion_campaigns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      request_key TEXT NOT NULL,
+      event_id INTEGER,
+      subject TEXT NOT NULL,
+      message TEXT NOT NULL,
+      link_url TEXT NOT NULL,
+      file_name TEXT,
+      file_mime TEXT,
+      file_data TEXT,
+      status TEXT NOT NULL DEFAULT 'queued',
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      completed_at TEXT,
+      UNIQUE(establishment_id, request_key)
+    );
+    CREATE TABLE IF NOT EXISTS ticketing_promotion_deliveries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      campaign_id INTEGER NOT NULL,
+      customer_id INTEGER NOT NULL,
+      email TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'queued',
+      reason TEXT,
+      sent_at TEXT,
+      UNIQUE(campaign_id, customer_id),
+      FOREIGN KEY (campaign_id) REFERENCES ticketing_promotion_campaigns(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ticketing_promotion_deliveries_campaign
+      ON ticketing_promotion_deliveries(campaign_id, status);
+  `);
   db.exec(`
     CREATE TABLE IF NOT EXISTS ticketing_payment_settings (
       establishment_id INTEGER PRIMARY KEY,

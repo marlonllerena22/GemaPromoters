@@ -21,6 +21,7 @@ import {
   LayoutDashboard,
   LogIn,
   LogOut,
+  Mail,
   MapPin,
   Menu,
   Plus,
@@ -39,6 +40,7 @@ import {
 } from 'lucide-react';
 import { API_URL, api, getToken, setToken, setUser } from './api.js';
 import { TransferDetails, TransfersAdmin, PaymentSettings, TicketSalesReport } from './TicketingPayments.jsx';
+import ProTicketsPromotions from './ProTicketsPromotions.jsx';
 import './protickets.css';
 
 const CUSTOMER_TOKEN_KEY = 'protickets_customer_token';
@@ -1286,7 +1288,7 @@ export default function ProTicketsApp({ embedded = false, onLogout, user }) {
 
   const nav = restrictedTransfers ? [['transfers', 'Transferencias', CreditCard]] : restrictedValidator
     ? [['validate', 'Validar QR', QrCode]]
-    : [['dashboard', 'Resumen', LayoutDashboard], ['events', 'Eventos', CalendarDays], ['orders', 'Pedidos', ShoppingBag], ['transfers', 'Transferencias', CreditCard], ['salesReport', 'Reporte de ventas', BarChart3], ['paymentSettings', 'Configuracion de pagos', Settings], ['banners', 'Banners', ImageIcon], ['validate', 'Validar QR', QrCode]];
+    : [['dashboard', 'Resumen', LayoutDashboard], ['events', 'Eventos', CalendarDays], ['orders', 'Pedidos', ShoppingBag], ['promotions', 'Promociones', Mail], ['transfers', 'Transferencias', CreditCard], ['salesReport', 'Reporte de ventas', BarChart3], ['paymentSettings', 'Configuracion de pagos', Settings], ['banners', 'Banners', ImageIcon], ['validate', 'Validar QR', QrCode]];
   const content = (
     <div className="pta-workspace">
       <header className="pta-topbar"><div><p>PROTICKETS</p><h1>{nav.find(([key]) => key === view)?.[1]}</h1></div><div>{notice && <span className="pta-notice">{notice}</span>}<a className="pta-secondary" href="/tickets" target="_blank" rel="noreferrer"><Eye /> Ver pagina publica</a>{view === 'events' && !showEventEditor && <button className="pta-primary" onClick={newEvent}><Plus /> Nuevo evento</button>}<button className="pta-mobile-menu" onClick={() => setMenuOpen((value) => !value)}><Menu /></button></div></header>
@@ -1294,6 +1296,7 @@ export default function ProTicketsApp({ embedded = false, onLogout, user }) {
         {view === 'dashboard' && <DashboardAdmin data={data} setView={setView} editEvent={editEvent} />}
         {view === 'events' && (showEventEditor ? <EventEditor eventId={editingEventId} onSaved={savedEvent} onCancel={() => setShowEventEditor(false)} /> : <section className="pta-section"><div className="pta-section-title"><div><p>CATALOGO</p><h2>Todos los eventos</h2></div></div><div className="pta-event-table">{data.events.map((event) => <article key={event.id}><img src={event.card_image_url || event.hero_image_url} alt="" /><div><span className={`pta-pill ${event.status}`}>{statusLabel(event.status)}</span><h3>{event.title}</h3><p>{formatDate(event.event_date)} · {event.venue}, {event.city}</p></div><div><strong>{event.available_tickets || 0}</strong><span>disponibles</span></div><button className="pta-secondary" onClick={() => editEvent(event.id)}><Edit3 /> Editar</button></article>)}</div></section>)}
         {view === 'orders' && <OrdersAdmin orders={data.orders} onRefresh={load} onTransfers={() => setView('transfers')} />}
+        {view === 'promotions' && <ProTicketsPromotions api={ticketingApi} events={data.events} />}
         {view === 'transfers' && <TransfersAdmin api={ticketingApi} restricted={restrictedTransfers} />}
         {view === 'salesReport' && <TicketSalesReport api={ticketingApi} />}
         {view === 'paymentSettings' && <PaymentSettings api={ticketingApi} />}
@@ -1303,7 +1306,9 @@ export default function ProTicketsApp({ embedded = false, onLogout, user }) {
     </div>
   );
 
-  if (embedded) return <div className="pta-embedded">{content}</div>;
+  if (embedded) return <div className="pta-embedded"><nav className="pta-embedded-nav" aria-label="Secciones de ProTickets">{nav.map(([key, label]) =>
+    <button type="button" className={view === key ? 'active' : ''} key={key} onClick={() => { setView(key); setShowEventEditor(false); }}>{label}</button>
+  )}</nav>{content}</div>;
   return (
     <main className="pta-app">
       <aside className={menuOpen ? 'open' : ''}><Logo /> <nav>{nav.map(([key, label, Icon]) => <button className={view === key ? 'active' : ''} key={key} onClick={() => { setView(key); setMenuOpen(false); setShowEventEditor(false); }}><Icon />{label}</button>)}</nav><button className="pta-logout" onClick={onLogout}><LogOut /> Cerrar sesion</button></aside>
