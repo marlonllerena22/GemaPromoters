@@ -20,6 +20,14 @@ function money(value) {
 }
 
 function renjiItemDetail(order) {
+  const catalogItems = order.catalog_items?.length
+    ? order.catalog_items
+    : [...(order.stock_items || []), ...(order.production_items || [])];
+  if (catalogItems.length > 1 || catalogItems.some((item) => item.product_name || item.color)) {
+    return catalogItems.map((item, index) =>
+      `${index + 1}. ${item.product_name || 'Pantalon baggy'} - ${item.color || ''} - Talla ${item.size}`
+    ).join(' / ');
+  }
   const hoodieSize = order.hoodie_size || order.size || 'M';
   const pantsSize = order.pants_size || order.size || 'M';
   if (order.product_id) return `${order.product_name || 'Pantalon baggy'} - ${order.color} - Talla ${pantsSize}`;
@@ -568,11 +576,11 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                     <tr key={registration.id}>
                       <td><strong>{registration.customer_name}</strong><small>{registration.customer_city} - {registration.customer_address}</small></td>
                       <td>{registration.customer_phone}<small>{registration.customer_instagram ? `@${registration.customer_instagram}` : 'Sin Instagram'}</small></td>
-                      <td>{renjiItemDetail(registration)} x{registration.quantity}</td>
+                      <td>{renjiItemDetail(registration)}{registration.catalog_items?.length > 1 ? '' : ` x${registration.quantity}`}</td>
                       <td>{registration.created_at}{registration.product_id && <small>{registration.email_sent ? "Correo enviado" : "Correo pendiente"}</small>}<small>{registration.registration_type === 'separation' ? `Separado: ${money(registration.deposit_amount)}` : 'Cancelado'}</small></td>
                       <td>
                         <div className="renji-actions">
-                          <button onClick={() => { setEditingRegistrationId(registration.id); setEditingOrderId(null); setOrderForm(formFromRecord(registration)); setSalePanelOpen(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><Edit3 size={15} />Editar</button>
+                          {registration.catalog_items?.length <= 1 && <button onClick={() => { setEditingRegistrationId(registration.id); setEditingOrderId(null); setOrderForm(formFromRecord(registration)); setSalePanelOpen(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><Edit3 size={15} />Editar</button>}
                           {registration.product_id && <button onClick={() => resendEmail(registration)}>Reenviar correo</button>}
                           <button onClick={() => confirmRegistration(registration)}><CheckCircle2 size={15} />Confirmar</button>
                           <button onClick={() => deleteRegistration(registration)}><Trash2 size={15} />Eliminar</button>
@@ -608,7 +616,7 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                       <td>{order.order_number}</td>
                       <td><strong>{order.customer_name}</strong><small>{order.customer_city} - {order.customer_phone}{order.customer_instagram ? ` - @${order.customer_instagram}` : ''}</small></td>
                       <td className={Number(order.size_edited || 0) ? 'renji-size-edited-cell' : ''}>
-                        {renjiItemDetail(order)} x{order.quantity}
+                        {renjiItemDetail(order)}{order.stock_items?.length > 1 ? '' : ` x${order.quantity}`}
                         {Number(order.size_edited || 0) ? <span className="renji-ed-badge">ED</span> : null}
                       </td>
                       <td>
@@ -628,7 +636,7 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                       <td><span className={`renji-pill ${order.shipping_status}`}>{order.shipping_status === 'sent' ? 'Enviado' : 'No enviado'}</span></td>
                       <td>
                         <div className="renji-actions">
-                          <button onClick={() => { setEditingOrderId(order.id); setEditingRegistrationId(null); setOrderForm(formFromRecord(order)); setSalePanelOpen(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><Edit3 size={15} />Editar</button>
+                          {(order.stock_items?.length || 0) + (order.production_items?.length || 0) <= 1 && <button onClick={() => { setEditingOrderId(order.id); setEditingRegistrationId(null); setOrderForm(formFromRecord(order)); setSalePanelOpen(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><Edit3 size={15} />Editar</button>}
                           <button onClick={() => markPaid(order)} disabled={order.payment_status === 'paid'}><CheckCircle2 size={15} />Pagado</button>
                           {(order.production_status || 'ready') !== 'ready' && <button onClick={() => markProductionReady(order)}><CheckCircle2 size={15} />Listo</button>}
                           <button onClick={() => toggleShipping(order)}><Truck size={15} />{order.shipping_status === 'sent' ? 'No enviado' : 'Enviado'}</button>

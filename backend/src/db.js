@@ -992,6 +992,7 @@ function initRenjiDb() {
   addColumnIfMissing('renji_registrations', 'customer_email', 'TEXT');
   addColumnIfMissing('renji_registrations', 'hoodie_size', 'TEXT');
   addColumnIfMissing('renji_registrations', 'pants_size', 'TEXT');
+  addColumnIfMissing('renji_registrations', 'catalog_items_json', 'TEXT');
   initRenjiCatalog(db);
 }
 

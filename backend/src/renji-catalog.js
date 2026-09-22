@@ -35,6 +35,7 @@ export function initRenjiCatalog(db) {
   add('renji_registrations', 'request_key', 'TEXT');
   add('renji_registrations', 'request_hash', 'TEXT');
   add('renji_registrations', 'email_sent', 'INTEGER NOT NULL DEFAULT 0');
+  add('renji_registrations', 'catalog_items_json', 'TEXT');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_renji_registration_request ON renji_registrations(establishment_id, request_key)');
 }
 
@@ -87,8 +88,22 @@ export function moveCatalogStock(db, establishmentId, productId, size, quantity,
 }
 
 export function releaseRegistrationStock(db, registration, reason) {
-  if (registration.product_id && registration.stock_reserved) {
-    moveCatalogStock(db, registration.establishment_id, registration.product_id, registration.pants_size || registration.size,
-      Number(registration.quantity), `${reason} registro ${registration.id}`);
+  if (!registration.stock_reserved) return;
+  let items = [];
+  try {
+    items = JSON.parse(registration.catalog_items_json || '[]');
+  } catch {
+    items = [];
+  }
+  if (!Array.isArray(items) || !items.length) {
+    items = registration.product_id ? [{
+      product_id: registration.product_id,
+      size: registration.pants_size || registration.size,
+      quantity: Number(registration.quantity)
+    }] : [];
+  }
+  for (const item of items) {
+    moveCatalogStock(db, registration.establishment_id, item.product_id, item.size,
+      Number(item.quantity || 1), `${reason} registro ${registration.id}`);
   }
 }

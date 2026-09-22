@@ -25,6 +25,12 @@ function escapeHtml(value) {
 }
 
 function renjiItemDetailText(payload) {
+  const catalogItems = catalogItemsFromPayload(payload);
+  if (catalogItems.length) {
+    return catalogItems.map((item, index) =>
+      `${index + 1}. ${item.product_name || 'Pantalón baggy'} · ${item.color || ''} · Talla ${item.size}`
+    ).join('\n');
+  }
   const hoodieSize = payload.hoodieSize || payload.hoodie_size || payload.size || 'M';
   const pantsSize = payload.pantsSize || payload.pants_size || payload.size || 'M';
   if (payload.productId || payload.product_id) return `${payload.productName || payload.product_name || 'Pantalón baggy'} · ${payload.color} · Talla ${pantsSize}`;
@@ -56,7 +62,11 @@ async function sendRenjiOrderConfirmationEmail(payload) {
   });
   const from = process.env.SMTP_FROM || process.env.SMTP_USER;
   const detail = renjiItemDetailText(payload);
-  const quantity = Number(payload.quantity || 1);
+  const catalogItems = catalogItemsFromPayload(payload);
+  const quantity = catalogItems.length
+    ? catalogItems.reduce((sum, item) => sum + Number(item.quantity || 1), 0)
+    : Number(payload.quantity || 1);
+  const detailHtml = detail.split('\n').map((line) => `<div style="margin:6px 0">${escapeHtml(line)}</div>`).join('');
 
   await transporter.sendMail({
     from,
@@ -66,9 +76,9 @@ async function sendRenjiOrderConfirmationEmail(payload) {
 
 Recibimos tus datos para RENJI.
 
-Pedido: ${detail}
-Cantidad: ${quantity}
-Color: ${payload.color || 'Negro'}
+Prendas:
+${detail}
+Total de prendas: ${quantity}
 Referencia: ${payload.registrationId ? `Registro #${payload.registrationId}` : 'RENJI'}
 
 Datos de envio:
@@ -86,9 +96,9 @@ Por favor revisa que todo este correcto. Si necesitas corregir algun dato, conta
         <h2 style="margin-top:0;color:#ffffff">Confirmacion de datos RENJI</h2>
         <p>Hola <strong>${escapeHtml(payload.customerName)}</strong>, recibimos tus datos correctamente.</p>
         <div style="background:#151518;border:1px solid #2f2f35;padding:16px;border-radius:12px;margin:16px 0">
-          <p><strong>Pedido:</strong> ${escapeHtml(detail)}</p>
-          <p><strong>Cantidad:</strong> ${quantity}</p>
-          <p><strong>Color:</strong> ${escapeHtml(payload.color || 'Negro')}</p>
+          <p><strong>Prendas:</strong></p>
+          ${detailHtml}
+          <p><strong>Total de prendas:</strong> ${quantity}</p>
           ${payload.registrationId ? `<p><strong>Referencia:</strong> Registro #${payload.registrationId}</p>` : ''}
         </div>
         <div style="background:#111827;border:1px solid #273449;padding:16px;border-radius:12px">
@@ -126,7 +136,49 @@ function parseJsonArray(value) {
   }
 }
 
+function catalogItemsFromPayload(payload) {
+  const items = payload.catalogItems || payload.catalog_items || parseJsonArray(payload.catalog_items_json);
+  return Array.isArray(items) ? items : [];
+}
+
+function readPublicCatalogItems(db, establishmentId, body, legacyPayload) {
+  const suppliedItems = Array.isArray(body.items) ? body.items : [];
+  if (suppliedItems.length > 2) throw catalogError('Puedes registrar un máximo de dos prendas por cliente.', 400);
+  const rawItems = suppliedItems.length ? suppliedItems : [{
+    product_id: legacyPayload.productId,
+    size: legacyPayload.pantsSize,
+    quantity: legacyPayload.quantity
+  }];
+  if (!rawItems.length) throw catalogError('Selecciona al menos una prenda.', 400);
+
+  return rawItems.map((item) => {
+    const quantity = Number(item.quantity ?? 1);
+    if (!Number.isSafeInteger(quantity) || quantity < 1 || (suppliedItems.length && quantity !== 1)) {
+      throw catalogError('Cada selección representa una prenda. Agrega una segunda selección para pedir dos.', 400);
+    }
+    const size = normalizeSize(item.size || item.pants_size);
+    if (!size) throw catalogError('Selecciona la talla de cada prenda.', 400);
+    const normalized = {
+      productId: cleanText(item.product_id),
+      selectionType: 'pants',
+      pantsSize: size,
+      size
+    };
+    validateCatalogPayload(db, establishmentId, normalized);
+    return {
+      item_type: 'pants',
+      product_id: normalized.productId,
+      product_name: normalized.productName,
+      color: normalized.color,
+      size,
+      quantity
+    };
+  });
+}
+
 function orderItemsForSelection(selectionType, quantity, sizesByType = {}) {
+  const catalogItems = catalogItemsFromPayload(sizesByType);
+  if (catalogItems.length) return catalogItems.map((item) => ({ ...item, item_type: 'pants' }));
   const qty = Math.max(1, Number(quantity || 1));
   const hoodieSize = sizesByType.hoodie_size || sizesByType.hoodieSize || sizesByType.size;
   const pantsSize = sizesByType.pants_size || sizesByType.pantsSize || sizesByType.size;
@@ -166,6 +218,7 @@ function formatRegistration(row) {
   const pantsSize = row.pants_size || row.size;
   return {
     ...row,
+    catalog_items: parseJsonArray(row.catalog_items_json),
     hoodie_size: hoodieSize,
     pants_size: pantsSize,
     quantity: Number(row.quantity || 0),
@@ -546,11 +599,29 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
     try {
       const establishment = getRenjiEstablishment(db);
       if (!establishment) return res.status(404).json({ message: 'RENJI no está disponible' });
-      const payload = readOrderPayload(req.body, {
+      const firstItem = Array.isArray(req.body.items) ? req.body.items[0] : null;
+      const payload = readOrderPayload({
+        ...req.body,
+        product_id: firstItem?.product_id || req.body.product_id,
+        selection_type: 'pants',
+        size: firstItem?.size || req.body.size,
+        pants_size: firstItem?.size || req.body.pants_size,
+        quantity: firstItem ? 1 : req.body.quantity
+      }, {
         paidByDefault: !isSeparation, registrationType: isSeparation ? 'separation' : 'paid',
         requireDeposit: isSeparation, requireEmail: true
       });
-      validateCatalogPayload(db, establishment.id, payload);
+      const catalogItems = readPublicCatalogItems(db, establishment.id, req.body, payload);
+      const firstCatalogItem = catalogItems[0];
+      Object.assign(payload, {
+        catalogItems,
+        productId: firstCatalogItem.product_id,
+        productName: firstCatalogItem.product_name,
+        color: firstCatalogItem.color,
+        size: firstCatalogItem.size,
+        pantsSize: firstCatalogItem.size,
+        quantity: catalogItems.reduce((sum, item) => sum + item.quantity, 0)
+      });
       const requestKey = cleanText(req.body.request_key);
       if (!/^[a-zA-Z0-9-]{16,80}$/.test(requestKey)) throw catalogError('Actualiza la página e intenta enviar tu pedido nuevamente.', 400);
       const requestHash = createHash('sha256').update(JSON.stringify(payload)).digest('hex');
@@ -561,16 +632,18 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
           if (previous.request_hash !== requestHash) throw catalogError('Este envío ya fue registrado. Actualiza la página para crear otro pedido.');
           return { id: previous.id, duplicate: true, emailSent: Boolean(previous.email_sent) };
         }
-        moveCatalogStock(db, establishment.id, payload.productId, payload.pantsSize, -payload.quantity, `Reserva web ${requestKey}`);
+        for (const item of catalogItems) {
+          moveCatalogStock(db, establishment.id, item.product_id, item.size, -item.quantity, `Reserva web ${requestKey}`);
+        }
         const inserted = db.prepare(`INSERT INTO renji_registrations
           (establishment_id, customer_name, customer_cedula, customer_email, customer_city, customer_address, customer_phone,
            customer_instagram, purchase_channel, selection_type, size, hoodie_size, pants_size, quantity, registration_type,
-           deposit_amount, notes, product_id, product_name, color, stock_reserved, request_key, request_hash)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`)
+           deposit_amount, notes, product_id, product_name, color, stock_reserved, request_key, request_hash, catalog_items_json)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`)
           .run(establishment.id, payload.customerName, payload.cedula, payload.email, payload.city, payload.address,
             payload.phone, payload.instagram, payload.purchaseChannel, payload.selectionType, payload.size, payload.hoodieSize,
             payload.pantsSize, payload.quantity, payload.registrationType, payload.depositAmount, payload.notes,
-            payload.productId, payload.productName, payload.color, requestKey, requestHash);
+            payload.productId, payload.productName, payload.color, requestKey, requestHash, JSON.stringify(catalogItems));
         return { id: Number(inserted.lastInsertRowid), duplicate: false };
       })();
       let emailResult = { sent: result.emailSent || false };
@@ -579,7 +652,8 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
         db.prepare('UPDATE renji_registrations SET email_sent = ? WHERE id = ?').run(emailResult.sent ? 1 : 0, result.id);
       }
       res.status(result.duplicate ? 200 : 201).json({ ok: true, registration_id: result.id, email: { sent: emailResult.sent },
-        product_name: payload.productName, color: payload.color, size: payload.pantsSize, quantity: payload.quantity });
+        product_name: payload.productName, color: payload.color, size: payload.pantsSize, quantity: payload.quantity,
+        items: catalogItems });
     } catch (error) {
       res.status(error.status || 500).json({ message: error.message || 'No se pudo registrar tu pedido' });
     }
@@ -665,6 +739,9 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
       const order = db.prepare('SELECT * FROM renji_orders WHERE id = ? AND establishment_id = ?').get(req.params.id, establishmentId);
       if (!order) {
         return res.status(404).json({ message: 'Pedido no encontrado' });
+      }
+      if (parseJsonArray(order.stock_items_json).length + parseJsonArray(order.production_items_json).length > 1) {
+        throw catalogError('Este pedido contiene dos prendas y debe mantenerse unido.', 400);
       }
       const payload = readOrderPayload({ ...req.body, product_id: req.body.product_id ?? order.product_id });
       if (order.product_id && !payload.productId) throw catalogError('Selecciona un pantalón del catálogo.');
@@ -753,6 +830,9 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
       assertRenjiBusiness(db, establishmentId);
       const registration = db.prepare("SELECT * FROM renji_registrations WHERE id = ? AND establishment_id = ? AND status = 'pending'").get(req.params.id, establishmentId);
       if (!registration) return res.status(404).json({ message: 'Registro no encontrado o ya confirmado' });
+      if (parseJsonArray(registration.catalog_items_json).length > 1) {
+        throw catalogError('Este registro contiene dos prendas. Puedes confirmarlo o cancelarlo como un solo pedido.', 400);
+      }
       const registrationType = req.body.registration_type === 'separation' ? 'separation' : 'paid';
       const payload = readOrderPayload({ ...req.body, product_id: req.body.product_id ?? registration.product_id }, {
         paidByDefault: registrationType === 'paid',
@@ -793,8 +873,11 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
         if (!result.changes) {
           throw catalogError('Registro no encontrado o ya confirmado', 404);
         }
-        if (payload.productId) db.prepare('UPDATE renji_registrations SET product_id = ?, product_name = ?, color = ?, stock_reserved = 1, email_sent = 0 WHERE id = ?')
-          .run(payload.productId, payload.productName, payload.color, registration.id);
+        if (payload.productId) db.prepare('UPDATE renji_registrations SET product_id = ?, product_name = ?, color = ?, stock_reserved = 1, email_sent = 0, catalog_items_json = ? WHERE id = ?')
+          .run(payload.productId, payload.productName, payload.color, JSON.stringify([{
+            item_type: 'pants', product_id: payload.productId, product_name: payload.productName,
+            color: payload.color, size: payload.pantsSize, quantity: payload.quantity
+          }]), registration.id);
       })();
       res.json(getRenjiOverview(db, establishmentId));
     } catch (error) {
@@ -834,6 +917,7 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
         registrationType: registration.registration_type || 'paid',
         requireDeposit: isSeparation
       });
+      payload.catalogItems = parseJsonArray(registration.catalog_items_json);
       const transaction = db.transaction(() => {
         const orderId = insertRenjiOrder(db, establishmentId, payload, { alreadyReserved: Boolean(registration.product_id && registration.stock_reserved) });
         db.prepare(
@@ -856,6 +940,7 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
       const registration = db.prepare("SELECT * FROM renji_registrations WHERE id = ? AND establishment_id = ? AND status = 'pending'").get(req.params.id, establishmentId);
       if (!registration) throw catalogError('Registro no encontrado', 404);
       const payload = readOrderPayload(registration, { requireEmail: true });
+      payload.catalogItems = parseJsonArray(registration.catalog_items_json);
       const result = await sendRenjiOrderConfirmationEmail({ ...payload, registrationId: registration.id });
       if (!result.sent) throw catalogError('No se pudo enviar el correo. Revisa la configuración de correo.', 503);
       db.prepare('UPDATE renji_registrations SET email_sent = 1 WHERE id = ?').run(registration.id);

@@ -150,4 +150,33 @@ test('RENJI photo catalog reserves exact variants, survives retries, and preserv
     assert.deepEqual(db.prepare('SELECT * FROM renji_stock WHERE establishment_id = ?').all(business.id), legacyBefore);
     assert.equal((await request('/stock', 'POST', { items: [] }, '')).status, 401);
   });
+
+  await t.test('one customer can reserve and confirm two independently sized garments', async () => {
+    const messageCount = messages.length;
+    const body = payload({
+      product_id: 'baggy-negro', pants_size: 'XL', size: 'XL', quantity: 2,
+      items: [
+        { product_id: 'baggy-negro', size: 'XL', quantity: 1 },
+        { product_id: 'baggy-gris', size: 'S', quantity: 1 }
+      ]
+    });
+    const response = await request('/public-registrations', 'POST', body);
+    assert.equal(response.status, 201);
+    assert.equal(response.body.items.length, 2);
+    assert.equal(stock('baggy-negro', 'XL'), 1);
+    assert.equal(stock('baggy-gris', 'S'), 0);
+    assert.equal(messages.length, messageCount + 1);
+    assert.match(messages.at(-1).text, /Negro.*Talla XL/s);
+    assert.match(messages.at(-1).text, /Gris.*Talla S/s);
+
+    const saved = registration(response.body.registration_id);
+    assert.equal(JSON.parse(saved.catalog_items_json).length, 2);
+    assert.equal((await request(`/registrations/${saved.id}/confirm`, 'POST')).status, 200);
+    const confirmed = registration(saved.id);
+    const order = db.prepare('SELECT * FROM renji_orders WHERE id = ?').get(confirmed.order_id);
+    assert.equal(JSON.parse(order.stock_items_json).length, 2);
+    assert.equal((await request(`/orders/${order.id}`, 'DELETE')).status, 200);
+    assert.equal(stock('baggy-negro', 'XL'), 2);
+    assert.equal(stock('baggy-gris', 'S'), 1);
+  });
 });
