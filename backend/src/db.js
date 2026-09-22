@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { initProducalzaDb } from './producalza-db.js';
+import { initRenjiCatalog, seedRenjiCatalog } from './renji-catalog.js';
 import { initTicketingDb } from './ticketing-db.js';
 import { initMarjoriePromotersDb } from './marjorie-promoters-db.js';
 import { ensureContentStudioEstablishment, initContentStudioDb } from './content-studio-db.js';
@@ -886,6 +887,7 @@ function ensureRenjiEstablishment() {
   }
 
   seedRenjiStock(establishment.id);
+  seedRenjiCatalog(db, establishment.id);
   return establishment;
 }
 
@@ -990,6 +992,7 @@ function initRenjiDb() {
   addColumnIfMissing('renji_registrations', 'customer_email', 'TEXT');
   addColumnIfMissing('renji_registrations', 'hoodie_size', 'TEXT');
   addColumnIfMissing('renji_registrations', 'pants_size', 'TEXT');
+  initRenjiCatalog(db);
 }
 
 function seedRenjiStock(establishmentId) {

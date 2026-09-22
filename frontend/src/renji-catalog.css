@@ -1,0 +1,52 @@
+.renji-catalog-page { background: radial-gradient(ellipse at 10% 0, #33372f, transparent 50%), #141613; align-items: flex-start; padding: 32px 16px; }
+.renji-catalog-page .renji-public-card { max-width: 820px; padding: 32px; background: #fafaf7; border: 0; border-radius: 24px; }
+.renji-catalog-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 32px; }
+.renji-wordmark { font-weight: 950; font-size: 25px; letter-spacing: -1px; color: #1c241b; }
+.renji-wordmark > span { font-size: 10px; letter-spacing: 1.5px; font-weight: 600; }
+.renji-drop-tag { background: #ddeaaf; color: #2c421b; padding: 7px 10px; font-size: 10px; letter-spacing: 1px; font-weight: 800; border-radius: 20px; white-space: nowrap; }
+.renji-catalog-page h1 { font-size: clamp(28px, 5vw, 40px); color: #1e241c; letter-spacing: -1.2px; }
+.renji-form-fields { display: contents; border: 0; padding: 0; margin: 0; min-width: 0; }
+.renji-product-section { min-width: 0; }
+.renji-product-section h2, .renji-form-heading { display: flex; align-items: center; gap: 10px; font-size: 18px; margin: 22px 0 16px; color: #20271d; }
+.renji-product-section h2 > span, .renji-form-heading > span { border: 1px solid #d7dccd; border-radius: 50%; width: 29px; height: 29px; display: inline-grid; place-items: center; font-size: 11px; color: #62724d; }
+.renji-product-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.renji-product-card { display: block; text-align: left; padding: 0; border: 2px solid #e0e2d9; border-radius: 17px; overflow: hidden; background: #fff; color: #20271d; cursor: pointer; min-width: 0; transition: border-color .15s, box-shadow .15s; }
+.renji-product-card.selected { border-color: #4d6339; box-shadow: 0 0 0 3px #ddeaaf; }
+.renji-product-card:focus-visible, .renji-size-options button:focus-visible { outline: 3px solid #799e4e; outline-offset: 4px; }
+.renji-product-photo { position: relative; aspect-ratio: 4 / 5; background: #deded8; }
+.renji-product-photo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.renji-product-check { position: absolute; top: 10px; right: 10px; background: #ddeaaf; border-radius: 50%; padding: 5px; display: flex; color: #203315; }
+.renji-photo-label { position: absolute; bottom: 10px; left: 10px; font-size: 9px; letter-spacing: 1px; background: #fafaf0e8; padding: 6px 8px; border-radius: 5px; font-weight: 800; }
+.renji-product-caption { display: grid; gap: 5px; padding: 15px; }
+.renji-product-caption small { font-size: 12px; color: #6c7465; }
+.renji-product-caption strong { display: flex; gap: 8px; align-items: center; font-size: 23px; }
+.renji-product-caption i { display: inline-block; border: 1px solid #0002; width: 13px; height: 13px; border-radius: 50%; }
+.renji-product-caption > span { color: #5e6a54; font-size: 12px; }
+.renji-previous-drop { display: flex; gap: 8px; align-items: center; background: #edeee7; color: #72766c; border-radius: 9px; padding: 11px 13px; margin-top: 17px; font-size: 12px; }
+.renji-previous-drop b { margin-left: auto; font-size: 10px; letter-spacing: 1px; }
+.renji-size-picker h3 { margin: 23px 0 12px; font-size: 15px; }
+.renji-size-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.renji-size-options button { display: grid; justify-items: center; gap: 5px; background: white; border: 1px solid #d9ddcf; border-radius: 10px; padding: 12px 3px; cursor: pointer; color: #283320; }
+.renji-size-options strong { font-size: 21px; }
+.renji-size-options small { font-size: 10px; }
+.renji-size-options button.selected { background: #26351f; color: white; border-color: #26351f; }
+.renji-product-card:disabled, .renji-size-options button:disabled { opacity: .5; cursor: not-allowed; }
+.renji-catalog-page .renji-form input, .renji-catalog-page .renji-form select { background: #fff; min-height: 46px; font-size: 16px; }
+.renji-order-summary { padding: 16px; background: #eef2e4; border-radius: 12px; display: grid; gap: 6px; color: #2d3d21; }
+.renji-order-summary small { font-size: 12px; line-height: 1.5; }
+.renji-submit-order { min-height: 54px; justify-content: center; font-size: 16px; background: #293b21; }
+.renji-submit-order:disabled { opacity: .5; cursor: not-allowed; }
+.renji-admin-catalog { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 22px; }
+.renji-admin-catalog article { padding: 16px; border: 1px solid #deded5; border-radius: 14px; display: grid; gap: 10px; }
+.renji-admin-catalog img { width: 100%; max-height: 210px; object-fit: contain; border-radius: 10px; background: #eeeee8; }
+.renji-admin-catalog article > div { display: flex; flex-wrap: wrap; gap: 12px; }
+@media (max-width: 540px) {
+  .renji-catalog-page { padding: 10px; }
+  .renji-catalog-page .renji-public-card { padding: 22px 16px; border-radius: 18px; }
+  .renji-catalog-header { margin-bottom: 24px; }
+  .renji-wordmark > span { display: none; }
+  .renji-product-grid { gap: 10px; }
+  .renji-product-caption { padding: 12px; }
+  .renji-product-caption strong { font-size: 20px; }
+  .renji-photo-label { font-size: 8px; left: 6px; bottom: 6px; }
+}

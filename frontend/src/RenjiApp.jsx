@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, ChevronDown, Copy, Edit3, PackagePlus, Printer, Shirt, Trash2, Truck, WalletCards } from 'lucide-react';
 import { api, clearToken } from './api.js';
+import './renji-catalog.css';
 
 const today = new Date().toISOString().slice(0, 10);
 const sizes = ['S', 'M', 'L', 'XL'];
@@ -21,6 +22,7 @@ function money(value) {
 function renjiItemDetail(order) {
   const hoodieSize = order.hoodie_size || order.size || 'M';
   const pantsSize = order.pants_size || order.size || 'M';
+  if (order.product_id) return `${order.product_name || 'Pantalon baggy'} - ${order.color} - Talla ${pantsSize}`;
   if (order.selection_type === 'set') {
     return `Hoodie ${hoodieSize} + Pantalon ${pantsSize}`;
   }
@@ -45,7 +47,8 @@ const emptyOrder = {
   customer_phone: '',
   customer_instagram: '',
   purchase_channel: 'other',
-  selection_type: 'set',
+  product_id: 'baggy-negro',
+  selection_type: 'pants',
   size: 'M',
   hoodie_size: 'M',
   pants_size: 'M',
@@ -57,7 +60,8 @@ const emptyOrder = {
 };
 
 const emptyStockItem = {
-  item_type: 'hoodie',
+  product_id: 'baggy-negro',
+  item_type: 'pants',
   size: 'M',
   quantity: ''
 };
@@ -128,6 +132,7 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
       customer_phone: record.customer_phone || '',
       customer_instagram: record.customer_instagram || '',
       purchase_channel: record.purchase_channel || 'other',
+      product_id: record.product_id || '',
       selection_type: record.selection_type || 'set',
       size: record.size || 'M',
       hoodie_size: record.hoodie_size || record.size || 'M',
@@ -264,6 +269,15 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
     } catch (err) {
       setError(err.message);
     }
+  }
+
+  async function resendEmail(registration) {
+    setError('');
+    try {
+      await api(scoped(`/renji/registrations/${registration.id}/resend-email`, establishmentId), { method: 'POST' });
+      setNotice('Confirmacion enviada al correo del cliente.');
+      await loadOverview();
+    } catch (err) { setError(err.message); }
   }
 
   async function confirmRegistration(registration) {
@@ -421,18 +435,18 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                   </select>
                 </label>
                 <label>Instagram<input value={orderForm.customer_instagram} onChange={(e) => setOrderForm({ ...orderForm, customer_instagram: e.target.value })} required={orderForm.purchase_channel === 'instagram'} placeholder="@usuario" /></label>
-                <label>Prenda
-                  <select value={orderForm.selection_type} onChange={(e) => {
-                    const selectionType = e.target.value;
-                    setOrderForm({
-                      ...orderForm,
-                      selection_type: selectionType,
-                      size: selectionType === 'pants' ? orderForm.pants_size : orderForm.hoodie_size
-                    });
+                <label>Prenda y color
+                  <select value={orderForm.product_id || orderForm.selection_type} onChange={(e) => {
+                    const product = overview.catalog?.find((entry) => entry.id === e.target.value);
+                    setOrderForm({ ...orderForm, product_id: product?.id || '', selection_type: product ? 'pants' : e.target.value,
+                      size: product || e.target.value === 'pants' ? orderForm.pants_size : orderForm.hoodie_size });
                   }}>
-                    <option value="set">Conjunto Sukuna</option>
-                    <option value="hoodie">Solo hoodie Sukuna</option>
-                    <option value="pants">Solo pantalon Sukuna</option>
+                    {(overview.catalog || []).map((product) => <option key={product.id} value={product.id}>{product.name} - {product.color}</option>)}
+                    {(editingOrderId || editingRegistrationId) && !orderForm.product_id && <>
+                      <option value="set">Conjunto Sukuna (anterior)</option>
+                      <option value="hoodie">Hoodie Sukuna (anterior)</option>
+                      <option value="pants">Pantalon Sukuna (anterior)</option>
+                    </>}
                   </select>
                 </label>
                 {orderForm.selection_type !== 'pants' && (
@@ -481,13 +495,15 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                 <label>Nota<input value={stockForm.notes} onChange={(e) => setStockForm({ ...stockForm, notes: e.target.value })} /></label>
                 {stockForm.items.map((item, index) => (
                   <div className="renji-stock-line span-2" key={index}>
-                    <select value={item.item_type} onChange={(e) => {
+                    <select value={item.product_id || item.item_type} onChange={(e) => {
+                      const product = overview.catalog?.find((entry) => entry.id === e.target.value);
                       const items = [...stockForm.items];
-                      items[index] = { ...item, item_type: e.target.value };
+                      items[index] = { ...item, product_id: product?.id || '', item_type: product ? 'pants' : e.target.value };
                       setStockForm({ ...stockForm, items });
                     }}>
-                      <option value="hoodie">Hoodie</option>
-                      <option value="pants">Pantalon</option>
+                      {(overview.catalog || []).map((product) => <option key={product.id} value={product.id}>{product.name} - {product.color}</option>)}
+                      <option value="hoodie">Hoodie Sukuna (historico)</option>
+                      <option value="pants">Pantalon Sukuna (historico)</option>
                     </select>
                     <select value={item.size} onChange={(e) => {
                       const items = [...stockForm.items];
@@ -512,6 +528,14 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
 
           <section className="renji-panel">
             <div className="panel-title"><h3>Stock actual</h3></div>
+            <div className="renji-admin-catalog">
+              {(overview.catalog || []).map((product) => <article key={product.id}>
+                <img src={product.image_url} alt={`${product.name} ${product.color}`} />
+                <strong>{product.name} - {product.color}</strong>
+                <div>{product.sizes.map((variant) => <span key={variant.size}>{variant.size}: <b>{variant.quantity}</b></span>)}</div>
+              </article>)}
+            </div>
+            <p>Conjunto Sukuna: agotado para nuevos pedidos. Inventario historico:</p>
             <div className="renji-stock-grid">
               {['hoodie', 'pants'].map((itemType) => (
                 <article key={itemType}>
@@ -544,11 +568,12 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                     <tr key={registration.id}>
                       <td><strong>{registration.customer_name}</strong><small>{registration.customer_city} - {registration.customer_address}</small></td>
                       <td>{registration.customer_phone}<small>{registration.customer_instagram ? `@${registration.customer_instagram}` : 'Sin Instagram'}</small></td>
-                      <td>{renjiItemDetail(registration)} - Negro x{registration.quantity}</td>
-                      <td>{registration.created_at}<small>{registration.registration_type === 'separation' ? `Separado: ${money(registration.deposit_amount)}` : 'Cancelado'}</small></td>
+                      <td>{renjiItemDetail(registration)} x{registration.quantity}</td>
+                      <td>{registration.created_at}{registration.product_id && <small>{registration.email_sent ? "Correo enviado" : "Correo pendiente"}</small>}<small>{registration.registration_type === 'separation' ? `Separado: ${money(registration.deposit_amount)}` : 'Cancelado'}</small></td>
                       <td>
                         <div className="renji-actions">
                           <button onClick={() => { setEditingRegistrationId(registration.id); setEditingOrderId(null); setOrderForm(formFromRecord(registration)); setSalePanelOpen(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><Edit3 size={15} />Editar</button>
+                          {registration.product_id && <button onClick={() => resendEmail(registration)}>Reenviar correo</button>}
                           <button onClick={() => confirmRegistration(registration)}><CheckCircle2 size={15} />Confirmar</button>
                           <button onClick={() => deleteRegistration(registration)}><Trash2 size={15} />Eliminar</button>
                         </div>
@@ -583,7 +608,7 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                       <td>{order.order_number}</td>
                       <td><strong>{order.customer_name}</strong><small>{order.customer_city} - {order.customer_phone}{order.customer_instagram ? ` - @${order.customer_instagram}` : ''}</small></td>
                       <td className={Number(order.size_edited || 0) ? 'renji-size-edited-cell' : ''}>
-                        {renjiItemDetail(order)} - Negro x{order.quantity}
+                        {renjiItemDetail(order)} x{order.quantity}
                         {Number(order.size_edited || 0) ? <span className="renji-ed-badge">ED</span> : null}
                       </td>
                       <td>
@@ -710,93 +735,6 @@ function RenjiGuidesPrint({ orders }) {
   );
 }
 
-export function RenjiPublicRegistration({ mode = 'paid' }) {
-  const isSeparation = mode === 'separation';
-  const [form, setForm] = useState({ ...emptyOrder, pending_amount: 0, registration_type: isSeparation ? 'separation' : 'paid' });
-  const [sent, setSent] = useState(false);
-  const [error, setError] = useState('');
-
-  async function submit(event) {
-    event.preventDefault();
-    setError('');
-    try {
-      await api(isSeparation ? '/renji/public-separations' : '/renji/public-registrations', {
-        method: 'POST',
-        body: JSON.stringify(form)
-      });
-      setSent(true);
-      setForm({ ...emptyOrder, pending_amount: 0, registration_type: isSeparation ? 'separation' : 'paid' });
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
-  return (
-    <main className="renji-public-page">
-      <section className="renji-public-card">
-        <span>PROMOTERS / RENJI</span>
-        <h1>{isSeparation ? 'Datos de separacion' : 'Datos para envio'}</h1>
-        <p>{isSeparation ? 'Completa tus datos y el valor que transferiste para separar tu pedido.' : 'Completa tus datos exactamente como deben aparecer en la guia de envio.'}</p>
-        {sent && (
-          <div className="renji-push-overlay" role="status" aria-live="polite">
-            <div className="renji-push-card">
-              <CheckCircle2 size={36} />
-              <strong>Pedido confirmado</strong>
-              <p>Tu pedido fue confirmado y creado con éxito 🙌🏻, en tu correo electrónico puedes verificarlo si no lo ves en la bandeja principal revisa el apartado de no deseados 🫡</p>
-              <button className="renji-primary" type="button" onClick={() => setSent(false)}>Entendido</button>
-            </div>
-          </div>
-        )}
-        {error && <div className="alert error">{error}</div>}
-        <form className="renji-form" onSubmit={submit}>
-          <label>Nombres completos<input value={form.customer_name} onChange={(e) => setForm({ ...form, customer_name: e.target.value })} required /></label>
-          <label>Cedula<input value={form.customer_cedula} onChange={(e) => setForm({ ...form, customer_cedula: e.target.value })} required /></label>
-          <label>Correo electronico<input type="email" value={form.customer_email} onChange={(e) => setForm({ ...form, customer_email: e.target.value })} required /></label>
-          <label>Ciudad<input value={form.customer_city} onChange={(e) => setForm({ ...form, customer_city: e.target.value })} required /></label>
-          <label>Direccion<input value={form.customer_address} onChange={(e) => setForm({ ...form, customer_address: e.target.value })} required /></label>
-          <label>Celular<input value={form.customer_phone} onChange={(e) => setForm({ ...form, customer_phone: e.target.value })} required /></label>
-          <label>Compra por
-            <select value={form.purchase_channel} onChange={(e) => setForm({ ...form, purchase_channel: e.target.value })}>
-              <option value="other">Otro medio</option>
-              <option value="instagram">Instagram</option>
-            </select>
-          </label>
-          <label>Usuario de Instagram<input value={form.customer_instagram} onChange={(e) => setForm({ ...form, customer_instagram: e.target.value })} required={form.purchase_channel === 'instagram'} placeholder="@usuario" /></label>
-          <label>Prenda
-            <select value={form.selection_type} onChange={(e) => {
-              const selectionType = e.target.value;
-              setForm({
-                ...form,
-                selection_type: selectionType,
-                size: selectionType === 'pants' ? form.pants_size : form.hoodie_size
-              });
-            }}>
-              <option value="set">Conjunto Sukuna</option>
-              <option value="hoodie">Solo hoodie Sukuna</option>
-              <option value="pants">Solo pantalon Sukuna</option>
-            </select>
-          </label>
-          {form.selection_type !== 'pants' && (
-            <label>Talla hoodie
-              <select value={form.hoodie_size} onChange={(e) => setForm({ ...form, hoodie_size: e.target.value, size: e.target.value })}>
-                {sizes.map((size) => <option key={size} value={size}>{size}</option>)}
-              </select>
-            </label>
-          )}
-          {form.selection_type !== 'hoodie' && (
-            <label>Talla pantalon
-              <select value={form.pants_size} onChange={(e) => setForm({ ...form, pants_size: e.target.value, size: form.selection_type === 'pants' ? e.target.value : form.size })}>
-                {sizes.map((size) => <option key={size} value={size}>{size}</option>)}
-              </select>
-            </label>
-          )}
-          <label>Cantidad<input type="number" min="1" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} /></label>
-          {isSeparation && <label>Valor transferido<input type="number" min="0.01" step="0.01" value={form.deposit_amount} onChange={(e) => setForm({ ...form, deposit_amount: e.target.value })} required /></label>}
-          <button className="renji-primary span-2" type="submit">Enviar mis datos</button>
-        </form>
-      </section>
-    </main>
-  );
-}
+export { default as RenjiPublicRegistration } from './RenjiPublicRegistration.jsx';
 
 export default RenjiApp;
