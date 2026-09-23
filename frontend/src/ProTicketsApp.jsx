@@ -130,10 +130,12 @@ function money(value) {
 
 function formatDate(value, withTime = false) {
   if (!value) return 'Fecha por confirmar';
-  const normalized = String(value).includes('T') ? value : String(value).replace(' ', 'T');
+  const raw = String(value);
+  const normalized = /[zZ]|[+-]\d\d:\d\d$/.test(raw) ? raw : `${raw.replace(' ', 'T')}Z`;
   const date = new Date(normalized);
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat('es-EC', {
+    timeZone: 'America/Guayaquil',
     dateStyle: 'long',
     ...(withTime ? { timeStyle: 'short' } : {})
   }).format(date);

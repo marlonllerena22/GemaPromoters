@@ -6,6 +6,7 @@ import { renjiCatalog, validateCatalogPayload, moveCatalogStock, releaseRegistra
 
 const sizes = ['S', 'M', 'L', 'XL'];
 const itemTypes = ['hoodie', 'pants'];
+const SUKUNA_LAUNCH = { id: 'lanzamiento-1-sukuna', name: 'Lanzamiento 1 · Conjunto Sukuna' };
 
 function cleanText(value) {
   return String(value || '').trim();
@@ -226,6 +227,22 @@ function formatRegistration(row) {
   };
 }
 
+function launchForRecord(row, catalogById) {
+  const productIds = new Set([
+    row.product_id,
+    ...parseJsonArray(row.catalog_items_json).map((item) => item.product_id),
+    ...parseJsonArray(row.stock_items_json).map((item) => item.product_id),
+    ...parseJsonArray(row.production_items_json).map((item) => item.product_id)
+  ].filter(Boolean));
+  const launches = [...productIds]
+    .map((productId) => catalogById.get(productId))
+    .filter(Boolean)
+    .filter((launch, index, all) => all.findIndex((candidate) => candidate.id === launch.id) === index);
+  if (!launches.length) return { launch_id: SUKUNA_LAUNCH.id, launch_name: SUKUNA_LAUNCH.name };
+  if (launches.length === 1) return { launch_id: launches[0].id, launch_name: launches[0].name };
+  return { launch_id: launches.map((launch) => launch.id).sort().join('+'), launch_name: launches.map((launch) => launch.name).join(' + ') };
+}
+
 function normalizedOrderSizes(row) {
   return {
     size: row.size || '',
@@ -360,6 +377,11 @@ function readOrderPayload(body, { paidByDefault = false, registrationType = null
 
 function getRenjiOverview(db, establishmentId) {
   const historicallyEditedSizeIds = detectHistoricallyEditedSizeOrderIds(db, establishmentId);
+  const catalog = renjiCatalog(db, establishmentId);
+  const catalogById = new Map(catalog.map((product) => [product.id, {
+    id: product.launch_id || 'lanzamiento-2-pantalones',
+    name: product.launch_name || 'Lanzamiento 2 · Pantalones baggy'
+  }]));
   const stock = db
     .prepare(
       `SELECT *
@@ -380,6 +402,7 @@ function getRenjiOverview(db, establishmentId) {
     .all(establishmentId)
     .map((row) => ({
       ...formatOrder(row),
+      ...launchForRecord(row, catalogById),
       size_edited: Number(row.size_edited || 0) || historicallyEditedSizeIds.has(Number(row.id)) ? 1 : 0
     }));
   const registrations = db
@@ -390,7 +413,13 @@ function getRenjiOverview(db, establishmentId) {
        ORDER BY created_at DESC, id DESC`
     )
     .all(establishmentId)
-    .map(formatRegistration);
+    .map((row) => ({ ...formatRegistration(row), ...launchForRecord(row, catalogById) }));
+
+  const launchMap = new Map([[SUKUNA_LAUNCH.id, SUKUNA_LAUNCH.name]]);
+  for (const product of catalog) launchMap.set(product.launch_id, product.launch_name);
+  for (const record of [...orders, ...registrations]) launchMap.set(record.launch_id, record.launch_name);
+  const launches = [...launchMap].map(([id, name]) => ({ id, name }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'es'));
 
   const soldGarments = orders.reduce((sum, order) => sum + order.garments, 0);
   const pendingPayments = orders
@@ -403,7 +432,8 @@ function getRenjiOverview(db, establishmentId) {
 
   return {
     stock,
-    catalog: renjiCatalog(db, establishmentId),
+    catalog,
+    launches,
     orders,
     registrations,
     summary: {

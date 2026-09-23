@@ -56,6 +56,8 @@ test('RENJI photo catalog reserves exact variants, survives retries, and preserv
       const entry = catalog.body.products.find((item) => item.id === product);
       assert.deepEqual(entry.sizes.map((item) => item.quantity), expected);
       assert.match(entry.image_url, /^\/renji\/pantalon-/);
+      assert.equal(entry.launch_id, 'lanzamiento-2-pantalones');
+      assert.equal(entry.launch_name, 'Lanzamiento 2 · Pantalones baggy');
     }
     assert.equal((await request('/public-registrations', 'POST', payload({ product_id: '', selection_type: 'set' }))).status, 409);
     assert.equal((await request('/orders', 'POST', payload({ product_id: '', selection_type: 'set' }))).status, 409);
@@ -146,6 +148,9 @@ test('RENJI photo catalog reserves exact variants, survives retries, and preserv
     assert.equal(sale.status, 201);
     assert.equal(stock('baggy-gris', 'L'), 2);
     assert.equal(sale.body.orders[0].color, 'Gris');
+    assert.equal(sale.body.orders[0].launch_id, 'lanzamiento-2-pantalones');
+    assert.ok(sale.body.launches.some((launch) => launch.id === 'lanzamiento-1-sukuna'));
+    assert.ok(sale.body.launches.some((launch) => launch.id === 'lanzamiento-2-pantalones'));
     assert.equal(sale.body.catalog.length, 2);
     assert.deepEqual(db.prepare('SELECT * FROM renji_stock WHERE establishment_id = ?').all(business.id), legacyBefore);
     assert.equal((await request('/stock', 'POST', { items: [] }, '')).status, 401);

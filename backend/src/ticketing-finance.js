@@ -41,7 +41,7 @@ export function buildTicketSalesReport(orders, items, defaultFeePercent) {
   const groups = new Map();
   const simpleGroups = new Map();
   const totals = { quantity: 0, subtotal: 0, service_fee: 0, gross: 0, payphone_fee: 0, protickets_net: 0, event_net: 0 };
-  const simpleTotals = { ...totals, transfer_total: 0, payphone_total: 0 };
+  const simpleTotals = { ...totals, admissions: 0, transfer_total: 0, payphone_total: 0 };
   let estimatedOrders = 0;
   for (const order of orders) {
     const lines = items.filter((item) => item.order_id === order.id);
@@ -77,7 +77,7 @@ export function buildTicketSalesReport(orders, items, defaultFeePercent) {
       const simpleRow = simpleGroups.get(simpleKey) || {
         event_title: order.event_title, locality: item.ticket_name, unit_price_cents: 0, purchase_quantity: 0,
         is_promo_golden: false,
-        quantity: 0, subtotal: 0, service_fee: 0, gross: 0, payphone_fee: 0,
+        quantity: 0, admissions: 0, subtotal: 0, service_fee: 0, gross: 0, payphone_fee: 0,
         protickets_net: 0, event_net: 0, transfer_total: 0, payphone_total: 0
       };
       const purchaseQuantity = Number(item.quantity);
@@ -87,7 +87,10 @@ export function buildTicketSalesReport(orders, items, defaultFeePercent) {
       simpleRow.unit_price_cents += cents(item.unit_price) * purchaseQuantity;
       simpleRow.purchase_quantity += purchaseQuantity;
       simpleRow.is_promo_golden ||= isPromoGolden;
-      simpleRow.quantity += admissionQuantity;
+      // Quantity always means purchased units/tickets, exactly like the detailed report.
+      // Admissions is separate because a Promo Golden unit admits two people.
+      simpleRow.quantity += purchaseQuantity;
+      simpleRow.admissions += admissionQuantity;
       for (const field of ['subtotal', 'service_fee', 'gross', 'payphone_fee', 'protickets_net', 'event_net']) {
         simpleRow[field] += values[field];
         simpleTotals[field] += values[field];
@@ -95,7 +98,8 @@ export function buildTicketSalesReport(orders, items, defaultFeePercent) {
       const methodField = order.payment_method === 'transfer' ? 'transfer_total' : 'payphone_total';
       simpleRow[methodField] += values.gross;
       simpleTotals[methodField] += values.gross;
-      simpleTotals.quantity += admissionQuantity;
+      simpleTotals.quantity += purchaseQuantity;
+      simpleTotals.admissions += admissionQuantity;
       simpleGroups.set(simpleKey, simpleRow);
     });
   }
@@ -105,9 +109,18 @@ export function buildTicketSalesReport(orders, items, defaultFeePercent) {
     const { unit_price_cents, ...values } = row;
     return { ...convert(values), unit_price: dollars(values.purchase_quantity ? Math.round(unit_price_cents / values.purchase_quantity) : 0) };
   });
+  const convertedTotals = convert(totals);
+  const convertedSimpleTotals = convert(simpleTotals);
+  const reconciliation = {
+    gross_matches_payments: cents(convertedSimpleTotals.gross) === cents(convertedSimpleTotals.transfer_total) + cents(convertedSimpleTotals.payphone_total),
+    gross_matches_distribution: cents(convertedTotals.gross) === cents(convertedTotals.event_net) + cents(convertedTotals.service_fee),
+    service_matches_costs: cents(convertedTotals.service_fee) === cents(convertedTotals.protickets_net) + cents(convertedTotals.payphone_fee),
+    quantities_match: Number(convertedTotals.quantity) === Number(convertedSimpleTotals.quantity)
+  };
+  reconciliation.balanced = Object.values(reconciliation).every(Boolean);
   return {
-    rows: [...groups.values()].map(convert), totals: convert(totals),
-    simple_rows: simpleRows, simple_totals: convert(simpleTotals),
+    rows: [...groups.values()].map(convert), totals: convertedTotals,
+    simple_rows: simpleRows, simple_totals: convertedSimpleTotals, reconciliation,
     orders: orders.length, estimated_orders: estimatedOrders
   };
 }

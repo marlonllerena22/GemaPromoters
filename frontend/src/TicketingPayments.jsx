@@ -1,8 +1,21 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, Copy, Edit3, Mail, MessageCircle, Printer, RefreshCw, Save, Search, UserPlus, X } from 'lucide-react';
+import html2canvas from 'html2canvas';
+import { Check, Copy, Download, Edit3, Mail, MessageCircle, Printer, RefreshCw, Save, Search, UserPlus, X } from 'lucide-react';
 
 const money = (value) => new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD' }).format(Number(value || 0));
-const date = (value) => value ? new Date(String(value).replace(' ', 'T') + (String(value).includes('Z') ? '' : '-05:00')).toLocaleString('es-EC') : '-';
+const ECUADOR_TIMEZONE = 'America/Guayaquil';
+const timestamp = (value) => {
+  if (!value) return null;
+  const raw = String(value);
+  return new Date(/[zZ]|[+-]\d\d:\d\d$/.test(raw) ? raw : `${raw.replace(' ', 'T')}Z`);
+};
+const date = (value) => {
+  const parsed = timestamp(value);
+  return parsed && !Number.isNaN(parsed.getTime())
+    ? new Intl.DateTimeFormat('es-EC', { timeZone: ECUADOR_TIMEZONE, dateStyle: 'medium', timeStyle: 'short' }).format(parsed)
+    : '-';
+};
+const ecuadorToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: ECUADOR_TIMEZONE }).format(new Date());
 const statuses = { pending: 'Pendiente', paid: 'Pagado', expired: 'Vencido', rejected: 'Rechazado' };
 
 export function TransferDetails({ order }) {
@@ -12,8 +25,8 @@ export function TransferDetails({ order }) {
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
   const details = order.transfer;
   if (!details) return null;
-  const deadline = order.expires_at_iso || order.expires_at.replace(' ', 'T') + '-05:00';
-  const left = Math.max(0, Math.ceil((new Date(deadline).getTime() - now) / 1000));
+  const deadline = order.expires_at_iso || order.expires_at;
+  const left = Math.max(0, Math.ceil(((timestamp(deadline)?.getTime() || 0) - now) / 1000));
   const phone = details.whatsapp.startsWith('593') ? `0${details.whatsapp.slice(3)}` : details.whatsapp;
   async function copyPhone() {
     try { await navigator.clipboard.writeText(phone); setCopied(true); setCopyError(''); }
@@ -142,6 +155,7 @@ export function TicketSalesReport({ api }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const reportRef = useRef(null);
   async function load(e) {
     e?.preventDefault(); setBusy(true); setError('');
@@ -155,19 +169,53 @@ export function TicketSalesReport({ api }) {
     popup.document.write(`<!doctype html><html><head><title>Reporte ProTickets</title><style>@page{size:A4 landscape;margin:10mm}body{font:11px Arial;color:#111}table{border-collapse:collapse;width:100%;table-layout:fixed}td,th{border:1px solid #777;padding:6px;overflow-wrap:anywhere;text-align:right}td:first-child,th:first-child{text-align:left}h2{font-size:20px}h3{font-size:14px}.pt-report-totals{display:flex;flex-wrap:wrap;gap:15px;margin:14px 0}.pt-report-totals div{display:grid;gap:4px}tr{break-inside:avoid}</style></head><body>${reportRef.current.innerHTML}</body></html>`);
     popup.document.close(); setTimeout(() => popup.print(), 250);
   }
-  return <section className="pta-section"><div className="pta-section-title"><h2>Reporte de ventas por localidad</h2><button className="pta-secondary" disabled={!data} onClick={print}><Printer /> Imprimir</button></div>
+  async function downloadImage() {
+    if (!reportRef.current) return;
+    setError('');
+    setExporting(true);
+    try {
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const node = reportRef.current;
+      const width = Math.max(node.scrollWidth, 1180);
+      const canvas = await html2canvas(node, {
+        backgroundColor: '#ffffff',
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        width,
+        height: node.scrollHeight,
+        windowWidth: width,
+        windowHeight: node.scrollHeight
+      });
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png', 1));
+      if (!blob) throw new Error('No se pudo crear la imagen');
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `reporte-protickets-${reportMode}-${filters.from || 'inicio'}-${filters.to || ecuadorToday()}.png`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.message || 'No se pudo descargar el reporte como imagen');
+    } finally {
+      setExporting(false);
+    }
+  }
+  const simpleTotals = data?.simple_totals || {};
+  return <section className="pta-section"><div className="pta-section-title"><h2>Reporte de ventas por localidad</h2><div className="pta-actions"><button className="pta-secondary" disabled={!data || exporting} onClick={downloadImage}><Download /> {exporting ? 'Creando imagen...' : 'Descargar foto'}</button><button className="pta-secondary" disabled={!data} onClick={print}><Printer /> Imprimir</button></div></div>
     <div className="pt-report-mode" role="group" aria-label="Tipo de reporte">
       <button type="button" className={reportMode === 'simple' ? 'active' : ''} aria-pressed={reportMode === 'simple'} onClick={() => setReportMode('simple')}><strong>Simple</strong><span>Una fila por localidad</span></button>
       <button type="button" className={reportMode === 'detailed' ? 'active' : ''} aria-pressed={reportMode === 'detailed'} onClick={() => setReportMode('detailed')}><strong>Detallado</strong><span>Desglose por forma de pago</span></button>
     </div>
     <form className="pt-report-filters" onSubmit={load}><label>Evento<select value={filters.event_id} onChange={(e) => setFilters({ ...filters, event_id: e.target.value })}><option value="">Todos</option>{data?.events.map((event) => <option key={event.id} value={event.id}>{event.title}</option>)}</select></label><label>Pagado desde<input type="date" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} /></label><label>Hasta<input type="date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} /></label><button className="pta-primary" disabled={busy}><Search /> Consultar</button></form>
     {error && <div className="pt-alert error">{error}</div>}
-    {data && <div ref={reportRef} className="pt-finance-report"><h3>ProTickets · Reporte {reportMode === 'simple' ? 'simple' : 'detallado'}</h3><p>{data.from || 'Inicio'} hasta {data.to || 'Hoy'}</p>
+    {data && <div ref={reportRef} className={`pt-finance-report ${exporting ? 'is-exporting' : ''}`}><div className="pt-report-heading"><div><span>PROTICKETS</span><h3>Reporte {reportMode === 'simple' ? 'simple' : 'detallado'} de ventas</h3></div><p>Zona horaria: Ecuador<br />Generado: {date(data.generated_at)}</p></div><p>Periodo: {data.from || 'Inicio'} hasta {data.to || 'Hoy'}</p>
+      <div className={`pt-reconciliation ${data.reconciliation?.balanced ? 'ok' : 'error'}`}><strong>{data.reconciliation?.balanced ? 'Reporte cuadrado' : 'Revisar diferencias'}</strong><span>{data.reconciliation?.balanced ? 'Cobros, formas de pago, descuentos y cantidades coinciden.' : 'Se detectó una diferencia entre los totales calculados.'}</span></div>
       {reportMode === 'simple' ? <>
-        <div className="pt-report-totals simple">{[['quantity', 'Entradas'], ['gross', 'Cobro total'], ['transfer_total', 'En transferencias'], ['payphone_total', 'En PayPhone'], ['payphone_fee', 'Descuento PayPhone'], ['service_fee', 'Descuento ProTickets'], ['event_net', 'Le queda al evento']].map(([key, label]) => <div key={key}><span>{label}</span><strong>{key === 'quantity' ? data.simple_totals[key] : money(data.simple_totals[key])}</strong></div>)}</div>
-        <div className="pt-report-table simple"><table><thead><tr><th>Evento / localidad</th><th>Precio entrada</th><th>Cantidad de entradas</th><th>Cobro total</th><th>Descuento PayPhone</th><th>Descuento ProTickets</th><th>Le queda al evento</th><th>Transferencia</th><th>PayPhone</th></tr></thead><tbody>{data.simple_rows.map((row, i) => <tr key={i}><td>{row.event_title}<br /><strong>{row.locality}</strong>{row.is_promo_golden && <small> · Cada combo cuenta por 2</small>}</td><td>{money(row.unit_price)}</td><td><strong>{row.quantity}</strong>{row.is_promo_golden && <span className="pt-combo-count"> (Combos: {row.purchase_quantity})</span>}</td>{['gross', 'payphone_fee', 'service_fee', 'event_net', 'transfer_total', 'payphone_total'].map((key) => <td key={key}>{money(row[key])}</td>)}</tr>)}</tbody><tfoot><tr><th colSpan={2}>TOTAL</th><th>{data.simple_totals.quantity}</th>{['gross', 'payphone_fee', 'service_fee', 'event_net', 'transfer_total', 'payphone_total'].map((key) => <th key={key}>{money(data.simple_totals[key])}</th>)}</tr></tfoot></table></div>
+        <div className="pt-report-totals simple">{[['quantity', 'Compras / entradas'], ['admissions', 'Personas que ingresan'], ['gross', 'Cobro total'], ['transfer_total', 'En transferencias'], ['payphone_total', 'En PayPhone'], ['payphone_fee', 'Descuento PayPhone'], ['service_fee', 'Descuento ProTickets'], ['event_net', 'Le queda al evento']].map(([key, label]) => <div key={key}><span>{label}</span><strong>{['quantity', 'admissions'].includes(key) ? simpleTotals[key] : money(simpleTotals[key])}</strong></div>)}</div>
+        <div className="pt-report-table simple"><table><thead><tr><th>Evento / localidad</th><th>Precio</th><th>Compras / entradas</th><th>Personas</th><th>Cobro total</th><th>Descuento PayPhone</th><th>Descuento ProTickets</th><th>Le queda al evento</th><th>Transferencia</th><th>PayPhone</th></tr></thead><tbody>{data.simple_rows.map((row, i) => <tr key={i}><td>{row.event_title}<br /><strong>{row.locality}</strong>{row.is_promo_golden && <small> · 1 combo permite el ingreso de 2 personas</small>}</td><td>{money(row.unit_price)}</td><td><strong>{row.quantity}</strong></td><td><strong>{row.admissions}</strong></td>{['gross', 'payphone_fee', 'service_fee', 'event_net', 'transfer_total', 'payphone_total'].map((key) => <td key={key}>{money(row[key])}</td>)}</tr>)}</tbody><tfoot><tr><th colSpan={2}>TOTAL</th><th>{simpleTotals.quantity}</th><th>{simpleTotals.admissions}</th>{['gross', 'payphone_fee', 'service_fee', 'event_net', 'transfer_total', 'payphone_total'].map((key) => <th key={key}>{money(simpleTotals[key])}</th>)}</tr></tfoot></table></div>
         {!data.simple_rows.length && <p>No hay ventas pagadas en este periodo.</p>}
-        <p>Promo Golden cuenta dos entradas por cada unidad comprada. El cobro conserva el valor real de la venta.</p>
+        <p>Las compras/entradas coinciden con el reporte detallado. “Personas” muestra la capacidad real de ingreso; Promo Golden suma dos personas por combo.</p>
       </> : <>
         <div className="pt-report-totals">{[['quantity', 'Entradas vendidas'], ['gross', 'Total cobrado'], ['payphone_fee', 'Comision PayPhone'], ['protickets_net', 'Neto ProTickets'], ['event_net', 'Neto del evento']].map(([key, label]) => <div key={key}><span>{label}</span><strong>{key === 'quantity' ? data.totals[key] : money(data.totals[key])}</strong></div>)}</div>
         <div className="pt-report-table"><table><thead><tr><th>Evento / localidad</th><th>Metodo</th><th>Precio entrada</th><th>Cantidad</th><th>Entradas $</th><th>Servicio cobrado</th><th>Total cobrado</th><th>PayPhone</th><th>ProTickets neto</th><th>Evento neto</th></tr></thead><tbody>{data.rows.map((row, i) => <tr key={i}><td>{row.event_title}<br /><strong>{row.locality}</strong></td><td>{row.payment_method === 'transfer' ? 'Transferencia' : 'PayPhone'}</td><td>{money(row.unit_price)}</td><td>{row.quantity}</td>{['subtotal', 'service_fee', 'gross', 'payphone_fee', 'protickets_net', 'event_net'].map((key) => <td key={key}>{money(row[key])}</td>)}</tr>)}</tbody><tfoot><tr><th colSpan={3}>TOTAL</th><th>{data.totals.quantity}</th>{['subtotal', 'service_fee', 'gross', 'payphone_fee', 'protickets_net', 'event_net'].map((key) => <th key={key}>{money(data.totals[key])}</th>)}</tr></tfoot></table></div>

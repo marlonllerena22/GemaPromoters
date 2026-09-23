@@ -81,6 +81,10 @@ test('transfer reviewer is restricted; approval emits tickets and email once wit
   assert.equal((await f.request(`/admin/sales-report?from=${today}&to=${today}&event_id=${f.event.id}`)).body.totals.quantity, 2);
   assert.equal((await f.request('/admin/sales-report?to=2000-01-01')).body.totals.quantity, 0);
   assert.equal((await f.request('/admin/sales-report?from=2026-12-01&to=2026-01-01')).status, 400);
+  f.db.prepare("UPDATE ticketing_orders SET paid_at = '2026-09-22 02:30:00' WHERE id = ?").run(order.id);
+  assert.equal((await f.request('/admin/sales-report?from=2026-09-21&to=2026-09-21')).body.totals.quantity, 2,
+    '02:30 UTC still belongs to the previous day in Ecuador');
+  assert.equal((await f.request('/admin/sales-report?from=2026-09-22&to=2026-09-22')).body.totals.quantity, 0);
   await f.request(`/admin/validators/${user.body.id}`, f.admin, 'PUT', { ...user.body, status: 'inactive' });
   assert.equal((await f.request('/transfers', token)).status, 401);
 });
@@ -113,10 +117,11 @@ test('report rounds once per payment, distinguishes methods and reconciles every
   assert.equal(report.totals.gross, 152); assert.equal(report.totals.payphone_fee, 6.33);
   assert.equal(report.totals.protickets_net, 5.67); assert.equal(report.totals.event_net, 140);
   assert.equal(report.rows.reduce((sum, r) => sum + Math.round(r.payphone_fee * 100), 0), 633);
-  assert.equal(report.totals.quantity, 3); assert.equal(report.simple_totals.quantity, 5);
+  assert.equal(report.totals.quantity, 3); assert.equal(report.simple_totals.quantity, 3);
+  assert.equal(report.simple_totals.admissions, 5); assert.equal(report.reconciliation.balanced, true);
   assert.equal(report.simple_totals.payphone_total, 110); assert.equal(report.simple_totals.transfer_total, 42);
   const golden = report.simple_rows.find((row) => row.locality === 'Promo Golden');
-  assert.equal(golden.quantity, 4); assert.equal(golden.gross, 135.5);
+  assert.equal(golden.quantity, 2); assert.equal(golden.admissions, 4); assert.equal(golden.gross, 135.5);
   assert.equal(golden.purchase_quantity, 2); assert.equal(golden.is_promo_golden, true);
   assert.equal(golden.payphone_total, 93.5); assert.equal(golden.transfer_total, 42);
 });

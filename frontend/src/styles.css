@@ -1805,6 +1805,54 @@ input[type="file"] {
   overflow-x: auto;
 }
 
+.renji-filters {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.renji-filters label {
+  color: #625a50;
+  display: grid;
+  font-size: 10px;
+  font-weight: 900;
+  gap: 4px;
+  min-width: 190px;
+  text-transform: uppercase;
+}
+
+.renji-filters select {
+  background: #fbfaf7;
+  border: 1px solid #d8d3ca;
+  border-radius: 8px;
+  color: #171717;
+  font: inherit;
+  min-height: 40px;
+  padding: 7px 10px;
+  text-transform: none;
+}
+
+.renji-guide-toolbar {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.renji-launch-badge {
+  background: #f3efe7;
+  border: 1px solid #dfd4c4;
+  border-radius: 8px;
+  color: #6c4930;
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.35;
+  padding: 6px 8px;
+}
+
 .renji-table {
   border-collapse: collapse;
   min-width: 920px;
@@ -2014,6 +2062,17 @@ input[type="file"] {
 
   .renji-stock-line {
     grid-template-columns: 1fr;
+  }
+
+  .renji-filters,
+  .renji-guide-toolbar {
+    align-items: stretch;
+    display: grid;
+    width: 100%;
+  }
+
+  .renji-filters label {
+    min-width: 0;
   }
 
   .renji-table {

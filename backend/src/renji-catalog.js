@@ -1,6 +1,6 @@
 const products = [
-  { id: 'baggy-negro', name: 'Pantalón baggy', color: 'Negro', image: '/renji/pantalon-negro.jpg', stock: { S: 1, M: 4, L: 4, XL: 2 } },
-  { id: 'baggy-gris', name: 'Pantalón baggy', color: 'Gris', image: '/renji/pantalon-gris.jpg', stock: { S: 1, M: 2, L: 2, XL: 1 } }
+  { id: 'baggy-negro', name: 'Pantalón baggy', color: 'Negro', image: '/renji/pantalon-negro.jpg', launchId: 'lanzamiento-2-pantalones', launchName: 'Lanzamiento 2 · Pantalones baggy', stock: { S: 1, M: 4, L: 4, XL: 2 } },
+  { id: 'baggy-gris', name: 'Pantalón baggy', color: 'Gris', image: '/renji/pantalon-gris.jpg', launchId: 'lanzamiento-2-pantalones', launchName: 'Lanzamiento 2 · Pantalones baggy', stock: { S: 1, M: 2, L: 2, XL: 1 } }
 ];
 
 export function initRenjiCatalog(db) {
@@ -36,6 +36,11 @@ export function initRenjiCatalog(db) {
   add('renji_registrations', 'request_hash', 'TEXT');
   add('renji_registrations', 'email_sent', 'INTEGER NOT NULL DEFAULT 0');
   add('renji_registrations', 'catalog_items_json', 'TEXT');
+  add('renji_catalog_products', 'launch_id', "TEXT NOT NULL DEFAULT 'lanzamiento-2-pantalones'");
+  add('renji_catalog_products', 'launch_name', "TEXT NOT NULL DEFAULT 'Lanzamiento 2 · Pantalones baggy'");
+  db.prepare(`UPDATE renji_catalog_products
+    SET launch_id = 'lanzamiento-2-pantalones', launch_name = 'Lanzamiento 2 · Pantalones baggy'
+    WHERE launch_id IS NULL OR launch_id = '' OR launch_name IS NULL OR launch_name = ''`).run();
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_renji_registration_request ON renji_registrations(establishment_id, request_key)');
 }
 
@@ -44,8 +49,8 @@ export function seedRenjiCatalog(db, establishmentId) {
   db.transaction(() => {
     for (const product of products) {
       const created = db.prepare(`INSERT OR IGNORE INTO renji_catalog_products
-        (establishment_id, id, name, color, image_url) VALUES (?, ?, ?, ?, ?)`)
-        .run(establishmentId, product.id, product.name, product.color, product.image);
+        (establishment_id, id, name, color, image_url, launch_id, launch_name) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .run(establishmentId, product.id, product.name, product.color, product.image, product.launchId, product.launchName);
       if (!created.changes) continue;
       for (const [size, quantity] of Object.entries(product.stock)) {
         db.prepare('INSERT INTO renji_catalog_stock VALUES (?, ?, ?, ?)').run(establishmentId, product.id, size, quantity);
@@ -57,7 +62,7 @@ export function seedRenjiCatalog(db, establishmentId) {
 }
 
 export function renjiCatalog(db, establishmentId) {
-  return db.prepare('SELECT * FROM renji_catalog_products WHERE establishment_id = ? ORDER BY id DESC').all(establishmentId)
+  return db.prepare('SELECT * FROM renji_catalog_products WHERE establishment_id = ? ORDER BY launch_id, id DESC').all(establishmentId)
     .map((product) => ({ ...product, sizes: db.prepare(`SELECT size, quantity FROM renji_catalog_stock
       WHERE establishment_id = ? AND product_id = ? ORDER BY CASE size WHEN 'S' THEN 1 WHEN 'M' THEN 2 WHEN 'L' THEN 3 ELSE 4 END`)
       .all(establishmentId, product.id) }));

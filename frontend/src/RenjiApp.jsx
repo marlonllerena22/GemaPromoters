@@ -3,7 +3,19 @@ import { CheckCircle2, ChevronDown, Copy, Edit3, PackagePlus, Printer, Shirt, Tr
 import { api, clearToken } from './api.js';
 import './renji-catalog.css';
 
-const today = new Date().toISOString().slice(0, 10);
+const ECUADOR_TIMEZONE = 'America/Guayaquil';
+const today = new Intl.DateTimeFormat('en-CA', { timeZone: ECUADOR_TIMEZONE }).format(new Date());
+const ecuadorDateTime = (value) => {
+  if (!value) return '-';
+  const raw = String(value);
+  const parsed = new Date(/[zZ]|[+-]\d\d:\d\d$/.test(raw) ? raw : `${raw.replace(' ', 'T')}Z`);
+  if (Number.isNaN(parsed.getTime())) return raw;
+  return new Intl.DateTimeFormat('es-EC', {
+    timeZone: ECUADOR_TIMEZONE,
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  }).format(parsed);
+};
 const sizes = ['S', 'M', 'L', 'XL'];
 const itemLabels = {
   hoodie: 'Hoodie',
@@ -86,6 +98,10 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
   const [editingRegistrationId, setEditingRegistrationId] = useState(null);
   const [salePanelOpen, setSalePanelOpen] = useState(false);
   const [stockPanelOpen, setStockPanelOpen] = useState(false);
+  const [orderLaunchFilter, setOrderLaunchFilter] = useState('all');
+  const [orderShippingFilter, setOrderShippingFilter] = useState('all');
+  const [guideLaunchFilter, setGuideLaunchFilter] = useState('all');
+  const [guideShippingFilter, setGuideShippingFilter] = useState('all');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -112,14 +128,25 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
     loadOverview();
   }, [establishmentId]);
 
+  const filteredOrders = useMemo(
+    () => (overview.orders || []).filter((order) => (
+      (orderLaunchFilter === 'all' || order.launch_id === orderLaunchFilter)
+      && (orderShippingFilter === 'all' || order.shipping_status === orderShippingFilter)
+    )),
+    [overview.orders, orderLaunchFilter, orderShippingFilter]
+  );
+
   const guideSelectableOrders = useMemo(
-    () => [...overview.orders].sort((a, b) => {
+    () => (overview.orders || []).filter((order) => (
+      (guideLaunchFilter === 'all' || order.launch_id === guideLaunchFilter)
+      && (guideShippingFilter === 'all' || order.shipping_status === guideShippingFilter)
+    )).sort((a, b) => {
       if (a.shipping_status !== b.shipping_status) {
         return a.shipping_status === 'sent' ? 1 : -1;
       }
       return String(a.customer_name || '').localeCompare(String(b.customer_name || ''));
     }),
-    [overview.orders]
+    [overview.orders, guideLaunchFilter, guideShippingFilter]
   );
 
   const stockByType = useMemo(() => {
@@ -577,7 +604,7 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                       <td><strong>{registration.customer_name}</strong><small>{registration.customer_city} - {registration.customer_address}</small></td>
                       <td>{registration.customer_phone}<small>{registration.customer_instagram ? `@${registration.customer_instagram}` : 'Sin Instagram'}</small></td>
                       <td>{renjiItemDetail(registration)}{registration.catalog_items?.length > 1 ? '' : ` x${registration.quantity}`}</td>
-                      <td>{registration.created_at}{registration.product_id && <small>{registration.email_sent ? "Correo enviado" : "Correo pendiente"}</small>}<small>{registration.registration_type === 'separation' ? `Separado: ${money(registration.deposit_amount)}` : 'Cancelado'}</small></td>
+                      <td>{ecuadorDateTime(registration.created_at)}<small>{registration.launch_name}</small>{registration.product_id && <small>{registration.email_sent ? "Correo enviado" : "Correo pendiente"}</small>}<small>{registration.registration_type === 'separation' ? `Separado: ${money(registration.deposit_amount)}` : 'Cancelado'}</small></td>
                       <td>
                         <div className="renji-actions">
                           {registration.catalog_items?.length <= 1 && <button onClick={() => { setEditingRegistrationId(registration.id); setEditingOrderId(null); setOrderForm(formFromRecord(registration)); setSalePanelOpen(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><Edit3 size={15} />Editar</button>}
@@ -596,29 +623,37 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
           <section className="renji-panel">
             <div className="panel-title">
               <h3>Pedidos / clientes</h3>
+              <div className="renji-filters">
+                <label>Lanzamiento<select value={orderLaunchFilter} onChange={(event) => setOrderLaunchFilter(event.target.value)}><option value="all">Todos los lanzamientos</option>{(overview.launches || []).map((launch) => <option key={launch.id} value={launch.id}>{launch.name}</option>)}</select></label>
+                <label>Envío<select value={orderShippingFilter} onChange={(event) => setOrderShippingFilter(event.target.value)}><option value="all">Enviados y no enviados</option><option value="not_sent">No enviados</option><option value="sent">Enviados</option></select></label>
+              </div>
             </div>
             <div className="renji-table-wrap">
               <table className="renji-table">
                 <thead>
                   <tr>
                     <th>Pedido</th>
+                    <th>Lanzamiento</th>
                     <th>Cliente</th>
                     <th>Prenda</th>
-                      <th>Pago</th>
-                      <th>Produccion</th>
-                      <th>Envio</th>
-                      <th>Acciones</th>
+                    <th>Fecha</th>
+                    <th>Pago</th>
+                    <th>Produccion</th>
+                    <th>Envio</th>
+                    <th>Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {overview.orders.length ? overview.orders.map((order) => (
+                  {filteredOrders.length ? filteredOrders.map((order) => (
                     <tr key={order.id}>
                       <td>{order.order_number}</td>
+                      <td><span className="renji-launch-badge">{order.launch_name}</span></td>
                       <td><strong>{order.customer_name}</strong><small>{order.customer_city} - {order.customer_phone}{order.customer_instagram ? ` - @${order.customer_instagram}` : ''}</small></td>
                       <td className={Number(order.size_edited || 0) ? 'renji-size-edited-cell' : ''}>
                         {renjiItemDetail(order)}{order.stock_items?.length > 1 ? '' : ` x${order.quantity}`}
                         {Number(order.size_edited || 0) ? <span className="renji-ed-badge">ED</span> : null}
                       </td>
+                      <td>{ecuadorDateTime(order.created_at)}</td>
                       <td>
                         <span className={`renji-pill ${paymentClass(order)}`}>{paymentLabel(order)}</span>
                         {Number(order.deposit_amount || 0) > 0 && <small>Deposito: {money(order.deposit_amount)}</small>}
@@ -633,7 +668,7 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                         <span className={`renji-pill production-${order.production_status || 'ready'}`}>{productionLabel(order)}</span>
                         {(order.production_status || 'ready') !== 'ready' && <small>{productionItemsText(order)}</small>}
                       </td>
-                      <td><span className={`renji-pill ${order.shipping_status}`}>{order.shipping_status === 'sent' ? 'Enviado' : 'No enviado'}</span></td>
+                      <td><span className={`renji-pill ${order.shipping_status}`}>{order.shipping_status === 'sent' ? 'Enviado' : 'No enviado'}</span>{order.sent_at && <small>{ecuadorDateTime(order.sent_at)}</small>}</td>
                       <td>
                         <div className="renji-actions">
                           {(order.stock_items?.length || 0) + (order.production_items?.length || 0) <= 1 && <button onClick={() => { setEditingOrderId(order.id); setEditingRegistrationId(null); setOrderForm(formFromRecord(order)); setSalePanelOpen(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><Edit3 size={15} />Editar</button>}
@@ -644,7 +679,7 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                         </div>
                       </td>
                     </tr>
-                  )) : <tr><td colSpan="7">Aun no hay ventas registradas.</td></tr>}
+                  )) : <tr><td colSpan="9">No hay pedidos que coincidan con estos filtros.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -685,7 +720,13 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
           <section className="renji-panel">
             <div className="panel-title">
               <h3>Guias de envio</h3>
-              <button className="renji-primary" onClick={generateGuides}><Printer size={16} />Generar guias seleccionadas</button>
+              <div className="renji-guide-toolbar">
+                <div className="renji-filters">
+                  <label>Lanzamiento<select value={guideLaunchFilter} onChange={(event) => setGuideLaunchFilter(event.target.value)}><option value="all">Todos los lanzamientos</option>{(overview.launches || []).map((launch) => <option key={launch.id} value={launch.id}>{launch.name}</option>)}</select></label>
+                  <label>Envío<select value={guideShippingFilter} onChange={(event) => setGuideShippingFilter(event.target.value)}><option value="all">Enviados y no enviados</option><option value="not_sent">No enviados</option><option value="sent">Enviados</option></select></label>
+                </div>
+                <button className="renji-primary" onClick={generateGuides}><Printer size={16} />Generar guias seleccionadas</button>
+              </div>
             </div>
             <div className="renji-guide-list">
               {guideSelectableOrders.length ? guideSelectableOrders.map((order) => (
@@ -697,10 +738,11 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                     onChange={(e) => setSelectedGuideIds(e.target.checked ? [...selectedGuideIds, order.id] : selectedGuideIds.filter((id) => id !== order.id))}
                   />
                   <span>{order.customer_name}</span>
+                  <small>{order.launch_name}</small>
                   <small>{order.customer_city} - {renjiItemDetail(order)}</small>
                   <b className={`renji-guide-pay-status ${paymentClass(order)}`}>{paymentLabel(order)}</b>
                   {!canGenerateGuide(order) && <small className="renji-guide-lock">{order.payment_status !== 'paid' ? 'Primero marcar como pagado' : 'Pendiente de produccion'}</small>}
-                  <b className={`renji-guide-status ${order.shipping_status}`}>{order.shipping_status === 'sent' ? 'Enviado' : 'No enviado'}</b>
+                  <b className={`renji-guide-status ${order.shipping_status}`}>{order.shipping_status === 'sent' ? 'Enviado' : 'No enviado'}{order.sent_at && <small>{ecuadorDateTime(order.sent_at)}</small>}</b>
                 </label>
               )) : <div className="empty-state">No hay pedidos para guias.</div>}
             </div>
@@ -734,6 +776,7 @@ function RenjiGuidesPrint({ orders }) {
               <span>{order.customer_address}</span>
               <b>{order.customer_phone}</b>
               <small>Cedula: {order.customer_cedula || 'Sin cedula'}</small>
+              <small>{order.launch_name}</small>
               <em>Detalle: {renjiItemDetail(order)}</em>
             </section>
           ))}

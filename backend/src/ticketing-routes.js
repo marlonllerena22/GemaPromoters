@@ -928,13 +928,14 @@ export function registerTicketingRoutes(app, db) {
     const eventId = Number(req.query.event_id || 0);
     const orders = db.prepare(`SELECT o.*, e.title AS event_title FROM ticketing_orders o JOIN ticketing_events e ON e.id = o.event_id
       WHERE o.establishment_id = ? AND o.payment_status = 'paid' AND (? = 0 OR o.event_id = ?)
-      AND (? = '' OR date(COALESCE(o.paid_at, o.created_at)) >= ?)
-      AND (? = '' OR date(COALESCE(o.paid_at, o.created_at)) <= ?) ORDER BY o.id`)
+      AND (? = '' OR date(COALESCE(o.paid_at, o.created_at), '-5 hours') >= ?)
+      AND (? = '' OR date(COALESCE(o.paid_at, o.created_at), '-5 hours') <= ?) ORDER BY o.id`)
       .all(req.ticketEstablishment.id, eventId, eventId, from, from, to, to);
     const items = db.prepare(`SELECT i.* FROM ticketing_order_items i JOIN ticketing_orders o ON o.id = i.order_id
       WHERE o.establishment_id = ? AND o.payment_status = 'paid'`).all(req.ticketEstablishment.id);
     const settings = transferSettings(db, req.ticketEstablishment.id);
     res.json({ ...buildTicketSalesReport(orders, items, settings.payphone_fee_percent), from, to,
+      timezone: 'America/Guayaquil', generated_at: new Date().toISOString(),
       payphone_fee_percent: settings.payphone_fee_percent,
       events: db.prepare('SELECT id, title FROM ticketing_events WHERE establishment_id = ? ORDER BY id DESC').all(req.ticketEstablishment.id) });
   });
