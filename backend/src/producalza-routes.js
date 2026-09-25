@@ -430,7 +430,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
          ORDER BY id DESC LIMIT 1`
       )
       .get(establishmentIdValue, `${prefix}%`);
-    const lastNumber = Number(String(latest?.order_number || '').split('-').pop()) || 0;
+    const lastNumber = Number(String(latest?.order_number || '').match(/^PC-\d{4}-(\d+)/)?.[1] || 0);
     return `${prefix}${String(lastNumber + 1).padStart(4, '0')}`;
   }
 
@@ -458,7 +458,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
          ORDER BY id DESC LIMIT 1`
       )
       .get(establishmentIdValue, `${prefix}%`);
-    const lastNumber = Number(String(latest?.order_number || '').split('-').pop()) || 0;
+    const lastNumber = Number(String(latest?.order_number || '').match(/^MUE-\d{4}-(\d+)/)?.[1] || 0);
     return `${prefix}${String(lastNumber + 1).padStart(4, '0')}`;
   }
 
@@ -5290,6 +5290,81 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       );
     })();
     audit(req, 'create', 'order', orderId, orderNumber);
+    res.status(201).json(getOrder(orderId, req));
+  });
+
+  app.post('/api/producalza/orders/:id/duplicate', requireProductionUser, (req, res) => {
+    const business = ensureProductionBusiness(req, res);
+    if (!business) return;
+    const source = getOrder(req.params.id, req);
+    if (!source) return res.status(404).json({ message: 'Pedido no encontrado' });
+    if (source.order_type === 'return') {
+      return res.status(400).json({ message: 'Las devoluciones no se pueden duplicar como pedidos nuevos.' });
+    }
+
+    let models;
+    try {
+      models = normalizeModels(source.models.map((model) => ({
+        ...model,
+        id: 0,
+        card_number: null,
+        model_code: String(model.model_code || '').trim(),
+        status: 'received'
+      })));
+    } catch (error) {
+      return res.status(400).json({ message: error.message });
+    }
+
+    const isSample = Boolean(source.is_sample);
+    const orderNumber = `${isSample ? nextSampleNumber(business.id) : nextOrderNumber(business.id)} copia`;
+    const sellerId = isProductionAdmin(req)
+      ? source.seller_user_id || null
+      : req.user.productionUserId;
+    const shippingValue = moneyValue(source.shipping_value);
+    const discountValue = moneyValue(source.discount_value);
+    const userLabel = req.user.username || req.user.role;
+    const orderDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guayaquil' }).format(new Date());
+    let orderId;
+
+    db.transaction(() => {
+      const orderResult = db.prepare(
+        `INSERT INTO production_orders
+         (establishment_id, order_number, is_sample, client_id, seller_user_id, order_date, brand,
+          delivery_date, origin_label, card_alert, payment_method, bank_reference,
+          guide_template_key, sample_destination, general_notes, shipping_value, discount_value,
+          invoice_number, invoice_date, invoice_value, status, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', NULL, 0, 'draft', ?)`
+      ).run(
+        business.id,
+        orderNumber,
+        isSample ? 1 : 0,
+        source.client_id,
+        sellerId,
+        orderDate,
+        source.brand || '',
+        source.delivery_date || '',
+        source.origin_label || '',
+        source.card_alert || '',
+        source.payment_method || '',
+        source.bank_reference || '',
+        source.guide_template_key || source.client_guide_template_key || '',
+        isSample ? source.sample_destination || '' : '',
+        source.general_notes || '',
+        shippingValue,
+        discountValue,
+        userLabel
+      );
+      orderId = Number(orderResult.lastInsertRowid);
+      insertModels(db, business.id, orderId, models, nextCardNumber);
+      syncInitialPendingBalance(
+        orderId,
+        business.id,
+        orderTotalFromModels(models, shippingValue, discountValue),
+        userLabel
+      );
+    })();
+
+    audit(req, 'duplicate', 'order', orderId, `${orderNumber} copia de ${source.order_number}`);
     res.status(201).json(getOrder(orderId, req));
   });
 

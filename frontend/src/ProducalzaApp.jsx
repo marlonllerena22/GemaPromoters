@@ -965,6 +965,7 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
   const [dashboard, setDashboard] = useState(null);
   const [clients, setClients] = useState([]);
   const [orders, setOrders] = useState([]);
+  const [duplicatingOrderId, setDuplicatingOrderId] = useState(null);
   const [production, setProduction] = useState([]);
   const [remissionGuides, setRemissionGuides] = useState([]);
   const [clientActivity, setClientActivity] = useState([]);
@@ -1067,6 +1068,22 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
       setView('new-order');
     } catch (err) {
       setError(err.message);
+    }
+  }
+
+  async function duplicateOrder(order) {
+    if (!window.confirm(`Duplicar completo el pedido ${order.order_number}? La copia quedara como borrador.`)) return;
+    setDuplicatingOrderId(order.id);
+    try {
+      const copy = await api(scope(`/producalza/orders/${order.id}/duplicate`), { method: 'POST' });
+      setEditingOrder(null);
+      setSelectedOrder(copy);
+      await refresh(`Pedido duplicado como ${copy.order_number}`);
+      setView('order-detail');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDuplicatingOrderId(null);
     }
   }
 
@@ -1195,6 +1212,8 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
           scope={scope}
           onOpen={openOrder}
           onEdit={editOrder}
+          onDuplicate={duplicateOrder}
+          duplicatingOrderId={duplicatingOrderId}
           onRefresh={refresh}
           setError={setError}
           setOrders={setOrders}
@@ -1230,6 +1249,8 @@ export default function ProducalzaApp({ user, onLogout, embedded = false, establ
           setError={setError}
           onBack={() => setView('orders')}
           onEdit={() => editOrder(selectedOrder.id)}
+          onDuplicate={() => duplicateOrder(selectedOrder)}
+          duplicating={Number(duplicatingOrderId) === Number(selectedOrder.id)}
           onPrint={(type, modelId, orderOverride, options) => preparePrint(selectedOrder.id, type, modelId, orderOverride, options)}
           onUpdated={async (message = 'Pedido actualizado') => {
             const updatedOrder = await api(scope(`/producalza/orders/${selectedOrder.id}`));
@@ -1525,7 +1546,7 @@ function ProductionDashboard({ data, orders, onOpen, onOpenFollowUp, onOpenPayme
   );
 }
 
-function OrdersList({ orders, users, isAdmin, scope, onOpen, onEdit, onRefresh, setError, setOrders }) {
+function OrdersList({ orders, users, isAdmin, scope, onOpen, onEdit, onDuplicate, duplicatingOrderId, onRefresh, setError, setOrders }) {
   const [filters, setFilters] = useState({ search: '', status: '', seller_id: '', date_from: '', date_to: '' });
 
   async function applyFilters() {
@@ -1610,6 +1631,7 @@ function OrdersList({ orders, users, isAdmin, scope, onOpen, onEdit, onRefresh, 
                       {isAdmin && order.status !== 'delivered' && (
                         <button className="success text" title="Marcar como enviado" onClick={() => markShipped(order)}>ENVIADO</button>
                       )}
+                      {order.order_type !== 'return' && <button disabled={Number(duplicatingOrderId) === Number(order.id)} title="Duplicar pedido completo" onClick={() => onDuplicate(order)}><Copy size={16} /></button>}
                       <button title="Editar pedido" onClick={() => onEdit(order.id)}><Pencil size={16} /></button>
                       {isAdmin && <button className="danger" title="Eliminar pedido" onClick={() => remove(order)}><Trash2 size={16} /></button>}
                     </div>
@@ -1986,7 +2008,7 @@ function OrderForm({ clients, users, isAdmin, isLocalSecretary, scope, initialOr
   );
 }
 
-function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint, onUpdated, onReturnCreated, guideTemplates, focusPayment }) {
+function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onDuplicate, duplicating, onPrint, onUpdated, onReturnCreated, guideTemplates, focusPayment }) {
   const [sendingPdf, setSendingPdf] = useState(false);
   const [models, setModels] = useState(order.models);
   const [dirtyIds, setDirtyIds] = useState([]);
@@ -2558,6 +2580,7 @@ function OrderDetail({ order, isAdmin, scope, setError, onBack, onEdit, onPrint,
           <button className="prod-secondary-button" onClick={onBack}><ChevronLeft size={17} />Volver</button>
         <div>
           <button className="prod-secondary-button" onClick={onEdit}><Pencil size={17} />Editar</button>
+          {!isReturnOrder && <button className="prod-secondary-button" disabled={duplicating} onClick={onDuplicate}><Copy size={17} />{duplicating ? 'Duplicando...' : 'Duplicar pedido'}</button>}
           <button className="prod-primary-button delivery" onClick={() => setShowDeliveryEditor((value) => !value)}><Printer size={17} />Nota de entrega</button>
           <button className="prod-secondary-button remision" onClick={() => setShowRemissionForm((value) => !value)}><FilePlus2 size={17} />Guia de remision</button>
           {isAdmin && !isReturnOrder && !isSampleOrder && (

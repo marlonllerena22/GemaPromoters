@@ -229,6 +229,72 @@ try {
     const response = await fetch(baseUrl + route, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     return { status: response.status, data: await response.json() };
   };
+
+  const orderClient = db.prepare(
+    'SELECT id FROM production_clients WHERE establishment_id = ? ORDER BY id LIMIT 1'
+  ).get(business.id);
+  const originalOrderResponse = await request('/orders', 'POST', {
+    client_id: orderClient.id,
+    order_date: '2026-09-20',
+    delivery_date: '2026-10-15',
+    brand: 'Coleccion prueba',
+    payment_method: 'Contado',
+    general_notes: 'Conservar todos los detalles',
+    shipping_value: 4.5,
+    discount_value: 1,
+    status: 'received',
+    models: [{
+      model_code: 'Botin Luna',
+      color: 'Cafe',
+      material: 'Cuero',
+      notes: 'Costura especial',
+      plant_area: 'Linea 1',
+      unit_price: 22.5,
+      status: 'received',
+      sizes: { 34: 1, 35: 2 }
+    }]
+  }, adminHeaders);
+  assert.equal(originalOrderResponse.status, 201);
+  const duplicatedOrderResponse = await request(
+    `/orders/${originalOrderResponse.data.id}/duplicate`,
+    'POST',
+    {},
+    adminHeaders
+  );
+  assert.equal(duplicatedOrderResponse.status, 201);
+  const copiedOrder = duplicatedOrderResponse.data;
+  assert.notEqual(copiedOrder.id, originalOrderResponse.data.id);
+  assert.notEqual(copiedOrder.order_number, originalOrderResponse.data.order_number);
+  assert.match(copiedOrder.order_number, / copia$/);
+  assert.equal(copiedOrder.status, 'draft');
+  assert.equal(copiedOrder.client_id, originalOrderResponse.data.client_id);
+  assert.equal(copiedOrder.brand, originalOrderResponse.data.brand);
+  assert.equal(copiedOrder.general_notes, originalOrderResponse.data.general_notes);
+  assert.equal(copiedOrder.shipping_value, originalOrderResponse.data.shipping_value);
+  assert.equal(copiedOrder.discount_value, originalOrderResponse.data.discount_value);
+  assert.equal(copiedOrder.models[0].model_code, 'Botin Luna');
+  assert.equal(copiedOrder.models[0].color, 'Cafe');
+  assert.equal(copiedOrder.models[0].material, 'Cuero');
+  assert.equal(copiedOrder.models[0].unit_price, 22.5);
+  assert.deepEqual(copiedOrder.models[0].sizes, originalOrderResponse.data.models[0].sizes);
+  assert.notEqual(copiedOrder.models[0].card_number, originalOrderResponse.data.models[0].card_number);
+  assert.equal(copiedOrder.payments.length, 1);
+  assert.equal(copiedOrder.invoices.length, 0);
+  assert.equal(copiedOrder.delivery_notes.length, 0);
+  const orderAfterCopyResponse = await request('/orders', 'POST', {
+    ...originalOrderResponse.data,
+    status: 'draft',
+    models: originalOrderResponse.data.models.map((model) => ({
+      ...model,
+      id: undefined,
+      card_number: undefined
+    }))
+  }, adminHeaders);
+  assert.equal(orderAfterCopyResponse.status, 201);
+  assert.notEqual(orderAfterCopyResponse.data.order_number, originalOrderResponse.data.order_number);
+  assert.notEqual(orderAfterCopyResponse.data.order_number, copiedOrder.order_number);
+  assert.doesNotMatch(orderAfterCopyResponse.data.order_number, / copia$/);
+
   const muted = await request(`/inventory/${createdItem.id}`, 'PATCH', { alerts_disabled: true });
   assert.equal(muted.status, 200);
   assert.equal(muted.data.alerts_disabled, 1);
