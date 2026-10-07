@@ -409,6 +409,37 @@ export function registerTicketingRoutes(app, db) {
     return { sent: true };
   }
 
+  async function sendTicketCancellationEmail(orderId) {
+    const transporter = ticketingTransporter();
+    const order = orderDetails(orderId);
+    if (!transporter || !order?.customer_email) {
+      return { sent: false, reason: 'SMTP no configurado o correo no disponible' };
+    }
+    const reason = order.cancellation_reason || 'Falta de pago';
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: order.customer_email,
+      subject: `Boletos suspendidos · ${order.order_number}`,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;background:#f6f6f6;padding:24px;color:#111">
+          <div style="background:#111;color:#fff;padding:18px 22px;border-radius:12px">
+            <strong style="font-size:22px">ProTickets</strong>
+            <p style="margin:5px 0 0;color:#ddd">Aviso importante sobre tus boletos</p>
+          </div>
+          <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;margin-top:18px;padding:22px">
+            <p>Hola <strong>${escapeHtml(order.customer_name)}</strong>,</p>
+            <p style="line-height:1.6">Lamentamos informarte que los boletos QR correspondientes al pedido <strong>${escapeHtml(order.order_number)}</strong> han sido suspendidos debido a que no se registró el pago.</p>
+            <p style="line-height:1.6">Estos códigos QR ya no son válidos y no permitirán el ingreso al evento.</p>
+            <p style="line-height:1.6">Si deseas realizar una nueva compra, por favor genera un nuevo pedido desde ProTickets y completa el pago correspondiente.</p>
+            <div style="margin-top:18px;padding:14px 16px;border-radius:9px;background:#fff1f2;color:#9f1239"><strong>Motivo:</strong> ${escapeHtml(reason)}</div>
+          </div>
+          <p style="font-size:12px;color:#6b7280;text-align:center">Gracias por tu comprensión.</p>
+        </div>`
+    });
+    db.prepare("UPDATE ticketing_orders SET cancellation_email_sent_at = datetime('now', 'localtime') WHERE id = ?").run(orderId);
+    return { sent: true };
+  }
+
   async function confirmOrder(orderId, checkedBy = 'Administrador', provider = 'manual', reference = '') {
     const result = db.transaction(() => {
       const order = db.prepare('SELECT * FROM ticketing_orders WHERE id = ?').get(orderId);
@@ -1218,6 +1249,55 @@ export function registerTicketingRoutes(app, db) {
     res.json({ ok: true });
   });
 
+  app.post('/api/ticketing/admin/orders/:id/cancel-tickets', requireTicketAdmin, async (req, res) => {
+    const reason = cleanText(req.body?.reason, 300) || 'Falta de pago';
+    const scanMessage = cleanText(req.body?.scan_message, 300).toUpperCase()
+      || 'BOLETO CANCELADO, FALTA DE PAGO';
+    try {
+      const orderId = Number(req.params.id);
+      db.transaction(() => {
+        const order = db.prepare(
+          'SELECT * FROM ticketing_orders WHERE id = ? AND establishment_id = ?'
+        ).get(orderId, req.ticketEstablishment.id);
+        if (!order) throw new Error('Pedido no encontrado');
+        if (order.payment_status !== 'paid') throw new Error('Solo se pueden cancelar entradas de un pedido pagado');
+        const items = db.prepare('SELECT * FROM ticketing_order_items WHERE order_id = ?').all(order.id);
+        for (const item of items) {
+          db.prepare(
+            `UPDATE ticketing_ticket_types
+             SET sold = MAX(0, sold - ?), updated_at = datetime('now', 'localtime')
+             WHERE id = ? AND event_id = ?`
+          ).run(item.quantity, item.ticket_type_id, order.event_id);
+        }
+        db.prepare(
+          `UPDATE ticketing_tickets
+           SET status = 'void', checked_by = COALESCE(checked_by, ?)
+           WHERE order_id = ? AND establishment_id = ?`
+        ).run(req.user.username || 'Administrador', order.id, order.establishment_id);
+        db.prepare(
+          `UPDATE ticketing_orders
+           SET payment_status = 'rejected', cancellation_reason = ?, cancellation_scan_message = ?,
+               cancelled_at = datetime('now', 'localtime'), cancelled_by = ?,
+               updated_at = datetime('now', 'localtime')
+           WHERE id = ?`
+        ).run(reason, scanMessage, req.user.username || 'Administrador', order.id);
+        db.prepare(
+          `INSERT INTO ticketing_payment_events
+           (establishment_id, order_id, provider, event_status, payload)
+           VALUES (?, ?, 'admin', 'tickets_cancelled', ?)`
+        ).run(order.establishment_id, order.id, JSON.stringify({
+          reason,
+          scan_message: scanMessage,
+          cancelled_by: req.user.username || 'Administrador'
+        }));
+      })();
+      const email = await sendTicketCancellationEmail(orderId).catch((error) => ({ sent: false, reason: error.message }));
+      res.json({ order: orderDetails(orderId), email });
+    } catch (error) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
   app.get('/api/ticketing/admin/validators', requireTicketAdmin, (req, res) => {
     const validators = db.prepare(
       `SELECT id, name, username, status, access_scope, created_at, updated_at
@@ -1327,7 +1407,7 @@ export function registerTicketingRoutes(app, db) {
     if (!code) return res.status(400).json({ valid: false, message: 'Ingresa o escanea un codigo' });
     const ticket = db.prepare(
       `SELECT tickets.*, items.ticket_name, items.quantity AS purchase_quantity,
-              orders.order_number,
+              orders.order_number, orders.cancellation_scan_message,
               (SELECT COUNT(*) FROM ticketing_tickets AS order_tickets
                WHERE order_tickets.order_id = tickets.order_id
                  AND order_tickets.status != 'void') AS order_quantity,
@@ -1348,8 +1428,9 @@ export function registerTicketingRoutes(app, db) {
       return res.status(409).json({ valid: false, message: 'Entrada ya utilizada', ticket });
     }
     if (ticket.status !== 'valid') {
-      recordValidation(req, { ticketId: ticket.id, code, result: 'void', message: 'Entrada anulada' });
-      return res.status(409).json({ valid: false, message: 'Entrada anulada', ticket });
+      const message = ticket.cancellation_scan_message || 'Entrada anulada';
+      recordValidation(req, { ticketId: ticket.id, code, result: 'void', message });
+      return res.status(409).json({ valid: false, message, ticket });
     }
     const checkedBy = validationUser(req);
     db.prepare(

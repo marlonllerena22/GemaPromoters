@@ -103,6 +103,47 @@ test('expired transfers release stock but late approval cannot consume another a
   assert.equal((await f.request('/transfers', foreign)).status, 403);
 });
 
+test('an administrator can cancel mistakenly approved tickets, restore stock, email the buyer and show the custom scanner warning', async (t) => {
+  const f = await fixture(t);
+  const messages = [];
+  t.mock.method(nodemailer, 'createTransport', () => ({ sendMail: async (message) => { messages.push(message); } }));
+  for (const key of ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS']) {
+    const previous = process.env[key];
+    process.env[key] = 'isolated-test';
+    t.after(() => { if (previous === undefined) delete process.env[key]; else process.env[key] = previous; });
+  }
+  const order = (await f.create()).body;
+  const confirmed = await f.request(`/transfers/${order.id}/confirm`, f.admin, 'POST', { reference: 'HENRY-TEST' });
+  assert.equal(confirmed.status, 200);
+  assert.equal(confirmed.body.order.tickets.length, 2);
+  const ticketCode = confirmed.body.order.tickets[0].code;
+  const cancelled = await f.request(`/admin/orders/${order.id}/cancel-tickets`, f.admin, 'POST', {
+    reason: 'Falta de pago',
+    scan_message: 'BOLETO CANCELADO, FALTA DE PAGO, CASO HENRY'
+  });
+  assert.equal(cancelled.status, 200);
+  assert.equal(cancelled.body.order.payment_status, 'rejected');
+  assert.equal(cancelled.body.order.cancellation_reason, 'Falta de pago');
+  assert.equal(cancelled.body.order.cancellation_scan_message, 'BOLETO CANCELADO, FALTA DE PAGO, CASO HENRY');
+  assert.equal(cancelled.body.email.sent, true);
+  assert.equal(messages.length, 2);
+  assert.match(messages[1].subject, /Boletos suspendidos/);
+  assert.match(messages[1].html, /no se registró el pago/);
+  assert.equal(f.db.prepare('SELECT sold FROM ticketing_ticket_types WHERE id = ?').get(f.type.id).sold, 0);
+  assert.deepEqual(
+    f.db.prepare('SELECT DISTINCT status FROM ticketing_tickets WHERE order_id = ?').all(order.id),
+    [{ status: 'void' }]
+  );
+  const scanned = await f.request('/admin/tickets/validate', f.admin, 'POST', { code: ticketCode });
+  assert.equal(scanned.status, 409);
+  assert.equal(scanned.body.valid, false);
+  assert.equal(scanned.body.message, 'BOLETO CANCELADO, FALTA DE PAGO, CASO HENRY');
+  assert.equal((await f.request(`/admin/orders/${order.id}/cancel-tickets`, f.admin, 'POST', {
+    reason: 'Falta de pago', scan_message: 'BOLETO CANCELADO'
+  })).status, 400);
+  assert.equal(messages.length, 2);
+});
+
 test('report rounds once per payment, distinguishes methods and reconciles every cent', () => {
   const orders = [
     { id: 1, event_id: 1, event_title: 'Evento', payment_method: 'payphone', subtotal: 100, service_fee: 10, total: 110, provider_fee_rate: 5.75 },

@@ -1921,6 +1921,17 @@
   width: 35px;
 }
 
+.pta-order-buttons button.danger.cancel-tickets {
+  padding: 0 12px;
+  width: auto;
+}
+
+.pt-transfer-orders button.danger {
+  background: #fff0f0;
+  border-color: #efb8b8;
+  color: #a52b2b;
+}
+
 .pta-new-type {
   background: #fff5f6;
   border: 1px solid #ffd9dd;

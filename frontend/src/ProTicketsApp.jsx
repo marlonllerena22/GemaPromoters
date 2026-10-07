@@ -967,6 +967,24 @@ function OrdersAdmin({ orders, onRefresh, onTransfers }) {
     } catch (error) { window.alert(error.message); }
   }
 
+  async function cancelTickets(order) {
+    const reason = window.prompt('Motivo que recibira el cliente', 'Falta de pago');
+    if (reason === null) return;
+    const scanMessage = window.prompt('Aviso rojo que mostrara el escaner', 'BOLETO CANCELADO, FALTA DE PAGO');
+    if (scanMessage === null) return;
+    if (!window.confirm(`Cancelar definitivamente todos los QR del pedido ${order.order_number} y enviar el correo?`)) return;
+    try {
+      const result = await ticketingApi(`/admin/orders/${order.id}/cancel-tickets`, {
+        admin: true,
+        method: 'POST',
+        body: JSON.stringify({ reason, scan_message: scanMessage })
+      });
+      onRefresh(result.email?.sent
+        ? 'Entradas canceladas y correo enviado al cliente'
+        : `Entradas canceladas; no se pudo enviar el correo: ${result.email?.reason || 'revisa la configuracion'}`);
+    } catch (error) { window.alert(error.message); }
+  }
+
   return (
     <section className="pta-section">
       <div className="pta-section-title"><div><p>VENTAS</p><h2>Pedidos</h2></div><div className="pta-filters"><label><Search /><input placeholder="Buscar cliente o pedido" value={query} onChange={(e) => setQuery(e.target.value)} /></label><select value={filter} onChange={(e) => setFilter(e.target.value)}><option value="all">Todos</option><option value="pending">Pendientes</option><option value="paid">Pagados</option><option value="rejected">Rechazados</option><option value="expired">Expirados</option></select></div></div>
@@ -975,7 +993,7 @@ function OrdersAdmin({ orders, onRefresh, onTransfers }) {
           <div><span className={`pta-pill ${order.payment_status}`}>{statusLabel(order.payment_status)}</span><h3>{order.customer_name}</h3><p>{order.customer_email}</p></div>
           <div><small>Pedido</small><strong>{order.order_number}</strong><span>{order.detail}</span></div>
           <div><small>Total</small><strong>{money(order.total)}</strong><span>{formatDate(order.created_at, true)}</span></div>
-          <div className="pta-order-buttons">{order.payment_method === 'transfer' ? <button onClick={onTransfers}><Check /> Ver transferencia</button> : <><button type="button" onClick={() => updateLink(order)}><CreditCard /> Editar enlace</button>{order.payment_status === 'pending' && <><button className="confirm" type="button" onClick={() => process(order, 'confirm')}><Check /> Confirmar pago</button><button className="danger" type="button" onClick={() => process(order, 'reject')}><X /></button></>}</>}</div>
+          <div className="pta-order-buttons">{order.payment_method === 'transfer' ? <button onClick={onTransfers}><Check /> Ver transferencia</button> : <><button type="button" onClick={() => updateLink(order)}><CreditCard /> Editar enlace</button>{order.payment_status === 'pending' && <><button className="confirm" type="button" onClick={() => process(order, 'confirm')}><Check /> Confirmar pago</button><button className="danger" type="button" onClick={() => process(order, 'reject')}><X /></button></>}</>}{order.payment_status === 'paid' && <button className="danger cancel-tickets" type="button" onClick={() => cancelTickets(order)}><X /> Cancelar entradas</button>}</div>
         </article>
       ))}{!filtered.length && <div className="pta-empty">No hay pedidos con estos filtros.</div>}</div>
     </section>

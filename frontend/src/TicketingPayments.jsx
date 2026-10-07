@@ -94,6 +94,25 @@ export function TransfersAdmin({ api, restricted = false }) {
       await load();
     } catch (e) { setNotice(e.message); } finally { setBusy(null); }
   }
+  async function cancelTickets(order) {
+    const reason = window.prompt('Motivo que recibira el cliente', 'Falta de pago');
+    if (reason === null) return;
+    const scanMessage = window.prompt('Aviso rojo que mostrara el escaner', 'BOLETO CANCELADO, FALTA DE PAGO');
+    if (scanMessage === null) return;
+    if (!window.confirm(`Cancelar definitivamente todos los QR del pedido ${order.order_number} y enviar el correo?`)) return;
+    setBusy(order.id); setNotice('');
+    try {
+      const result = await api(`/admin/orders/${order.id}/cancel-tickets`, {
+        admin: true,
+        method: 'POST',
+        body: JSON.stringify({ reason, scan_message: scanMessage })
+      });
+      setNotice(result.email?.sent
+        ? 'Entradas canceladas y correo enviado al cliente.'
+        : `Entradas canceladas. No se pudo enviar el correo: ${result.email?.reason || 'revisa el correo configurado'}`);
+      await load();
+    } catch (e) { setNotice(e.message); } finally { setBusy(null); }
+  }
   const visible = orders.filter((o) => (filter === 'all' || o.payment_status === filter) && `${o.order_number} ${o.customer_name} ${o.customer_email} ${o.transfer_reference || ''}`.toLowerCase().includes(query.toLowerCase()));
   return <div className="pt-payment-admin">
     <section className="pta-section">
@@ -108,7 +127,7 @@ export function TransfersAdmin({ api, restricted = false }) {
           {o.payment_status === 'expired' && <small>Reserva vencida: la aprobacion requiere stock libre.</small>}
           <div className="pta-actions"><button className="pta-primary" disabled={busy === o.id}><Check /> Validar pago</button><button type="button" className="pta-secondary" disabled={busy === o.id} onClick={() => process(o, 'reject')}><X /> Rechazar</button></div>
         </form>}
-        {o.payment_status === 'paid' && <div><strong>Referencia: {o.transfer_reference}</strong><p>{o.transfer_checked_by} · {date(o.paid_at)}</p>{!o.email_sent_at && <button className="pta-secondary" disabled={busy === o.id} onClick={() => process(o, 'confirm')}><Mail /> Reenviar entradas</button>}</div>}
+        {o.payment_status === 'paid' && <div><strong>Referencia: {o.transfer_reference}</strong><p>{o.transfer_checked_by} · {date(o.paid_at)}</p>{!o.email_sent_at && <button className="pta-secondary" disabled={busy === o.id} onClick={() => process(o, 'confirm')}><Mail /> Reenviar entradas</button>}{!restricted && <button className="pta-secondary danger" disabled={busy === o.id} onClick={() => cancelTickets(o)}><X /> Cancelar entradas</button>}</div>}
       </article>)}{!visible.length && <div className="pta-empty">No hay transferencias con estos filtros.</div>}</div>
     </section>
     {!restricted && <TransferUsers api={api} />}

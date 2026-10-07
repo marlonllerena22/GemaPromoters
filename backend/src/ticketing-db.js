@@ -137,6 +137,11 @@ export function initTicketingDb(db) {
       expires_at TEXT,
       paid_at TEXT,
       email_sent_at TEXT,
+      cancellation_reason TEXT,
+      cancellation_scan_message TEXT,
+      cancelled_at TEXT,
+      cancelled_by TEXT,
+      cancellation_email_sent_at TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
       FOREIGN KEY (establishment_id) REFERENCES establishments(id),
@@ -251,6 +256,11 @@ export function initTicketingDb(db) {
   addColumnIfMissing(db, 'ticketing_orders', 'provider_fee_rate', 'REAL');
   addColumnIfMissing(db, 'ticketing_orders', 'transfer_reference', 'TEXT');
   addColumnIfMissing(db, 'ticketing_orders', 'transfer_checked_by', 'TEXT');
+  addColumnIfMissing(db, 'ticketing_orders', 'cancellation_reason', 'TEXT');
+  addColumnIfMissing(db, 'ticketing_orders', 'cancellation_scan_message', 'TEXT');
+  addColumnIfMissing(db, 'ticketing_orders', 'cancelled_at', 'TEXT');
+  addColumnIfMissing(db, 'ticketing_orders', 'cancelled_by', 'TEXT');
+  addColumnIfMissing(db, 'ticketing_orders', 'cancellation_email_sent_at', 'TEXT');
   addColumnIfMissing(db, 'ticketing_customers', 'marketing_opt_out', 'INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'ticketing_customers', 'marketing_unsubscribe_token', 'TEXT');
   addColumnIfMissing(db, 'ticketing_validators', 'access_scope', "TEXT NOT NULL DEFAULT 'qr'");
