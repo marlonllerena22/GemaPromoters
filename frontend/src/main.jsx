@@ -45,6 +45,7 @@ const ContentStudioAccess = lazy(() => import('./ContentStudioAccess.jsx'));
 const ContentStudioPrivacy = lazy(() => import('./ContentStudioLegal.jsx').then((module) => ({ default: module.ContentStudioPrivacy })));
 const ContentStudioTerms = lazy(() => import('./ContentStudioLegal.jsx').then((module) => ({ default: module.ContentStudioTerms })));
 const ContentStudioDataDeletion = lazy(() => import('./ContentStudioLegal.jsx').then((module) => ({ default: module.ContentStudioDataDeletion })));
+const OfflineTicketScanner = lazy(() => import('./OfflineTicketScanner.jsx'));
 import './styles.css';
 
 const emptyPromoter = {
@@ -842,6 +843,8 @@ function App() {
   const [user, saveUser] = useState(getUser());
   const pathname = window.location.pathname;
   const isStudioDomain = ['estudioscreativos.com', 'www.estudioscreativos.com'].includes(window.location.hostname.toLowerCase());
+  const isNativeScanner = import.meta.env.VITE_NATIVE_SCANNER === 'true' || window.location.protocol === 'capacitor:';
+  const scannerRequested = isNativeScanner || pathname === '/scanner';
 
   if (pathname === '/privacidad') {
     return <Suspense fallback={<div className="studio-route-loading"/>}><ContentStudioPrivacy /></Suspense>;
@@ -866,6 +869,20 @@ function App() {
       }} /></Suspense>;
     }
     return <Suspense fallback={<div className="studio-route-loading"/>}><ContentStudioAccess onAuthenticated={(nextToken, nextUser) => { saveToken(nextToken); saveUser(nextUser); }} /></Suspense>;
+  }
+
+  if (scannerRequested) {
+    if (!token) {
+      return <Login onLogin={(nextToken, nextUser) => { saveToken(nextToken); saveUser(nextUser); }} />;
+    }
+    const ticketingAccess = user?.role === 'ticket_validator' || user?.role === 'supreme' ||
+      (user?.role === 'admin' && (user?.establishment_module_type === 'ticketing' || String(user?.establishment_name || '').toUpperCase() === 'PROTICKETS'));
+    if (!ticketingAccess) {
+      return <main className="login-shell"><section className="login-panel"><div className="alert error">Esta cuenta no tiene permiso para validar boletos de ProTickets.</div><button className="primary-button" type="button" onClick={() => { clearToken(); saveToken(null); saveUser(null); }}>Usar otra cuenta</button></section></main>;
+    }
+    return <Suspense fallback={<div className="studio-route-loading"/>}><OfflineTicketScanner user={user} onLogout={() => {
+      clearToken(); saveToken(null); saveUser(null);
+    }} /></Suspense>;
   }
 
   if (window.location.pathname === '/tickets' || window.location.pathname.startsWith('/tickets/')) {

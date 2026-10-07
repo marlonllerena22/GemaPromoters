@@ -1,7 +1,9 @@
-const DEFAULT_API_URL =
-  typeof window !== 'undefined' && window.location.hostname === 'promotersec.com'
-    ? 'https://www.promotersec.com/api'
-    : '/api';
+const NATIVE_SCANNER = import.meta.env.VITE_NATIVE_SCANNER === 'true' ||
+  (typeof window !== 'undefined' && window.location.protocol === 'capacitor:');
+const DEFAULT_API_URL = NATIVE_SCANNER ||
+  (typeof window !== 'undefined' && ['promotersec.com', 'www.promotersec.com'].includes(window.location.hostname))
+  ? 'https://www.promotersec.com/api'
+  : '/api';
 export const API_URL = import.meta.env.VITE_API_URL || DEFAULT_API_URL;
 
 export function getToken() {

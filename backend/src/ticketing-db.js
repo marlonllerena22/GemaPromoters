@@ -207,6 +207,28 @@ export function initTicketingDb(db) {
       FOREIGN KEY (ticket_id) REFERENCES ticketing_tickets(id)
     );
 
+    CREATE TABLE IF NOT EXISTS ticketing_offline_scans (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      establishment_id INTEGER NOT NULL,
+      event_id INTEGER,
+      ticket_id INTEGER,
+      client_event_id TEXT NOT NULL,
+      device_id TEXT NOT NULL,
+      gate_name TEXT,
+      code TEXT NOT NULL,
+      scanned_at TEXT,
+      client_result TEXT,
+      server_result TEXT NOT NULL,
+      message TEXT NOT NULL,
+      checked_by TEXT NOT NULL,
+      response_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (establishment_id) REFERENCES establishments(id),
+      FOREIGN KEY (event_id) REFERENCES ticketing_events(id),
+      FOREIGN KEY (ticket_id) REFERENCES ticketing_tickets(id),
+      UNIQUE(establishment_id, client_event_id)
+    );
+
     CREATE TABLE IF NOT EXISTS ticketing_payment_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       establishment_id INTEGER NOT NULL,
@@ -244,6 +266,10 @@ export function initTicketingDb(db) {
       ON ticketing_validators(establishment_id, username, status);
     CREATE INDEX IF NOT EXISTS idx_ticketing_validation_logs_date
       ON ticketing_validation_logs(establishment_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_ticketing_offline_scans_device
+      ON ticketing_offline_scans(establishment_id, device_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_ticketing_offline_scans_event
+      ON ticketing_offline_scans(establishment_id, event_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_ticketing_password_resets_customer
       ON ticketing_password_resets(customer_id, expires_at);
   `);
@@ -264,6 +290,7 @@ export function initTicketingDb(db) {
   addColumnIfMissing(db, 'ticketing_customers', 'marketing_opt_out', 'INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'ticketing_customers', 'marketing_unsubscribe_token', 'TEXT');
   addColumnIfMissing(db, 'ticketing_validators', 'access_scope', "TEXT NOT NULL DEFAULT 'qr'");
+  addColumnIfMissing(db, 'ticketing_offline_scans', 'gate_name', 'TEXT');
   db.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_ticketing_marketing_unsubscribe
       ON ticketing_customers(marketing_unsubscribe_token) WHERE marketing_unsubscribe_token IS NOT NULL;

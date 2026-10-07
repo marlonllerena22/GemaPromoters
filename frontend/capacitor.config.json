@@ -1,0 +1,12 @@
+{
+  "appId": "com.promotersec.proticketsscanner",
+  "appName": "ProTickets Scanner",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#090b0d"
+  }
+}

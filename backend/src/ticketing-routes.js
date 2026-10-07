@@ -285,6 +285,59 @@ export function registerTicketingRoutes(app, db) {
     ).run(req.ticketEstablishment.id, ticketId, code || '-', result, message, validationUser(req));
   }
 
+  function validationTicket(code, establishmentId) {
+    return db.prepare(
+      `SELECT tickets.*, items.ticket_name, items.quantity AS purchase_quantity,
+              orders.order_number, orders.cancellation_scan_message,
+              (SELECT COUNT(*) FROM ticketing_tickets AS order_tickets
+               WHERE order_tickets.order_id = tickets.order_id
+                 AND order_tickets.status != 'void') AS order_quantity,
+              events.title AS event_title, customers.name AS customer_name
+       FROM ticketing_tickets AS tickets
+       JOIN ticketing_order_items AS items ON items.id = tickets.order_item_id
+       JOIN ticketing_orders AS orders ON orders.id = tickets.order_id
+       JOIN ticketing_events AS events ON events.id = tickets.event_id
+       JOIN ticketing_customers AS customers ON customers.id = tickets.customer_id
+       WHERE tickets.code = ? AND tickets.establishment_id = ?`
+    ).get(code, establishmentId);
+  }
+
+  function validateTicketAccess(req, code, expectedEventId = 0) {
+    const ticket = validationTicket(code, req.ticketEstablishment.id);
+    if (!ticket) {
+      const message = 'Entrada no registrada';
+      recordValidation(req, { code, result: 'invalid', message });
+      return { httpStatus: 404, payload: { valid: false, server_result: 'invalid', message } };
+    }
+    if (expectedEventId && Number(ticket.event_id) !== Number(expectedEventId)) {
+      const message = `Este boleto pertenece a otro evento: ${ticket.event_title}`;
+      recordValidation(req, { ticketId: ticket.id, code, result: 'wrong_event', message });
+      return { httpStatus: 409, payload: { valid: false, server_result: 'wrong_event', message, ticket } };
+    }
+    if (ticket.status === 'used') {
+      const message = 'Entrada ya utilizada';
+      recordValidation(req, { ticketId: ticket.id, code, result: 'already_used', message });
+      return { httpStatus: 409, payload: { valid: false, server_result: 'already_used', message, ticket } };
+    }
+    if (ticket.status !== 'valid') {
+      const message = ticket.cancellation_scan_message || 'Entrada anulada';
+      recordValidation(req, { ticketId: ticket.id, code, result: 'void', message });
+      return { httpStatus: 409, payload: { valid: false, server_result: 'void', message, ticket } };
+    }
+    const checkedBy = validationUser(req);
+    db.prepare(
+      `UPDATE ticketing_tickets
+       SET status = 'used', used_at = datetime('now', 'localtime'), checked_by = ? WHERE id = ?`
+    ).run(checkedBy, ticket.id);
+    const usage = db.prepare('SELECT used_at, checked_by FROM ticketing_tickets WHERE id = ?').get(ticket.id);
+    const message = 'Entrada valida. Acceso registrado.';
+    recordValidation(req, { ticketId: ticket.id, code, result: 'valid', message });
+    return {
+      httpStatus: 200,
+      payload: { valid: true, server_result: 'valid', message, ticket: { ...ticket, ...usage, status: 'used' } }
+    };
+  }
+
   app.post('/api/ticketing/validator/login', (req, res) => {
     const establishment = ticketingEstablishment(db);
     const username = cleanText(req.body?.username, 80).toLowerCase();
@@ -1402,48 +1455,121 @@ export function registerTicketingRoutes(app, db) {
     res.json(history);
   });
 
-  app.post('/api/ticketing/admin/tickets/validate', requireTicketValidationAccess, (req, res) => {
-    const code = ticketCodeFromInput(req.body?.code);
-    if (!code) return res.status(400).json({ valid: false, message: 'Ingresa o escanea un codigo' });
-    const ticket = db.prepare(
-      `SELECT tickets.*, items.ticket_name, items.quantity AS purchase_quantity,
-              orders.order_number, orders.cancellation_scan_message,
-              (SELECT COUNT(*) FROM ticketing_tickets AS order_tickets
-               WHERE order_tickets.order_id = tickets.order_id
-                 AND order_tickets.status != 'void') AS order_quantity,
-              events.title AS event_title, customers.name AS customer_name
+  app.get('/api/ticketing/validation/offline-package', requireTicketValidationAccess, (req, res) => {
+    const events = db.prepare(
+      `SELECT id, title, venue, city, event_date, doors_time, status
+       FROM ticketing_events
+       WHERE establishment_id = ? AND status IN ('published', 'sold_out')
+       ORDER BY CASE WHEN event_date >= datetime('now', 'localtime') THEN 0 ELSE 1 END,
+                CASE WHEN event_date >= datetime('now', 'localtime') THEN event_date END ASC,
+                event_date DESC, id DESC`
+    ).all(req.ticketEstablishment.id);
+    const requestedEventId = Number.parseInt(String(req.query.event_id || ''), 10);
+    const event = events.find((item) => item.id === requestedEventId) || events[0] || null;
+    if (!event) return res.status(404).json({ message: 'No hay eventos disponibles para preparar el escaner' });
+    const tickets = db.prepare(
+      `SELECT tickets.code, tickets.status, tickets.used_at, tickets.checked_by,
+              tickets.event_id, tickets.order_id, items.ticket_name,
+              items.quantity AS purchase_quantity, orders.order_number,
+              orders.cancellation_scan_message, customers.name AS customer_name
        FROM ticketing_tickets AS tickets
        JOIN ticketing_order_items AS items ON items.id = tickets.order_item_id
        JOIN ticketing_orders AS orders ON orders.id = tickets.order_id
-       JOIN ticketing_events AS events ON events.id = tickets.event_id
        JOIN ticketing_customers AS customers ON customers.id = tickets.customer_id
-       WHERE tickets.code = ? AND tickets.establishment_id = ?`
-    ).get(code, req.ticketEstablishment.id);
-    if (!ticket) {
-      recordValidation(req, { code, result: 'invalid', message: 'Entrada no registrada' });
-      return res.status(404).json({ valid: false, message: 'Entrada no registrada' });
-    }
-    if (ticket.status === 'used') {
-      recordValidation(req, { ticketId: ticket.id, code, result: 'already_used', message: 'Entrada ya utilizada' });
-      return res.status(409).json({ valid: false, message: 'Entrada ya utilizada', ticket });
-    }
-    if (ticket.status !== 'valid') {
-      const message = ticket.cancellation_scan_message || 'Entrada anulada';
-      recordValidation(req, { ticketId: ticket.id, code, result: 'void', message });
-      return res.status(409).json({ valid: false, message, ticket });
-    }
-    const checkedBy = validationUser(req);
-    db.prepare(
-      `UPDATE ticketing_tickets
-       SET status = 'used', used_at = datetime('now', 'localtime'), checked_by = ? WHERE id = ?`
-    ).run(checkedBy, ticket.id);
-    const usage = db.prepare('SELECT used_at, checked_by FROM ticketing_tickets WHERE id = ?').get(ticket.id);
-    recordValidation(req, { ticketId: ticket.id, code, result: 'valid', message: 'Entrada valida. Acceso registrado.' });
-    res.json({
-      valid: true,
-      message: 'Entrada valida. Acceso registrado.',
-      ticket: { ...ticket, ...usage, status: 'used' }
+       WHERE tickets.establishment_id = ? AND tickets.event_id = ?
+       ORDER BY tickets.id`
+    ).all(req.ticketEstablishment.id, event.id);
+    const stats = tickets.reduce((summary, ticket) => {
+      summary.total += 1;
+      if (ticket.status === 'valid') summary.valid += 1;
+      else if (ticket.status === 'used') summary.used += 1;
+      else summary.void += 1;
+      return summary;
+    }, { total: 0, valid: 0, used: 0, void: 0 });
+    res.set('Cache-Control', 'no-store');
+    return res.json({
+      generated_at: new Date().toISOString(),
+      establishment: {
+        id: req.ticketEstablishment.id,
+        name: req.ticketEstablishment.display_name || req.ticketEstablishment.name || 'ProTickets'
+      },
+      event,
+      events,
+      tickets,
+      stats
     });
+  });
+
+  app.post('/api/ticketing/validation/offline-sync', requireTicketValidationAccess, (req, res) => {
+    const deviceId = cleanText(req.body?.device_id, 120);
+    const gateName = cleanText(req.body?.gate_name, 120);
+    const scans = Array.isArray(req.body?.scans) ? req.body.scans.slice(0, 500) : [];
+    if (!deviceId) return res.status(400).json({ message: 'Identifica el dispositivo de ingreso' });
+    if (!scans.length) return res.json({ synced_at: new Date().toISOString(), results: [] });
+    const checkedBy = validationUser(req);
+    const processScans = db.transaction(() => scans.map((scan) => {
+      const clientEventId = cleanText(scan?.client_event_id, 120);
+      const code = ticketCodeFromInput(scan?.code);
+      const scannedAt = cleanText(scan?.scanned_at, 80);
+      const clientResult = cleanText(scan?.client_result, 40);
+      const expectedEventId = Number.parseInt(String(scan?.event_id || ''), 10) || 0;
+      if (!clientEventId || !code) {
+        return {
+          client_event_id: clientEventId || '', code: code || '', valid: false,
+          server_result: 'invalid', message: 'Lectura incompleta; no pudo sincronizarse'
+        };
+      }
+      const existing = db.prepare(
+        `SELECT response_json FROM ticketing_offline_scans
+         WHERE establishment_id = ? AND client_event_id = ?`
+      ).get(req.ticketEstablishment.id, clientEventId);
+      if (existing) {
+        try { return { ...JSON.parse(existing.response_json), duplicate_submission: true }; } catch { /* rebuild below */ }
+      }
+      const outcome = validateTicketAccess(req, code, expectedEventId);
+      const ticket = outcome.payload.ticket || validationTicket(code, req.ticketEstablishment.id);
+      const result = {
+        client_event_id: clientEventId,
+        code,
+        valid: Boolean(outcome.payload.valid),
+        server_result: outcome.payload.server_result,
+        message: outcome.payload.message,
+        ticket: outcome.payload.ticket || ticket || null
+      };
+      db.prepare(
+        `INSERT INTO ticketing_offline_scans
+         (establishment_id, event_id, ticket_id, client_event_id, device_id, gate_name, code,
+          scanned_at, client_result, server_result, message, checked_by, response_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        req.ticketEstablishment.id,
+        ticket?.event_id || expectedEventId || null,
+        ticket?.id || null,
+        clientEventId,
+        deviceId,
+        gateName || null,
+        code,
+        scannedAt || null,
+        clientResult || null,
+        result.server_result,
+        result.message,
+        checkedBy,
+        JSON.stringify(result)
+      );
+      return result;
+    }));
+    try {
+      return res.json({ synced_at: new Date().toISOString(), results: processScans() });
+    } catch (error) {
+      return res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.post('/api/ticketing/admin/tickets/validate', requireTicketValidationAccess, (req, res) => {
+    const code = ticketCodeFromInput(req.body?.code);
+    if (!code) return res.status(400).json({ valid: false, message: 'Ingresa o escanea un codigo' });
+    const outcome = validateTicketAccess(req, code);
+    return res.status(outcome.httpStatus).json(outcome.payload);
   });
 
   app.all('/api/ticketing/payments/payphone/response', async (req, res) => {

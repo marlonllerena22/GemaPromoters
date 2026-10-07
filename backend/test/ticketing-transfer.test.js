@@ -144,6 +144,74 @@ test('an administrator can cancel mistakenly approved tickets, restore stock, em
   assert.equal(messages.length, 2);
 });
 
+test('offline scanner downloads an event, synchronizes idempotently and resolves used or cancelled conflicts', async (t) => {
+  const f = await fixture(t);
+  t.mock.method(nodemailer, 'createTransport', () => ({ sendMail: async () => {} }));
+  for (const key of ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS']) {
+    const previous = process.env[key]; process.env[key] = 'isolated-test';
+    t.after(() => { if (previous === undefined) delete process.env[key]; else process.env[key] = previous; });
+  }
+  const validator = await f.request('/admin/validators', f.admin, 'POST', {
+    name: 'Puerta principal', username: 'puerta.principal', password: 'test-password-123', access_scope: 'qr'
+  });
+  const login = await f.request('/validator/login', '', 'POST', {
+    username: 'puerta.principal', password: 'test-password-123'
+  });
+  assert.equal(login.status, 200);
+  assert.equal(login.body.user.role, 'ticket_validator');
+  const token = login.body.token;
+  const firstOrder = (await f.create()).body;
+  const firstConfirmed = await f.request(`/transfers/${firstOrder.id}/confirm`, f.admin, 'POST', { reference: 'OFFLINE-001' });
+  const firstCode = firstConfirmed.body.order.tickets[0].code;
+  const offlinePackage = await f.request(`/validation/offline-package?event_id=${f.event.id}`, token);
+  assert.equal(offlinePackage.status, 200);
+  assert.equal(offlinePackage.body.event.id, f.event.id);
+  assert.equal(offlinePackage.body.stats.valid, 2);
+  assert.ok(offlinePackage.body.tickets.some((ticket) => ticket.code === firstCode));
+
+  const firstSync = await f.request('/validation/offline-sync', token, 'POST', {
+    device_id: 'device-main-gate',
+    scans: [{ client_event_id: 'scan-001', event_id: f.event.id, code: firstCode,
+      scanned_at: '2026-10-08T23:00:00.000Z', client_result: 'valid' }]
+  });
+  assert.equal(firstSync.status, 200);
+  assert.equal(firstSync.body.results[0].server_result, 'valid');
+  assert.equal(f.db.prepare('SELECT status FROM ticketing_tickets WHERE code = ?').get(firstCode).status, 'used');
+
+  const repeatedSync = await f.request('/validation/offline-sync', token, 'POST', {
+    device_id: 'device-main-gate',
+    scans: [{ client_event_id: 'scan-001', event_id: f.event.id, code: firstCode,
+      scanned_at: '2026-10-08T23:00:00.000Z', client_result: 'valid' }]
+  });
+  assert.equal(repeatedSync.body.results[0].duplicate_submission, true);
+  assert.equal(f.db.prepare('SELECT COUNT(*) AS count FROM ticketing_offline_scans').get().count, 1);
+
+  const duplicateScan = await f.request('/validation/offline-sync', token, 'POST', {
+    device_id: 'device-main-gate',
+    scans: [{ client_event_id: 'scan-002', event_id: f.event.id, code: firstCode,
+      scanned_at: '2026-10-08T23:01:00.000Z', client_result: 'already_used' }]
+  });
+  assert.equal(duplicateScan.body.results[0].server_result, 'already_used');
+
+  const secondOrder = (await f.create()).body;
+  const secondConfirmed = await f.request(`/transfers/${secondOrder.id}/confirm`, f.admin, 'POST', { reference: 'OFFLINE-002' });
+  const cancelledCode = secondConfirmed.body.order.tickets[0].code;
+  await f.request(`/admin/orders/${secondOrder.id}/cancel-tickets`, f.admin, 'POST', {
+    reason: 'Falta de pago', scan_message: 'BOLETO CANCELADO, FALTA DE PAGO, CASO HENRY'
+  });
+  const cancelledSync = await f.request('/validation/offline-sync', token, 'POST', {
+    device_id: 'device-main-gate',
+    scans: [{ client_event_id: 'scan-003', event_id: f.event.id, code: cancelledCode,
+      scanned_at: '2026-10-08T23:02:00.000Z', client_result: 'valid' }]
+  });
+  assert.equal(cancelledSync.body.results[0].server_result, 'void');
+  assert.equal(cancelledSync.body.results[0].message, 'BOLETO CANCELADO, FALTA DE PAGO, CASO HENRY');
+  const refreshed = await f.request(`/validation/offline-package?event_id=${f.event.id}`, token);
+  assert.equal(refreshed.body.tickets.find((ticket) => ticket.code === cancelledCode).status, 'void');
+  assert.equal((await f.request('/validation/offline-package', f.admin)).status, 200);
+  assert.equal(validator.body.access_scope, 'qr');
+});
+
 test('report rounds once per payment, distinguishes methods and reconciles every cent', () => {
   const orders = [
     { id: 1, event_id: 1, event_title: 'Evento', payment_method: 'payphone', subtotal: 100, service_fee: 10, total: 110, provider_fee_rate: 5.75 },
