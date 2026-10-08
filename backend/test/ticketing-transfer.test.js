@@ -174,6 +174,7 @@ test('offline scanner downloads an event, synchronizes idempotently and resolves
   assert.equal(scannerTest.body.valid, true);
   assert.equal(scannerTest.body.test, true);
   assert.equal(scannerTest.body.message, 'LECTURA DE PRUEBA CORRECTA');
+  assert.equal(scannerTest.body.ticket.ticket_name, 'GENERAL');
   assert.equal(f.db.prepare('SELECT COUNT(*) AS count FROM ticketing_validation_logs').get().count, 0);
 
   const firstSync = await f.request('/validation/offline-sync', token, 'POST', {

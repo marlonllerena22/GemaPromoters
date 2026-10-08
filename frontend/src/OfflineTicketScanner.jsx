@@ -15,6 +15,11 @@ const TEST_QR_CODES = new Set([
   'PROTICKETS-PRUEBA-02',
   'PROTICKETS-PRUEBA-03'
 ]);
+const TEST_QR_TYPES = {
+  'PROTICKETS-PRUEBA-01': 'GENERAL',
+  'PROTICKETS-PRUEBA-02': 'PREFERENCIA',
+  'PROTICKETS-PRUEBA-03': 'GOLDEN'
+};
 
 function uid(prefix = 'scan') {
   return `${prefix}-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
@@ -88,18 +93,25 @@ function initialOutcome(ticket, code) {
 
 function scannerTestOutcome(code) {
   if (!TEST_QR_CODES.has(code)) return null;
+  const ticketName = TEST_QR_TYPES[code];
   return {
     valid: true,
     test: true,
     provisional: false,
     server_result: 'scanner_test',
     message: 'LECTURA DE PRUEBA CORRECTA',
-    code
+    code,
+    ticket: {
+      code,
+      status: 'test',
+      customer_name: 'PRUEBA DEL ESCÁNER',
+      ticket_name: ticketName
+    }
   };
 }
 
 function ticketAccessType(outcome) {
-  if (!outcome?.valid || outcome?.test) return null;
+  if (!outcome?.valid) return null;
   const ticket = outcome.ticket || outcome.server_ticket;
   const name = String(ticket?.ticket_name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   if (name.includes('golden')) return { key: 'golden', label: 'GOLDEN' };

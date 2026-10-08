@@ -36,6 +36,11 @@ const SCANNER_TEST_CODES = [
   'PROTICKETS-PRUEBA-02',
   'PROTICKETS-PRUEBA-03'
 ];
+const SCANNER_TEST_TYPES = new Map([
+  ['PROTICKETS-PRUEBA-01', { name: 'GENERAL', color: '#7c3aed', text: '#ffffff' }],
+  ['PROTICKETS-PRUEBA-02', { name: 'PREFERENCIA', color: '#facc15', text: '#18140a' }],
+  ['PROTICKETS-PRUEBA-03', { name: 'GOLDEN', color: '#16a34a', text: '#ffffff' }]
+]);
 
 function slugify(value) {
   return cleanText(value, 180)
@@ -309,7 +314,8 @@ export function registerTicketingRoutes(app, db) {
   }
 
   function validateTicketAccess(req, code, expectedEventId = 0) {
-    if (SCANNER_TEST_CODES.includes(code)) {
+    const scannerTestType = SCANNER_TEST_TYPES.get(code);
+    if (scannerTestType) {
       return {
         httpStatus: 200,
         payload: {
@@ -321,7 +327,7 @@ export function registerTicketingRoutes(app, db) {
             code,
             status: 'test',
             customer_name: 'PRUEBA DEL ESCÁNER',
-            ticket_name: 'NO HABILITA INGRESO'
+            ticket_name: scannerTestType.name
           }
         }
       };
@@ -1391,9 +1397,10 @@ export function registerTicketingRoutes(app, db) {
       const attachments = [];
       const cards = [];
       for (const [index, code] of SCANNER_TEST_CODES.entries()) {
+        const locality = SCANNER_TEST_TYPES.get(code);
         const cid = `scanner-test-${index + 1}@protickets`;
         attachments.push({
-          filename: `qr-prueba-${index + 1}.png`,
+          filename: `qr-prueba-${locality.name.toLowerCase()}.png`,
           content: await QRCode.toBuffer(code, {
             width: 720,
             margin: 2,
@@ -1403,23 +1410,23 @@ export function registerTicketingRoutes(app, db) {
           contentType: 'image/png',
           cid
         });
-        cards.push(`<div style="display:inline-block;width:180px;margin:8px;padding:14px;border:1px solid #e5e7eb;border-radius:12px;text-align:center;background:#fff">
-          <strong style="display:block;margin-bottom:8px">Prueba ${index + 1}</strong>
-          <img src="cid:${cid}" width="165" height="165" alt="QR de prueba ${index + 1}" style="display:block;margin:auto" />
+        cards.push(`<div style="display:inline-block;width:180px;margin:8px;padding:14px;border:3px solid ${locality.color};border-radius:12px;text-align:center;background:#fff">
+          <strong style="display:block;margin-bottom:8px;padding:8px;border-radius:7px;color:${locality.text};background:${locality.color}">${locality.name}</strong>
+          <img src="cid:${cid}" width="165" height="165" alt="QR de prueba ${locality.name}" style="display:block;margin:auto" />
           <code style="display:block;margin-top:8px;font-size:10px;color:#6b7280">${code}</code>
         </div>`);
       }
       await transporter.sendMail({
         from: process.env.SMTP_FROM || process.env.SMTP_USER,
         to: email,
-        subject: '3 códigos QR de prueba · ProTickets Scanner',
+        subject: 'QR de prueba por localidad · ProTickets Scanner',
         attachments,
         html: `<div style="font-family:Arial,sans-serif;max-width:700px;margin:auto;background:#f4f5f7;padding:24px;color:#111">
           <div style="background:#090b0d;color:#fff;padding:20px 22px;border-radius:14px">
             <strong style="font-size:23px">ProTickets Scanner</strong>
             <p style="margin:6px 0 0;color:#f4a261">Códigos de diagnóstico</p>
           </div>
-          <p style="line-height:1.6">Estos tres códigos sirven para comprobar la cámara, el enfoque, el sonido y la vibración del escáner.</p>
+          <p style="line-height:1.6">Incluimos un código de prueba para cada localidad: General, Preferencia y Golden. Sirven para comprobar la lectura y la identificación por color.</p>
           <div style="text-align:center">${cards.join('')}</div>
           <div style="margin-top:18px;padding:14px 16px;border-radius:10px;background:#fff7ed;color:#9a3412"><strong>Importante:</strong> son códigos de prueba. No corresponden a boletos y nunca habilitan el ingreso.</div>
           <p style="font-size:12px;color:#6b7280">Al escanearlos debe aparecer “LECTURA DE PRUEBA CORRECTA”. No se registran en el historial ni consumen entradas.</p>
