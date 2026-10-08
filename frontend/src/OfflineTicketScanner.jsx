@@ -10,6 +10,11 @@ import './offline-scanner.css';
 
 const STORAGE_KEY = 'protickets_offline_scanner_v1';
 const DEVICE_KEY = 'protickets_scanner_device_id';
+const TEST_QR_CODES = new Set([
+  'PROTICKETS-PRUEBA-01',
+  'PROTICKETS-PRUEBA-02',
+  'PROTICKETS-PRUEBA-03'
+]);
 
 function uid(prefix = 'scan') {
   return `${prefix}-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
@@ -79,6 +84,18 @@ function initialOutcome(ticket, code) {
     return { valid: false, server_result: 'already_used', message: 'BOLETO YA UTILIZADO', ticket, code };
   }
   return { valid: true, server_result: 'valid', message: 'ACCESO APROBADO', ticket, code };
+}
+
+function scannerTestOutcome(code) {
+  if (!TEST_QR_CODES.has(code)) return null;
+  return {
+    valid: true,
+    test: true,
+    provisional: false,
+    server_result: 'scanner_test',
+    message: 'LECTURA DE PRUEBA CORRECTA',
+    code
+  };
 }
 
 function resultTone(valid) {
@@ -228,6 +245,15 @@ export default function OfflineTicketScanner({ user, onLogout }) {
   async function processCode(rawValue) {
     const code = normalizeCode(rawValue);
     if (!code || busyRef.current) return;
+    const testOutcome = scannerTestOutcome(code);
+    if (testOutcome) {
+      setResult(testOutcome);
+      setManualCode('');
+      resultTone(true);
+      navigator.vibrate?.([90, 50, 90]);
+      setNotice('QR de diagnóstico reconocido. No corresponde a una entrada y no se guardó como acceso.');
+      return;
+    }
     if (!storeRef.current.package?.tickets?.length) {
       setResult({ valid: false, message: 'DESCARGA EL EVENTO ANTES DE ESCANEAR', server_result: 'no_package' });
       return;
@@ -394,7 +420,7 @@ export default function OfflineTicketScanner({ user, onLogout }) {
 
       {result && <article className={`pts-result ${result.valid ? 'valid' : 'invalid'} ${result.conflict ? 'conflict' : ''}`}>
         <div className="pts-result-icon">{result.valid ? <CheckCircle2 /> : <X />}</div>
-        <div><small>{result.provisional ? 'RESULTADO SIN CONEXIÓN · GUARDADO' : result.conflict ? 'CONFLICTO AL SINCRONIZAR' : 'RESULTADO CONFIRMADO'}</small><strong>{result.message || result.server_message}</strong>
+        <div><small>{result.test ? 'QR DE PRUEBA · NO HABILITA INGRESO' : result.provisional ? 'RESULTADO SIN CONEXIÓN · GUARDADO' : result.conflict ? 'CONFLICTO AL SINCRONIZAR' : 'RESULTADO CONFIRMADO'}</small><strong>{result.message || result.server_message}</strong>
           {(result.ticket || result.server_ticket) && <span>{(result.ticket || result.server_ticket).customer_name} · {(result.ticket || result.server_ticket).ticket_name}</span>}
         </div>
         <button type="button" onClick={() => setResult(null)}>Cerrar</button>
