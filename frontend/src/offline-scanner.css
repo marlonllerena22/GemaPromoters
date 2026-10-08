@@ -137,12 +137,21 @@ body:has(.pts-login) { margin: 0; background: #090b0d; }
 .pts-manual button { padding: 0 16px; border: 0; border-radius: 13px; color: #16100a; background: var(--pts-orange); font-weight: 900; }
 .pts-manual button:disabled { opacity: .45; }
 
-.pts-result { gap: 12px; margin: 12px 0; padding: 15px; border: 1px solid; border-radius: 18px; box-shadow: 0 15px 30px rgba(0,0,0,.25); }
+.pts-result { flex-wrap: wrap; gap: 12px; margin: 12px 0; padding: 15px; border: 1px solid; border-radius: 18px; box-shadow: 0 15px 30px rgba(0,0,0,.25); }
 .pts-result.valid { border-color: rgba(34,199,118,.53); background: linear-gradient(135deg, rgba(34,199,118,.22), rgba(16,70,46,.6)); }
 .pts-result.invalid, .pts-result.conflict { border-color: rgba(255,63,79,.57); background: linear-gradient(135deg, rgba(255,63,79,.24), rgba(72,15,23,.7)); }
+.pts-access-band { display: flex; flex: 0 0 100%; align-items: center; justify-content: space-between; min-height: 66px; padding: 10px 16px; border: 2px solid rgba(255,255,255,.7); border-radius: 14px; box-shadow: 0 8px 22px rgba(0,0,0,.28); }
+.pts-result .pts-access-band span { font-size: 10px; font-weight: 950; letter-spacing: .17em; opacity: .92; }
+.pts-result .pts-access-band strong { margin: 0; font-size: 26px; font-weight: 1000; letter-spacing: .025em; line-height: 1; }
+.pts-result.access-general { border-color: #a78bfa; }
+.pts-result.access-general .pts-access-band { color: #fff; background: linear-gradient(135deg, #7c3aed, #5b21b6); }
+.pts-result.access-preference { border-color: #fde047; }
+.pts-result.access-preference .pts-access-band { color: #18140a; border-color: #fff4a3; background: linear-gradient(135deg, #fde047, #eab308); }
+.pts-result.access-golden { border-color: #4ade80; }
+.pts-result.access-golden .pts-access-band { color: #fff; background: linear-gradient(135deg, #22c55e, #15803d); }
 .pts-result-icon { display: grid; place-items: center; width: 49px; height: 49px; flex: 0 0 auto; border-radius: 15px; background: rgba(0,0,0,.23); }
 .pts-result-icon svg { width: 31px; height: 31px; }
-.pts-result > div:nth-child(2) { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.pts-result-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .pts-result small { font-size: 9px; font-weight: 900; letter-spacing: .12em; opacity: .76; }
 .pts-result strong { margin: 4px 0; font-size: 17px; line-height: 1.12; }
 .pts-result span { font-size: 11px; opacity: .82; }

@@ -98,6 +98,16 @@ function scannerTestOutcome(code) {
   };
 }
 
+function ticketAccessType(outcome) {
+  if (!outcome?.valid || outcome?.test) return null;
+  const ticket = outcome.ticket || outcome.server_ticket;
+  const name = String(ticket?.ticket_name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (name.includes('golden')) return { key: 'golden', label: 'GOLDEN' };
+  if (name.includes('preferencia')) return { key: 'preference', label: 'PREFERENCIA' };
+  if (name.includes('general')) return { key: 'general', label: 'GENERAL' };
+  return null;
+}
+
 function resultTone(valid) {
   try {
     const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -380,6 +390,8 @@ export default function OfflineTicketScanner({ user, onLogout }) {
     try { await navigator.clipboard.writeText(text); setNotice('Resumen copiado.'); } catch { setNotice(text); }
   }
 
+  const accessType = ticketAccessType(result);
+
   return <main className="pts-shell">
     <header className="pts-header">
       <div className="pts-brand"><QrCode /><span><small>PROTICKETS</small><strong>Scanner</strong></span></div>
@@ -418,9 +430,10 @@ export default function OfflineTicketScanner({ user, onLogout }) {
         <button type="submit" disabled={!manualCode.trim()}>Validar</button>
       </form>
 
-      {result && <article className={`pts-result ${result.valid ? 'valid' : 'invalid'} ${result.conflict ? 'conflict' : ''}`}>
+      {result && <article className={`pts-result ${result.valid ? 'valid' : 'invalid'} ${result.conflict ? 'conflict' : ''} ${accessType ? `access-${accessType.key}` : ''}`}>
+        {accessType && <div className="pts-access-band"><span>LOCALIDAD</span><strong>{accessType.label}</strong></div>}
         <div className="pts-result-icon">{result.valid ? <CheckCircle2 /> : <X />}</div>
-        <div><small>{result.test ? 'QR DE PRUEBA · NO HABILITA INGRESO' : result.provisional ? 'RESULTADO SIN CONEXIÓN · GUARDADO' : result.conflict ? 'CONFLICTO AL SINCRONIZAR' : 'RESULTADO CONFIRMADO'}</small><strong>{result.message || result.server_message}</strong>
+        <div className="pts-result-copy"><small>{result.test ? 'QR DE PRUEBA · NO HABILITA INGRESO' : result.provisional ? 'RESULTADO SIN CONEXIÓN · GUARDADO' : result.conflict ? 'CONFLICTO AL SINCRONIZAR' : 'RESULTADO CONFIRMADO'}</small><strong>{result.message || result.server_message}</strong>
           {(result.ticket || result.server_ticket) && <span>{(result.ticket || result.server_ticket).customer_name} · {(result.ticket || result.server_ticket).ticket_name}</span>}
         </div>
         <button type="button" onClick={() => setResult(null)}>Cerrar</button>
