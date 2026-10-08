@@ -169,6 +169,13 @@ test('offline scanner downloads an event, synchronizes idempotently and resolves
   assert.equal(offlinePackage.body.stats.valid, 2);
   assert.ok(offlinePackage.body.tickets.some((ticket) => ticket.code === firstCode));
 
+  const scannerTest = await f.request('/admin/tickets/validate', token, 'POST', { code: 'PROTICKETS-PRUEBA-01' });
+  assert.equal(scannerTest.status, 200);
+  assert.equal(scannerTest.body.valid, true);
+  assert.equal(scannerTest.body.test, true);
+  assert.equal(scannerTest.body.message, 'LECTURA DE PRUEBA CORRECTA');
+  assert.equal(f.db.prepare('SELECT COUNT(*) AS count FROM ticketing_validation_logs').get().count, 0);
+
   const firstSync = await f.request('/validation/offline-sync', token, 'POST', {
     device_id: 'device-main-gate',
     scans: [{ client_event_id: 'scan-001', event_id: f.event.id, code: firstCode,

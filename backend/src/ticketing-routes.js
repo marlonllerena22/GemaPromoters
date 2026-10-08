@@ -309,6 +309,23 @@ export function registerTicketingRoutes(app, db) {
   }
 
   function validateTicketAccess(req, code, expectedEventId = 0) {
+    if (SCANNER_TEST_CODES.includes(code)) {
+      return {
+        httpStatus: 200,
+        payload: {
+          valid: true,
+          test: true,
+          server_result: 'valid',
+          message: 'LECTURA DE PRUEBA CORRECTA',
+          ticket: {
+            code,
+            status: 'test',
+            customer_name: 'PRUEBA DEL ESCÁNER',
+            ticket_name: 'NO HABILITA INGRESO'
+          }
+        }
+      };
+    }
     const ticket = validationTicket(code, req.ticketEstablishment.id);
     if (!ticket) {
       const message = 'Entrada no registrada';
