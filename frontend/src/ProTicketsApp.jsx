@@ -1032,6 +1032,14 @@ function ticketCodeFromScan(value) {
   return input.toUpperCase();
 }
 
+function validationLocality(ticketName) {
+  const name = String(ticketName || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (name.includes('golden')) return { key: 'golden', label: 'GOLDEN' };
+  if (name.includes('preferencia')) return { key: 'preference', label: 'PREFERENCIA' };
+  if (name.includes('general')) return { key: 'general', label: 'GENERAL' };
+  return null;
+}
+
 function ValidatorAdmin({ restricted = false }) {
   const [code, setCode] = useState('');
   const [result, setResult] = useState(null);
@@ -1192,6 +1200,7 @@ function ValidatorAdmin({ restricted = false }) {
     return !search || [item.code, item.customer_name, item.ticket_name, item.checked_by]
       .some((value) => String(value || '').toLowerCase().includes(search));
   });
+  const resultLocality = validationLocality(result?.ticket?.ticket_name);
 
   return <div className="pta-validation-page">
     <section className="pta-validator">
@@ -1216,7 +1225,8 @@ function ValidatorAdmin({ restricted = false }) {
           <button className="pta-primary" disabled={busy}><ShieldCheck /> {busy ? 'Validando...' : 'Validar acceso'}</button>
         </form>
       </>}
-      {result && <div className={`pta-validation-result ${result.valid ? 'valid' : 'invalid'}`}>
+      {result && <div className={`pta-validation-result ${result.valid ? 'valid' : 'invalid'} ${resultLocality ? `locality-${resultLocality.key}` : ''}`}>
+        {result.valid && resultLocality && <div className="pta-locality-banner"><span>LOCALIDAD</span><strong>{resultLocality.label}</strong></div>}
         {result.valid ? <CheckCircle2 /> : <X />}
         <strong>{result.message}</strong>
         {result.ticket && <div className="pta-validation-details">

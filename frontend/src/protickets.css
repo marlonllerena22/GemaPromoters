@@ -2102,6 +2102,37 @@
   color: var(--pt-red-dark);
 }
 
+.pta-locality-banner {
+  align-items: center;
+  border: 3px solid rgba(255, 255, 255, .82);
+  border-radius: 8px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, .18);
+  display: flex;
+  justify-content: space-between;
+  min-height: 76px;
+  padding: 12px 20px;
+  width: 100%;
+}
+
+.pta-locality-banner span {
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .18em;
+}
+
+.pta-locality-banner strong {
+  font-size: clamp(27px, 5vw, 40px);
+  font-weight: 1000;
+  letter-spacing: .02em;
+}
+
+.pta-validation-result.locality-general { border: 3px solid #8b5cf6; }
+.pta-validation-result.locality-general .pta-locality-banner { background: linear-gradient(135deg, #7c3aed, #5b21b6); color: #fff; }
+.pta-validation-result.locality-preference { border: 3px solid #facc15; }
+.pta-validation-result.locality-preference .pta-locality-banner { background: linear-gradient(135deg, #fde047, #eab308); color: #18140a; }
+.pta-validation-result.locality-golden { border: 3px solid #22c55e; }
+.pta-validation-result.locality-golden .pta-locality-banner { background: linear-gradient(135deg, #22c55e, #15803d); color: #fff; }
+
 .pta-validation-details {
   display: grid;
   gap: 8px;
