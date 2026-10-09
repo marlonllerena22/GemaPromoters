@@ -774,7 +774,7 @@ function AccountPage({ customer, onRequireAccount, onLogout }) {
               <img src={order.card_image_url || '/protickets/kris-r-hero.png'} alt="" />
               <div className="pt-order-main"><span className={`pt-order-status ${order.payment_status}`}>{statusLabel(order.payment_status)}</span><h3>{order.event_title}</h3><p>{order.order_number} · {formatDate(order.created_at, true)}</p><strong>{order.items?.map((item) => `${item.ticket_name} x${item.quantity}`).join(', ')}</strong></div>
               <div className="pt-order-actions"><strong>{money(order.total)}</strong>{order.payment_status === 'pending' && order.payment_method === 'transfer' && <button className="pt-primary" onClick={() => setTransferOrder(order)}>Ver transferencia</button>}{order.payment_status === 'pending' && order.payment_url && <a className="pt-primary" href={order.payment_url}>Pagar <ExternalLink /></a>}{order.payment_status === 'pending' && <button className="pt-remove-order" type="button" disabled={removingId === order.id} onClick={() => removePendingOrder(order)}><Trash2 /> {removingId === order.id ? 'Quitando...' : 'Quitar'}</button>}</div>
-              {order.payment_status === 'paid' && order.tickets?.length > 0 && <div className="pt-ticket-links">{order.tickets.map((ticket, index) => <a href={`/tickets/entrada/${ticket.code}`} key={ticket.id}><QrCode /> Entrada {index + 1}: {ticket.ticket_name}</a>)}</div>}
+              {order.payment_status === 'paid' && order.tickets?.length > 0 && <div className="pt-ticket-links">{order.tickets.map((ticket, index) => <a href={`/tickets/entrada/${ticket.code}`} key={ticket.id}><QrCode /> Ver QR · Entrada {index + 1}: {ticket.ticket_name}</a>)}</div>}
             </article>
           ))}</div>
         )}
@@ -789,15 +789,22 @@ function TicketPage({ code }) {
   useEffect(() => { ticketingApi(`/public/tickets/${encodeURIComponent(code)}`).then(setTicket).catch((err) => setError(err.message)); }, [code]);
   if (error) return <div className="pt-page-state"><X /><h2>{error}</h2></div>;
   if (!ticket) return <div className="pt-page-state">Consultando entrada...</div>;
+  const qrUrl = `${API_URL}/ticketing/public/tickets/${encodeURIComponent(ticket.code)}/qr`;
   return (
     <main className="pt-digital-ticket-page">
       <section className={`pt-digital-ticket ${ticket.status}`}>
+        <a className="pt-ticket-back" href="/tickets/mi-cuenta"><ArrowLeft /> Volver a mis entradas</a>
         <Logo compact />
         <span className="pt-eyebrow">ENTRADA DIGITAL</span>
         <h1>{ticket.event_title}</h1>
         <div className="pt-ticket-owner"><span>Asistente</span><strong>{ticket.customer_name}</strong></div>
         <div className="pt-ticket-meta"><span><CalendarDays />{formatDate(ticket.event_date)}</span><span><MapPin />{ticket.venue}, {ticket.city}</span></div>
-        <div className="pt-ticket-code"><QrCode /><strong>{ticket.ticket_name}</strong><code>{ticket.code}</code></div>
+        <div className="pt-ticket-qr">
+          <a href={qrUrl} target="_blank" rel="noreferrer" aria-label="Abrir código QR en tamaño completo"><img src={qrUrl} alt={`Código QR de la entrada ${ticket.code}`} /></a>
+          <strong>{ticket.ticket_name}</strong>
+          <code>{ticket.code}</code>
+          <span>Presenta este QR en el ingreso. Tócalo para abrirlo en tamaño completo.</span>
+        </div>
         <div className={`pt-validity ${ticket.status}`}><ShieldCheck />{ticket.status === 'valid' ? 'Entrada valida' : ticket.status === 'used' ? 'Entrada ya utilizada' : 'Entrada anulada'}</div>
       </section>
     </main>

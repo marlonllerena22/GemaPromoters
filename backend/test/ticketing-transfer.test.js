@@ -26,13 +26,16 @@ async function fixture(t) {
   const admin = createToken({ role: 'admin', establishmentId: business.id, username: 'test-admin' });
   const buyer = createToken({ role: 'ticket_customer', establishmentId: business.id, customerId: customer });
   async function request(path, token = admin, method = 'GET', body) {
-    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/ticketing${path}`, {
-      method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, ...(body ? { body: JSON.stringify(body) } : {})
-    });
+    const response = await rawRequest(path, token, method, body);
     return { status: response.status, body: await response.json() };
   }
+  async function rawRequest(path, token = admin, method = 'GET', body) {
+    return fetch(`http://127.0.0.1:${server.address().port}/api/ticketing${path}`, {
+      method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, ...(body ? { body: JSON.stringify(body) } : {})
+    });
+  }
   const create = () => request('/orders', buyer, 'POST', { ticket_type_id: type.id, quantity: 2, payment_method: 'transfer', service_fee: 0, total: 1 });
-  return { db, business, event, type, customer, admin, buyer, request, create };
+  return { db, business, event, type, customer, admin, buyer, request, rawRequest, create };
 }
 
 test('transfer reservation uses authoritative 5% fee, event QR, expiry and no tickets until approval', async (t) => {
@@ -69,6 +72,9 @@ test('transfer reviewer is restricted; approval emits tickets and email once wit
   assert.equal((await f.request(`/transfers/${order.id}/confirm`, token, 'POST', {})).status, 409);
   const confirmed = await f.request(`/transfers/${order.id}/confirm`, token, 'POST', { reference: 'BANK-001' });
   assert.equal(confirmed.status, 200); assert.equal(confirmed.body.order.tickets.length, 2); assert.equal(confirmed.body.order.payment_status, 'paid');
+  const qr = await f.rawRequest(`/public/tickets/${confirmed.body.order.tickets[0].code}/qr`, '');
+  assert.equal(qr.status, 200); assert.equal(qr.headers.get('content-type'), 'image/png');
+  assert.ok((await qr.arrayBuffer()).byteLength > 1000);
   assert.equal(messages.length, 1); assert.equal(messages[0].to, 'prueba@example.invalid'); assert.equal(messages[0].attachments.length, 2);
   assert.equal((await f.request(`/transfers/${order.id}/confirm`, token, 'POST', { reference: 'BANK-001' })).status, 200);
   assert.equal(messages.length, 1); assert.equal(f.db.prepare('SELECT sold FROM ticketing_ticket_types WHERE id = ?').get(f.type.id).sold, 2);

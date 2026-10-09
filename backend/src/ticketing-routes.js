@@ -649,6 +649,29 @@ export function registerTicketingRoutes(app, db) {
     res.json(ticket);
   });
 
+  app.get('/api/ticketing/public/tickets/:code/qr', async (req, res) => {
+    const code = cleanText(req.params.code, 80).toUpperCase();
+    const ticket = db.prepare('SELECT code FROM ticketing_tickets WHERE code = ?').get(code);
+    if (!ticket) return res.status(404).json({ message: 'Entrada no encontrada' });
+    try {
+      const ticketUrl = `${publicAppUrl()}/tickets/entrada/${encodeURIComponent(ticket.code)}`;
+      const png = await QRCode.toBuffer(ticketUrl, {
+        width: 720,
+        margin: 3,
+        errorCorrectionLevel: 'H',
+        color: { dark: '#090b0d', light: '#ffffff' }
+      });
+      res.set({
+        'Cache-Control': 'private, max-age=300',
+        'Content-Disposition': `inline; filename="entrada-${ticket.code}.png"`,
+        'Content-Type': 'image/png'
+      });
+      return res.send(png);
+    } catch (error) {
+      return res.status(500).json({ message: 'No se pudo generar el código QR' });
+    }
+  });
+
   app.post('/api/ticketing/auth/register', (req, res) => {
     const establishment = ticketingEstablishment(db);
     if (!establishment) return res.status(404).json({ message: 'ProTickets no disponible' });

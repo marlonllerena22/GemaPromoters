@@ -1375,6 +1375,22 @@
   margin: 20px 0 28px;
 }
 
+.pt-ticket-back {
+  align-items: center;
+  color: #57575d;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  gap: 6px;
+  margin-bottom: 20px;
+  text-decoration: none;
+}
+
+.pt-ticket-back svg {
+  height: 16px;
+  width: 16px;
+}
+
 .pt-ticket-owner,
 .pt-ticket-meta {
   border-top: 1px solid var(--pt-line);
@@ -1416,6 +1432,52 @@
 .pt-ticket-code code {
   color: #bbb;
   font-size: 11px;
+}
+
+.pt-ticket-qr {
+  align-items: center;
+  background: var(--pt-black);
+  border-radius: 8px;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  margin: 12px 0;
+  padding: 22px 18px 18px;
+  text-align: center;
+}
+
+.pt-ticket-qr > a {
+  background: #fff;
+  border-radius: 8px;
+  display: block;
+  line-height: 0;
+  margin-bottom: 15px;
+  padding: 8px;
+  width: min(100%, 300px);
+}
+
+.pt-ticket-qr img {
+  display: block;
+  height: auto;
+  width: 100%;
+}
+
+.pt-ticket-qr > strong {
+  font-size: 20px;
+  margin-bottom: 5px;
+}
+
+.pt-ticket-qr code {
+  color: #d5d5d8;
+  font-size: 12px;
+}
+
+.pt-ticket-qr > span {
+  color: #a9a9ae;
+  font-size: 10px;
+  line-height: 1.4;
+  margin-top: 12px;
+  max-width: 310px;
 }
 
 .pt-validity {
