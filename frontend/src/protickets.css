@@ -2078,6 +2078,40 @@
   color: #fff;
 }
 
+.pta-order-list .pta-customer-details {
+  background: #f7f8f8;
+  border: 1px solid #dedfe1;
+  border-radius: 9px;
+  display: grid;
+  gap: 15px;
+  grid-column: 1 / -1;
+  padding: 16px;
+}
+
+.pta-customer-fields {
+  display: grid !important;
+  gap: 12px !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.pta-customer-fields > div { display: grid; gap: 4px; min-width: 0; }
+.pta-customer-fields strong { overflow-wrap: anywhere; }
+.pta-customer-actions { display: flex !important; flex-flow: row wrap !important; gap: 8px !important; }
+.pta-customer-actions button, .pta-customer-actions a {
+  align-items: center; border: 1px solid #d6d6db; border-radius: 7px; color: #29292f;
+  display: inline-flex; gap: 7px; justify-content: center; padding: 10px 13px; text-decoration: none;
+}
+.pta-customer-actions button { cursor: pointer; font: inherit; }
+.pta-customer-actions button:disabled { cursor: not-allowed; opacity: .55; }
+.pta-customer-actions .pta-whatsapp-button { background: #15803d; border-color: #15803d; color: #fff; }
+.pta-customer-actions svg, .pta-customer-tickets svg { height: 17px; width: 17px; }
+.pta-customer-tickets { display: grid !important; gap: 7px !important; }
+.pta-customer-tickets > a {
+  align-items: center; background: #fff; border: 1px solid #dedfe1; border-radius: 7px; color: #25252b;
+  display: grid; gap: 8px; grid-template-columns: auto 1fr auto; padding: 10px 12px; text-decoration: none;
+}
+.pta-customer-tickets > a span { color: #6f7076; font-family: monospace; font-size: 11px; }
+
 .pta-banner-list article {
   align-items: center;
   border-bottom: 1px solid #e7e7ea;
@@ -2633,6 +2667,7 @@
   .pta-order-list article { align-items: start; grid-template-columns: 1fr 1fr; }
   .pta-order-list article > div:first-child { grid-column: 1 / -1; }
   .pta-order-buttons { grid-column: 1 / -1; }
+  .pta-customer-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pta-banner-list article { grid-template-columns: 90px 1fr; }
   .pta-banner-list img { height: 62px; width: 90px; }
   .pta-banner-list article > div:last-child { grid-column: 2; }
@@ -2660,4 +2695,8 @@
   .pta-stats svg { display: none; }
   .pta-order-list article { grid-template-columns: 1fr; }
   .pta-order-list article > div, .pta-order-buttons { grid-column: 1; }
+  .pta-order-list .pta-customer-details { grid-column: 1; }
+  .pta-customer-fields { grid-template-columns: 1fr; }
+  .pta-customer-tickets > a { grid-template-columns: auto 1fr; }
+  .pta-customer-tickets > a span { grid-column: 2; }
 }

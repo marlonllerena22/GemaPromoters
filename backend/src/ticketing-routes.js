@@ -31,6 +31,14 @@ function validEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+function whatsappNumber(value) {
+  let digits = String(value || '').replace(/\D/g, '');
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  if (digits.startsWith('0') && digits.length === 10) digits = `593${digits.slice(1)}`;
+  if (digits.length === 9 && digits.startsWith('9')) digits = `593${digits}`;
+  return /^\d{10,15}$/.test(digits) ? digits : '';
+}
+
 const SCANNER_TEST_CODES = [
   'PROTICKETS-PRUEBA-01',
   'PROTICKETS-PRUEBA-02',
@@ -423,7 +431,9 @@ export function registerTicketingRoutes(app, db) {
       `SELECT orders.*, strftime('%Y-%m-%dT%H:%M:%SZ', orders.expires_at, 'utc') AS expires_at_iso,
               events.title AS event_title, events.slug AS event_slug,
               events.event_date, events.venue, events.city,
-              customers.name AS customer_name, customers.email AS customer_email
+              customers.id AS customer_id, customers.name AS customer_name,
+              customers.email AS customer_email, customers.cedula AS customer_cedula,
+              customers.phone AS customer_phone
        FROM ticketing_orders AS orders
        JOIN ticketing_events AS events ON events.id = orders.event_id
        JOIN ticketing_customers AS customers ON customers.id = orders.customer_id
@@ -1087,8 +1097,9 @@ export function registerTicketingRoutes(app, db) {
       'SELECT * FROM ticketing_banners WHERE establishment_id = ? ORDER BY sort_order, id DESC'
     ).all(establishment.id);
     const orders = db.prepare(
-      `SELECT orders.*, events.title AS event_title, customers.name AS customer_name,
-              customers.email AS customer_email,
+      `SELECT orders.*, events.title AS event_title, customers.id AS customer_id,
+              customers.name AS customer_name, customers.email AS customer_email,
+              customers.cedula AS customer_cedula, customers.phone AS customer_phone,
               (SELECT GROUP_CONCAT(ticket_name || ' x' || quantity, ', ') FROM ticketing_order_items WHERE order_id = orders.id) AS detail
        FROM ticketing_orders AS orders
        JOIN ticketing_events AS events ON events.id = orders.event_id
@@ -1103,6 +1114,22 @@ export function registerTicketingRoutes(app, db) {
         (SELECT COALESCE(SUM(total), 0) FROM ticketing_orders WHERE establishment_id = ? AND payment_status = 'paid') AS revenue`
     ).get(establishment.id, establishment.id, establishment.id, establishment.id);
     res.json({ establishment, events, banners, orders, stats });
+  });
+
+  app.get('/api/ticketing/admin/orders/:id/details', requireTicketAdmin, (req, res) => {
+    const order = orderDetails(Number(req.params.id));
+    if (!order || order.establishment_id !== req.ticketEstablishment.id) {
+      return res.status(404).json({ message: 'Pedido no encontrado' });
+    }
+    const baseUrl = publicAppUrl();
+    res.json({
+      ...order,
+      whatsapp_number: whatsappNumber(order.customer_phone),
+      tickets: order.tickets.map((ticket) => ({
+        ...ticket,
+        ticket_url: `${baseUrl}/tickets/entrada/${encodeURIComponent(ticket.code)}`
+      }))
+    });
   });
 
   app.get('/api/ticketing/admin/events/:id', requireTicketAdmin, (req, res) => {

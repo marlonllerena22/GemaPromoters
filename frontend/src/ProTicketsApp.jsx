@@ -23,7 +23,9 @@ import {
   LogOut,
   Mail,
   MapPin,
+  MessageCircle,
   Menu,
+  Phone,
   Plus,
   QrCode,
   Save,
@@ -956,7 +958,33 @@ function EventEditor({ eventId, onSaved, onCancel }) {
 function OrdersAdmin({ orders, onRefresh, onTransfers }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
-  const filtered = orders.filter((order) => (filter === 'all' || order.payment_status === filter) && `${order.order_number} ${order.customer_name} ${order.customer_email}`.toLowerCase().includes(query.toLowerCase()));
+  const [expandedId, setExpandedId] = useState(null);
+  const [details, setDetails] = useState({});
+  const [detailError, setDetailError] = useState('');
+  const filtered = orders.filter((order) => (filter === 'all' || order.payment_status === filter) && `${order.order_number} ${order.customer_name} ${order.customer_email} ${order.customer_phone || ''} ${order.customer_cedula || ''}`.toLowerCase().includes(query.toLowerCase()));
+
+  async function toggleDetails(order) {
+    if (expandedId === order.id) return setExpandedId(null);
+    setExpandedId(order.id);
+    setDetailError('');
+    if (details[order.id]) return;
+    try {
+      const result = await ticketingApi(`/admin/orders/${order.id}/details`, { admin: true });
+      setDetails((current) => ({ ...current, [order.id]: result }));
+    } catch (error) {
+      setDetailError(error.message);
+    }
+  }
+
+  function openWhatsApp(detail) {
+    if (!detail?.whatsapp_number) return;
+    const validTickets = detail.tickets?.filter((ticket) => ticket.status === 'valid') || [];
+    const ticketLines = validTickets.length
+      ? validTickets.map((ticket, index) => `Entrada ${index + 1} · ${ticket.ticket_name}: ${ticket.ticket_url}`).join('\n')
+      : 'Las entradas todavía no han sido emitidas.';
+    const message = `Hola ${detail.customer_name}, te enviamos la información de tu compra en ProTickets.\n\nEvento: ${detail.event_title}\nPedido: ${detail.order_number}\n${ticketLines}\n\nPresenta cada QR desde tu celular. Cada entrada puede utilizarse una sola vez.`;
+    window.open(`https://wa.me/${detail.whatsapp_number}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
+  }
 
   async function updateLink(order) {
     const paymentUrl = window.prompt('Enlace de pago', order.payment_url || '');
@@ -997,10 +1025,19 @@ function OrdersAdmin({ orders, onRefresh, onTransfers }) {
       <div className="pta-section-title"><div><p>VENTAS</p><h2>Pedidos</h2></div><div className="pta-filters"><label><Search /><input placeholder="Buscar cliente o pedido" value={query} onChange={(e) => setQuery(e.target.value)} /></label><select value={filter} onChange={(e) => setFilter(e.target.value)}><option value="all">Todos</option><option value="pending">Pendientes</option><option value="paid">Pagados</option><option value="rejected">Rechazados</option><option value="expired">Expirados</option></select></div></div>
       <div className="pta-order-list">{filtered.map((order) => (
         <article key={order.id}>
-          <div><span className={`pta-pill ${order.payment_status}`}>{statusLabel(order.payment_status)}</span><h3>{order.customer_name}</h3><p>{order.customer_email}</p></div>
+          <div><span className={`pta-pill ${order.payment_status}`}>{statusLabel(order.payment_status)}</span><h3>{order.customer_name}</h3><p>{order.customer_email}</p><span>{order.customer_phone || 'Sin telefono'}{order.customer_cedula ? ` · CI ${order.customer_cedula}` : ' · Sin cedula'}</span></div>
           <div><small>Pedido</small><strong>{order.order_number}</strong><span>{order.detail}</span></div>
           <div><small>Total</small><strong>{money(order.total)}</strong><span>{formatDate(order.created_at, true)}</span></div>
-          <div className="pta-order-buttons">{order.payment_method === 'transfer' ? <button onClick={onTransfers}><Check /> Ver transferencia</button> : <><button type="button" onClick={() => updateLink(order)}><CreditCard /> Editar enlace</button>{order.payment_status === 'pending' && <><button className="confirm" type="button" onClick={() => process(order, 'confirm')}><Check /> Confirmar pago</button><button className="danger" type="button" onClick={() => process(order, 'reject')}><X /></button></>}</>}{order.payment_status === 'paid' && <button className="danger cancel-tickets" type="button" onClick={() => cancelTickets(order)}><X /> Cancelar entradas</button>}</div>
+          <div className="pta-order-buttons"><button type="button" onClick={() => toggleDetails(order)}><Eye /> {expandedId === order.id ? 'Cerrar datos' : 'Ver datos y entradas'}</button>{order.payment_method === 'transfer' ? <button onClick={onTransfers}><Check /> Ver transferencia</button> : <><button type="button" onClick={() => updateLink(order)}><CreditCard /> Editar enlace</button>{order.payment_status === 'pending' && <><button className="confirm" type="button" onClick={() => process(order, 'confirm')}><Check /> Confirmar pago</button><button className="danger" type="button" onClick={() => process(order, 'reject')}><X /></button></>}</>}{order.payment_status === 'paid' && <button className="danger cancel-tickets" type="button" onClick={() => cancelTickets(order)}><X /> Cancelar entradas</button>}</div>
+          {expandedId === order.id && <div className="pta-customer-details">
+            {!details[order.id] && !detailError && <span>Cargando datos del cliente...</span>}
+            {detailError && <div className="pta-alert error">{detailError}</div>}
+            {details[order.id] && <>
+              <div className="pta-customer-fields"><div><small>Cliente</small><strong>{details[order.id].customer_name}</strong></div><div><small>WhatsApp</small><strong>{details[order.id].customer_phone || 'No registrado'}</strong></div><div><small>Cedula</small><strong>{details[order.id].customer_cedula || 'No registrada'}</strong></div><div><small>Correo</small><strong>{details[order.id].customer_email}</strong></div></div>
+              <div className="pta-customer-actions"><button className="pta-whatsapp-button" type="button" disabled={!details[order.id].whatsapp_number || !details[order.id].tickets?.some((ticket) => ticket.status === 'valid')} onClick={() => openWhatsApp(details[order.id])}><MessageCircle /> {!details[order.id].whatsapp_number ? 'WhatsApp no valido' : details[order.id].tickets?.some((ticket) => ticket.status === 'valid') ? 'Enviar entradas por WhatsApp' : 'Sin entradas vigentes'}</button>{details[order.id].customer_phone && <a href={`tel:${details[order.id].customer_phone}`}><Phone /> Llamar</a>}</div>
+              <div className="pta-customer-tickets"><small>Entradas emitidas</small>{details[order.id].tickets?.length ? details[order.id].tickets.map((ticket, index) => <a key={ticket.id} href={ticket.ticket_url} target="_blank" rel="noreferrer"><QrCode /> Entrada {index + 1} · {ticket.ticket_name}<span>{ticket.code} · {ticket.status === 'valid' ? 'Vigente' : ticket.status === 'used' ? 'Utilizada' : 'Anulada'}</span></a>) : <p>Las entradas se mostrarán cuando el pago esté confirmado.</p>}</div>
+            </>}
+          </div>}
         </article>
       ))}{!filtered.length && <div className="pta-empty">No hay pedidos con estos filtros.</div>}</div>
     </section>

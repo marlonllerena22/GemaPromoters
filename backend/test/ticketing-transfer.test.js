@@ -19,7 +19,7 @@ async function fixture(t) {
   db.prepare("UPDATE ticketing_events SET status = 'published', sales_enabled = 1, payment_enabled = 1 WHERE id = ?").run(event.id);
   const type = db.prepare('SELECT * FROM ticketing_ticket_types WHERE event_id = ? ORDER BY price LIMIT 1').get(event.id);
   db.prepare('UPDATE ticketing_ticket_types SET stock = 20, sold = 0, price = 15 WHERE id = ?').run(type.id);
-  const customer = db.prepare(`INSERT INTO ticketing_customers (establishment_id, name, email) VALUES (?, 'Prueba Local', 'prueba@example.invalid')`).run(business.id).lastInsertRowid;
+  const customer = db.prepare(`INSERT INTO ticketing_customers (establishment_id, name, email, cedula, phone) VALUES (?, 'Prueba Local', 'prueba@example.invalid', '1800000001', '0991234567')`).run(business.id).lastInsertRowid;
   const app = express(); app.use(express.json()); registerTicketingRoutes(app, db);
   const server = await new Promise((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
   t.after(async () => { await new Promise((resolve) => server.close(resolve)); db.close(); });
@@ -44,6 +44,14 @@ test('transfer reservation uses authoritative 5% fee, event QR, expiry and no ti
   assert.equal(created.body.subtotal, 30); assert.equal(created.body.service_fee, 1.5); assert.equal(created.body.total, 31.5);
   assert.equal(created.body.payment_method, 'transfer'); assert.equal(created.body.provider_fee_rate, 0);
   assert.equal(created.body.tickets.length, 0); assert.equal(created.body.payment_status, 'pending');
+  const overview = await f.request('/admin/overview');
+  assert.equal(overview.body.orders[0].customer_phone, '0991234567');
+  assert.equal(overview.body.orders[0].customer_cedula, '1800000001');
+  const details = await f.request(`/admin/orders/${created.body.id}/details`);
+  assert.equal(details.body.whatsapp_number, '593991234567');
+  assert.equal(details.body.customer_phone, '0991234567');
+  assert.equal(details.body.customer_cedula, '1800000001');
+  assert.equal(details.body.tickets.length, 0);
   assert.equal(created.body.transfer.deuna_qr_url, '/protickets/deuna-mago.png');
   assert.ok(created.body.transfer.whatsapp_url.startsWith('https://wa.me/593979243134?text='));
   const minutes = f.db.prepare("SELECT (julianday(expires_at)-julianday('now','localtime'))*1440 AS minutes FROM ticketing_orders WHERE id = ?").get(created.body.id).minutes;
@@ -72,6 +80,10 @@ test('transfer reviewer is restricted; approval emits tickets and email once wit
   assert.equal((await f.request(`/transfers/${order.id}/confirm`, token, 'POST', {})).status, 409);
   const confirmed = await f.request(`/transfers/${order.id}/confirm`, token, 'POST', { reference: 'BANK-001' });
   assert.equal(confirmed.status, 200); assert.equal(confirmed.body.order.tickets.length, 2); assert.equal(confirmed.body.order.payment_status, 'paid');
+  const adminDetails = await f.request(`/admin/orders/${order.id}/details`);
+  assert.equal(adminDetails.status, 200);
+  assert.equal(adminDetails.body.tickets.length, 2);
+  assert.match(adminDetails.body.tickets[0].ticket_url, /^https?:\/\/[^/]+\/tickets\/entrada\/PT-/);
   const qr = await f.rawRequest(`/public/tickets/${confirmed.body.order.tickets[0].code}/qr`, '');
   assert.equal(qr.status, 200); assert.equal(qr.headers.get('content-type'), 'image/png');
   assert.ok((await qr.arrayBuffer()).byteLength > 1000);
