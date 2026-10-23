@@ -84,10 +84,23 @@ test('transfer reviewer is restricted; approval emits tickets and email once wit
   assert.equal(adminDetails.status, 200);
   assert.equal(adminDetails.body.tickets.length, 2);
   assert.match(adminDetails.body.tickets[0].ticket_url, /^https?:\/\/[^/]+\/tickets\/entrada\/PT-/);
-  const qr = await f.rawRequest(`/public/tickets/${confirmed.body.order.tickets[0].code}/qr`, '');
+  const ticketCode = confirmed.body.order.tickets[0].code;
+  assert.equal((await f.request(`/public/tickets/${ticketCode}`, '')).status, 401);
+  assert.equal((await f.request(`/public/tickets/${ticketCode}`, f.buyer)).status, 200);
+  const foreignCustomer = f.db.prepare(
+    `INSERT INTO ticketing_customers (establishment_id, name, email, password_hash)
+     VALUES (?, 'Otra persona', 'otra@example.invalid', 'unused')`
+  ).run(f.business.id).lastInsertRowid;
+  const foreignToken = createToken({ role: 'ticket_customer', establishmentId: f.business.id, customerId: foreignCustomer });
+  assert.equal((await f.request(`/public/tickets/${ticketCode}`, foreignToken)).status, 404);
+  assert.equal((await f.rawRequest(`/public/tickets/${ticketCode}/qr`, '')).status, 401);
+  assert.equal((await f.rawRequest(`/public/tickets/${ticketCode}/qr`, foreignToken)).status, 404);
+  const qr = await f.rawRequest(`/public/tickets/${ticketCode}/qr`, f.buyer);
   assert.equal(qr.status, 200); assert.equal(qr.headers.get('content-type'), 'image/png');
   assert.ok((await qr.arrayBuffer()).byteLength > 1000);
-  assert.equal(messages.length, 1); assert.equal(messages[0].to, 'prueba@example.invalid'); assert.equal(messages[0].attachments.length, 2);
+  assert.equal(messages.length, 1); assert.equal(messages[0].to, 'prueba@example.invalid');
+  assert.equal(messages[0].attachments, undefined);
+  assert.match(messages[0].html, /Ver mi entrada y QR/);
   assert.equal((await f.request(`/transfers/${order.id}/confirm`, token, 'POST', { reference: 'BANK-001' })).status, 200);
   assert.equal(messages.length, 1); assert.equal(f.db.prepare('SELECT sold FROM ticketing_ticket_types WHERE id = ?').get(f.type.id).sold, 2);
   const another = (await f.create()).body;

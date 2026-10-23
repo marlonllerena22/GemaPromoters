@@ -785,13 +785,47 @@ function AccountPage({ customer, onRequireAccount, onLogout }) {
   );
 }
 
-function TicketPage({ code }) {
+function ProtectedTicketQr({ code }) {
+  const [qrUrl, setQrUrl] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let objectUrl = '';
+    let cancelled = false;
+    const token = localStorage.getItem(CUSTOMER_TOKEN_KEY);
+    fetch(`${API_URL}/ticketing/public/tickets/${encodeURIComponent(code)}/qr`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    }).then(async (response) => {
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.message || 'No se pudo cargar el código QR');
+      }
+      return response.blob();
+    }).then((blob) => {
+      if (cancelled) return;
+      objectUrl = URL.createObjectURL(blob);
+      setQrUrl(objectUrl);
+    }).catch((reason) => { if (!cancelled) setError(reason.message); });
+    return () => { cancelled = true; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [code]);
+
+  if (error) return <div className="pt-alert error">{error}</div>;
+  if (!qrUrl) return <div className="pt-ticket-qr-loading">Preparando QR seguro...</div>;
+  return <a href={qrUrl} target="_blank" rel="noreferrer" aria-label="Abrir código QR en tamaño completo"><img src={qrUrl} alt={`Código QR de la entrada ${code}`} /></a>;
+}
+
+function TicketPage({ code, customer, onRequireAccount }) {
   const [ticket, setTicket] = useState(null);
   const [error, setError] = useState('');
-  useEffect(() => { ticketingApi(`/public/tickets/${encodeURIComponent(code)}`).then(setTicket).catch((err) => setError(err.message)); }, [code]);
-  if (error) return <div className="pt-page-state"><X /><h2>{error}</h2></div>;
+  useEffect(() => {
+    setTicket(null);
+    setError('');
+    if (!customer) return;
+    ticketingApi(`/public/tickets/${encodeURIComponent(code)}`).then(setTicket).catch((err) => setError(err.message));
+  }, [code, customer?.id]);
+  if (!customer) return <div className="pt-page-state"><ShieldCheck /><h2>Entrada protegida</h2><p>Inicia sesión con la misma cuenta que realizó la compra para ver este QR.</p><button className="pt-primary" onClick={onRequireAccount}>Ingresar y ver mi entrada</button></div>;
+  if (error) return <div className="pt-page-state"><X /><h2>{error}</h2><p>Solo la cuenta propietaria de esta entrada puede verla.</p><button className="pt-primary" onClick={onRequireAccount}>Ingresar con otra cuenta</button></div>;
   if (!ticket) return <div className="pt-page-state">Consultando entrada...</div>;
-  const qrUrl = `${API_URL}/ticketing/public/tickets/${encodeURIComponent(ticket.code)}/qr`;
   return (
     <main className="pt-digital-ticket-page">
       <section className={`pt-digital-ticket ${ticket.status}`}>
@@ -802,7 +836,7 @@ function TicketPage({ code }) {
         <div className="pt-ticket-owner"><span>Asistente</span><strong>{ticket.customer_name}</strong></div>
         <div className="pt-ticket-meta"><span><CalendarDays />{formatDate(ticket.event_date)}</span><span><MapPin />{ticket.venue}, {ticket.city}</span></div>
         <div className="pt-ticket-qr">
-          <a href={qrUrl} target="_blank" rel="noreferrer" aria-label="Abrir código QR en tamaño completo"><img src={qrUrl} alt={`Código QR de la entrada ${ticket.code}`} /></a>
+          <ProtectedTicketQr code={ticket.code} />
           <strong>{ticket.ticket_name}</strong>
           <code>{ticket.code}</code>
           <span>Presenta este QR en el ingreso. Tócalo para abrirlo en tamaño completo.</span>
@@ -843,7 +877,7 @@ export function ProTicketsPublicSite() {
           {route.type === 'home' && <HomePage data={data} />}
           {route.type === 'event' && <EventPage slug={route.value} customer={customer} onRequireAccount={() => setAccountOpen(true)} />}
           {route.type === 'account' && <AccountPage customer={customer} onRequireAccount={() => setAccountOpen(true)} onLogout={logout} />}
-          {route.type === 'ticket' && <TicketPage code={route.value} />}
+          {route.type === 'ticket' && <TicketPage code={route.value} customer={customer} onRequireAccount={() => setAccountOpen(true)} />}
           {route.type === 'reset-password' && <ResetPasswordPage />}
         </>
       )}

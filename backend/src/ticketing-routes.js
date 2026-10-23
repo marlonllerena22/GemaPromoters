@@ -460,32 +460,24 @@ export function registerTicketingRoutes(app, db) {
     if (!transporter || !order?.customer_email || !order.tickets.length) {
       return { sent: false, reason: 'SMTP no configurado o entrada no disponible' };
     }
-    const attachments = [];
     const ticketCards = [];
     for (const [index, ticket] of order.tickets.entries()) {
       const ticketUrl = `${publicAppUrl()}/tickets/entrada/${encodeURIComponent(ticket.code)}`;
-      const qrDataUrl = await QRCode.toDataURL(ticketUrl, { width: 420, margin: 1, errorCorrectionLevel: 'M' });
-      const cid = `ticket-${ticket.id}@protickets`;
-      attachments.push({
-        filename: `entrada-${ticket.code}.png`,
-        content: qrDataUrl.split(',')[1],
-        encoding: 'base64',
-        cid
-      });
       ticketCards.push(`
         <div style="margin:18px 0;padding:22px;border:1px solid #e5e7eb;border-radius:12px;background:#fff">
           <p style="margin:0;color:#6b7280;font-size:12px;text-transform:uppercase">Entrada ${index + 1}</p>
           <h2 style="margin:6px 0 2px;color:#111">${order.event_title}</h2>
           <p style="margin:0 0 14px;color:#555">${ticket.ticket_name} · ${order.venue || 'Lugar por confirmar'} · ${order.city || ''}</p>
-          <img src="cid:${cid}" width="210" height="210" alt="Codigo QR" style="display:block;margin:0 auto" />
-          <p style="text-align:center;margin:12px 0 0;font-family:monospace;font-weight:700">${ticket.code}</p>
+          <p style="text-align:center;margin:22px 0">
+            <a href="${ticketUrl}" style="display:inline-block;background:#111;color:#fff;text-decoration:none;padding:13px 22px;border-radius:8px;font-weight:700">Ver mi entrada y QR</a>
+          </p>
+          <p style="text-align:center;margin:12px 0 0;color:#6b7280;font-size:12px">Por seguridad, inicia sesión con la cuenta que realizó la compra.</p>
         </div>`);
     }
     await transporter.sendMail({
       from: process.env.SMTP_FROM || process.env.SMTP_USER,
       to: order.customer_email,
       subject: `Tus entradas ProTickets · ${order.order_number}`,
-      attachments,
       html: `
         <div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;background:#f6f6f6;padding:24px;color:#111">
           <div style="background:#111;color:#fff;padding:18px 22px;border-radius:12px">
@@ -494,7 +486,7 @@ export function registerTicketingRoutes(app, db) {
           </div>
           <p>Hola ${order.customer_name}, tu pago del pedido <strong>${order.order_number}</strong> fue confirmado.</p>
           ${ticketCards.join('')}
-          <p style="font-size:13px;color:#6b7280">Presenta cada QR desde tu celular. No compartas estas imágenes: cada entrada puede utilizarse una sola vez.</p>
+          <p style="font-size:13px;color:#6b7280">Presenta cada QR desde tu cuenta. El enlace no mostrará la entrada a otra persona, aunque lo reciba o lo copie.</p>
         </div>`
     });
     db.prepare("UPDATE ticketing_orders SET email_sent_at = datetime('now', 'localtime') WHERE id = ?").run(orderId);
@@ -643,7 +635,7 @@ export function registerTicketingRoutes(app, db) {
       transfer_enabled: transfer.ready, transfer_minutes: transfer.transfer_minutes });
   });
 
-  app.get('/api/ticketing/public/tickets/:code', (req, res) => {
+  app.get('/api/ticketing/public/tickets/:code', requireTicketCustomer, (req, res) => {
     const ticket = db.prepare(
       `SELECT tickets.code, tickets.status, tickets.used_at, items.ticket_name,
               events.title AS event_title, events.event_date, events.venue, events.city,
@@ -653,16 +645,19 @@ export function registerTicketingRoutes(app, db) {
        JOIN ticketing_events AS events ON events.id = tickets.event_id
        JOIN ticketing_customers AS customers ON customers.id = tickets.customer_id
        JOIN ticketing_orders AS orders ON orders.id = tickets.order_id
-       WHERE tickets.code = ?`
-    ).get(cleanText(req.params.code, 80).toUpperCase());
-    if (!ticket) return res.status(404).json({ message: 'Entrada no encontrada' });
+       WHERE tickets.code = ? AND tickets.customer_id = ? AND tickets.establishment_id = ?`
+    ).get(cleanText(req.params.code, 80).toUpperCase(), req.ticketCustomer.id, req.ticketCustomer.establishment_id);
+    if (!ticket) return res.status(404).json({ message: 'Esta entrada no está disponible en tu cuenta' });
     res.json(ticket);
   });
 
-  app.get('/api/ticketing/public/tickets/:code/qr', async (req, res) => {
+  app.get('/api/ticketing/public/tickets/:code/qr', requireTicketCustomer, async (req, res) => {
     const code = cleanText(req.params.code, 80).toUpperCase();
-    const ticket = db.prepare('SELECT code FROM ticketing_tickets WHERE code = ?').get(code);
-    if (!ticket) return res.status(404).json({ message: 'Entrada no encontrada' });
+    const ticket = db.prepare(
+      `SELECT code FROM ticketing_tickets
+       WHERE code = ? AND customer_id = ? AND establishment_id = ?`
+    ).get(code, req.ticketCustomer.id, req.ticketCustomer.establishment_id);
+    if (!ticket) return res.status(404).json({ message: 'Esta entrada no está disponible en tu cuenta' });
     try {
       const ticketUrl = `${publicAppUrl()}/tickets/entrada/${encodeURIComponent(ticket.code)}`;
       const png = await QRCode.toBuffer(ticketUrl, {
