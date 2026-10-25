@@ -459,6 +459,44 @@ export function initTicketingDb(db) {
   insertMagoType.run(magoEvent.id, 'GOLDEN', 'Preventa Golden', 40, 3);
   insertMagoType.run(magoEvent.id, 'PROMO GOLDEN', 'Preventa válida para 2 personas', 70, 4);
 
+  let macasEvent = db.prepare(
+    `SELECT * FROM ticketing_events
+     WHERE establishment_id = ? AND slug = 'jose-andrea-macas-2026'`
+  ).get(establishment.id);
+  if (!macasEvent) {
+    const result = db.prepare(
+      `INSERT INTO ticketing_events
+       (establishment_id, slug, title, subtitle, description, venue, city, address,
+        event_date, doors_time, hero_image_url, card_image_url, hero_display_mode,
+        organizer, terms, status, featured, sales_enabled, payment_enabled, is_past)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'contain', ?, ?, 'published', 1, 1, 1, 0)`
+    ).run(
+      establishment.id,
+      'jose-andrea-macas-2026',
+      'JOSÉ ANDRËA EN MACAS',
+      'La voz legendaria de Mägo de Oz, por primera vez en Macas',
+      'José Andrëa llega desde España junto a Fabiola Jaramillo y bandas invitadas para una tarde histórica de rock en Macas.',
+      'Coliseo Luis Rivadeneira Polo',
+      'Macas, Morona Santiago',
+      'Coliseo Luis Rivadeneira Polo, Macas, Morona Santiago, Ecuador',
+      '2026-11-22T16:00',
+      '16:00',
+      '/protickets/jose-andrea-macas/afiche-oficial.jpg',
+      '/protickets/jose-andrea-macas/afiche-oficial.jpg',
+      'Gema Show',
+      'Preventa limitada y sujeta a disponibilidad. La entrada digital es personal y deberá presentarse con su código QR y un documento de identidad al momento del ingreso.'
+    );
+    macasEvent = db.prepare('SELECT * FROM ticketing_events WHERE id = ?').get(result.lastInsertRowid);
+  }
+
+  const insertMacasType = db.prepare(
+    `INSERT OR IGNORE INTO ticketing_ticket_types
+     (event_id, name, description, price, service_fee, stock, max_per_order, status, sort_order)
+     VALUES (?, ?, ?, ?, 0, 100, 6, 'active', ?)`
+  );
+  insertMacasType.run(macasEvent.id, 'GENERAL', 'Preventa General · Precio normal $25', 15, 1);
+  insertMacasType.run(macasEvent.id, 'GOLDEN', 'Preventa Golden · Precio normal $30', 20, 2);
+
   db.prepare(
     `INSERT INTO ticketing_banners
      (establishment_id, event_id, image_url, mobile_image_url, title, subtitle,
@@ -478,6 +516,27 @@ export function initTicketingDb(db) {
     '/tickets/evento/las-leyendas-de-mago-de-oz-imbabura',
     establishment.id,
     magoEvent.id
+  );
+
+  db.prepare(
+    `INSERT INTO ticketing_banners
+     (establishment_id, event_id, image_url, mobile_image_url, title, subtitle,
+      cta_label, cta_url, status, show_overlay, sort_order)
+     SELECT ?, ?, ?, ?, ?, ?, ?, ?, 'active', 0, 2
+     WHERE NOT EXISTS (
+       SELECT 1 FROM ticketing_banners WHERE establishment_id = ? AND event_id = ?
+     )`
+  ).run(
+    establishment.id,
+    macasEvent.id,
+    '/protickets/jose-andrea-macas/afiche-oficial.jpg',
+    '/protickets/jose-andrea-macas/afiche-oficial.jpg',
+    'JOSÉ ANDRËA EN MACAS',
+    '22 de noviembre · Coliseo Luis Rivadeneira Polo',
+    'Comprar entradas',
+    '/tickets/evento/jose-andrea-macas-2026',
+    establishment.id,
+    macasEvent.id
   );
 
   db.prepare(

@@ -64,6 +64,26 @@ test('transfer reservation uses authoritative 5% fee, event QR, expiry and no ti
   assert.equal(f.db.prepare('SELECT transfer_qr_url FROM ticketing_events WHERE id = ?').get(f.event.id).transfer_qr_url, '/protickets/changed.png');
 });
 
+test('Macas event is published with 100 General and 100 Golden presale tickets', () => {
+  const db = new Database(':memory:');
+  db.exec(`CREATE TABLE establishments (id INTEGER PRIMARY KEY, name TEXT, display_name TEXT,
+    business_type TEXT, module_type TEXT, code_prefix TEXT, theme TEXT, logo_url TEXT,
+    admin_username TEXT, admin_password TEXT, status TEXT, promoter_sales_enabled INTEGER);`);
+  const business = initTicketingDb(db);
+  const event = db.prepare("SELECT * FROM ticketing_events WHERE establishment_id = ? AND slug = 'jose-andrea-macas-2026'").get(business.id);
+  assert.ok(event);
+  assert.equal(event.status, 'published');
+  assert.equal(event.sales_enabled, 1);
+  assert.equal(event.payment_enabled, 1);
+  assert.equal(event.venue, 'Coliseo Luis Rivadeneira Polo');
+  const types = db.prepare('SELECT name, price, stock, sold FROM ticketing_ticket_types WHERE event_id = ? ORDER BY sort_order').all(event.id);
+  assert.deepEqual(types, [
+    { name: 'GENERAL', price: 15, stock: 100, sold: 0 },
+    { name: 'GOLDEN', price: 20, stock: 100, sold: 0 }
+  ]);
+  db.close();
+});
+
 test('transfer reviewer is restricted; approval emits tickets and email once with a unique reference', async (t) => {
   const f = await fixture(t);
   const messages = [];
