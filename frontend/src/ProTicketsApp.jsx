@@ -68,6 +68,7 @@ const emptyEvent = {
   featured: false,
   sales_enabled: false,
   payment_enabled: false,
+  presale_active: false,
   is_past: false
 };
 
@@ -415,6 +416,7 @@ function EventCard({ event }) {
       <a className="pt-event-image" href={`/tickets/evento/${event.slug}`}>
         <img src={event.card_image_url || event.hero_image_url || '/protickets/kris-r-hero.png'} alt={event.title} />
         <span className={`pt-status ${isPast ? 'past' : salesEnabled ? event.status : 'upcoming'}`}>{eventState}</span>
+        {Boolean(Number(event.presale_active)) && !isPast && <span className="pt-presale-card">PREVENTA</span>}
       </a>
       <div className="pt-event-card-body">
         <span>{event.city || 'Ecuador'}</span>
@@ -589,6 +591,9 @@ function EventPage({ slug, customer, onRequireAccount }) {
           {event.terms && <details className="pt-terms"><summary>Terminos de la entrada</summary><p>{event.terms}</p></details>}
         </section>
         <aside className="pt-checkout">
+          {Boolean(Number(event.presale_active)) && !isPast && (
+            <div className="pt-presale-banner"><span>PREVENTA ACTIVA</span><strong>Precios especiales por tiempo limitado</strong></div>
+          )}
           <p className="pt-eyebrow">SELECCIONA TU ENTRADA</p>
           <h2>Localidades</h2>
           <div className="pt-ticket-options">
@@ -917,6 +922,7 @@ function EventEditor({ eventId, onSaved, onCancel }) {
         featured: Boolean(data.featured),
         sales_enabled: Boolean(data.sales_enabled),
         payment_enabled: Boolean(data.payment_enabled),
+        presale_active: Boolean(data.presale_active),
         is_past: Boolean(data.is_past)
       });
       setTypes(data.ticket_types || []);
@@ -966,7 +972,8 @@ function EventEditor({ eventId, onSaved, onCancel }) {
         <label>Ajuste de la portada interna<select value={form.hero_display_mode} onChange={(e) => setForm({ ...form, hero_display_mode: e.target.value })}><option value="cover">Llenar el espacio</option><option value="contain">Mostrar imagen completa</option></select></label>
         <label>Terminos y condiciones<textarea rows="4" value={form.terms} onChange={(e) => setForm({ ...form, terms: e.target.value })} /></label>
         <div className="pta-grid three"><label>Estado<select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}><option value="draft">Borrador</option><option value="published">Publicado</option><option value="sold_out">Agotado</option><option value="archived">Archivado</option></select></label><label className="pta-check"><input type="checkbox" checked={form.featured} onChange={(e) => setForm({ ...form, featured: e.target.checked })} /> Mostrar como evento destacado</label><label className="pta-check"><input type="checkbox" checked={form.is_past} onChange={(e) => setForm({ ...form, is_past: e.target.checked, featured: e.target.checked ? false : form.featured, sales_enabled: e.target.checked ? false : form.sales_enabled, payment_enabled: e.target.checked ? false : form.payment_enabled })} /> Marcar como evento pasado</label></div>
-        <div className="pta-grid two"><label className="pta-check sales"><input type="checkbox" checked={form.sales_enabled} disabled={form.is_past} onChange={(e) => setForm({ ...form, sales_enabled: e.target.checked })} /> Habilitar seleccion de entradas</label><label className="pta-check sales"><input type="checkbox" checked={form.payment_enabled} disabled={form.is_past} onChange={(e) => setForm({ ...form, payment_enabled: e.target.checked })} /> Habilitar boton final de pago</label></div>
+        <div className="pta-grid three"><label className="pta-check sales"><input type="checkbox" checked={form.sales_enabled} disabled={form.is_past} onChange={(e) => setForm({ ...form, sales_enabled: e.target.checked })} /> Habilitar seleccion de entradas</label><label className="pta-check sales"><input type="checkbox" checked={form.payment_enabled} disabled={form.is_past} onChange={(e) => setForm({ ...form, payment_enabled: e.target.checked })} /> Habilitar boton final de pago</label><label className="pta-check sales presale"><input type="checkbox" checked={form.presale_active} disabled={form.is_past} onChange={(e) => setForm({ ...form, presale_active: e.target.checked })} /> Mostrar aviso grande de preventa</label></div>
+        {form.presale_active && !form.is_past && <div className="pta-alert presale">La pagina de compra mostrara “PREVENTA ACTIVA”. Desmarca esta opcion cuando termine la preventa y el aviso desaparecera inmediatamente.</div>}
         {form.is_past && <div className="pta-alert info">Este evento aparecera en Eventos pasados y no permitira seleccionar entradas.</div>}
         {!form.is_past && form.sales_enabled && !form.payment_enabled && <div className="pta-alert info">Los clientes podran elegir entradas, ingresar a su cuenta y completar el checkout, pero el boton final de pago quedara bloqueado.</div>}
         {!form.is_past && !form.sales_enabled && <div className="pta-alert info">El evento sera visible con sus precios, pero no permitira seleccionar entradas.</div>}

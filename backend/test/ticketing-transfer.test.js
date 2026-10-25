@@ -75,6 +75,7 @@ test('Macas event is published with 100 General and 100 Golden presale tickets',
   assert.equal(event.status, 'published');
   assert.equal(event.sales_enabled, 1);
   assert.equal(event.payment_enabled, 1);
+  assert.equal(event.presale_active, 1);
   assert.equal(event.venue, 'Coliseo Luis Rivadeneira Polo');
   const types = db.prepare('SELECT name, price, stock, sold FROM ticketing_ticket_types WHERE event_id = ? ORDER BY sort_order').all(event.id);
   assert.deepEqual(types, [

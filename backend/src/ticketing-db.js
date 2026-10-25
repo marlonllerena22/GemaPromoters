@@ -77,6 +77,7 @@ export function initTicketingDb(db) {
       bendo_payment_url TEXT,
       sales_enabled INTEGER NOT NULL DEFAULT 1,
       payment_enabled INTEGER NOT NULL DEFAULT 1,
+      presale_active INTEGER NOT NULL DEFAULT 0 CHECK (presale_active IN (0, 1)),
       is_past INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'sold_out', 'archived')),
       featured INTEGER NOT NULL DEFAULT 0 CHECK (featured IN (0, 1)),
@@ -348,6 +349,7 @@ export function initTicketingDb(db) {
   const addedTransferQr = addColumnIfMissing(db, 'ticketing_events', 'transfer_qr_url', "TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, 'ticketing_events', 'sales_enabled', 'INTEGER NOT NULL DEFAULT 1');
   const addedPaymentEnabled = addColumnIfMissing(db, 'ticketing_events', 'payment_enabled', 'INTEGER NOT NULL DEFAULT 1');
+  const addedPresaleActive = addColumnIfMissing(db, 'ticketing_events', 'presale_active', 'INTEGER NOT NULL DEFAULT 0');
   const addedPastState = addColumnIfMissing(db, 'ticketing_events', 'is_past', 'INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'ticketing_banners', 'event_id', 'INTEGER');
   addColumnIfMissing(db, 'ticketing_banners', 'mobile_image_url', 'TEXT');
@@ -468,8 +470,8 @@ export function initTicketingDb(db) {
       `INSERT INTO ticketing_events
        (establishment_id, slug, title, subtitle, description, venue, city, address,
         event_date, doors_time, hero_image_url, card_image_url, hero_display_mode,
-        organizer, terms, status, featured, sales_enabled, payment_enabled, is_past)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'contain', ?, ?, 'published', 1, 1, 1, 0)`
+        organizer, terms, status, featured, sales_enabled, payment_enabled, presale_active, is_past)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'contain', ?, ?, 'published', 1, 1, 1, 1, 0)`
     ).run(
       establishment.id,
       'jose-andrea-macas-2026',
@@ -496,6 +498,14 @@ export function initTicketingDb(db) {
   );
   insertMacasType.run(macasEvent.id, 'GENERAL', 'Preventa General · Precio normal $25', 15, 1);
   insertMacasType.run(macasEvent.id, 'GOLDEN', 'Preventa Golden · Precio normal $30', 20, 2);
+
+  if (addedPresaleActive) {
+    db.prepare(
+      `UPDATE ticketing_events
+       SET presale_active = 1, updated_at = datetime('now', 'localtime')
+       WHERE establishment_id = ? AND slug IN ('jose-andrea-loja-2026', 'jose-andrea-macas-2026')`
+    ).run(establishment.id);
+  }
 
   db.prepare(
     `INSERT INTO ticketing_banners

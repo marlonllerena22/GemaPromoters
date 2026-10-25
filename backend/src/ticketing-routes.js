@@ -1151,8 +1151,8 @@ export function registerTicketingRoutes(app, db) {
        (establishment_id, slug, title, subtitle, description, venue, city, address,
         event_date, doors_time, hero_image_url, card_image_url, hero_display_mode,
         organizer, terms, bendo_payment_url, status, featured, sales_enabled,
-        payment_enabled, is_past)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        payment_enabled, presale_active, is_past)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       req.ticketEstablishment.id,
       slug,
@@ -1174,6 +1174,7 @@ export function registerTicketingRoutes(app, db) {
       req.body.featured ? 1 : 0,
       req.body.sales_enabled ? 1 : 0,
       req.body.payment_enabled ? 1 : 0,
+      req.body.presale_active ? 1 : 0,
       req.body.is_past ? 1 : 0
     );
     res.status(201).json(db.prepare('SELECT * FROM ticketing_events WHERE id = ?').get(result.lastInsertRowid));
@@ -1192,7 +1193,7 @@ export function registerTicketingRoutes(app, db) {
         slug = ?, title = ?, subtitle = ?, description = ?, venue = ?, city = ?, address = ?,
         event_date = ?, doors_time = ?, hero_image_url = ?, card_image_url = ?, hero_display_mode = ?, organizer = ?,
         terms = ?, bendo_payment_url = ?, status = ?, featured = ?, sales_enabled = ?,
-        payment_enabled = ?, is_past = ?,
+        payment_enabled = ?, presale_active = ?, is_past = ?,
         updated_at = datetime('now', 'localtime')
        WHERE id = ? AND establishment_id = ?`
     ).run(
@@ -1215,6 +1216,7 @@ export function registerTicketingRoutes(app, db) {
       req.body.featured ? 1 : 0,
       req.body.sales_enabled ? 1 : 0,
       req.body.payment_enabled ? 1 : 0,
+      req.body.presale_active ? 1 : 0,
       req.body.is_past ? 1 : 0,
       current.id,
       req.ticketEstablishment.id

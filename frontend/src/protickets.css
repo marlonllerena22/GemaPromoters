@@ -326,6 +326,21 @@
   color: #fff;
 }
 
+.pt-presale-card {
+  background: linear-gradient(135deg, #ffd85b, #ff9f1c);
+  border: 2px solid #fff4bf;
+  border-radius: 5px;
+  bottom: 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .28);
+  color: #251500;
+  font-size: 14px;
+  font-weight: 950;
+  letter-spacing: 1.5px;
+  padding: 10px 15px;
+  position: absolute;
+  right: 16px;
+}
+
 .pt-past-section {
   background: #f3f3f5;
   padding-top: 40px;
@@ -577,6 +592,44 @@
 .pt-checkout h2 {
   font-size: 26px;
   margin-bottom: 20px;
+}
+
+.pt-presale-banner {
+  background: linear-gradient(135deg, #17120b, #3b1f05);
+  border: 2px solid #ffb328;
+  border-radius: 7px;
+  box-shadow: 0 14px 32px rgba(255, 155, 20, .22);
+  display: grid;
+  gap: 5px;
+  margin: -4px 0 22px;
+  overflow: hidden;
+  padding: 18px 18px 17px;
+  position: relative;
+}
+
+.pt-presale-banner::after {
+  color: rgba(255, 190, 50, .13);
+  content: '%';
+  font-size: 86px;
+  font-weight: 950;
+  line-height: 1;
+  position: absolute;
+  right: 10px;
+  top: -12px;
+}
+
+.pt-presale-banner span {
+  color: #ffc441;
+  font-size: 20px;
+  font-weight: 950;
+  letter-spacing: 1.4px;
+}
+
+.pt-presale-banner strong {
+  color: #fff7df;
+  font-size: 12px;
+  font-weight: 700;
+  max-width: 245px;
 }
 
 .pt-ticket-options {
@@ -1883,6 +1936,20 @@
 .pta-check input {
   min-height: 18px;
   width: 18px;
+}
+
+.pta-check.presale {
+  background: #fff7dc;
+  border: 1px solid #f0c352;
+  border-radius: 6px;
+  color: #5a3b00;
+  padding: 12px;
+}
+
+.pta-alert.presale {
+  background: #fff7dc;
+  border-color: #efc34d;
+  color: #5a3b00;
 }
 
 .pta-actions {
