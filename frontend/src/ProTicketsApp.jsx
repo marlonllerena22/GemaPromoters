@@ -133,7 +133,8 @@ export function ProTicketsSalesViewerAccess({ user, onAuthenticated, onLogout })
   const [message, setMessage] = useState('Abriendo tu reporte privado...');
 
   useEffect(() => {
-    const access = new URLSearchParams(window.location.search).get('access');
+    const pathMatch = window.location.pathname.match(/^\/reporte-jose-andrea\/([^/]+)\/?$/);
+    const access = pathMatch ? decodeURIComponent(pathMatch[1]) : new URLSearchParams(window.location.search).get('access');
     if (!access) {
       if (user?.role === 'ticket_sales_viewer') setStatus('ready');
       else { setStatus('error'); setMessage('Abre el enlace privado que te enviaron para ingresar al reporte.'); }
@@ -149,7 +150,6 @@ export function ProTicketsSalesViewerAccess({ user, onAuthenticated, onLogout })
       if (!response.ok) throw new Error(payload.message || 'No se pudo abrir el reporte');
       setToken(payload.token);
       setUser(payload.user);
-      window.history.replaceState({}, '', window.location.pathname);
       if (!active) return;
       onAuthenticated(payload.token, payload.user);
       setStatus('ready');

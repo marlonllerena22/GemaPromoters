@@ -1651,7 +1651,7 @@ export function registerTicketingRoutes(app, db) {
       ).run(req.ticketEstablishment.id, name, username, hashPassword(password), JSON.stringify(eventIds), hashResetToken(magicToken));
       return res.status(201).json({
         viewer: { id: result.lastInsertRowid, name, username, event_ids: eventIds, status: 'active' },
-        access_url: `${publicAppUrl()}/reporte-jose-andrea?access=${encodeURIComponent(magicToken)}`
+        access_url: `${publicAppUrl()}/reporte-jose-andrea/${encodeURIComponent(magicToken)}`
       });
     } catch (error) {
       if (String(error.message).includes('UNIQUE')) return res.status(409).json({ message: 'Ese usuario ya esta registrado' });
@@ -1669,7 +1669,7 @@ export function registerTicketingRoutes(app, db) {
       `UPDATE ticketing_validators SET magic_token_hash = ?, magic_token_created_at = datetime('now', 'localtime'),
        updated_at = datetime('now', 'localtime') WHERE id = ?`
     ).run(hashResetToken(magicToken), viewer.id);
-    return res.json({ access_url: `${publicAppUrl()}/reporte-jose-andrea?access=${encodeURIComponent(magicToken)}` });
+    return res.json({ access_url: `${publicAppUrl()}/reporte-jose-andrea/${encodeURIComponent(magicToken)}` });
   });
 
   app.post('/api/ticketing/admin/validators', requireTicketAdmin, (req, res) => {

@@ -885,7 +885,7 @@ function App() {
     }} /></Suspense>;
   }
 
-  if (pathname === '/reporte-jose-andrea') {
+  if (pathname === '/reporte-jose-andrea' || pathname.startsWith('/reporte-jose-andrea/')) {
     return <ProTicketsSalesViewerAccess user={user} onAuthenticated={(nextToken, nextUser) => {
       saveToken(nextToken);
       saveUser(nextUser);
