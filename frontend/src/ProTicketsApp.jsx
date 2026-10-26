@@ -28,6 +28,7 @@ import {
   Phone,
   Plus,
   QrCode,
+  RefreshCw,
   Save,
   Search,
   Settings,
@@ -41,7 +42,7 @@ import {
   X
 } from 'lucide-react';
 import { API_URL, api, getToken, setToken, setUser } from './api.js';
-import { TransferDetails, TransfersAdmin, PaymentSettings, TicketSalesReport } from './TicketingPayments.jsx';
+import { JoseAndreaSalesViewer, TransferDetails, TransfersAdmin, PaymentSettings, TicketSalesReport } from './TicketingPayments.jsx';
 import ProTicketsPromotions from './ProTicketsPromotions.jsx';
 import './protickets.css';
 
@@ -113,7 +114,7 @@ function clearCustomerSession() {
   localStorage.removeItem(CUSTOMER_KEY);
 }
 
-async function ticketingApi(path, options = {}) {
+export async function ticketingApi(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
   const token = options.admin ? getToken() : localStorage.getItem(CUSTOMER_TOKEN_KEY);
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -125,6 +126,45 @@ async function ticketingApi(path, options = {}) {
     throw error;
   }
   return data;
+}
+
+export function ProTicketsSalesViewerAccess({ user, onAuthenticated, onLogout }) {
+  const [status, setStatus] = useState(user?.role === 'ticket_sales_viewer' ? 'ready' : 'loading');
+  const [message, setMessage] = useState('Abriendo tu reporte privado...');
+
+  useEffect(() => {
+    const access = new URLSearchParams(window.location.search).get('access');
+    if (!access) {
+      if (user?.role === 'ticket_sales_viewer') setStatus('ready');
+      else { setStatus('error'); setMessage('Abre el enlace privado que te enviaron para ingresar al reporte.'); }
+      return;
+    }
+    let active = true;
+    fetch(`${API_URL}/ticketing/viewer/magic-login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: access })
+    }).then(async (response) => {
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || 'No se pudo abrir el reporte');
+      setToken(payload.token);
+      setUser(payload.user);
+      window.history.replaceState({}, '', window.location.pathname);
+      if (!active) return;
+      onAuthenticated(payload.token, payload.user);
+      setStatus('ready');
+    }).catch((error) => {
+      if (!active) return;
+      setMessage(error.message);
+      setStatus('error');
+    });
+    return () => { active = false; };
+  }, []);
+
+  if (status === 'ready' && user?.role === 'ticket_sales_viewer') {
+    return <JoseAndreaSalesViewer api={ticketingApi} user={user} onLogout={onLogout} />;
+  }
+  return <main className="ptsv-access"><div><span>PROTICKETS</span>{status === 'loading' ? <RefreshCw className="spin" /> : <ShieldCheck />}<h1>{status === 'loading' ? 'Ingresando al reporte' : 'Enlace privado'}</h1><p>{message}</p></div></main>;
 }
 
 function money(value) {
@@ -1147,7 +1187,7 @@ function ValidatorAdmin({ restricted = false }) {
 
   async function loadValidators() {
     if (restricted) return;
-    try { setValidators((await ticketingApi('/admin/validators', { admin: true })).filter((user) => user.access_scope !== 'transfers')); } catch (error) { setAccountNotice(error.message); }
+    try { setValidators((await ticketingApi('/admin/validators', { admin: true })).filter((user) => user.access_scope === 'qr')); } catch (error) { setAccountNotice(error.message); }
   }
 
   useEffect(() => {

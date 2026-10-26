@@ -37,7 +37,7 @@ import { api, clearToken, getToken, getUser, setToken, setUser } from './api.js'
 import ProducalzaApp from './ProducalzaApp.jsx';
 import RenjiApp, { RenjiPublicRegistration } from './RenjiApp.jsx';
 import LocalAttendancePage from './LocalAttendancePage.jsx';
-import ProTicketsApp, { ProTicketsPublicSite } from './ProTicketsApp.jsx';
+import ProTicketsApp, { ProTicketsPublicSite, ProTicketsSalesViewerAccess } from './ProTicketsApp.jsx';
 import { MarjoriePromoterApp, MarjoriePromotersAdmin, MarjorieReferralPage, MarjorieRegistration } from './MarjoriePromotersApp.jsx';
 const ContentStudioApp = lazy(() => import('./ContentStudioApp.jsx'));
 const ContentStudioLanding = lazy(() => import('./ContentStudioLanding.jsx'));
@@ -883,6 +883,17 @@ function App() {
     return <Suspense fallback={<div className="studio-route-loading"/>}><OfflineTicketScanner user={user} onLogout={() => {
       clearToken(); saveToken(null); saveUser(null);
     }} /></Suspense>;
+  }
+
+  if (pathname === '/reporte-jose-andrea') {
+    return <ProTicketsSalesViewerAccess user={user} onAuthenticated={(nextToken, nextUser) => {
+      saveToken(nextToken);
+      saveUser(nextUser);
+    }} onLogout={() => {
+      clearToken();
+      saveToken(null);
+      saveUser(null);
+    }} />;
   }
 
   if (window.location.pathname === '/tickets' || window.location.pathname.startsWith('/tickets/')) {

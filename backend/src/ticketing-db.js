@@ -291,10 +291,15 @@ export function initTicketingDb(db) {
   addColumnIfMissing(db, 'ticketing_customers', 'marketing_opt_out', 'INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'ticketing_customers', 'marketing_unsubscribe_token', 'TEXT');
   addColumnIfMissing(db, 'ticketing_validators', 'access_scope', "TEXT NOT NULL DEFAULT 'qr'");
+  addColumnIfMissing(db, 'ticketing_validators', 'event_scope', 'TEXT');
+  addColumnIfMissing(db, 'ticketing_validators', 'magic_token_hash', 'TEXT');
+  addColumnIfMissing(db, 'ticketing_validators', 'magic_token_created_at', 'TEXT');
   addColumnIfMissing(db, 'ticketing_offline_scans', 'gate_name', 'TEXT');
   db.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_ticketing_marketing_unsubscribe
       ON ticketing_customers(marketing_unsubscribe_token) WHERE marketing_unsubscribe_token IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ticketing_validator_magic_token
+      ON ticketing_validators(magic_token_hash) WHERE magic_token_hash IS NOT NULL;
     CREATE TABLE IF NOT EXISTS ticketing_promotion_campaigns (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       establishment_id INTEGER NOT NULL,

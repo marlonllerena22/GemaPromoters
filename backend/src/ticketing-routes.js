@@ -77,6 +77,21 @@ function hashResetToken(token) {
   return crypto.createHash('sha256').update(String(token || '')).digest('hex');
 }
 
+function ticketingRoleForScope(scope) {
+  if (scope === 'transfers') return 'ticket_transfer_reviewer';
+  if (scope === 'sales') return 'ticket_sales_viewer';
+  return 'ticket_validator';
+}
+
+function parseEventScope(value) {
+  try {
+    const parsed = JSON.parse(String(value || '[]'));
+    return [...new Set((Array.isArray(parsed) ? parsed : []).map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))];
+  } catch {
+    return [];
+  }
+}
+
 function escapeHtml(value) {
   return String(value || '').replace(/[&<>"']/g, (character) => ({
     '&': '&amp;',
@@ -296,6 +311,25 @@ export function registerTicketingRoutes(app, db) {
     });
   }
 
+  function requireSalesViewerAccess(req, res, next) {
+    requireAuth(req, res, () => {
+      if (['supreme', 'admin'].includes(req.user?.role)) return requireTicketAdmin(req, res, next);
+      if (req.user?.role !== 'ticket_sales_viewer') {
+        return res.status(403).json({ message: 'Acceso exclusivo al reporte de ventas' });
+      }
+      const viewer = db.prepare(`SELECT v.* FROM ticketing_validators v
+        JOIN establishments e ON e.id = v.establishment_id
+        WHERE v.id = ? AND v.establishment_id = ? AND v.status = 'active'
+        AND v.access_scope = 'sales' AND e.status = 'active' AND e.module_type = 'ticketing'`)
+        .get(req.user.validatorId, req.user.establishmentId);
+      if (!viewer) return res.status(401).json({ message: 'Este acceso al reporte ya no esta disponible' });
+      req.ticketValidator = viewer;
+      req.ticketEstablishment = { id: viewer.establishment_id };
+      req.ticketEventScope = parseEventScope(viewer.event_scope);
+      return next();
+    });
+  }
+
   function recordValidation(req, { ticketId = null, code, result, message }) {
     db.prepare(
       `INSERT INTO ticketing_validation_logs
@@ -388,7 +422,7 @@ export function registerTicketingRoutes(app, db) {
     }
     return res.json({
       token: createToken({
-        role: validator.access_scope === 'transfers' ? 'ticket_transfer_reviewer' : 'ticket_validator',
+        role: ticketingRoleForScope(validator.access_scope),
         validatorId: validator.id,
         establishmentId: establishment.id,
         username: validator.username
@@ -396,8 +430,32 @@ export function registerTicketingRoutes(app, db) {
       user: {
         id: validator.id,
         username: validator.username,
-        role: validator.access_scope === 'transfers' ? 'ticket_transfer_reviewer' : 'ticket_validator',
+        role: ticketingRoleForScope(validator.access_scope),
         name: validator.name,
+        establishment_id: establishment.id,
+        establishment_name: establishment.name,
+        establishment_display_name: establishment.display_name || establishment.name,
+        establishment_module_type: 'ticketing'
+      }
+    });
+  });
+
+  app.post('/api/ticketing/viewer/magic-login', (req, res) => {
+    const token = cleanText(req.body?.token, 200);
+    const establishment = ticketingEstablishment(db);
+    const viewer = token && establishment && db.prepare(
+      `SELECT * FROM ticketing_validators
+       WHERE establishment_id = ? AND magic_token_hash = ? AND status = 'active' AND access_scope = 'sales'`
+    ).get(establishment.id, hashResetToken(token));
+    if (!viewer) return res.status(401).json({ message: 'El enlace de acceso no es valido o fue desactivado' });
+    const role = ticketingRoleForScope(viewer.access_scope);
+    return res.json({
+      token: createToken({ role, validatorId: viewer.id, establishmentId: establishment.id, username: viewer.username }),
+      user: {
+        id: viewer.id,
+        username: viewer.username,
+        role,
+        name: viewer.name,
         establishment_id: establishment.id,
         establishment_name: establishment.name,
         establishment_display_name: establishment.display_name || establishment.name,
@@ -1060,6 +1118,90 @@ export function registerTicketingRoutes(app, db) {
     res.json({ ok: true });
   });
 
+  app.get('/api/ticketing/viewer/sales', requireSalesViewerAccess, (req, res) => {
+    const eventIds = req.user?.role === 'ticket_sales_viewer'
+      ? req.ticketEventScope
+      : db.prepare("SELECT id FROM ticketing_events WHERE establishment_id = ? AND slug IN ('jose-andrea-loja-2026', 'jose-andrea-macas-2026') ORDER BY id").all(req.ticketEstablishment.id).map((row) => row.id);
+    if (!eventIds.length) return res.status(403).json({ message: 'Este usuario no tiene eventos asignados' });
+    const placeholders = eventIds.map(() => '?').join(',');
+    const events = db.prepare(
+      `SELECT id, title, city, venue, event_date, hero_image_url, card_image_url
+       FROM ticketing_events WHERE establishment_id = ? AND id IN (${placeholders}) ORDER BY event_date, id`
+    ).all(req.ticketEstablishment.id, ...eventIds);
+    if (!events.length) return res.status(404).json({ message: 'No se encontraron los eventos asignados' });
+    const allowedIds = events.map((event) => event.id);
+    const allowedPlaceholders = allowedIds.map(() => '?').join(',');
+    const orders = db.prepare(
+      `SELECT o.*, e.title AS event_title FROM ticketing_orders o
+       JOIN ticketing_events e ON e.id = o.event_id
+       WHERE o.establishment_id = ? AND o.payment_status = 'paid' AND o.event_id IN (${allowedPlaceholders}) ORDER BY o.id`
+    ).all(req.ticketEstablishment.id, ...allowedIds);
+    const items = db.prepare(
+      `SELECT i.* FROM ticketing_order_items i JOIN ticketing_orders o ON o.id = i.order_id
+       WHERE o.establishment_id = ? AND o.payment_status = 'paid' AND o.event_id IN (${allowedPlaceholders})`
+    ).all(req.ticketEstablishment.id, ...allowedIds);
+    const settings = transferSettings(db, req.ticketEstablishment.id);
+    const eventReports = events.map((event) => {
+      const eventOrders = orders.filter((order) => Number(order.event_id) === Number(event.id));
+      const orderIds = new Set(eventOrders.map((order) => order.id));
+      const eventItems = items.filter((item) => orderIds.has(item.order_id));
+      const report = buildTicketSalesReport(eventOrders, eventItems, settings.payphone_fee_percent);
+      const ticketTypes = db.prepare(
+        `SELECT id, name, price, stock, sold, status FROM ticketing_ticket_types
+         WHERE event_id = ? ORDER BY sort_order, id`
+      ).all(event.id);
+      const localities = ticketTypes.map((type) => {
+        const row = report.simple_rows.find((item) => item.locality === type.name);
+        const sold = Number(row?.quantity || 0);
+        const capacity = Number(type.stock || 0);
+        return {
+          id: type.id,
+          name: type.name,
+          price: Number(type.price || 0),
+          capacity,
+          sold,
+          admissions: Number(row?.admissions || sold),
+          available: Math.max(0, capacity - sold),
+          progress: capacity ? Math.min(100, Math.round((sold / capacity) * 1000) / 10) : 0,
+          gross: Number(row?.gross || 0),
+          event_net: Number(row?.event_net || 0)
+        };
+      });
+      const capacity = localities.reduce((sum, row) => sum + row.capacity, 0);
+      const sold = localities.reduce((sum, row) => sum + row.sold, 0);
+      const pending = db.prepare(
+        `SELECT COUNT(*) AS orders, COALESCE(SUM(total), 0) AS total FROM ticketing_orders
+         WHERE establishment_id = ? AND event_id = ? AND payment_status = 'pending'
+           AND (expires_at IS NULL OR expires_at >= datetime('now', 'localtime'))`
+      ).get(req.ticketEstablishment.id, event.id);
+      return {
+        ...event,
+        image_url: event.card_image_url || event.hero_image_url || '',
+        capacity,
+        sold,
+        available: Math.max(0, capacity - sold),
+        progress: capacity ? Math.min(100, Math.round((sold / capacity) * 1000) / 10) : 0,
+        orders: report.orders,
+        admissions: Number(report.simple_totals.admissions || sold),
+        gross: Number(report.simple_totals.gross || 0),
+        event_net: Number(report.simple_totals.event_net || 0),
+        transfer_total: Number(report.simple_totals.transfer_total || 0),
+        payphone_total: Number(report.simple_totals.payphone_total || 0),
+        pending_orders: Number(pending.orders || 0),
+        pending_total: money(pending.total),
+        localities
+      };
+    });
+    const totals = eventReports.reduce((summary, event) => {
+      for (const key of ['capacity', 'sold', 'available', 'orders', 'admissions', 'gross', 'event_net', 'transfer_total', 'payphone_total', 'pending_orders', 'pending_total']) {
+        summary[key] += Number(event[key] || 0);
+      }
+      return summary;
+    }, { capacity: 0, sold: 0, available: 0, orders: 0, admissions: 0, gross: 0, event_net: 0, transfer_total: 0, payphone_total: 0, pending_orders: 0, pending_total: 0 });
+    totals.progress = totals.capacity ? Math.min(100, Math.round((totals.sold / totals.capacity) * 1000) / 10) : 0;
+    return res.json({ generated_at: new Date().toISOString(), timezone: 'America/Guayaquil', totals, events: eventReports });
+  });
+
   app.get('/api/ticketing/admin/sales-report', requireTicketAdmin, (req, res) => {
     const from = cleanText(req.query.from, 10);
     const to = cleanText(req.query.to, 10);
@@ -1483,6 +1625,51 @@ export function registerTicketingRoutes(app, db) {
     } catch (error) {
       return res.status(502).json({ message: `No se pudo enviar el correo: ${error.message}` });
     }
+  });
+
+  app.post('/api/ticketing/admin/sales-viewers', requireTicketAdmin, (req, res) => {
+    const name = cleanText(req.body?.name, 120) || 'Reporte Jose Andrea';
+    const username = cleanText(req.body?.username, 80).toLowerCase() || `reporte-${Date.now()}`;
+    const eventIds = [...new Set((Array.isArray(req.body?.event_ids) ? req.body.event_ids : []).map(Number)
+      .filter((id) => Number.isSafeInteger(id) && id > 0))];
+    if (!/^[a-z0-9._-]{3,80}$/.test(username)) {
+      return res.status(400).json({ message: 'El usuario debe tener al menos 3 caracteres y no usar espacios' });
+    }
+    if (!eventIds.length) return res.status(400).json({ message: 'Selecciona al menos un evento' });
+    const placeholders = eventIds.map(() => '?').join(',');
+    const allowed = db.prepare(
+      `SELECT id FROM ticketing_events WHERE establishment_id = ? AND id IN (${placeholders})`
+    ).all(req.ticketEstablishment.id, ...eventIds).map((row) => row.id);
+    if (allowed.length !== eventIds.length) return res.status(400).json({ message: 'Uno de los eventos no pertenece a ProTickets' });
+    const magicToken = crypto.randomBytes(32).toString('base64url');
+    const password = crypto.randomBytes(24).toString('base64url');
+    try {
+      const result = db.prepare(
+        `INSERT INTO ticketing_validators
+         (establishment_id, name, username, password_hash, status, access_scope, event_scope, magic_token_hash, magic_token_created_at)
+         VALUES (?, ?, ?, ?, 'active', 'sales', ?, ?, datetime('now', 'localtime'))`
+      ).run(req.ticketEstablishment.id, name, username, hashPassword(password), JSON.stringify(eventIds), hashResetToken(magicToken));
+      return res.status(201).json({
+        viewer: { id: result.lastInsertRowid, name, username, event_ids: eventIds, status: 'active' },
+        access_url: `${publicAppUrl()}/reporte-jose-andrea?access=${encodeURIComponent(magicToken)}`
+      });
+    } catch (error) {
+      if (String(error.message).includes('UNIQUE')) return res.status(409).json({ message: 'Ese usuario ya esta registrado' });
+      throw error;
+    }
+  });
+
+  app.post('/api/ticketing/admin/sales-viewers/:id/regenerate-link', requireTicketAdmin, (req, res) => {
+    const viewer = db.prepare(
+      `SELECT * FROM ticketing_validators WHERE id = ? AND establishment_id = ? AND access_scope = 'sales'`
+    ).get(req.params.id, req.ticketEstablishment.id);
+    if (!viewer) return res.status(404).json({ message: 'Usuario de reporte no encontrado' });
+    const magicToken = crypto.randomBytes(32).toString('base64url');
+    db.prepare(
+      `UPDATE ticketing_validators SET magic_token_hash = ?, magic_token_created_at = datetime('now', 'localtime'),
+       updated_at = datetime('now', 'localtime') WHERE id = ?`
+    ).run(hashResetToken(magicToken), viewer.id);
+    return res.json({ access_url: `${publicAppUrl()}/reporte-jose-andrea?access=${encodeURIComponent(magicToken)}` });
   });
 
   app.post('/api/ticketing/admin/validators', requireTicketAdmin, (req, res) => {

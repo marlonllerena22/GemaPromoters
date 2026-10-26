@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import html2canvas from 'html2canvas';
-import { Check, Copy, Download, Edit3, Mail, MessageCircle, Printer, RefreshCw, Save, Search, UserPlus, X } from 'lucide-react';
+import { BarChart3, CalendarDays, Check, Copy, CreditCard, Download, Edit3, LogOut, Mail, MapPin, MessageCircle, Printer, RefreshCw, Save, ShieldCheck, Search, Ticket, UserPlus, X } from 'lucide-react';
 
 const money = (value) => new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD' }).format(Number(value || 0));
 const ECUADOR_TIMEZONE = 'America/Guayaquil';
@@ -244,4 +244,97 @@ export function TicketSalesReport({ api }) {
       {data.estimated_orders > 0 && <p>{data.estimated_orders} pedidos anteriores no tenian comision guardada: se calculan con la tarifa configurada ({data.payphone_fee_percent}%). Verifica contra la liquidacion de PayPhone.</p>}
     </div>}
   </section>;
+}
+
+export function JoseAndreaSalesViewer({ api, user, onLogout }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(true);
+
+  async function load() {
+    setBusy(true);
+    setError('');
+    try {
+      setData(await api('/viewer/sales', { admin: true }));
+    } catch (err) {
+      setError(err.message || 'No se pudo cargar el reporte');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  useEffect(() => { load(); }, []);
+
+  const eventDate = (value) => {
+    if (!value) return 'Fecha por confirmar';
+    const parsed = timestamp(value);
+    return parsed && !Number.isNaN(parsed.getTime())
+      ? new Intl.DateTimeFormat('es-EC', { timeZone: ECUADOR_TIMEZONE, dateStyle: 'long' }).format(parsed)
+      : value;
+  };
+
+  const totals = data?.totals || {};
+  return <main className="pt-sales-viewer">
+    <header className="ptsv-header">
+      <div className="ptsv-brand"><span>PRO</span><strong>TICKETS</strong></div>
+      <div className="ptsv-header-actions">
+        <div className="ptsv-user"><span>Vista de ventas</span><strong>{user?.name || 'José Andrëa'}</strong></div>
+        <button type="button" className="ptsv-button" onClick={load} disabled={busy}><RefreshCw className={busy ? 'spin' : ''} />Actualizar</button>
+        <button type="button" className="ptsv-button quiet" onClick={onLogout}><LogOut />Salir</button>
+      </div>
+    </header>
+
+    <section className="ptsv-content">
+      <div className="ptsv-intro">
+        <div><span className="ptsv-kicker"><ShieldCheck /> REPORTE PRIVADO · SOLO LECTURA</span><h1>Ventas de José Andrëa</h1><p>Loja y Macas en una sola vista, con información confirmada en tiempo real.</p></div>
+        {data && <small>Actualizado {date(data.generated_at)}</small>}
+      </div>
+
+      {error && <div className="ptsv-error">{error}<button type="button" onClick={load}>Intentar nuevamente</button></div>}
+      {busy && !data && <div className="ptsv-loading"><RefreshCw className="spin" /><strong>Preparando el reporte...</strong></div>}
+
+      {data && <>
+        <div className="ptsv-summary">
+          <article className="money"><span>Total cobrado</span><strong>{money(totals.gross)}</strong><CreditCard /></article>
+          <article><span>Entradas vendidas</span><strong>{totals.sold || 0}</strong><Ticket /></article>
+          <article><span>Compras confirmadas</span><strong>{totals.orders || 0}</strong><BarChart3 /></article>
+          <article><span>Disponibles</span><strong>{totals.available || 0}</strong><CalendarDays /></article>
+        </div>
+
+        <section className="ptsv-payment-summary">
+          <div><span>PayPhone</span><strong>{money(totals.payphone_total)}</strong></div>
+          <div><span>Transferencias</span><strong>{money(totals.transfer_total)}</strong></div>
+          <div><span>Neto para los eventos</span><strong>{money(totals.event_net)}</strong></div>
+          <div className="pending"><span>Pendientes activos</span><strong>{totals.pending_orders || 0} · {money(totals.pending_total)}</strong></div>
+        </section>
+
+        <div className="ptsv-events">
+          {data.events.map((event) => <article className="ptsv-event" key={event.id}>
+            <div className="ptsv-event-hero">
+              {event.image_url && <img src={event.image_url} alt={`Afiche de ${event.title}`} />}
+              <div><span>{event.city}</span><h2>{event.title}</h2><p><CalendarDays />{eventDate(event.event_date)}</p><p><MapPin />{event.venue}</p></div>
+            </div>
+            <div className="ptsv-event-body">
+              <div className="ptsv-event-numbers">
+                <div><span>Vendido</span><strong>{event.sold}</strong><small>de {event.capacity} entradas</small></div>
+                <div><span>Compras</span><strong>{event.orders}</strong><small>confirmadas</small></div>
+                <div><span>Total</span><strong>{money(event.gross)}</strong><small>cobrado</small></div>
+                <div><span>Disponible</span><strong>{event.available}</strong><small>entradas</small></div>
+              </div>
+              <div className="ptsv-main-progress"><div><span>Avance total</span><strong>{event.progress}%</strong></div><div className="ptsv-track"><i style={{ width: `${event.progress}%` }} /></div></div>
+              <div className="ptsv-localities">
+                <h3>Ventas por localidad</h3>
+                {event.localities.map((locality) => <div className="ptsv-locality" key={locality.id}>
+                  <div className="ptsv-locality-head"><div><strong>{locality.name}</strong><span>{money(locality.price)} por entrada</span></div><div><strong>{locality.sold} vendidas</strong><span>{locality.available} disponibles</span></div></div>
+                  <div className="ptsv-track small"><i style={{ width: `${locality.progress}%` }} /></div>
+                  <div className="ptsv-locality-foot"><span>{locality.progress}% vendido</span><strong>{money(locality.gross)}</strong></div>
+                </div>)}
+              </div>
+              <div className="ptsv-event-payments"><div><span>PayPhone</span><strong>{money(event.payphone_total)}</strong></div><div><span>Transferencias</span><strong>{money(event.transfer_total)}</strong></div>{event.pending_orders > 0 && <div className="pending"><span>Pendientes</span><strong>{event.pending_orders} · {money(event.pending_total)}</strong></div>}</div>
+            </div>
+          </article>)}
+        </div>
+      </>}
+    </section>
+  </main>;
 }
