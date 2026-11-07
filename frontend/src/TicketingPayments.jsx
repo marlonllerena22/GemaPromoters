@@ -134,6 +134,43 @@ export function TransfersAdmin({ api, restricted = false }) {
   </div>;
 }
 
+function TikTokTrackingSettings({ api }) {
+  const [settings, setSettings] = useState(null);
+  const [token, setToken] = useState('');
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api('/admin/tracking-settings', { admin: true }).then(setSettings).catch((error) => setNotice(error.message));
+  }, [api]);
+  async function save(event) {
+    event.preventDefault();
+    setBusy(true);
+    setNotice('');
+    try {
+      setSettings(await api('/admin/tracking-settings', { admin: true, method: 'PUT',
+        body: JSON.stringify({ tiktok_pixel_id: settings.tiktok_pixel_id, tiktok_access_token: token }) }));
+      setToken('');
+      setNotice('Configuración de TikTok guardada');
+    } catch (error) { setNotice(error.message); }
+    finally { setBusy(false); }
+  }
+  return <section className="pta-section">
+    <h2>TikTok Ads</h2>
+    <p>Conecta el píxel de tu campaña para medir las visitas desde joseandrea.com y las compras confirmadas en ProTickets.</p>
+    {notice && <div className="pt-alert info" role="status">{notice}</div>}
+    {settings && <form className="pta-form" onSubmit={save}>
+      <label>ID del píxel de TikTok<input value={settings.tiktok_pixel_id} maxLength={40} autoComplete="off"
+        onChange={(event) => setSettings({ ...settings, tiktok_pixel_id: event.target.value.trim() })} placeholder="Copia el ID desde Eventos web de TikTok Ads" /></label>
+      <label>Token de acceso de Events API<input type="password" value={token} autoComplete="new-password" maxLength={4000}
+        onChange={(event) => setToken(event.target.value)} placeholder={settings.events_api_configured ? 'Guardado. Completa solo para reemplazarlo' : 'Copia el token desde la configuración del píxel'} /></label>
+      <p>Events API registra las compras desde el servidor, incluidas las transferencias validadas después de que el cliente cierre la página. Cada pedido cuenta una sola vez.</p>
+      <p>{settings.tiktok_pixel_id ? 'Píxel configurado' : 'Falta el ID del píxel'} · {settings.events_api_configured ? 'Events API configurada' : 'Falta el token de Events API'}</p>
+      <p>{settings.sent} compras aceptadas por TikTok · {settings.pending} pendientes de envío · {settings.failed} requieren revisión</p>
+      <button className="pta-primary" disabled={busy}><Save />{busy ? 'Guardando...' : 'Guardar TikTok Ads'}</button>
+    </form>}
+  </section>;
+}
+
 export function PaymentSettings({ api }) {
   const [form, setForm] = useState(null);
   const [events, setEvents] = useState([]);
@@ -158,14 +195,14 @@ export function PaymentSettings({ api }) {
   }
   if (!form) return <div className="pta-empty">{notice || 'Cargando configuracion...'}</div>;
   const field = (name, label, type = 'text') => <label>{label}<input type={type} required={!['account_number', 'account_type'].includes(name)} step={type === 'number' ? '0.01' : undefined} value={form[name]} onChange={(e) => setForm({ ...form, [name]: e.target.value })} /></label>;
-  return <section className="pta-section"><h2>Configuracion de pagos</h2>{notice && <p role="status">{notice}</p>}<form className="pta-form" onSubmit={save}>
+  return <><section className="pta-section"><h2>Configuracion de pagos</h2>{notice && <p role="status">{notice}</p>}<form className="pta-form" onSubmit={save}>
     <label className="pta-check"><input type="checkbox" checked={Boolean(form.transfer_enabled)} onChange={(e) => setForm({ ...form, transfer_enabled: e.target.checked })} /> Habilitar transferencia y Deuna</label>
     <div className="pta-grid two">{field('beneficiary', 'Beneficiario')}{field('bank_name', 'Banco')}{field('identification', 'Cedula / RUC')}{field('account_number', 'Numero de cuenta (opcional)')}{field('account_type', 'Tipo de cuenta (opcional)')}{field('whatsapp', 'WhatsApp con codigo de pais')}{field('transfer_minutes', 'Limite de reserva (minutos)', 'number')}{field('payphone_fee_percent', 'Comision PayPhone con IVA (%)', 'number')}</div>
     <label>Evento del QR<select value={eventId} onChange={(e) => { setEventId(e.target.value); setQr(events.find((event) => String(event.id) === e.target.value)?.transfer_qr_url || ''); }}>{events.map((event) => <option key={event.id} value={event.id}>{event.title}</option>)}</select></label>
     <label>QR Deuna<input type="file" accept="image/png,image/jpeg,image/webp" onChange={imageChanged} /></label>
     {qr && <img className="pt-settings-qr" src={qr} alt="QR Deuna del evento seleccionado" />}
     <button className="pta-primary" disabled={saving}><Save /> {saving ? 'Guardando...' : 'Guardar configuracion'}</button>
-  </form></section>;
+  </form></section><TikTokTrackingSettings api={api} /></>;
 }
 
 export function TicketSalesReport({ api }) {

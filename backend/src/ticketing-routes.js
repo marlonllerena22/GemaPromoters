@@ -4,6 +4,8 @@ import QRCode from 'qrcode';
 import { createToken, requireAuth } from './auth.js';
 import { transferSettings, transferInstructions, buildTicketSalesReport } from './ticketing-finance.js';
 import { registerTicketingPromotionRoutes } from './ticketing-promotions.js';
+import { browserPurchase, enqueueTikTokPurchase, publicTrackingSettings, saveOrderAttribution,
+  saveTrackingSettings, trackingDiagnostics } from './ticketing-tracking.js';
 
 function money(value) {
   return Math.round((Number(value || 0) || 0) * 100) / 100;
@@ -507,7 +509,7 @@ export function registerTicketingRoutes(app, db) {
        JOIN ticketing_order_items AS items ON items.id = tickets.order_item_id
        WHERE tickets.order_id = ? ORDER BY tickets.id`
     ).all(orderId);
-    return { ...order, items, tickets, ...(order.payment_method === 'transfer' ? {
+    return { ...order, items, tickets, tiktok_purchase: browserPurchase(db, orderId), ...(order.payment_method === 'transfer' ? {
       transfer: transferInstructions(transferSettings(db, order.establishment_id, order.event_id), order)
     } : {}) };
   }
@@ -635,6 +637,7 @@ export function registerTicketingRoutes(app, db) {
          (establishment_id, order_id, provider, event_status, payload)
          VALUES (?, ?, ?, 'paid', ?)`
       ).run(order.establishment_id, order.id, provider, JSON.stringify({ checked_by: checkedBy }));
+      enqueueTikTokPurchase(db, order.id);
       return order;
     })();
     const confirmedOrder = orderDetails(result.id);
@@ -649,6 +652,22 @@ export function registerTicketingRoutes(app, db) {
     const email = await emailDeliveries.get(result.id);
     return { order: orderDetails(result.id), email };
   }
+
+  app.get('/api/ticketing/public/tracking', (_req, res) => {
+    const establishment = ticketingEstablishment(db);
+    res.set('Cache-Control', 'no-store').json(establishment ? publicTrackingSettings(db, establishment.id) : { tiktok_pixel_id: '' });
+  });
+
+  app.get('/api/ticketing/admin/tracking-settings', requireTicketAdmin, (req, res) => {
+    res.json(trackingDiagnostics(db, req.ticketEstablishment.id));
+  });
+
+  app.put('/api/ticketing/admin/tracking-settings', requireTicketAdmin, (req, res) => {
+    try {
+      saveTrackingSettings(db, req.ticketEstablishment.id, req.body);
+      res.json(trackingDiagnostics(db, req.ticketEstablishment.id));
+    } catch (error) { res.status(400).json({ message: error.message }); }
+  });
 
   app.get('/api/ticketing/public/home', (_req, res) => {
     const establishment = ticketingEstablishment(db);
@@ -1027,6 +1046,7 @@ export function registerTicketingRoutes(app, db) {
          (order_id, ticket_type_id, ticket_name, quantity, unit_price, unit_fee)
          VALUES (?, ?, ?, ?, ?, ?)`
       ).run(result.lastInsertRowid, ticketType.id, ticketType.name, quantity, ticketType.price, money(fee / quantity));
+      saveOrderAttribution(db, result.lastInsertRowid, req);
       return result.lastInsertRowid;
     })();
     if (paymentMethod === 'transfer') return res.status(201).json(orderDetails(orderId));

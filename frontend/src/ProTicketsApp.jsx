@@ -44,6 +44,7 @@ import {
 import { API_URL, api, getToken, setToken, setUser } from './api.js';
 import { JoseAndreaSalesViewer, TransferDetails, TransfersAdmin, PaymentSettings, TicketSalesReport } from './TicketingPayments.jsx';
 import ProTicketsPromotions from './ProTicketsPromotions.jsx';
+import { loadTicketingTracking, ticketingAttribution, trackPaidOrder, trackTicketingEvent } from './ticketing-tracking.js';
 import './protickets.css';
 
 const CUSTOMER_TOKEN_KEY = 'protickets_customer_token';
@@ -546,6 +547,7 @@ function EventPage({ slug, customer, onRequireAccount }) {
     ticketingApi(`/public/events/${encodeURIComponent(slug)}`)
       .then((result) => {
         setEvent(result);
+        trackTicketingEvent('ViewContent', { content_type: 'product', content_ids: [String(result.id)], content_name: result.title });
         setSelected(Number(result.sales_enabled) && !Number(result.is_past)
           ? result.ticket_types?.find((type) => type.status === 'active' && (!Number(result.payment_enabled) || type.available > 0)) || null
           : null);
@@ -576,7 +578,9 @@ function EventPage({ slug, customer, onRequireAccount }) {
     setBusy(true);
     setError('');
     try {
-      const nextOrder = await ticketingApi('/orders', { method: 'POST', body: JSON.stringify({ ticket_type_id: selected.id, quantity, customer: customerData, payment_method: paymentMethod }) });
+      const nextOrder = await ticketingApi('/orders', { method: 'POST', body: JSON.stringify({ ticket_type_id: selected.id, quantity, customer: customerData, payment_method: paymentMethod, tracking: ticketingAttribution() }) });
+      trackTicketingEvent('InitiateCheckout', { currency: 'USD', value: Number(nextOrder.total),
+        content_type: 'product', contents: [{ content_id: String(selected.id), quantity, price: Number(selected.price) }] });
       setCheckoutOpen(false);
       setOrder(nextOrder);
     } catch (err) {
@@ -764,7 +768,10 @@ function AccountPage({ customer, onRequireAccount, onLogout }) {
   const [paymentNoticeOpen, setPaymentNoticeOpen] = useState(paymentResult === 'success');
   useEffect(() => {
     if (!customer) return;
-    ticketingApi('/me/orders').then(setOrders).catch((err) => setError(err.message));
+    ticketingApi('/me/orders').then((result) => {
+      setOrders(result);
+      result.forEach(trackPaidOrder);
+    }).catch((err) => setError(err.message));
   }, [customer]);
 
   async function removePendingOrder(order) {
@@ -898,6 +905,11 @@ export function ProTicketsPublicSite() {
   const [accountOpen, setAccountOpen] = useState(false);
   const [error, setError] = useState('');
   const path = window.location.pathname;
+  useEffect(() => {
+    if (path === '/tickets' || path === '/tickets/' || path.startsWith('/tickets/evento/') || path === '/tickets/mi-cuenta') {
+      void loadTicketingTracking();
+    }
+  }, [path]);
 
   useEffect(() => { ticketingApi('/public/home').then(setData).catch((err) => setError(err.message)); }, []);
 

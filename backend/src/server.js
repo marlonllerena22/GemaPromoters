@@ -17,6 +17,7 @@ import {
 } from './producalza-routes.js';
 import { registerRenjiRoutes } from './renji-routes.js';
 import { registerTicketingRoutes } from './ticketing-routes.js';
+import { startTicketingTrackingWorker } from './ticketing-tracking.js';
 import { registerMarjoriePromotersRoutes } from './marjorie-promoters-routes.js';
 import { registerAuthRecoveryRoutes, verifyRecoveryPassword } from './auth-recovery-routes.js';
 import { registerContentStudioRoutes } from './content-studio-routes.js';
@@ -25,6 +26,7 @@ import { findContentStudioSellerForLogin, findContentStudioUserForLogin } from '
 
 dotenv.config();
 initDb();
+startTicketingTrackingWorker(db);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

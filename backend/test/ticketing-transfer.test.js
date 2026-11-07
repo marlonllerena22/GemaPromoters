@@ -7,6 +7,7 @@ import { initTicketingDb } from '../src/ticketing-db.js';
 import { registerTicketingRoutes } from '../src/ticketing-routes.js';
 import { createToken } from '../src/auth.js';
 import { buildTicketSalesReport } from '../src/ticketing-finance.js';
+import { browserPurchase, deliverTikTokPurchases } from '../src/ticketing-tracking.js';
 
 async function fixture(t) {
   const db = new Database(':memory:');
@@ -62,6 +63,62 @@ test('transfer reservation uses authoritative 5% fee, event QR, expiry and no ti
   f.db.prepare("UPDATE ticketing_events SET transfer_qr_url = '/protickets/changed.png' WHERE id = ?").run(f.event.id);
   initTicketingDb(f.db);
   assert.equal(f.db.prepare('SELECT transfer_qr_url FROM ticketing_events WHERE id = ?').get(f.event.id).transfer_qr_url, '/protickets/changed.png');
+});
+
+test('TikTok measures only confirmed payments, protects its token and retries with a stable purchase ID', async (t) => {
+  const previousSecret = process.env.JWT_SECRET;
+  process.env.JWT_SECRET = 'tracking-test-encryption-key';
+  t.after(() => {
+    if (previousSecret === undefined) delete process.env.JWT_SECRET; else process.env.JWT_SECRET = previousSecret;
+  });
+  const f = await fixture(t);
+  const config = { tiktok_pixel_id: 'TESTPIXEL1234567890', tiktok_access_token: 'test-private-token' };
+  assert.equal((await f.request('/admin/tracking-settings', f.buyer, 'PUT', config)).status, 403);
+  assert.equal((await f.request('/admin/tracking-settings', f.admin, 'PUT', { tiktok_pixel_id: '<script>' })).status, 400);
+  const saved = await f.request('/admin/tracking-settings', f.admin, 'PUT', config);
+  assert.equal(saved.status, 200);
+  assert.equal(saved.body.events_api_configured, true);
+  assert.doesNotMatch(JSON.stringify(saved.body), /test-private-token/);
+  const publicConfig = await f.request('/public/tracking', '');
+  assert.deepEqual(publicConfig.body, { tiktok_pixel_id: config.tiktok_pixel_id });
+  assert.doesNotMatch(f.db.prepare('SELECT tiktok_token_ciphertext FROM ticketing_tracking_settings').get().tiktok_token_ciphertext, /test-private-token/);
+  const created = await f.request('/orders', f.buyer, 'POST', { ticket_type_id: f.type.id, quantity: 2,
+    payment_method: 'transfer', tracking: { ttclid: 'E.C.P.test-click', ttp: 'test-cookie' }, total: 1 });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.tiktok_purchase, null, 'An unpaid reservation is not a purchase');
+  assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM ticketing_conversion_events').get().n, 0);
+  const confirmed = await f.request(`/transfers/${created.body.id}/confirm`, f.admin, 'POST', { reference: 'TIKTOK-TEST-001' });
+  assert.equal(confirmed.status, 200);
+  const purchase = confirmed.body.order.tiktok_purchase;
+  assert.equal(purchase.properties.value, 31.5, 'Use the actual paid total including the service fee');
+  assert.equal(purchase.properties.currency, 'USD');
+  assert.equal(purchase.properties.contents[0].quantity, 2);
+  await f.request(`/transfers/${created.body.id}/confirm`, f.admin, 'POST', { reference: 'TIKTOK-TEST-001' });
+  assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM ticketing_conversion_events').get().n, 1);
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    if (!String(url).includes('business-api.tiktok.com')) return originalFetch(url, options);
+    assert.equal(options.headers['Access-Token'], config.tiktok_access_token);
+    calls.push(JSON.parse(options.body));
+    return calls.length === 1 ? Response.json({ code: 50001 }) : Response.json({ code: 0 });
+  });
+  const now = Date.now();
+  await Promise.all([deliverTikTokPurchases(f.db, now), deliverTikTokPurchases(f.db, now)]);
+  assert.equal(calls.length, 1);
+  assert.equal(f.db.prepare('SELECT sent_at FROM ticketing_conversion_events').get().sent_at, null);
+  await deliverTikTokPurchases(f.db, now + 61000);
+  await deliverTikTokPurchases(f.db, now + 120000);
+  assert.equal(calls.length, 2, 'The accepted event must not be resent');
+  assert.equal(calls[0].data[0].event, 'Purchase');
+  assert.equal(calls[0].data[0].event_id, purchase.event_id);
+  assert.equal(calls[1].data[0].event_id, purchase.event_id);
+  assert.equal(calls[0].data[0].user.ttclid, 'E.C.P.test-click');
+  assert.doesNotMatch(JSON.stringify(calls), /prueba@example|1800000001|0991234567/);
+  const expiredEvent = calls[0].data[0];
+  expiredEvent.event_time -= 24 * 60 * 60 + 1;
+  f.db.prepare('UPDATE ticketing_conversion_events SET event_json = ?').run(JSON.stringify(expiredEvent));
+  assert.equal(browserPurchase(f.db, created.body.id), null, 'Revisiting old tickets must not report another purchase');
 });
 
 test('Macas event is published with 100 General and 100 Golden presale tickets', () => {

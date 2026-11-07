@@ -1,3 +1,5 @@
+import { initTicketingTrackingDb } from './ticketing-tracking.js';
+
 function addColumnIfMissing(db, table, column, definition) {
   const columns = db.prepare(`PRAGMA table_info(${table})`).all();
   if (!columns.some((item) => item.name === column)) {
@@ -573,5 +575,6 @@ export function initTicketingDb(db) {
     db.prepare('UPDATE ticketing_events SET transfer_qr_url = ? WHERE establishment_id = ? AND slug = ?')
       .run('/protickets/deuna-mago.png', establishment.id, 'las-leyendas-de-mago-de-oz-imbabura');
   }
+  initTicketingTrackingDb(db);
   return establishment;
 }
