@@ -9,6 +9,11 @@ import {
 } from "./finance-service.js";
 import { encryptDocument, decryptDocument } from "./finance-ai.js";
 import { loanOverview } from "./finance-loans.js";
+import {
+  accountPresentation,
+  liquidityView,
+  isFamilyView,
+} from "./finance-liquidity.js";
 import { fundingOverview } from "./finance-funding.js";
 export const putPrivateSetting = (db, key, value) =>
   db
@@ -195,12 +200,24 @@ export function attachOperations(db, user, data) {
     user.role !== "collector" && scope.includes("gemashow")
       ? db.prepare("SELECT * FROM finance_custody_balances").all()
       : [];
+  const registry = privateSetting(db, "own_account_registry");
+  const custodyNumbers = privateSetting(db, "custody_account_numbers") || {};
+  data.custody_funds = data.custody_funds.map((f) => ({
+    ...f,
+    bank: "Pichincha",
+    account_number:
+      user.role === "owner" || isFamilyView(user)
+        ? custodyNumbers[f.id] || null
+        : null,
+  }));
   data.store_receipts = scope.includes("marjorie")
     ? storeReceipts(db, user)
     : [];
   data.loan_overview =
     user.role === "owner" ? loanOverview(db, user) : { loans: [], alerts: [] };
   data.funding_overview = fundingOverview(db, user);
+  accountPresentation(db, user, data, registry);
+  data.liquidity = liquidityView(db, user, data, registry);
   data.mail_status =
     user.role === "owner"
       ? {
@@ -225,11 +242,89 @@ export function attachOperations(db, user, data) {
             .get().n,
           cutoff: privateSetting(db, "opening_cutoff"),
           last_sync: privateSetting(db, "mail_last_sync"),
+          last_error: privateSetting(db, "mail_sync_error"),
         }
       : null;
   return data;
 }
 export function registerOperationsRoutes(app, db, { route, owner }) {
+  const normalizeNumber = (value) => {
+    const number = String(value || "").replace(/[\s-]/g, "");
+    if (!/^\d{6,24}$/.test(number))
+      fail(
+        "Escribe el número de cuenta completo, conservando los ceros iniciales",
+      );
+    return number;
+  };
+  app.post(
+    "/api/finance/accounts/:id/number",
+    route((req, res) => {
+      owner(req);
+      const a = db
+        .prepare("SELECT * FROM finance_accounts WHERE id=?")
+        .get(req.params.id);
+      if (!a) fail("Cuenta no encontrada", 404);
+      const number = normalizeNumber(req.body.number);
+      if (a.last_four && !number.endsWith(a.last_four))
+        fail(
+          `El número debe corresponder a la cuenta terminada en ${a.last_four}`,
+        );
+      db.transaction(() => {
+        const registry = privateSetting(db, "own_account_registry") || {
+          accounts: [],
+        };
+        let row = registry.accounts.find((r) => r.account_id === a.id);
+        if (!row) {
+          row = { account_id: a.id, bank: a.bank };
+          registry.accounts.push(row);
+        }
+        row.number = number;
+        row.suffix = number.slice(-4);
+        putPrivateSetting(db, "own_account_registry", registry);
+        db.prepare("UPDATE finance_accounts SET last_four=? WHERE id=?").run(
+          number.slice(-4),
+          a.id,
+        );
+        audit(
+          db,
+          req.financeUser.username,
+          "account.number_saved",
+          "account",
+          a.id,
+          null,
+          { last_four: number.slice(-4) },
+        );
+      })();
+      res.json({ ok: true });
+    }),
+  );
+  app.post(
+    "/api/finance/custody/:id/account-number",
+    route((req, res) => {
+      owner(req);
+      const f = db
+        .prepare("SELECT id FROM finance_custody_balances WHERE id=?")
+        .get(req.params.id);
+      if (!f) fail("Responsable no encontrado", 404);
+      const number = normalizeNumber(req.body.number);
+      db.transaction(() => {
+        const all = privateSetting(db, "custody_account_numbers") || {};
+        all[f.id] = number;
+        putPrivateSetting(db, "custody_account_numbers", all);
+        audit(
+          db,
+          req.financeUser.username,
+          "custody.account_saved",
+          "custodian",
+          f.id,
+          null,
+          { bank: "Pichincha", last_four: number.slice(-4) },
+          "gemashow",
+        );
+      })();
+      res.json({ ok: true });
+    }),
+  );
   app.get(
     "/api/finance/custody",
     route((req, res) => {

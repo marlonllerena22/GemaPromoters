@@ -1,6 +1,11 @@
 import crypto from "node:crypto";
 import { gunzipSync } from "node:zlib";
-import { audit, passwordHash, safeMember, validateFinancePassword } from "./finance-db.js";
+import {
+  audit,
+  passwordHash,
+  safeMember,
+  validateFinancePassword,
+} from "./finance-db.js";
 import { encryptDocument, decryptDocument } from "./finance-ai.js";
 import { fail, text } from "./finance-service.js";
 import { privateSetting, putPrivateSetting } from "./finance-operations.js";
@@ -68,6 +73,10 @@ export function applyFinanceBootstrap(db) {
           .prepare("SELECT * FROM finance_members WHERE id=?")
           .get(x.lastInsertRowid);
       }
+      if (p.checks_clear)
+        db.prepare("UPDATE finance_members SET checks_clear=1 WHERE id=?").run(
+          member.id,
+        );
       if (p.username === owner.username)
         db.prepare("UPDATE finance_members SET active=0 WHERE id=?").run(
           member.id,

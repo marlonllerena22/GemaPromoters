@@ -1,3 +1,4 @@
+import { AccountNumberEditor } from "./account-summary.jsx";
 import React, {
   useCallback,
   useEffect,
@@ -116,6 +117,7 @@ import {
 import "./workflows.css";
 import { RequestComposer, EvidenceViewer } from "./payees.jsx";
 import "./payees.css";
+import "./account-summary.css";
 import { SettlementBalanceForm } from "./settlements.jsx";
 
 const pages = [
@@ -131,7 +133,7 @@ const pages = [
     label: "Pagos de tarjetas",
     icon: CalendarDays,
     component: Cards,
-    ownerOnly: true,
+    cardsOnly: true,
   },
   {
     id: "confirmaciones",
@@ -622,6 +624,9 @@ function FinanceApp() {
   const visiblePages = pages.filter(
     (p) =>
       (!p.ownerOnly || user?.role === "owner") &&
+      (!p.cardsOnly ||
+        user?.role === "owner" ||
+        (user?.work_view && user?.username === "german")) &&
       (!p.checksOnly || user?.role === "owner" || user?.checks_manage) &&
       (!p.reviewOnly ||
         user?.role === "owner" ||
@@ -644,6 +649,7 @@ function FinanceApp() {
           "pagos",
           "reportes",
           "cheques",
+          "tarjetas",
         ].includes(p.id)) &&
       (!p.hideCollector || user?.role !== "collector"),
   );
@@ -1204,6 +1210,13 @@ function FinanceApp() {
         )}
         {modal?.type === "loan-detail" && (
           <LoanDetail id={modal.initial.id} onClose={close} />
+        )}
+        {modal?.type === "account-number" && (
+          <AccountNumberEditor
+            id={modal.initial?.id}
+            custodyId={modal.initial?.custody_id}
+            onClose={close}
+          />
         )}
         {modal?.type === "check-editor" && (
           <CheckEditor id={modal.initial?.id} onClose={close} />

@@ -4,7 +4,7 @@ Este canal es independiente de los endpoints de promotoras. No cambia sus códig
 
 ## Endpoint
 
-`POST https://DOMINIO-DEL-PROYECTO/api/finance/integrations/alfabusiness`
+`POST https://gemapromoters.onrender.com/api/finance/integrations/alfabusiness`
 
 Configurar previamente `FINANCE_SALES_WEBHOOK_SECRET`, secreto exclusivo de al menos 32 caracteres aleatorios. No reutilizar credenciales de emprendedoras, usuarios o Payphone.
 

@@ -1,4 +1,5 @@
 import * as webpush from "web-push";
+import { recordedAccountBalance } from "./finance-check-ledger.js";
 import { audit, financeDay } from "./finance-db.js";
 import { fail } from "./finance-service.js";
 import { decryptDocument } from "./finance-ai.js";
@@ -24,13 +25,15 @@ export function loanOverview(db, user, now = new Date()) {
           )
           .all(l.id),
         next = installments.find((i) => i.status === "expected");
-      const balance =
-        l.opening_cents +
-        db
-          .prepare(
-            "SELECT COALESCE(SUM(amount_cents),0) n FROM finance_bank_transactions WHERE account_id=? AND day>=? AND day<=?",
-          )
-          .get(l.account_id, l.opening_date, today).n;
+      const balance = recordedAccountBalance(
+        db,
+        {
+          id: l.account_id,
+          opening_cents: l.opening_cents,
+          opening_date: l.opening_date,
+        },
+        today,
+      );
       return {
         ...l,
         installments,

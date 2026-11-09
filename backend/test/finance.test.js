@@ -1809,3 +1809,64 @@ test("a reconciled Producalza receipt updates its original order once and revers
   assert.equal(paid.length, 1);
   assert.equal(paid[0].amount, 200);
 });
+
+test("full account numbers are owner-managed, encrypted and never exposed to other readers", async (t) => {
+  const f = await fixture(t);
+  await f.login();
+  await f.login("reader");
+  const id = await f.account("marjorie");
+  assert.equal(
+    (await f.req(`/accounts/${id}/number`, "reader", { number: "0000001234" }))
+      .status,
+    403,
+  );
+  assert.equal(
+    (await f.req(`/accounts/${id}/number`, "owner", { number: "0000009999" }))
+      .status,
+    400,
+  );
+  assert.equal(
+    (await f.req(`/accounts/${id}/number`, "owner", { number: "0000001234" }))
+      .status,
+    200,
+  );
+  assert.equal(
+    (await f.req("/snapshot")).body.accounts.find((a) => a.id === id)
+      .account_number,
+    "0000001234",
+  );
+  assert.equal(
+    (await f.req("/snapshot", "reader")).body.accounts.find((a) => a.id === id)
+      .account_number,
+    undefined,
+  );
+  assert.equal(
+    (
+      await f.req("/custody/henry/account-number", "reader", {
+        number: "0000005678",
+      })
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await f.req("/custody/henry/account-number", "owner", {
+        number: "0000005678",
+      })
+    ).status,
+    200,
+  );
+  const settings = f.db
+    .prepare("SELECT encrypted FROM finance_runtime_settings")
+    .all();
+  assert.equal(
+    settings.some(
+      (r) =>
+        r.encrypted.toString().includes("0000001234") ||
+        r.encrypted.toString().includes("0000005678"),
+    ),
+    false,
+  );
+  const log = f.db.prepare("SELECT * FROM finance_audit").all();
+  assert.equal(JSON.stringify(log).includes("0000001234"), false);
+});

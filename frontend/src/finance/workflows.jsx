@@ -1,3 +1,8 @@
+import {
+  AccountTiles,
+  LiquidityPlan,
+  CardPaymentsPreview,
+} from "./account-summary.jsx";
 import React, { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
@@ -529,32 +534,10 @@ export function WorkSummary() {
           Pedir pago
         </Button>
       )}
-      <div className="gf-work-total">
-        <Wallet size={25} />
-        <div>
-          <small>Saldo calculado en cuentas de trabajo</small>
-          <strong>{money(data.summary.balance_cents)}</strong>
-        </div>
-        <Button variant="ghost" onClick={() => navigate("cuentas")}>
-          Ver cuentas <ArrowRight size={16} />
-        </Button>
-      </div>
-      <div className="gf-work-bank-grid">
-        {accounts.map((a) => (
-          <div key={a.id}>
-            <BankLogo bank={a.bank} kind={a.kind} />
-            <div>
-              <span>
-                {a.bank} {a.last_four && <small>··{a.last_four}</small>}
-              </span>
-              <strong>{money(a.balance_cents)}</strong>
-            </div>
-            {a.personal_details_private && <small>Cuenta compartida</small>}
-          </div>
-        ))}
-      </div>
+      <LiquidityPlan />
+      <AccountTiles />
+      <CardPaymentsPreview />
       <SettlementFunds />
-      <CustodyFunds />
       <div className="gf-work-explore">
         <div>
           <h2>Movimientos de trabajo</h2>

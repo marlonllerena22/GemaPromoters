@@ -16,6 +16,19 @@ export function initFinanceOperationsDb(db) {
     )
       db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
   }
+  if (
+    !db
+      .prepare("PRAGMA table_info(finance_members)")
+      .all()
+      .some((c) => c.name === "checks_clear")
+  ) {
+    db.exec(
+      "ALTER TABLE finance_members ADD COLUMN checks_clear INTEGER NOT NULL DEFAULT 0",
+    );
+    db.prepare(
+      "UPDATE finance_members SET checks_clear=1 WHERE username='german' AND checks_manage=1 AND work_view=1",
+    ).run();
+  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS finance_runtime_settings (key TEXT PRIMARY KEY,encrypted BLOB NOT NULL);
     CREATE TABLE IF NOT EXISTS finance_member_invites (token_hash TEXT PRIMARY KEY,member_id INTEGER NOT NULL REFERENCES finance_members(id),expires_at INTEGER NOT NULL,used_at TEXT,created_by TEXT NOT NULL);
@@ -28,12 +41,26 @@ export function initFinanceOperationsDb(db) {
     CREATE TABLE IF NOT EXISTS finance_loan_installments (loan_id TEXT NOT NULL REFERENCES finance_loans(id),sequence INTEGER NOT NULL,due_day TEXT NOT NULL,principal_cents INTEGER NOT NULL,interest_cents INTEGER NOT NULL,insurance_cents INTEGER NOT NULL,other_cents INTEGER NOT NULL,total_cents INTEGER NOT NULL,remaining_principal_cents INTEGER NOT NULL,status TEXT NOT NULL DEFAULT 'expected',bank_transaction_id INTEGER REFERENCES finance_bank_transactions(id),paid_at TEXT,PRIMARY KEY(loan_id,sequence));
     CREATE TABLE IF NOT EXISTS finance_loan_alerts (id TEXT PRIMARY KEY,loan_id TEXT NOT NULL REFERENCES finance_loans(id),sequence INTEGER NOT NULL,kind TEXT NOT NULL,day TEXT NOT NULL,push_day TEXT NOT NULL DEFAULT '',resolved_at TEXT,created_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS finance_checks (id TEXT PRIMARY KEY,account_id INTEGER NOT NULL REFERENCES finance_accounts(id),number TEXT NOT NULL,payee TEXT NOT NULL,amount_cents INTEGER NOT NULL,due_day TEXT NOT NULL,fund_day TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',needs_review INTEGER NOT NULL DEFAULT 0,review_note TEXT NOT NULL DEFAULT '',created_by TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,version INTEGER NOT NULL DEFAULT 0,cleared_bank_id INTEGER UNIQUE REFERENCES finance_bank_transactions(id),UNIQUE(account_id,number));
+    CREATE TABLE IF NOT EXISTS finance_check_actions (id INTEGER PRIMARY KEY,check_id TEXT NOT NULL REFERENCES finance_checks(id),actor TEXT NOT NULL,request_key TEXT NOT NULL,fingerprint TEXT NOT NULL,created_at TEXT NOT NULL,UNIQUE(actor,request_key));
     CREATE TABLE IF NOT EXISTS finance_credit_cards (id TEXT PRIMARY KEY,name TEXT NOT NULL,bank TEXT NOT NULL,debit_account_id INTEGER REFERENCES finance_accounts(id),cut_day INTEGER NOT NULL,due_day INTEGER NOT NULL DEFAULT 9);
     CREATE TABLE IF NOT EXISTS finance_card_statements (id TEXT PRIMARY KEY,card_id TEXT NOT NULL REFERENCES finance_credit_cards(id),cut_date TEXT NOT NULL,due_date TEXT NOT NULL,total_cents INTEGER,min_cents INTEGER,state TEXT NOT NULL DEFAULT 'awaiting',source_mail_id TEXT,updated_by TEXT,updated_at TEXT,paid_bank_id INTEGER UNIQUE REFERENCES finance_bank_transactions(id));
     CREATE TABLE IF NOT EXISTS finance_funding_alerts (id TEXT PRIMARY KEY,kind TEXT NOT NULL,source_id TEXT NOT NULL,day TEXT NOT NULL,push_day TEXT NOT NULL DEFAULT '',resolved_at TEXT);
     CREATE TABLE IF NOT EXISTS finance_mail_oauth (id TEXT PRIMARY KEY,encrypted BLOB NOT NULL,updated_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS finance_oauth_states (hash TEXT PRIMARY KEY,member_id INTEGER NOT NULL,verifier BLOB NOT NULL,expires_at INTEGER NOT NULL);
   `);
+  for (const name of [
+    "manual_cleared_day",
+    "cleared_by",
+    "cleared_at",
+    "clearing_source",
+  ])
+    if (
+      !db
+        .prepare("PRAGMA table_info(finance_checks)")
+        .all()
+        .some((c) => c.name === name)
+    )
+      db.exec(`ALTER TABLE finance_checks ADD COLUMN ${name} TEXT`);
   for (const [id, name] of [
     ["marcela", "Marcela"],
     ["henry", "Henry"],

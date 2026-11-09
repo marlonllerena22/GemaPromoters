@@ -103,6 +103,7 @@ export const PROFILE_TEMPLATES = [
 PROFILE_TEMPLATES.find((p) => p.id === "german").request_payments = true;
 PROFILE_TEMPLATES.find((p) => p.id === "german").custody_adjust = true;
 PROFILE_TEMPLATES.find((p) => p.id === "german").checks_manage = true;
+PROFILE_TEMPLATES.find((p) => p.id === "german").checks_clear = true;
 PROFILE_TEMPLATES.find((p) => p.id === "morelia").checks_manage = true;
 PROFILE_TEMPLATES.find((p) => p.id === "morelia").review_unit_ids = [
   "marjorie-sur",

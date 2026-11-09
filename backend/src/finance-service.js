@@ -1,4 +1,8 @@
 import crypto from "node:crypto";
+import {
+  recordedAccountBalance,
+  matchReportedChecks,
+} from "./finance-check-ledger.js";
 import { audit, cents, financeDay, validDay } from "./finance-db.js";
 
 export const fail = (message, status = 400) => {
@@ -283,6 +287,7 @@ export function importBank(db, user, body) {
       );
       imported++;
     });
+    matchReportedChecks(db, user.username);
     const result = {
       imported,
       duplicates: rows.length - imported,
@@ -665,10 +670,14 @@ export function snapshot(db, user, filters = {}) {
       const sum = db.prepare(
         "SELECT COALESCE(SUM(amount_cents),0) n FROM finance_bank_transactions WHERE account_id=? AND day>=? AND day<=?",
       );
-      const balance = a.opening_cents + sum.get(a.id, a.opening_date, today).n;
+      const balance = recordedAccountBalance(db, a, today);
       const atVerification = a.verified_at
-        ? a.opening_cents +
-          sum.get(a.id, a.opening_date, a.verified_at.slice(0, 10)).n
+        ? recordedAccountBalance(
+            db,
+            a,
+            financeDay(new Date(a.verified_at)),
+            a.verified_at,
+          )
         : null;
       const openingAllocations = db
         .prepare(

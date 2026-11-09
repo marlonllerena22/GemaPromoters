@@ -20,8 +20,7 @@ const ROOTS = [
   "deuna.app",
   "deuna.com",
 ];
-export const MAIL_QUERY =
-  "-in:spam -in:trash {from:pichincha.com from:produbanco.com from:produbanco.com.ec from:bancoguayaquil.com from:bancodelpacifico.com from:solidario.fin.ec from:deuna.app}";
+export const MAIL_QUERY = `-in:spam -in:trash {${ROOTS.map((root) => `from:${root}`).join(" ")}}`;
 const headers = (m) => m.payload?.headers || [];
 const head = (m, n) =>
   headers(m).find((h) => h.name.toLowerCase() === n)?.value || "";
@@ -364,6 +363,7 @@ export function ingestBankMessages(db, messages) {
       imported++;
     }
     putPrivateSetting(db, "mail_last_sync", new Date().toISOString());
+    putPrivateSetting(db, "mail_sync_error", null);
     return { imported, duplicates };
   })();
 }
@@ -821,5 +821,6 @@ export async function syncGmail(db) {
     if (!page) break;
   }
   putPrivateSetting(db, "mail_last_sync", new Date().toISOString());
+  putPrivateSetting(db, "mail_sync_error", null);
   return { imported, has_more: Boolean(page) };
 }

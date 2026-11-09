@@ -1,3 +1,8 @@
+import {
+  AccountTiles,
+  LiquidityPlan,
+  CardPaymentsPreview,
+} from "./account-summary.jsx";
 import React, { useEffect, useMemo, useState } from "react";
 import { TransferFees } from "./fees.jsx";
 import {
@@ -106,21 +111,27 @@ export function Overview() {
         </div>
       </div>
       {user.role !== "viewer" && <QuickAccess />}
-      <CustodyFunds />
+      <LiquidityPlan />
       <SettlementFunds />
       <div className="gf-stats">
         <Stat
           label={
             filters.business_id === "all"
-              ? "En bancos y billeteras"
+              ? "Fondos sin corriente"
               : "Fondos atribuidos al negocio"
           }
           value={
-            s.balances_visible ? money(s.balance_cents) : "Acceso limitado"
+            s.balances_visible
+              ? money(
+                  filters.business_id === "all" && data.liquidity
+                    ? data.liquidity.cash_cents
+                    : s.balance_cents,
+                )
+              : "Acceso limitado"
           }
           detail={
             filters.business_id === "all"
-              ? "Saldo calculado · consulta la última comprobación"
+              ? "Corriente reservada aparte para cheques"
               : "Cuentas exclusivas y fondos identificados en compartidas"
           }
           icon={Wallet}
@@ -265,20 +276,7 @@ export function Overview() {
             Ver cuentas
           </Button>
         </SectionHead>
-        <div className="gf-mini-accounts">
-          {data.accounts
-            .filter((a) => ["bank", "wallet", "card"].includes(a.kind))
-            .map((a) => (
-              <button key={a.id} onClick={() => navigate("cuentas")}>
-                <BankLogo bank={a.bank} kind={a.kind} />
-                <span>
-                  <strong>{a.bank}</strong>
-                  <small>{a.last_four ? `···· ${a.last_four}` : a.name}</small>
-                </span>
-                <span className="gf-amount">{money(a.balance_cents)}</span>
-              </button>
-            ))}
-        </div>
+        <AccountTiles />
       </section>
       <div className="gf-data-footnote">
         <ShieldCheck size={15} />
@@ -518,7 +516,6 @@ export function Accounts() {
   return (
     <div className="gf-account-page">
       {user.role === "owner" && <TransferFees />}
-      <CustodyFunds />
       <SettlementFunds />
       <SectionHead
         eyebrow="DÓNDE ESTÁ TU DINERO"
@@ -552,15 +549,18 @@ export function Accounts() {
           </details>
         )}
       </SectionHead>
+      <LiquidityPlan />
+      <CardPaymentsPreview />
+      <AccountTiles custodyOnly />
       <div className="gf-stats three">
         <Stat
-          label="Bancos y billeteras"
+          label="Fondos sin corriente"
           value={
             data.summary.balances_visible
-              ? money(data.summary.balance_cents)
+              ? money(data.liquidity?.cash_cents ?? data.summary.balance_cents)
               : "Acceso limitado"
           }
-          detail="Saldo calculado con los registros disponibles"
+          detail="Corriente apartada para los cheques"
           icon={Landmark}
         />
         <Stat
@@ -618,7 +618,14 @@ export function Accounts() {
                 title={`${a.name}${a.last_four ? ` · ${a.last_four}` : ""}`}
               >
                 <span>{a.name}</span>
-                {a.last_four && <small>··{a.last_four}</small>}
+                <small className="gf-account-number">
+                  {a.account_number ||
+                    (a.grouped
+                      ? `${a.account_count} cuentas agrupadas`
+                      : a.last_four
+                        ? `··${a.last_four} · por completar`
+                        : "Número por completar")}
+                </small>
               </p>
               <strong className="gf-account-balance">
                 {money(a.balance_cents)}
@@ -716,6 +723,16 @@ export function Accounts() {
                       </div>
                     )}
                   </div>
+                  {user.role === "owner" && (
+                    <Button
+                      variant="secondary"
+                      onClick={() => open("account-number", { id: a.id })}
+                    >
+                      {a.account_number
+                        ? "Editar número de cuenta"
+                        : "Completar número de cuenta"}
+                    </Button>
+                  )}
                   {user.role === "owner" && (
                     <footer>
                       <Button

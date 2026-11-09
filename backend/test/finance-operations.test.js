@@ -1,7 +1,13 @@
+import { initFinanceOperationsDb } from "../src/finance-operations-db.js";
+import { declareCheck } from "../src/finance-check-ledger.js";
+import {
+  accountPresentation,
+  liquidityView,
+} from "../src/finance-liquidity.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
-import { initFinanceDb, safeMember } from "../src/finance-db.js";
+import { initFinanceDb, safeMember, financeDay } from "../src/finance-db.js";
 import { encryptDocument } from "../src/finance-ai.js";
 import {
   adjustCustody,
@@ -22,6 +28,7 @@ import {
   ensureCardCycles,
   evaluateFundingAlerts,
   debitAlreadyUsed,
+  accountCash,
 } from "../src/finance-funding.js";
 import { evaluateLoanAlerts } from "../src/finance-loans.js";
 import {
@@ -59,6 +66,10 @@ function fixture(t) {
         flags.work ? 1 : 0,
         flags.request ? 1 : 0,
       );
+    if (name === "german")
+      db.prepare(
+        "UPDATE finance_members SET checks_clear=1 WHERE username=?",
+      ).run(name);
     return safeMember(
       db
         .prepare("SELECT * FROM finance_members WHERE id=?")
@@ -264,7 +275,7 @@ test("cheque numbers cannot duplicate and stale edits cannot overwrite correctio
     (e) => e.status === 409,
   );
 });
-test("card cycles distinguish closing month from due month and hide personal statements", (t) => {
+test("card cycles distinguish closing month and expose only payment totals to German", (t) => {
   const { db, owner, german } = fixture(t);
   db.prepare(
     "INSERT INTO finance_credit_cards VALUES ('fixture-card','Pichincha','Pichincha',NULL,24,9)",
@@ -278,7 +289,15 @@ test("card cycles distinguish closing month from due month and hide personal sta
     .get();
   assert.equal(s.due_date, "2026-12-09");
   assert.equal(s.total_cents, null);
-  assert.equal(fundingOverview(db, german).cards.length, 0);
+  assert.equal(fundingOverview(db, german).cards.length, 1);
+  assert.equal(
+    fundingOverview(db, german).cards[0].statements[0].source_mail_id,
+    undefined,
+  );
+  assert.equal(
+    fundingOverview(db, german).cards[0].debit_account_id,
+    undefined,
+  );
   assert.equal(fundingOverview(db, owner).cards.length, 1);
 });
 test("loan alerts use Ecuador calendar day and never infer a debit from a deadline", (t) => {
@@ -536,4 +555,298 @@ test("owner can classify a personal expense paid from a work account without rev
   assert.ok(!JSON.stringify(view).includes("SECRET-PET"));
   assert.ok(!view.movements.some((r) => r.id === m.id));
   assert.equal(view.bank_transactions.length, 0);
+});
+
+test("reported cheque clearing is authorized, versioned, reversible and replay-safe", (t) => {
+  const { db, owner, german, morelia, account } = fixture(t),
+    day = financeDay();
+  const c = saveCheck(db, owner, {
+    account_id: account,
+    number: "501",
+    payee: "Proveedor Ejemplo",
+    amount_cents: 50000,
+    due_day: day,
+  });
+  const body = {
+    cleared: true,
+    version: 0,
+    request_key: "fixture-clear-key-0001",
+  };
+  assert.throws(
+    () => declareCheck(db, morelia, c.id, body),
+    (e) => e.status === 403,
+  );
+  declareCheck(db, german, c.id, body);
+  declareCheck(db, german, c.id, body);
+  assert.equal(accountCash(db, account), 145645);
+  assert.equal(
+    db.prepare("SELECT count(*) n FROM finance_bank_transactions").get().n,
+    0,
+  );
+  assert.throws(
+    () =>
+      declareCheck(db, owner, c.id, {
+        ...body,
+        request_key: "fixture-clear-key-0002",
+      }),
+    (e) => e.status === 409,
+  );
+  let g = fundingOverview(db, german).accounts[0].groups[0];
+  assert.equal(g.checks.length, 1);
+  assert.equal(g.total_cents, 50000);
+  assert.equal(g.amount_cents, 0);
+  assert.equal(g.cleared_count, 1);
+  declareCheck(db, german, c.id, {
+    cleared: false,
+    version: 1,
+    request_key: "fixture-clear-key-0003",
+  });
+  assert.equal(accountCash(db, account), 195645);
+  assert.equal(
+    db.prepare("SELECT status FROM finance_checks WHERE id=?").get(c.id).status,
+    "pending",
+  );
+});
+
+test("a later bank debit replaces reported cheque clearing without a second deduction", (t) => {
+  const { db, owner, german, account } = fixture(t),
+    day = financeDay();
+  const c = saveCheck(db, owner, {
+    account_id: account,
+    number: "502",
+    payee: "Proveedor Ejemplo",
+    amount_cents: 50000,
+    due_day: day,
+  });
+  declareCheck(db, german, c.id, {
+    cleared: true,
+    version: 0,
+    request_key: "fixture-cleared-00001",
+  });
+  importBank(db, owner, {
+    account_id: account,
+    rows: [
+      {
+        day,
+        amount_cents: -50000,
+        reference: "Cheque 000502",
+        description: "Débito cheque",
+        external_id: "bank-check-502",
+      },
+    ],
+  });
+  assert.equal(accountCash(db, account), 145645);
+  const actual = db
+    .prepare("SELECT * FROM finance_checks WHERE id=?")
+    .get(c.id);
+  assert.equal(actual.clearing_source, "bank");
+  assert.ok(actual.cleared_bank_id);
+  assert.throws(
+    () =>
+      declareCheck(db, german, c.id, {
+        cleared: false,
+        version: actual.version,
+        request_key: "fixture-cleared-00002",
+      }),
+    (e) => e.status === 409,
+  );
+  declareCheck(db, german, c.id, {
+    cleared: true,
+    version: actual.version,
+    request_key: "fixture-cleared-00003",
+  });
+  assert.equal(
+    db
+      .prepare("SELECT clearing_source FROM finance_checks WHERE id=?")
+      .get(c.id).clearing_source,
+    "bank",
+  );
+});
+
+test("automatic cheque confirmation requires its number, beneficiary, account, value and a unique debit", (t) => {
+  const { db, owner, account } = fixture(t),
+    day = financeDay();
+  const c = saveCheck(db, owner, {
+    account_id: account,
+    number: "503",
+    payee: "Cristóbal Ejemplo",
+    amount_cents: 10000,
+    due_day: day,
+  });
+  importBank(db, owner, {
+    account_id: account,
+    rows: [
+      {
+        day,
+        amount_cents: -10000,
+        reference: "Cheque 503",
+        description: "Débito sin beneficiario",
+        external_id: "no-beneficiary",
+      },
+    ],
+  });
+  assert.equal(
+    db.prepare("SELECT status FROM finance_checks WHERE id=?").get(c.id).status,
+    "pending",
+  );
+  importBank(db, owner, {
+    account_id: account,
+    rows: [
+      {
+        day,
+        amount_cents: -10000,
+        reference: "Cheque 503",
+        description: "Pago a CRISTOBAL",
+        external_id: "actual-beneficiary",
+      },
+    ],
+  });
+  assert.equal(
+    db
+      .prepare("SELECT clearing_source FROM finance_checks WHERE id=?")
+      .get(c.id).clearing_source,
+    "bank",
+  );
+  const d = saveCheck(db, owner, {
+    account_id: account,
+    number: "504",
+    payee: "Cristóbal Ejemplo",
+    amount_cents: 20000,
+    due_day: day,
+  });
+  importBank(db, owner, {
+    account_id: account,
+    rows: [1, 2].map((n) => ({
+      day,
+      amount_cents: -20000,
+      reference: "Cheque 504",
+      description: "Pago a Cristobal",
+      external_id: "ambiguous-" + n,
+    })),
+  });
+  assert.equal(
+    db.prepare("SELECT status FROM finance_checks WHERE id=?").get(d.id).status,
+    "pending",
+  );
+});
+
+test("family bank groups include authorized personal balances without exposing account numbers or details", (t) => {
+  const { db, owner, german, account } = fixture(t);
+  const add = (name, bank, business, amount) =>
+    Number(
+      db
+        .prepare(
+          "INSERT INTO finance_accounts(name,bank,kind,business_id,opening_cents,opening_date,last_four) VALUES (?,?,'bank',?,?,'2026-11-01','0123')",
+        )
+        .run(name, bank, business, amount).lastInsertRowid,
+    );
+  const personal = add("Personal", "Pichincha", "personal", 5000),
+    work = add("Trabajo", "Pichincha", "producalza", 6000),
+    savings = add("Ahorros", "Guayaquil", null, 7000);
+  const registry = {
+    accounts: [account, personal, work, savings].map((account_id, i) => ({
+      account_id,
+      number: "000000012" + i,
+    })),
+  };
+  const data = snapshot(db, german, {});
+  accountPresentation(db, german, data, registry);
+  const p = data.accounts.find((a) => a.id === "group:pichincha"),
+    g = data.accounts.find((a) => a.id === "group:guayaquil");
+  assert.equal(p.balance_cents, 11000);
+  assert.equal(g.balance_cents, 202645);
+  assert.equal(g.reserved_cents, 195645);
+  assert.equal(p.account_number, undefined);
+  assert.deepEqual(p.positions, {});
+  assert.equal(
+    data.accounts.some(
+      (a) => a.id === personal || a.id === work || a.id === account,
+    ),
+    false,
+  );
+  const own = snapshot(db, owner, {});
+  accountPresentation(db, owner, own, registry);
+  assert.equal(
+    own.accounts.find((a) => a.id === personal).account_number,
+    "0000000121",
+  );
+});
+
+test("liquidity excludes checking once and reserves only the top-up plus near-term payments", (t) => {
+  const { db, owner, account } = fixture(t);
+  db.prepare(
+    "INSERT INTO finance_accounts(name,bank,kind,business_id,opening_cents,opening_date) VALUES ('Ahorros','Pichincha','bank','producalza',100000,'2026-11-01')",
+  ).run();
+  saveCheck(db, owner, {
+    account_id: account,
+    number: "505",
+    payee: "Proveedor Ejemplo",
+    amount_cents: 250000,
+    due_day: "2026-11-11",
+  });
+  db.prepare(
+    "INSERT INTO finance_credit_cards VALUES ('liq-card','Tarjeta','Pichincha',NULL,24,9)",
+  ).run();
+  db.prepare(
+    "INSERT INTO finance_card_statements (id,card_id,cut_date,due_date,total_cents) VALUES ('liq-statement','liq-card','2026-10-24','2026-11-09',10000)",
+  ).run();
+  const data = snapshot(db, owner, {});
+  data.funding_overview = fundingOverview(
+    db,
+    owner,
+    new Date("2026-11-09T20:00:00Z"),
+  );
+  data.custody_funds = [];
+  data.settlement_funds = [];
+  let plan = liquidityView(
+    db,
+    owner,
+    data,
+    { accounts: [] },
+    new Date("2026-11-09T20:00:00Z"),
+  );
+  assert.equal(plan.cash_cents, 100000);
+  assert.equal(plan.checking_reserved_cents, 195645);
+  assert.equal(plan.commitments_cents, 64355);
+  assert.equal(plan.after_known_payments_cents, 35645);
+  db.prepare(
+    "UPDATE finance_card_statements SET total_cents=NULL WHERE id='liq-statement'",
+  ).run();
+  data.funding_overview = fundingOverview(
+    db,
+    owner,
+    new Date("2026-11-09T20:00:00Z"),
+  );
+  plan = liquidityView(
+    db,
+    owner,
+    data,
+    { accounts: [] },
+    new Date("2026-11-09T20:00:00Z"),
+  );
+  assert.equal(plan.unknown_commitments, 1);
+  assert.equal(plan.commitments_cents, 54355);
+});
+
+test("existing installations grant cheque clearing only to German and keep the upgrade idempotent", (t) => {
+  const { db } = fixture(t);
+  db.exec("ALTER TABLE finance_members DROP COLUMN checks_clear");
+  initFinanceOperationsDb(db);
+  initFinanceOperationsDb(db);
+  assert.equal(
+    db
+      .prepare(
+        "SELECT checks_clear FROM finance_members WHERE username='german'",
+      )
+      .get().checks_clear,
+    1,
+  );
+  assert.equal(
+    db
+      .prepare(
+        "SELECT checks_clear FROM finance_members WHERE username='morelia'",
+      )
+      .get().checks_clear,
+    0,
+  );
 });

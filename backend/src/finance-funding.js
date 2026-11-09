@@ -1,4 +1,9 @@
 import crypto from "node:crypto";
+import {
+  recordedAccountBalance,
+  declareCheck,
+  matchReportedChecks,
+} from "./finance-check-ledger.js";
 import * as webpush from "web-push";
 import { audit, financeDay, validDay } from "./finance-db.js";
 import { fail, text } from "./finance-service.js";
@@ -16,54 +21,52 @@ export const canManageChecks = (user) =>
 export function accountCash(db, id, now = new Date()) {
   const a = db.prepare("SELECT * FROM finance_accounts WHERE id=?").get(id);
   if (!a) fail("Cuenta no encontrada", 404);
-  return (
-    a.opening_cents +
-    db
-      .prepare(
-        "SELECT COALESCE(SUM(amount_cents),0) n FROM finance_bank_transactions WHERE account_id=? AND day>=? AND day<=?",
-      )
-      .get(id, a.opening_date, financeDay(now)).n
-  );
+  return recordedAccountBalance(db, a, financeDay(now));
 }
+export const canViewCards = (user) =>
+  user.role === "owner" || (user.work_view && user.username === "german");
 export function fundingOverview(db, user, now = new Date()) {
   const today = financeDay(now),
     checks = canManageChecks(user)
       ? db
           .prepare(
-            "SELECT c.*,a.name account_name,a.last_four FROM finance_checks c JOIN finance_accounts a ON a.id=c.account_id ORDER BY due_day,CAST(number AS INTEGER)",
+            "SELECT c.*,a.name account_name,a.last_four,m.name cleared_by_name FROM finance_checks c JOIN finance_accounts a ON a.id=c.account_id LEFT JOIN finance_members m ON m.username=c.cleared_by ORDER BY due_day,CAST(number AS INTEGER)",
           )
           .all()
-      : [];
-  const accounts = [];
+      : [],
+    accounts = [];
   for (const id of new Set(checks.map((c) => c.account_id))) {
     const balance = accountCash(db, id, now),
       groups = [];
     let cumulative = 0;
     for (const day of [
       ...new Set(
-        checks
-          .filter((c) => c.account_id === id && c.status === "pending")
-          .map((c) => c.due_day),
+        checks.filter((c) => c.account_id === id).map((c) => c.due_day),
       ),
     ]) {
-      const group = checks.filter(
-          (c) =>
-            c.account_id === id && c.status === "pending" && c.due_day === day,
+      const all = checks.filter(
+          (c) => c.account_id === id && c.due_day === day,
         ),
-        amount = group.reduce((n, c) => n + c.amount_cents, 0);
+        pending = all.filter((c) => c.status === "pending"),
+        amount = pending.reduce((n, c) => n + c.amount_cents, 0);
       cumulative += amount;
       groups.push({
         due_day: day,
         fund_day: shiftDay(day, -2),
         amount_cents: amount,
+        total_cents: all.reduce((n, c) => n + c.amount_cents, 0),
         cumulative_cents: cumulative,
         shortfall_cents: Math.max(0, cumulative - balance),
-        count: group.length,
-        needs_review: group.some((c) => c.needs_review),
+        count: all.length,
+        pending_count: pending.length,
+        cleared_count: all.length - pending.length,
+        needs_review: all.some((c) => c.needs_review),
+        checks: all,
       });
     }
-    const due = groups.filter((g) => g.fund_day <= today),
-      needed = due.reduce((n, g) => n + g.amount_cents, 0),
+    const needed = groups
+        .filter((g) => g.fund_day <= today)
+        .reduce((n, g) => n + g.amount_cents, 0),
       a = checks.find((c) => c.account_id === id);
     accounts.push({
       id,
@@ -75,22 +78,40 @@ export function fundingOverview(db, user, now = new Date()) {
       groups,
     });
   }
-  const cards =
-    user.role === "owner"
-      ? db
-          .prepare(
-            "SELECT c.*,a.name account_name,a.last_four FROM finance_credit_cards c LEFT JOIN finance_accounts a ON a.id=c.debit_account_id ORDER BY c.id",
-          )
-          .all()
-          .map((c) => ({
-            ...c,
-            statements: db
-              .prepare(
-                "SELECT * FROM finance_card_statements WHERE card_id=? ORDER BY due_date DESC",
-              )
-              .all(c.id),
-          }))
-      : [];
+  const cards = canViewCards(user)
+    ? db
+        .prepare(
+          "SELECT c.*,a.name account_name,a.last_four FROM finance_credit_cards c LEFT JOIN finance_accounts a ON a.id=c.debit_account_id ORDER BY c.id",
+        )
+        .all()
+        .map((c) => {
+          const rows = db
+            .prepare(
+              "SELECT * FROM finance_card_statements WHERE card_id=? ORDER BY due_date DESC",
+            )
+            .all(c.id);
+          return user.role === "owner"
+            ? { ...c, statements: rows }
+            : {
+                id: c.id,
+                name: c.name,
+                bank: c.bank,
+                cut_day: c.cut_day,
+                due_day: c.due_day,
+                account_name: c.debit_account_id ? c.bank : null,
+                fixed_debit_account: Boolean(c.debit_account_id),
+                statements: rows.map(
+                  ({ id, cut_date, due_date, total_cents, state }) => ({
+                    id,
+                    cut_date,
+                    due_date,
+                    total_cents,
+                    state,
+                  }),
+                ),
+              };
+        })
+    : [];
   return { today, checks, accounts, cards };
 }
 export function ensureCardCycles(db, now = new Date()) {
@@ -199,6 +220,7 @@ export function debitAlreadyUsed(db, id) {
   );
 }
 export function evaluateFundingAlerts(db, now = new Date()) {
+  matchReportedChecks(db);
   ensureCardCycles(db, now);
   const overview = fundingOverview(db, { role: "owner" }, now),
     wanted = [];
@@ -210,7 +232,7 @@ export function evaluateFundingAlerts(db, now = new Date()) {
         source_id: String(a.id),
       });
     for (const g of a.groups)
-      if (g.fund_day === overview.today)
+      if (g.pending_count > 0 && g.fund_day === overview.today)
         wanted.push({
           id: `check-funding:${a.id}:${g.due_day}`,
           kind: "check_funding",
@@ -349,6 +371,12 @@ export function registerFundingRoutes(app, db, { route, owner }) {
     ),
   );
   app.post(
+    "/api/finance/checks/:id/settlement",
+    route((req, res) =>
+      res.json(declareCheck(db, req.financeUser, req.params.id, req.body)),
+    ),
+  );
+  app.post(
     "/api/finance/checks/:id/clear",
     route((req, res) => {
       owner(req);
@@ -360,7 +388,7 @@ export function registerFundingRoutes(app, db, { route, owner }) {
           .get(req.body.bank_transaction_id);
       if (
         !c ||
-        c.status !== "pending" ||
+        !["pending", "cleared"].includes(c.status) ||
         c.needs_review ||
         !b ||
         b.account_id !== c.account_id ||
@@ -373,7 +401,7 @@ export function registerFundingRoutes(app, db, { route, owner }) {
         );
       db.transaction(() => {
         db.prepare(
-          "UPDATE finance_checks SET status='cleared',cleared_bank_id=?,updated_at=?,version=version+1 WHERE id=?",
+          "UPDATE finance_checks SET status='cleared',cleared_bank_id=?,clearing_source='bank',updated_at=?,version=version+1 WHERE id=?",
         ).run(b.id, new Date().toISOString(), c.id);
         audit(db, req.financeUser.username, "check.cleared", "check", c.id, c, {
           bank_transaction_id: b.id,

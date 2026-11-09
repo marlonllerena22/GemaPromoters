@@ -84,7 +84,7 @@ export function CustodyFunds() {
   );
 }
 export function CustodyEditor({ id, onClose }) {
-  const { data, user, refresh, notify } = useFinance(),
+  const { data, user, refresh, notify, open } = useFinance(),
     fund = data.custody_funds.find((f) => f.id === id);
   const [value, setValue] = useState(
       fund?.balance_cents === null
@@ -134,6 +134,18 @@ export function CustodyEditor({ id, onClose }) {
             : money(fund.balance_cents)}
         </strong>
       </div>
+      <p>
+        Banco Pichincha ·{" "}
+        {fund.account_number || "Número de cuenta por completar"}
+      </p>
+      {user.role === "owner" && (
+        <Button
+          variant="secondary"
+          onClick={() => open("account-number", { custody_id: id })}
+        >
+          {fund.account_number ? "Editar número" : "Agregar número de cuenta"}
+        </Button>
+      )}
       {can && (
         <form className="gf-operation-form" onSubmit={save}>
           <Field label="Nuevo saldo real (USD)">
@@ -497,7 +509,13 @@ export function GmailPanel() {
           <h3>Correo bancario</h3>
           <p>{state.email || "Correo del propietario"}</p>
         </div>
-        <span>{state.connected ? "Lectura conectada" : "Por activar"}</span>
+        <span>
+          {state.last_error
+            ? "Revisar conexión"
+            : state.connected
+              ? "Lectura conectada"
+              : "Por activar"}
+        </span>
       </div>
       <p>
         Los avisos se convierten en borradores. Los intentos fallidos y mensajes
@@ -508,6 +526,7 @@ export function GmailPanel() {
           icon={state.connected ? RefreshCw : Mail}
           loading={busy}
           onClick={state.connected ? sync : connect}
+          disabled={!state.connected && !state.configured}
         >
           {state.connected ? "Actualizar correo" : "Conectar con Google"}
         </Button>
@@ -522,6 +541,7 @@ export function GmailPanel() {
           la revisión inicial.
         </p>
       )}
+      {state.last_error && <p className="gf-error">{state.last_error}</p>}
       {state.last_sync && (
         <small>
           Última revisión:{" "}
@@ -769,9 +789,7 @@ export function InviteActivation() {
                   required
                 />
               </Field>
-              <p>
-                Usa 8 caracteres. Este enlace se utiliza una sola vez.
-              </p>
+              <p>Usa 8 caracteres. Este enlace se utiliza una sola vez.</p>
               <Button type="submit" icon={Check} loading={busy}>
                 Activar mi acceso
               </Button>

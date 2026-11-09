@@ -8,16 +8,16 @@ import { savePayee } from "./finance-payees.js";
 export function seedWorkflowDemo(db) {
   if (db.pragma("database_list")[0].file !== "")
     throw new Error(
-      "Los perfiles y pagos de ejemplo solo se generan en memoria"
+      "Los perfiles y pagos de ejemplo solo se generan en memoria",
     );
   const owner = db
     .prepare(
-      "SELECT * FROM finance_members WHERE username='demo' AND role='owner'"
+      "SELECT * FROM finance_members WHERE username='demo' AND role='owner'",
     )
     .get();
   if (!owner) throw new Error("La base no es una demostración");
   const insert = db.prepare(
-    "INSERT OR IGNORE INTO finance_members (name,username,password_hash,role,business_ids,unit_ids,work_view) VALUES (?,?,?,?,?,?,?)"
+    "INSERT OR IGNORE INTO finance_members (name,username,password_hash,role,business_ids,unit_ids,work_view) VALUES (?,?,?,?,?,?,?)",
   );
   const profileUsers = {
     owner: {
@@ -27,9 +27,9 @@ export function seedWorkflowDemo(db) {
     },
   };
   for (const p of PROFILE_TEMPLATES) {
-    const units = p.unit_ids || (["ana", "jose", "norma"].includes(p.id)
-      ? ["producalza-fabrica"]
-      : []);
+    const units =
+      p.unit_ids ||
+      (["ana", "jose", "norma"].includes(p.id) ? ["producalza-fabrica"] : []);
     insert.run(
       p.name,
       p.id,
@@ -37,41 +37,51 @@ export function seedWorkflowDemo(db) {
       p.role,
       JSON.stringify(p.business_ids),
       JSON.stringify(units),
-      p.work_view ? 1 : 0
+      p.work_view ? 1 : 0,
     );
-    db.prepare('UPDATE finance_members SET request_payments=?,review_unit_ids=?,auto_confirm_unit_ids=?,custody_adjust=?,checks_manage=? WHERE username=?').run(p.request_payments?1:0,JSON.stringify(p.review_unit_ids||[]),JSON.stringify(p.auto_confirm_unit_ids||[]),p.custody_adjust?1:0,p.checks_manage?1:0,p.id);
+    db.prepare(
+      "UPDATE finance_members SET request_payments=?,review_unit_ids=?,auto_confirm_unit_ids=?,custody_adjust=?,checks_manage=?,checks_clear=? WHERE username=?",
+    ).run(
+      p.request_payments ? 1 : 0,
+      JSON.stringify(p.review_unit_ids || []),
+      JSON.stringify(p.auto_confirm_unit_ids || []),
+      p.custody_adjust ? 1 : 0,
+      p.checks_manage ? 1 : 0,
+      p.checks_clear ? 1 : 0,
+      p.id,
+    );
     const member = db
       .prepare("SELECT * FROM finance_members WHERE username=?")
       .get(p.id);
     profileUsers[p.id] = { ...safeMember(member), preview_persona: p.id };
     for (const id of p.spaces)
       db.prepare(
-        "INSERT OR IGNORE INTO finance_space_members VALUES (?,?,?)"
+        "INSERT OR IGNORE INTO finance_space_members VALUES (?,?,?)",
       ).run(
         id,
         member.id,
-        p.role === "viewer"&&!p.request_payments
+        p.role === "viewer" && !p.request_payments
           ? "observer"
           : p.id === "morelia"
-          ? "coordinator"
-          : "requester"
+            ? "coordinator"
+            : "requester",
       );
   }
   for (const space of db.prepare("SELECT id FROM finance_spaces").all())
     db.prepare(
-      "INSERT OR IGNORE INTO finance_space_members VALUES (?,?,'coordinator')"
+      "INSERT OR IGNORE INTO finance_space_members VALUES (?,?,'coordinator')",
     ).run(space.id, owner.id);
   db.prepare(
-    "UPDATE finance_spaces SET share_label='Depósitos materiales' WHERE id='producalza-materiales'"
+    "UPDATE finance_spaces SET share_label='Depósitos materiales' WHERE id='producalza-materiales'",
   ).run();
   db.prepare(
-    "UPDATE finance_spaces SET share_label='Transferencias Producalza' WHERE id='producalza-pagos'"
+    "UPDATE finance_spaces SET share_label='Transferencias Producalza' WHERE id='producalza-pagos'",
   ).run();
   db.prepare(
-    "UPDATE finance_spaces SET share_label='Depósitos Dani Manager' WHERE id='gema-exterior-dani'"
+    "UPDATE finance_spaces SET share_label='Depósitos Dani Manager' WHERE id='gema-exterior-dani'",
   ).run();
   db.prepare(
-    "UPDATE finance_movements SET created_by='norma' WHERE business_id='producalza' AND kind='income' AND id%3=0"
+    "UPDATE finance_movements SET created_by='norma' WHERE business_id='producalza' AND kind='income' AND id%3=0",
   ).run();
   const day = financeDay(),
     prior = new Date(`${day}T12:00:00Z`);
@@ -79,20 +89,20 @@ export function seedWorkflowDemo(db) {
   const yesterday = prior.toISOString().slice(0, 10);
   const bank = db
     .prepare(
-      "SELECT id FROM finance_accounts WHERE business_id='producalza' AND kind='bank' LIMIT 1"
+      "SELECT id FROM finance_accounts WHERE business_id='producalza' AND kind='bank' LIMIT 1",
     )
     .get().id;
   const shared = db
     .prepare(
-      "SELECT id FROM finance_accounts WHERE business_id IS NULL LIMIT 1"
+      "SELECT id FROM finance_accounts WHERE business_id IS NULL LIMIT 1",
     )
     .get().id;
   const card = Number(
     db
       .prepare(
-        "INSERT INTO finance_accounts (business_id,name,bank,kind,last_four,custodian,opening_cents,opening_date) VALUES ('gemashow','Tarjeta de eventos · ejemplo','Tarjeta','card','4202','Propietario',0,?)"
+        "INSERT INTO finance_accounts (business_id,name,bank,kind,last_four,custodian,opening_cents,opening_date) VALUES ('gemashow','Tarjeta de eventos · ejemplo','Tarjeta','card','4202','Propietario',0,?)",
       )
-      .run(`${day.slice(0, 7)}-01`).lastInsertRowid
+      .run(`${day.slice(0, 7)}-01`).lastInsertRowid,
   );
   const tasks = [
     [
@@ -169,7 +179,7 @@ export function seedWorkflowDemo(db) {
       payment_method: "transfer",
     });
     db.prepare(
-      "UPDATE finance_movements SET is_payment_request=1,space_id=? WHERE id=?"
+      "UPDATE finance_movements SET is_payment_request=1,space_id=? WHERE id=?",
     ).run(space_id, r.id);
     ids.push(r.id);
   }
@@ -188,22 +198,22 @@ export function seedWorkflowDemo(db) {
       const bytes = Buffer.concat([
         Buffer.from(
           "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aO8sAAAAASUVORK5CYII=",
-          "base64"
+          "base64",
         ),
         Buffer.from(`DEMO-SIN-VALOR-${index}`),
       ]);
       const evidence_id = Number(
         db
           .prepare(
-            "INSERT INTO finance_evidence (business_id,name,mime,bytes,sha256,encrypted,created_by) VALUES (?,?,'image/png',?,?,?,'demo')"
+            "INSERT INTO finance_evidence (business_id,name,mime,bytes,sha256,encrypted,created_by) VALUES (?,?,'image/png',?,?,?,'demo')",
           )
           .run(
             request.business_id,
             `Comprobante-ejemplo-${index}.png`,
             bytes.length,
             crypto.createHash("sha256").update(bytes).digest("hex"),
-            encryptDocument(bytes)
-          ).lastInsertRowid
+            encryptDocument(bytes),
+          ).lastInsertRowid,
       );
       const paid = recordRequestPayment(db, profileUsers.owner, id, {
         request_key: crypto.randomUUID(),
@@ -228,7 +238,7 @@ export function seedWorkflowDemo(db) {
         });
         const b = db
           .prepare(
-            "SELECT id FROM finance_bank_transactions WHERE account_id=?"
+            "SELECT id FROM finance_bank_transactions WHERE account_id=?",
           )
           .get(card);
         reconcile(db, profileUsers.owner, {
@@ -243,7 +253,7 @@ export function seedWorkflowDemo(db) {
     else process.env.FINANCE_DEMO = oldDemo;
   }
   db.prepare(
-    "INSERT INTO finance_space_notes (request_id,actor,body) VALUES (?,'ana','La compra corresponde únicamente a materiales de bodega. Datos de demostración.')"
+    "INSERT INTO finance_space_notes (request_id,actor,body) VALUES (?,'ana','La compra corresponde únicamente a materiales de bodega. Datos de demostración.')",
   ).run(ids[1]);
   for (const [space_id, actor, name] of [
     ["producalza-materiales", "ana", "Materiales · contacto de ejemplo"],
@@ -276,16 +286,16 @@ export function seedWorkflowDemo(db) {
             holder: "Titular de ejemplo",
           },
         ],
-      }
+      },
     );
     const rows = db
       .prepare(
-        "SELECT id FROM finance_movements WHERE is_payment_request=1 AND space_id=?"
+        "SELECT id FROM finance_movements WHERE is_payment_request=1 AND space_id=?",
       )
       .all(space_id);
     for (const row of rows)
       db.prepare(
-        "INSERT INTO finance_request_payees (request_id,payee_id,encrypted) VALUES (?,?,?)"
+        "INSERT INTO finance_request_payees (request_id,payee_id,encrypted) VALUES (?,?,?)",
       ).run(
         row.id,
         contact.id,
@@ -297,9 +307,9 @@ export function seedWorkflowDemo(db) {
               email: contact.email,
               accounts: contact.accounts,
               contact_id: contact.id,
-            })
-          )
-        )
+            }),
+          ),
+        ),
       );
   }
   return profileUsers;

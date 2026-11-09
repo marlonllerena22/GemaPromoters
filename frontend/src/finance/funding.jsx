@@ -34,28 +34,50 @@ export function FundingAlertBar() {
   );
 }
 export function Checks() {
-  const { data, open } = useFinance();
-  const f = data.funding_overview || {},
-    pending = (f.checks || []).filter((c) => c.status === "pending");
+  const { data, open, user, refresh, notify } = useFinance(),
+    f = data.funding_overview || {},
+    [busy, setBusy] = useState(null),
+    [error, setError] = useState("");
+  async function mark(c, cleared) {
+    setBusy(c.id);
+    setError("");
+    try {
+      await financeApi(`/checks/${encodeURIComponent(c.id)}/settlement`, {
+        cleared,
+        version: c.version,
+        request_key: crypto.randomUUID(),
+      });
+      await refresh();
+      notify(
+        cleared ? "Cheque marcado cobrado" : "Cheque nuevamente pendiente",
+      );
+    } catch (e) {
+      setError(e.message);
+      await refresh();
+    } finally {
+      setBusy(null);
+    }
+  }
   return (
     <>
       <SectionHead
         eyebrow="EL DINERO, DOS DÍAS ANTES"
         title="Cheques y cuenta corriente"
-        description="Solo Germán, Morelia y Marlon administran este apartado."
+        description="Toca una fecha para abrir sus cheques, como en el cuaderno."
       >
         <Button icon={Plus} onClick={() => open("check-editor")}>
           Agregar cheque
         </Button>
       </SectionHead>
       <PushEnrollment />
+      {error && <p className="gf-error">{error}</p>}
       {(f.accounts || []).map((a) => (
         <section className="gf-panel gf-funding-account" key={a.id}>
           <header>
             <BankLogo bank="Guayaquil" />
             <div>
               <h3>{a.name}</h3>
-              <p>Saldo registrado ··{a.last_four}</p>
+              <p>Dinero apartado en corriente</p>
             </div>
             <strong>{money(a.balance_cents)}</strong>
           </header>
@@ -65,80 +87,113 @@ export function Checks() {
             </span>
             <strong>{money(a.shortfall_now_cents)}</strong>
             <small>
-              Se mantienen pendientes hasta comprobar el cobro. Incluye fechas
-              vencidas.
+              Los cheques pendientes mantienen su reserva. Corriente no se suma
+              al disponible para gastar.
             </small>
           </div>
-          <div className="gf-table-scroll">
-            <table className="gf-table">
-              <thead>
-                <tr>
-                  <th>Cobro</th>
-                  <th>Dinero listo</th>
-                  <th>Cheques</th>
-                  <th>Valor</th>
-                  <th>Falta acumulada</th>
-                </tr>
-              </thead>
-              <tbody>
-                {a.groups.map((g) => (
-                  <tr key={g.due_day}>
-                    <td>
+          <div className="gf-cheque-groups">
+            {a.groups.map((g) => (
+              <details key={g.due_day} className="gf-cheque-group">
+                <summary>
+                  <span>
+                    <strong>
                       {dateLabel(g.due_day, {
                         day: "numeric",
-                        month: "short",
+                        month: "long",
                         year: "numeric",
                       })}
-                    </td>
-                    <td>{dateLabel(g.fund_day)}</td>
-                    <td>{g.count}</td>
-                    <td>{money(g.amount_cents)}</td>
-                    <td>
-                      <strong>{money(g.shortfall_cents)}</strong>
-                      {g.needs_review && (
-                        <small className="gf-block">
-                          Incluye un valor por revisar
-                        </small>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </strong>
+                    <small>
+                      Dinero listo desde {dateLabel(g.fund_day)} ·{" "}
+                      {g.cleared_count} de {g.count} cobrados
+                    </small>
+                  </span>
+                  <span>
+                    <b>{money(g.total_cents ?? g.amount_cents)}</b>
+                    <small>
+                      {g.pending_count === 0
+                        ? "Completado"
+                        : `${g.pending_count ?? g.count} pendientes`}
+                    </small>
+                  </span>
+                  <ArrowRight size={18} />
+                </summary>
+                <div className="gf-cheque-paper">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>A la orden de</th>
+                        <th>N.º</th>
+                        <th>Valor</th>
+                        <th>Cobrado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(
+                        g.checks ||
+                        f.checks.filter(
+                          (c) =>
+                            c.account_id === a.id && c.due_day === g.due_day,
+                        )
+                      ).map((c) => (
+                        <tr
+                          key={c.id}
+                          className={c.status === "cleared" ? "is-cleared" : ""}
+                        >
+                          <td>
+                            <button
+                              onClick={() => open("check-editor", { id: c.id })}
+                            >
+                              {c.payee}
+                            </button>
+                            {c.status === "cleared" && (
+                              <small>
+                                {c.clearing_source === "bank"
+                                  ? "Comprobado con el banco"
+                                  : `Marcado por ${c.cleared_by_name || c.cleared_by || "responsable"}`}
+                              </small>
+                            )}
+                          </td>
+                          <td>{c.number}</td>
+                          <td>{money(c.amount_cents)}</td>
+                          <td>
+                            <input
+                              type="checkbox"
+                              aria-label={`Cheque ${c.number} de ${c.payee} cobrado`}
+                              checked={c.status === "cleared"}
+                              disabled={
+                                busy === c.id ||
+                                !(user.role === "owner" || user.checks_clear) ||
+                                Boolean(c.cleared_bank_id)
+                              }
+                              onChange={(e) => mark(c, e.target.checked)}
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr>
+                        <th colSpan={2}>Total del grupo</th>
+                        <td>{money(g.total_cents ?? g.amount_cents)}</td>
+                        <td />
+                      </tr>
+                      <tr>
+                        <th colSpan={2}>Pendiente de cobrar</th>
+                        <td>{money(g.amount_cents)}</td>
+                        <td />
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </details>
+            ))}
           </div>
         </section>
       ))}
-      <SectionHead
-        title={`${pending.length} cheques pendientes`}
-        description="Toca un cheque para revisar sus datos o registrar una corrección."
-      />
-      <div className="gf-check-list">
-        {pending.map((c) => (
-          <button key={c.id} onClick={() => open("check-editor", { id: c.id })}>
-            <span className="gf-check-number">#{c.number}</span>
-            <span>
-              <strong>{c.payee}</strong>
-              <small>
-                {dateLabel(c.due_day, {
-                  day: "numeric",
-                  month: "long",
-                  year: "numeric",
-                })}
-                {Boolean(c.needs_review) && " · Revisar dato"}
-              </small>
-            </span>
-            <b>{money(c.amount_cents)}</b>
-          </button>
-        ))}
-      </div>
-      {!pending.length && (
-        <p className="gf-note">No hay cheques pendientes registrados.</p>
-      )}
       <p className="gf-payee-hint">
-        El cálculo acumula todos los cheques anteriores pendientes y usa el
-        saldo una sola vez. Los depósitos futuros todavía no se cuentan. Las
-        fechas se mantienen según el cuaderno, sin asumir cambios por fines de
-        semana.
+        Marlon y Germán pueden marcar los cobrados. Las coincidencias bancarias
+        completas se confirman automáticamente; lo dudoso queda para revisar.
       </p>
     </>
   );
@@ -249,11 +304,15 @@ export function CheckEditor({ id, onClose }) {
           </Field>
         )}
         {error && <p className="gf-error">{error}</p>}
-        <Button type="submit" loading={busy}>
+        <Button
+          type="submit"
+          loading={busy}
+          disabled={old && old.status !== "pending"}
+        >
           Guardar cheque
         </Button>
       </form>
-      {old && user.role === "owner" && (
+      {old && !old.cleared_bank_id && user.role === "owner" && (
         <section className="gf-operation-form gf-mt">
           <h3>Comprobar que ya se cobró</h3>
           <Field label="Débito real de esta cuenta">
@@ -282,7 +341,8 @@ export function CheckEditor({ id, onClose }) {
             Confirmar cheque cobrado
           </Button>
           <p className="gf-payee-hint">
-            Sin el débito bancario, el cheque conserva su reserva.
+            Si lo marcaste cobrado, este débito reemplaza esa marca sin volver a
+            restar el dinero.
           </p>
         </section>
       )}
@@ -290,7 +350,7 @@ export function CheckEditor({ id, onClose }) {
   );
 }
 export function Cards() {
-  const { data, open } = useFinance(),
+  const { data, open, user } = useFinance(),
     cards = data.funding_overview?.cards || [];
   return (
     <>
@@ -313,15 +373,17 @@ export function Cards() {
               </div>
             </header>
             <p>
-              {c.debit_account_id
-                ? `Se paga desde ${c.account_name} ··${c.last_four}`
+              {c.debit_account_id || c.fixed_debit_account
+                ? `Se paga desde ${c.account_name}${c.last_four ? ` ··${c.last_four}` : ""}`
                 : "Eliges la cuenta al pagar. Debes pagar antes del día 9."}
             </p>
             {c.statements.map((s) => (
               <button
                 className="gf-card-statement"
                 key={s.id}
-                onClick={() => open("card-statement", { id: s.id })}
+                onClick={() =>
+                  user.role === "owner" && open("card-statement", { id: s.id })
+                }
               >
                 <span>
                   <strong>

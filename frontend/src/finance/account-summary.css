@@ -1,0 +1,357 @@
+.gf-liquidity-panel {
+  background: #fff;
+  border: 1px solid #dce6df;
+  border-radius: 20px;
+  padding: 24px;
+  margin: 22px 0;
+}
+.gf-liquidity-panel > header,
+.gf-card-preview > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+}
+.gf-liquidity-panel h2,
+.gf-card-preview h2 {
+  font-size: 22px;
+  margin: 7px 0 20px;
+}
+.gf-liquidity-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.gf-liquidity-stats > div {
+  padding: 18px;
+  border-radius: 14px;
+  background: #f4f7f3;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+.gf-liquidity-stats span {
+  font-size: 14px;
+  line-height: 1.4;
+}
+.gf-liquidity-stats strong {
+  font-size: 29px;
+  letter-spacing: -1px;
+  line-height: 1.15;
+}
+.gf-liquidity-stats small {
+  font-size: 13px;
+  color: #68796e;
+  line-height: 1.5;
+}
+.gf-liquidity-stats .reserved {
+  background: #f5f0e7;
+}
+.gf-liquidity-stats .remaining {
+  background: #e9f1e6;
+  color: #2c543a;
+}
+.gf-liquidity-stats .short {
+  background: #fff0e5;
+  color: #884318;
+}
+.gf-liquidity-panel > p {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #627567;
+  margin: 18px 0 0;
+}
+.gf-liquidity-missing {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fff4e6;
+  color: #815124;
+  border: 0;
+  border-radius: 10px;
+  padding: 14px;
+  width: 100%;
+  margin-top: 14px;
+  text-align: left;
+  font-size: 14px;
+  cursor: pointer;
+}
+.gf-liquidity-detail {
+  margin-top: 17px;
+}
+.gf-liquidity-detail summary {
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 15px;
+  padding: 6px 0;
+}
+.gf-liquidity-detail > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid #e8eee8;
+}
+.gf-liquidity-detail strong {
+  font-size: 14px;
+  display: block;
+}
+.gf-liquidity-detail small {
+  font-size: 13px;
+  color: #68776c;
+  margin-top: 5px;
+  display: block;
+}
+.gf-liquidity-detail b {
+  font-size: 17px;
+  white-space: nowrap;
+}
+.gf-card-preview {
+  margin: 24px 0;
+}
+.gf-card-preview > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.gf-card-preview > div > button {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  border: 1px solid #dce6df;
+  border-radius: 14px;
+  padding: 18px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+.gf-card-preview > div > button > span {
+  flex: 1;
+}
+.gf-card-preview strong {
+  font-size: 16px;
+}
+.gf-card-preview small {
+  display: block;
+  font-size: 14px;
+  color: #68796d;
+  margin-top: 6px;
+}
+.gf-card-preview b {
+  font-size: 18px;
+  white-space: nowrap;
+}
+.gf-unified-accounts {
+  margin: 18px 0;
+}
+.gf-unified-accounts .gf-account-short-name,
+.gf-unified-accounts .gf-account-number {
+  font-size: 14px !important;
+  line-height: 1.45 !important;
+  color: #65745d;
+  margin-top: 4px;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.gf-unified-accounts .gf-bank-reserve-label {
+  grid-column: 1/-1;
+  color: #866330;
+  font-size: 13px !important;
+  border-top: 1px solid #f0ece2;
+  padding-top: 8px;
+}
+.gf-account-subtitle {
+  display: grid !important;
+  gap: 5px !important;
+  white-space: normal !important;
+}
+.gf-account-subtitle > span,
+.gf-account-subtitle > .gf-account-number {
+  font-size: 14px !important;
+  line-height: 1.4 !important;
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  user-select: text;
+}
+.gf-cheque-group {
+  border-top: 1px solid #e1e7df;
+}
+.gf-cheque-group > summary {
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  cursor: pointer;
+  list-style: none;
+  background: #fafcf9;
+}
+.gf-cheque-group > summary::-webkit-details-marker {
+  display: none;
+}
+.gf-cheque-group > summary > span:first-child {
+  flex: 1;
+}
+.gf-cheque-group > summary strong {
+  display: block;
+  font-size: 18px;
+}
+.gf-cheque-group > summary b {
+  font-size: 20px;
+  display: block;
+  text-align: right;
+}
+.gf-cheque-group > summary small {
+  display: block;
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #68755f;
+}
+.gf-cheque-group[open] > summary > svg {
+  transform: rotate(90deg);
+}
+.gf-cheque-paper {
+  padding: 12px 20px 20px;
+  background: #fffefa;
+}
+.gf-cheque-paper table {
+  border-collapse: collapse;
+  width: 100%;
+  table-layout: fixed;
+}
+.gf-cheque-paper th,
+.gf-cheque-paper td {
+  border: 1px solid #dce1d4;
+  padding: 13px 9px;
+  text-align: left;
+  font-size: 15px;
+  vertical-align: middle;
+}
+.gf-cheque-paper th {
+  background: #f1f4e9;
+  font-size: 13px;
+  font-weight: 650;
+  color: #536745;
+}
+.gf-cheque-paper th:first-child {
+  width: 40%;
+}
+.gf-cheque-paper th:nth-child(2) {
+  width: 13%;
+}
+.gf-cheque-paper th:nth-child(3) {
+  width: 29%;
+}
+.gf-cheque-paper th:nth-child(4) {
+  width: 18%;
+  text-align: center;
+}
+.gf-cheque-paper td:nth-child(3) {
+  white-space: nowrap;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.gf-cheque-paper td:last-child {
+  text-align: center;
+}
+.gf-cheque-paper td button {
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  line-height: 1.5;
+}
+.gf-cheque-paper td small {
+  display: block;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #79816e;
+  margin-top: 5px;
+}
+.gf-cheque-paper input[type="checkbox"] {
+  width: 23px;
+  height: 23px;
+  accent-color: #466e43;
+  cursor: pointer;
+}
+.gf-cheque-paper .is-cleared {
+  background: #eff5eb;
+  color: #667460;
+}
+.gf-cheque-paper .is-cleared td:nth-child(3) {
+  text-decoration: line-through;
+}
+.gf-cheque-paper tfoot th {
+  background: #f5f3e9;
+}
+.gf-cheque-paper tfoot td {
+  font-weight: 700;
+}
+@media (max-width: 700px) {
+  .gf-liquidity-panel {
+    padding: 17px;
+    border-radius: 16px;
+  }
+  .gf-liquidity-stats {
+    grid-template-columns: 1fr 1fr;
+    gap: 9px;
+  }
+  .gf-liquidity-stats > div {
+    padding: 13px;
+    gap: 10px;
+  }
+  .gf-liquidity-stats strong {
+    font-size: 25px;
+  }
+  .gf-liquidity-stats span,
+  .gf-liquidity-stats small {
+    font-size: 13px;
+  }
+  .gf-card-preview > div {
+    grid-template-columns: 1fr;
+  }
+  .gf-card-preview > div > button {
+    padding: 15px;
+  }
+  .gf-cheque-group > summary {
+    padding: 17px 12px;
+    gap: 10px;
+  }
+  .gf-cheque-group > summary strong {
+    font-size: 17px;
+  }
+  .gf-cheque-group > summary b {
+    font-size: 19px;
+  }
+  .gf-cheque-paper {
+    padding: 8px 9px 15px;
+  }
+  .gf-cheque-paper th,
+  .gf-cheque-paper td {
+    padding: 12px 6px;
+    font-size: 14px;
+  }
+  .gf-cheque-paper th {
+    font-size: 12px;
+  }
+  .gf-cheque-paper td small {
+    font-size: 12px;
+  }
+  .gf-unified-accounts .gf-account-number,
+  .gf-unified-accounts .gf-account-short-name {
+    font-size: 14px !important;
+  }
+  .gf-cheque-paper th:nth-child(4) {
+    font-size: 11px;
+  }
+  .gf-cheque-paper input[type="checkbox"] {
+    width: 24px;
+    height: 24px;
+  }
+}
