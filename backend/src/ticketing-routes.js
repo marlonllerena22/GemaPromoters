@@ -614,7 +614,7 @@ export function registerTicketingRoutes(app, db) {
       }
       db.prepare(
         `UPDATE ticketing_orders
-         SET payment_status = 'paid', paid_at = datetime('now', 'localtime'),
+         SET payment_status = 'paid', paid_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
              updated_at = datetime('now', 'localtime') WHERE id = ?`
       ).run(order.id);
       const insertTicket = db.prepare(

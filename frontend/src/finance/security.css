@@ -1,0 +1,263 @@
+.gf-security-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-bottom: 15px;
+}
+.gf-security-options > div {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 20px 0;
+  border-bottom: 1px solid #e8eede;
+}
+.gf-security-options > div:last-child {
+  border: 0;
+}
+.gf-security-options > div > div {
+  flex: 1;
+  min-width: 0;
+}
+.gf-security-options strong {
+  font-size: 13px;
+  font-weight: 550;
+  color: #5a7844;
+}
+.gf-security-options p {
+  font-size: 12px;
+  color: #859d70;
+  line-height: 1.8;
+  margin-top: 5px;
+}
+.gf-security-options .gf-button {
+  font-size: 11px;
+  min-height: 37px;
+}
+.gf-totp-enrollment {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 18px;
+}
+.gf-totp-enrollment img {
+  width: 210px;
+  height: 210px;
+  border: 1px solid #e0e8d5;
+  border-radius: 10px;
+}
+.gf-totp-enrollment p {
+  font-size: 12px;
+  color: #7e9668;
+  line-height: 1.9;
+  max-width: 390px;
+}
+.gf-totp-enrollment code {
+  font-size: 13px;
+  padding: 12px;
+  background: #f2f7eb;
+  color: #648347;
+  border: 1px solid #dce8cd;
+  border-radius: 7px;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+.gf-recovery-codes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.gf-recovery-codes code {
+  font-size: 12px;
+  padding: 13px 10px;
+  text-align: center;
+  color: #668446;
+  border: 1px solid #e0eacd;
+  border-radius: 6px;
+  background: #f5f9ee;
+}
+.gf-security-options .gf-soft-icon {
+  color: #87a56b;
+}
+/* Secondary text remains readable against the light financial workspace. */
+.gf-app .gf-muted,
+.gf-app .gf-main p,
+.gf-app .gf-main time,
+.gf-app .gf-main small,
+.gf-app .gf-modal small,
+.gf-app .gf-section-head p,
+.gf-app .gf-field small,
+.gf-app .gf-note,
+.gf-app .gf-detail-description {
+  color: #6d7f60;
+}
+.gf-app .gf-stat.primary > small {
+  color: #c0d3ad;
+}
+.gf-app .gf-stat-top > span,
+.gf-app .gf-table th,
+.gf-app .gf-table-main small,
+.gf-app .gf-date-cell,
+.gf-app .gf-table td,
+.gf-app .gf-business-inline {
+  color: #6e805e;
+}
+.gf-app .gf-badge.approved,
+.gf-app .gf-badge.reconciled,
+.gf-app .gf-badge.active {
+  color: #557440;
+}
+.gf-app .gf-badge.pending {
+  color: #8c713c;
+}
+.gf-app .gf-data-footnote,
+.gf-app .gf-main-footer,
+.gf-app .gf-donut-legend span,
+.gf-app .gf-donut small,
+.gf-app .gf-donut span,
+.gf-app .gf-flow-summary > span {
+  color: #748564;
+}
+.gf-app .gf-chart-axis,
+.gf-app .gf-chart-labels {
+  color: #81916f;
+}
+.gf-app .gf-stat.primary .gf-stat-top > span {
+  color: #c2d7b1;
+}
+.gf-login-form > p,
+.gf-login-form .gf-field > span,
+.gf-demo-entry p,
+.gf-login-privacy {
+  color: #748765;
+}
+.gf-demo-entry > span,
+.gf-login-form > .gf-eyebrow {
+  color: #829672;
+}
+@media (max-width: 560px) {
+  .gf-security-options > div {
+    flex-wrap: wrap;
+    gap: 13px;
+  }
+  .gf-security-options > div > div {
+    flex-basis: calc(100% - 55px);
+  }
+  .gf-security-options .gf-button {
+    margin-left: 47px;
+  }
+  .gf-security-options strong {
+    font-size: 13px;
+  }
+  .gf-security-options p {
+    font-size: 12px;
+  }
+  .gf-recovery-codes code {
+    font-size: 11px;
+  }
+  .gf-totp-enrollment code {
+    font-size: 12px;
+  }
+  .gf-security-options .gf-badge {
+    margin-left: 47px;
+  }
+}
+
+.gf-account-positions {
+  border-top: 1px solid #e3eadb;
+  padding-top: 12px;
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.gf-account-positions > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11px;
+  color: #81966e;
+}
+.gf-account-positions strong {
+  font-size: 11px;
+  font-weight: 500;
+  color: #688750;
+}
+.gf-account-positions .gf-button {
+  font-size: 10px;
+  padding-left: 0;
+  justify-content: flex-start;
+}
+.gf-unassigned-note {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid #e4e9dc;
+  background: #f3f5ee;
+  border-radius: 7px;
+  padding: 12px 15px;
+  margin: -5px 0 22px;
+  font-size: 11px;
+  color: #83936d;
+}
+.gf-unassigned-note > span {
+  flex: 1;
+  line-height: 1.7;
+}
+.gf-unassigned-note > button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  background: transparent;
+  color: #6c8753;
+  white-space: nowrap;
+}
+.gf-main:focus {
+  outline: none;
+}
+@media(max-width:360px){
+  .gf-stats:not(.three)>.gf-stat{min-height:132px}
+  .gf-stats:not(.three)>.gf-stat.primary,.gf-stats:not(.three)>.gf-stat:last-child{grid-column:1/-1}
+  .gf-stats:not(.three)>.gf-stat>strong{font-size:21px}
+  .gf-stats:not(.three)>.gf-stat.primary>strong{font-size:29px}
+  .gf-stats:not(.three)>.gf-stat:last-child>strong{font-size:26px}
+  .gf-form-grid{grid-template-columns:1fr}
+  .gf-distribution{grid-template-columns:1fr;justify-items:center;gap:15px}
+  .gf-donut{width:155px;height:155px}
+  .gf-donut-legend{padding:0 12px}
+}
+@media (max-width: 800px) {
+  .gf-sidebar:not(.open) {
+    visibility: hidden;
+    pointer-events: none;
+  }
+  .gf-sidebar.open {
+    visibility: visible;
+    pointer-events: auto;
+  }
+}
+@media (max-width: 560px) {
+  .gf-unassigned-note {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    font-size: 10px;
+    padding: 12px;
+    gap: 8px;
+  }
+  .gf-unassigned-note > span {
+    flex-basis: calc(100% - 30px);
+  }
+  .gf-unassigned-note > button {
+    margin-left: 24px;
+    font-size: 10px;
+  }
+  .gf-account-positions > div,
+  .gf-account-positions strong {
+    font-size: 12px;
+  }
+  .gf-account-positions .gf-button {
+    font-size: 11px;
+  }
+}

@@ -1495,6 +1495,7 @@ function AdminApp({ user, onLogout }) {
           ))}
         </nav>
         <div className={`mobile-sidebar-actions ${mobileMenuOpen ? 'open' : ''}`}>
+          {user?.role === 'supreme' && <a className="public-link" href="/finanzas"><WalletCards size={17} />Centro financiero</a>}
           <a className="public-link" href="/verificar" target="_blank" rel="noreferrer">
             <Search size={17} />
             Verificar codigo

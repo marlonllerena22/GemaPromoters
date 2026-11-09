@@ -22,6 +22,7 @@ import { registerMarjoriePromotersRoutes } from './marjorie-promoters-routes.js'
 import { registerAuthRecoveryRoutes, verifyRecoveryPassword } from './auth-recovery-routes.js';
 import { registerContentStudioRoutes } from './content-studio-routes.js';
 import { registerContentStudioLegalRoutes } from './content-studio-legal.js';
+import { registerFinanceRoutes } from './finance-routes.js';
 import { findContentStudioSellerForLogin, findContentStudioUserForLogin } from './content-studio-db.js';
 
 dotenv.config();
@@ -37,7 +38,7 @@ app.use(cors());
 app.use(express.json({
   limit: '20mb',
   verify: (req, _res, buffer) => {
-    if (req.originalUrl?.startsWith('/api/content-studio/lumi/webhook')) req.rawBody = Buffer.from(buffer);
+    if (req.originalUrl?.startsWith('/api/content-studio/lumi/webhook') || req.originalUrl?.startsWith('/api/finance/integrations/')) req.rawBody = Buffer.from(buffer);
   }
 }));
 app.use(express.urlencoded({ extended: false, limit: '1mb' }));
@@ -3078,12 +3079,13 @@ app.post('/api/verify', (req, res) => {
   });
 });
 
-registerProducalzaRoutes(app, db, getRequestEstablishmentId);
+const financeProductionBridge = registerProducalzaRoutes(app, db, getRequestEstablishmentId);
 registerRenjiRoutes(app, db, getRequestEstablishmentId);
 registerTicketingRoutes(app, db);
 registerMarjoriePromotersRoutes(app, db);
 registerContentStudioRoutes(app, db);
 registerContentStudioLegalRoutes(app);
+registerFinanceRoutes(app, db, { production: financeProductionBridge });
 
 recalculateAllCommissions();
 
@@ -3145,6 +3147,6 @@ app.get('*', (req, res, next) => {
   return res.sendFile(path.join(frontendDist, 'index.html'));
 });
 
-app.listen(port, () => {
+app.listen(port, process.env.HOST || '0.0.0.0', () => {
   console.log(`GemaPromoters API lista en http://localhost:${port}`);
 });

@@ -1,0 +1,1025 @@
+/* Comfortable type and contrast for daily financial work. */
+.gf-sr {
+  left: 0;
+  top: 0;
+}
+.gf-table-scroll {
+  position: relative;
+}
+.gf-main,
+.gf-modal {
+  color: #354e3c;
+}
+.gf-muted {
+  color: #73816c;
+}
+.gf-eyebrow {
+  color: #79896c;
+  font-size: 10px;
+}
+.gf-sidebar nav > button {
+  font-size: 12px;
+  color: #6e7c65;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+.gf-nav-label {
+  font-size: 9px;
+  color: #8b987d;
+}
+.gf-workspace strong {
+  font-size: 11px;
+  color: #4d6242;
+}
+.gf-workspace small {
+  font-size: 9px;
+  color: #839276;
+}
+.gf-install strong {
+  font-size: 10px;
+  color: #5d754d;
+}
+.gf-install small {
+  font-size: 9px;
+  color: #839875;
+}
+.gf-user strong {
+  font-size: 12px;
+  color: #526a43;
+}
+.gf-user small {
+  font-size: 10px;
+  color: #829775;
+}
+.gf-breadcrumb {
+  font-size: 12px;
+  color: #8b9981;
+}
+.gf-breadcrumb strong {
+  color: #5d7550;
+}
+.gf-global-search {
+  font-size: 11px;
+  color: #8c9c7f;
+}
+.gf-global-search kbd {
+  font-size: 10px;
+}
+.gf-business-filter select {
+  font-size: 12px;
+  color: #61794e;
+}
+.gf-top-upload {
+  font-size: 11px;
+}
+.gf-period-filter input {
+  font-size: 10px;
+  width: 112px;
+  color: #6f855b;
+}
+.gf-demo-banner {
+  font-size: 10px;
+  color: #86764e;
+}
+.gf-demo-banner > span {
+  font-size: 9px;
+}
+.gf-welcome .gf-eyebrow {
+  font-size: 9px;
+  color: #7f936a;
+}
+.gf-welcome h1 {
+  font-size: 31px;
+  color: #2f4932;
+}
+.gf-welcome p {
+  font-size: 13px;
+  color: #829171;
+}
+.gf-welcome-date {
+  font-size: 11px;
+  color: #859573;
+}
+.gf-stat-top > span {
+  font-size: 12px;
+  color: #788c65;
+}
+.gf-stat > strong {
+  font-size: 30px;
+  color: #3d5d35;
+  font-weight: 550;
+}
+.gf-stat.primary > strong {
+  font-size: 32px;
+  color: #fff;
+}
+.gf-stat > small {
+  font-size: 10px;
+  color: #8a9b77;
+  line-height: 1.65;
+}
+.gf-stat.primary > small {
+  font-size: 9px;
+  color: #bed0ad;
+}
+.gf-stat {
+  min-height: 151px;
+}
+.gf-section-head h2 {
+  color: #3c5930;
+}
+.gf-section-head p {
+  font-size: 13px;
+  color: #849775;
+}
+.gf-section-head .gf-eyebrow {
+  font-size: 9px;
+  color: #859c71;
+}
+.gf-panel .gf-section-head h2 {
+  font-size: 14px;
+  color: #47613a;
+}
+.gf-panel .gf-section-head p {
+  font-size: 11px;
+  color: #91a17d;
+}
+.gf-panel .gf-section-head .gf-button,
+.gf-account-preview .gf-section-head .gf-button {
+  font-size: 11px;
+}
+.gf-period-chip {
+  font-size: 10px;
+  color: #91a17a;
+}
+.gf-flow-summary > strong {
+  font-size: 27px;
+  color: #49653b;
+}
+.gf-flow-summary > span {
+  font-size: 10px;
+  color: #8b9f74;
+}
+.gf-chart-axis,
+.gf-chart-labels {
+  font-size: 9px;
+  color: #95a680;
+}
+.gf-donut small {
+  font-size: 9px;
+  color: #8f9f7c;
+}
+.gf-donut strong {
+  font-size: 21px;
+  color: #4b683b;
+}
+.gf-donut span {
+  font-size: 9px;
+  color: #96a67f;
+}
+.gf-donut-legend span {
+  font-size: 11px;
+  color: #859772;
+}
+.gf-donut-legend strong {
+  font-size: 11px;
+  color: #667e50;
+}
+.gf-table th {
+  font-size: 11px;
+  color: #8a9c75;
+}
+.gf-table td {
+  font-size: 12px;
+  color: #768c61;
+}
+.gf-table td > strong {
+  font-size: 12px;
+  color: #587345;
+}
+.gf-table-main strong {
+  font-size: 12px;
+  color: #617c4d;
+}
+.gf-table-main small {
+  font-size: 10px;
+  color: #95a87d;
+}
+.gf-table .gf-amount {
+  font-size: 13px;
+  color: #587945;
+}
+.gf-business-inline {
+  font-size: 11px;
+  color: #80976b;
+}
+.gf-date-cell {
+  font-size: 11px;
+  color: #90a379;
+}
+.gf-badge {
+  font-size: 10px;
+  padding: 5px 8px;
+  color: #947944;
+  background: #f8f2e6;
+}
+.gf-badge.approved,
+.gf-badge.reconciled,
+.gf-badge.active {
+  color: #65864e;
+  background: #eef5e8;
+}
+.gf-badge.reported {
+  color: #88729e;
+  background: #f2eef7;
+}
+.gf-badge.rejected,
+.gf-badge.cancelled,
+.gf-badge.refunded {
+  color: #a5705e;
+  background: #fbefea;
+}
+.compact .gf-table th {
+  font-size: 10px;
+}
+.compact .gf-table td {
+  font-size: 11px;
+  padding: 15px 13px;
+}
+.compact .gf-table-main strong {
+  font-size: 11px;
+  max-width: 165px;
+}
+.compact .gf-table-main small {
+  font-size: 9px;
+}
+.compact .gf-table .gf-amount {
+  font-size: 11px;
+}
+.compact .gf-table .gf-badge {
+  font-size: 9px;
+}
+.compact .gf-table .gf-business-inline {
+  font-size: 10px;
+}
+.compact .gf-date-cell {
+  font-size: 10px;
+}
+.gf-table-footer {
+  font-size: 10px;
+  color: #96a77f;
+}
+.gf-attention h2 {
+  font-size: 22px;
+  color: #526d3e;
+}
+.gf-attention > p {
+  font-size: 11px;
+  color: #95a77b;
+}
+.gf-attention-item strong {
+  font-size: 11px;
+  color: #77905e;
+}
+.gf-attention-item small {
+  font-size: 10px;
+  color: #9daf87;
+}
+.gf-attention > .gf-button {
+  font-size: 11px;
+  color: #81986b;
+  min-height: 39px;
+}
+.gf-account-preview .gf-section-head h2 {
+  font-size: 14px;
+  color: #597444;
+}
+.gf-account-preview .gf-section-head p {
+  font-size: 11px;
+  color: #92a77b;
+}
+.gf-mini-accounts strong {
+  font-size: 11px;
+  color: #728c5a;
+}
+.gf-mini-accounts small {
+  font-size: 10px;
+  color: #9eb086;
+}
+.gf-mini-accounts .gf-amount {
+  font-size: 12px;
+  color: #63834a;
+}
+.gf-data-footnote {
+  font-size: 10px;
+  color: #8eaa75;
+}
+.gf-data-footnote button {
+  font-size: 10px;
+  color: #7a995f;
+}
+.gf-main-footer {
+  font-size: 10px;
+  color: #94ab7b;
+}
+.gf-account-owner {
+  font-size: 10px;
+  color: #859f6b;
+}
+.gf-account-card > p {
+  font-size: 13px;
+  color: #7d9962;
+}
+.gf-account-balance {
+  font-size: 31px;
+  color: #52743d;
+}
+.gf-account-card > small {
+  font-size: 10px;
+  color: #97ad7d;
+}
+.gf-card-number {
+  font-size: 11px;
+  color: #96ac7d;
+}
+.gf-account-status {
+  font-size: 11px;
+}
+.gf-account-status .verified {
+  color: #789858;
+}
+.gf-account-status .unverified {
+  color: #a38d57;
+}
+.gf-account-status > small {
+  font-size: 10px;
+  color: #94ad77;
+}
+.gf-account-card footer > span {
+  font-size: 10px;
+  color: #9eb783;
+}
+.gf-account-card footer .gf-button {
+  font-size: 11px;
+  color: #809f63;
+}
+.gf-review-card > small {
+  font-size: 11px;
+  color: #91a77b;
+}
+.gf-review-card h3 {
+  font-size: 17px;
+  color: #5b7b44;
+}
+.gf-review-card > p {
+  font-size: 12px;
+  color: #91aa78;
+}
+.gf-review-card footer > span {
+  font-size: 11px;
+  color: #9bb780;
+}
+.gf-search input {
+  font-size: 12px;
+  color: #6b8b50;
+}
+.gf-toolbar select {
+  font-size: 11px;
+  color: #789862;
+}
+.gf-tabs > button {
+  font-size: 12px;
+  color: #89a271;
+}
+.gf-tabs > button.active {
+  color: #54783c;
+}
+.gf-note {
+  font-size: 12px;
+  color: #829c68;
+  background: #f5f8ef;
+}
+.gf-note.success {
+  color: #6e9252;
+}
+.gf-error {
+  font-size: 12px;
+  color: #a46d59;
+}
+.gf-field > span {
+  font-size: 12px;
+  color: #708f56;
+}
+.gf-field small {
+  font-size: 11px;
+  color: #95ad7d;
+}
+.gf-field input,
+.gf-field select,
+.gf-field textarea {
+  font-size: 13px;
+  color: #587a3e;
+  border-color: #dbe6ce;
+}
+.gf-field input::placeholder,
+.gf-field textarea::placeholder {
+  color: #a6bb8e;
+}
+.gf-modal > header h2 {
+  color: #496b35;
+}
+.gf-modal > header p {
+  font-size: 12px;
+  color: #91aa77;
+}
+.gf-modal > header .gf-eyebrow {
+  color: #91a97b;
+}
+.gf-upload-zone > strong {
+  color: #6a8b4e;
+}
+.gf-upload-zone > p {
+  font-size: 11px;
+  color: #95ae7c;
+}
+.gf-detail-grid strong {
+  font-size: 12px;
+  color: #78975f;
+}
+.gf-detail-grid small {
+  font-size: 10px;
+  color: #9ab483;
+}
+.gf-detail-description {
+  font-size: 13px;
+  color: #819f66;
+}
+.gf-detail-section > p {
+  font-size: 12px;
+  color: #95ae7c;
+}
+.gf-detail-section h3 {
+  font-size: 15px;
+  color: #68894d;
+}
+.gf-match-list strong {
+  font-size: 12px;
+  color: #79995f;
+}
+.gf-match-list small {
+  font-size: 10px;
+  color: #9db785;
+}
+.gf-summary-lines > div {
+  font-size: 12px;
+  color: #8aa572;
+}
+.gf-summary-lines strong {
+  font-size: 12px;
+  color: #6b8d50;
+}
+.gf-recurring-row strong {
+  font-size: 12px;
+  color: #719351;
+}
+.gf-recurring-row small {
+  font-size: 10px;
+  color: #a0b986;
+}
+.gf-recurring-row > .gf-amount {
+  font-size: 13px;
+}
+.gf-budget-row > div:first-child,
+.gf-budget-row strong {
+  font-size: 12px;
+  color: #849f6a;
+}
+.gf-budget-row > small {
+  font-size: 10px;
+  color: #a1b987;
+}
+.gf-payment-strip span {
+  font-size: 11px;
+  color: #8ba773;
+}
+.gf-payment-strip strong {
+  font-size: 20px;
+  color: #759650;
+}
+.gf-closing-guide strong {
+  font-size: 11px;
+  color: #78995a;
+}
+.gf-integration-card h3 {
+  font-size: 17px;
+  color: #79965e;
+}
+.gf-integration-card > p {
+  font-size: 12px;
+  color: #97b17d;
+}
+.gf-integration-meta small {
+  font-size: 11px;
+  color: #8faa71;
+}
+.gf-integration-meta span {
+  font-size: 10px;
+  color: #a4ba8b;
+}
+.gf-report-document > p {
+  font-size: 12px;
+}
+.gf-report-heading > div > strong {
+  font-size: 12px;
+  color: #7c9b5d;
+}
+.gf-report-heading > div > span {
+  font-size: 9px;
+}
+.gf-report-heading > div > small {
+  font-size: 10px;
+  color: #9ab77f;
+}
+.gf-report-notes strong {
+  font-size: 12px;
+  color: #79995c;
+}
+.gf-report-notes p {
+  font-size: 11px;
+  color: #91ad75;
+}
+.gf-report-notes small {
+  font-size: 10px;
+  color: #a0b989;
+}
+.gf-suggestions > button {
+  font-size: 12px;
+  color: #88a469;
+}
+.gf-chat-welcome h2 {
+  font-size: 29px;
+  color: #648646;
+}
+.gf-chat-welcome > p {
+  font-size: 12px;
+  color: #96b07d;
+}
+.gf-chat-welcome .gf-eyebrow {
+  font-size: 9px;
+  color: #9bb784;
+}
+.gf-chat-message p {
+  font-size: 13px;
+  color: #718f58;
+}
+.gf-chat-message small {
+  font-size: 10px;
+  color: #8fae73;
+}
+.gf-chat-message.user p {
+  color: #7d995f;
+}
+.gf-chat-composer textarea {
+  font-size: 13px;
+  color: #789b58;
+}
+.gf-chat-disclaimer {
+  font-size: 10px;
+  color: #a1bb85;
+}
+.gf-aside-line {
+  font-size: 11px;
+  color: #8ba66e;
+}
+.gf-assistant-aside p {
+  font-size: 12px;
+  color: #94ae76;
+}
+.gf-security-item strong {
+  font-size: 12px;
+  color: #7c9b5c;
+}
+.gf-security-item p {
+  font-size: 11px;
+  color: #9ab27e;
+}
+.gf-audit-list strong {
+  font-size: 12px;
+  color: #799c59;
+}
+.gf-audit-list small {
+  font-size: 10px;
+  color: #9dbb81;
+}
+.gf-audit-list time {
+  font-size: 10px;
+  color: #9fb984;
+}
+.gf-login-form .gf-field > span {
+  font-size: 12px;
+  color: #78965d;
+}
+.gf-login-form h2 {
+  color: #496e32;
+}
+.gf-login-form > p {
+  color: #8ea875;
+}
+.gf-login-form > .gf-eyebrow {
+  color: #90aa76;
+}
+.gf-demo-entry > span {
+  font-size: 9px;
+  color: #809e61;
+}
+.gf-demo-entry p {
+  font-size: 12px;
+  color: #8fab70;
+}
+.gf-demo-entry > .gf-button {
+  font-size: 12px;
+  color: #799c57;
+}
+.gf-login-privacy {
+  font-size: 10px;
+  color: #94ad7c;
+}
+.gf-login-access > footer {
+  font-size: 10px;
+  color: #9bb480;
+}
+.gf-login-access > footer > span {
+  color: #a4bb8a;
+}
+@media (max-width: 1250px) {
+  .gf-stat > strong {
+    font-size: 26px;
+  }
+  .gf-stat.primary > strong {
+    font-size: 28px;
+  }
+  .gf-stat-top > span {
+    font-size: 11px;
+  }
+  .gf-stat > small {
+    font-size: 9px;
+  }
+  .gf-mini-accounts .gf-amount {
+    font-size: 12px;
+  }
+  .gf-stat {
+    min-height: 150px;
+  }
+}
+@media (max-width: 1050px) {
+  .gf-sidebar nav > button {
+    font-size: 11px;
+  }
+  .gf-workspace strong {
+    font-size: 9px;
+  }
+  .gf-workspace small {
+    font-size: 8px;
+  }
+  .gf-welcome h1 {
+    font-size: 29px;
+  }
+  .gf-business-filter select {
+    font-size: 11px;
+  }
+  .gf-period-filter input {
+    font-size: 9px;
+    width: 100px;
+  }
+  .gf-donut strong {
+    font-size: 17px;
+  }
+  .gf-donut small {
+    font-size: 7px;
+  }
+  .gf-donut span {
+    font-size: 8px;
+  }
+  .gf-flow-summary > strong {
+    font-size: 22px;
+  }
+  .gf-flow-summary > span {
+    font-size: 9px;
+  }
+  .gf-donut-legend span,
+  .gf-donut-legend strong {
+    font-size: 10px;
+  }
+}
+@media (max-width: 800px) {
+  .gf-sidebar nav > button {
+    font-size: 13px;
+  }
+  .gf-workspace strong {
+    font-size: 11px;
+  }
+  .gf-workspace small {
+    font-size: 9px;
+  }
+  .gf-stat > strong {
+    font-size: 29px;
+  }
+  .gf-stat.primary > strong {
+    font-size: 30px;
+  }
+  .gf-stat > small {
+    font-size: 10px;
+  }
+  .gf-toast {
+    font-size: 12px;
+  }
+}
+@media (max-width: 560px) {
+  .gf-main {
+    overflow-x: clip;
+  }
+  .gf-demo-banner {
+    font-size: 8px;
+  }
+  .gf-demo-banner > span {
+    font-size: 7px;
+  }
+  .gf-breadcrumb {
+    font-size: 10px;
+  }
+  .gf-business-filter select {
+    font-size: 11px;
+  }
+  .gf-top-upload {
+    font-size: 10px;
+  }
+  .gf-period-filter input {
+    font-size: 10px;
+    width: 110px;
+  }
+  .gf-welcome h1 {
+    font-size: 25px;
+    letter-spacing: -0.8px;
+  }
+  .gf-welcome .gf-eyebrow {
+    font-size: 8px;
+  }
+  .gf-welcome p {
+    font-size: 12px;
+  }
+  .gf-stat {
+    padding: 18px 14px;
+    min-height: 149px;
+  }
+  .gf-stat-top > span {
+    font-size: 11px;
+  }
+  .gf-stat > strong {
+    font-size: 24px;
+  }
+  .gf-stat.primary > strong {
+    font-size: 25px;
+  }
+  .gf-stat > small,
+  .gf-stat.primary > small {
+    font-size: 9px;
+    line-height: 1.7;
+  }
+  .gf-panel .gf-section-head h2 {
+    font-size: 14px;
+  }
+  .gf-panel .gf-section-head p {
+    font-size: 11px;
+  }
+  .gf-panel .gf-section-head .gf-button {
+    font-size: 10px;
+  }
+  .gf-flow-summary > strong {
+    font-size: 26px;
+  }
+  .gf-flow-summary > span {
+    font-size: 9px;
+  }
+  .gf-chart-axis,
+  .gf-chart-labels {
+    font-size: 9px;
+  }
+  .gf-donut small {
+    font-size: 8px;
+  }
+  .gf-donut strong {
+    font-size: 17px;
+  }
+  .gf-donut span {
+    font-size: 8px;
+  }
+  .gf-donut-legend span,
+  .gf-donut-legend strong {
+    font-size: 11px;
+  }
+  .gf-distribution {
+    gap: 10px;
+    padding: 0;
+  }
+  .gf-donut {
+    width: 137px;
+    height: 137px;
+  }
+  .gf-account-preview .gf-section-head h2 {
+    font-size: 13px;
+  }
+  .gf-account-preview .gf-section-head p {
+    font-size: 10px;
+  }
+  .gf-account-preview .gf-section-head .gf-button {
+    font-size: 10px;
+  }
+  .gf-mini-accounts strong {
+    font-size: 11px;
+  }
+  .gf-mini-accounts small {
+    font-size: 9px;
+  }
+  .gf-mini-accounts .gf-amount {
+    font-size: 17px;
+  }
+  .gf-data-footnote {
+    font-size: 10px;
+    line-height: 1.8;
+  }
+  .gf-main-footer {
+    font-size: 9px;
+  }
+  .gf-main-footer > span:last-child {
+    font-size: 8px;
+  }
+  .gf-bottom-nav > button > span {
+    font-size: 10px;
+  }
+  .gf-bottom-nav > button {
+    color: #8aa373;
+  }
+  .gf-bottom-nav > button.active {
+    color: #527737;
+  }
+  .gf-section-head p {
+    font-size: 12px;
+  }
+  .gf-section-head .gf-eyebrow {
+    font-size: 9px;
+  }
+  .gf-field input,
+  .gf-field select,
+  .gf-field textarea {
+    font-size: 16px;
+  }
+  .gf-field > span {
+    font-size: 12px;
+  }
+  .gf-field small {
+    font-size: 11px;
+  }
+  .gf-note {
+    font-size: 12px;
+  }
+  .gf-form-footer > .gf-button {
+    font-size: 12px;
+  }
+  .gf-upload-zone > p {
+    font-size: 12px;
+  }
+  .gf-upload-zone > .gf-inline .gf-button {
+    font-size: 12px;
+  }
+  .gf-badge {
+    font-size: 10px;
+  }
+  .gf-table-footer {
+    font-size: 10px;
+  }
+  .compact .gf-table th {
+    font-size: 10px;
+  }
+  .compact .gf-table-main strong {
+    font-size: 12px;
+  }
+  .compact .gf-table-main small {
+    font-size: 10px;
+  }
+  .compact .gf-table .gf-amount {
+    font-size: 12px;
+  }
+  .gf-detail-grid strong {
+    font-size: 12px;
+  }
+  .gf-detail-grid small {
+    font-size: 11px;
+  }
+  .gf-detail-description {
+    font-size: 13px;
+  }
+  .gf-match-list strong {
+    font-size: 12px;
+  }
+  .gf-match-list small {
+    font-size: 10px;
+  }
+  .gf-review-card footer > span {
+    font-size: 12px;
+  }
+  .gf-tabs > button {
+    font-size: 12px;
+  }
+  .gf-account-card > small {
+    font-size: 11px;
+  }
+  .gf-account-status > small {
+    font-size: 11px;
+  }
+  .gf-account-card footer .gf-button {
+    font-size: 12px;
+  }
+  .gf-payment-strip span {
+    font-size: 11px;
+  }
+  .gf-payment-strip strong {
+    font-size: 18px;
+  }
+  .gf-summary-lines > div,
+  .gf-summary-lines strong {
+    font-size: 11px;
+  }
+  .gf-report-heading > div > span {
+    font-size: 8px;
+  }
+  .gf-report-heading > div > strong {
+    font-size: 11px;
+  }
+  .gf-report-heading > div > small {
+    font-size: 9px;
+  }
+  .gf-report-notes p {
+    font-size: 11px;
+  }
+  .gf-report-notes small {
+    font-size: 10px;
+  }
+  .gf-chat-welcome h2 {
+    font-size: 25px;
+  }
+  .gf-chat-welcome > p {
+    font-size: 12px;
+  }
+  .gf-chat-welcome .gf-eyebrow {
+    font-size: 8px;
+  }
+  .gf-suggestions > button {
+    font-size: 11px;
+  }
+  .gf-chat-composer textarea {
+    font-size: 16px;
+  }
+  .gf-chat-disclaimer {
+    font-size: 10px;
+  }
+  .gf-audit-list strong {
+    font-size: 11px;
+  }
+  .gf-audit-list small {
+    font-size: 10px;
+  }
+  .gf-audit-list time {
+    font-size: 9px;
+    width: 85px;
+  }
+  .gf-login-form .gf-field > span {
+    font-size: 12px;
+  }
+  .gf-login-form .gf-field input {
+    font-size: 16px;
+  }
+  .gf-login-form > p {
+    font-size: 13px;
+  }
+  .gf-login-form > .gf-eyebrow {
+    font-size: 9px;
+  }
+  .gf-demo-entry > span {
+    font-size: 9px;
+  }
+  .gf-demo-entry p {
+    font-size: 12px;
+  }
+  .gf-demo-entry > .gf-button {
+    font-size: 12px;
+  }
+  .gf-login-privacy {
+    font-size: 10px;
+  }
+  .gf-login-access > footer {
+    font-size: 10px;
+  }
+  .gf-login-access > footer > span {
+    font-size: 9px;
+  }
+}

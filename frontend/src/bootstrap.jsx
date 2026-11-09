@@ -42,7 +42,10 @@ async function moveLegacyStudioSession(session) {
 
 const legacySession = isLegacyStudioHost && isStudioEntry ? storedStudioSession() : null;
 
-if (legacySession) {
+if (window.location.pathname === '/finanzas' || window.location.pathname.startsWith('/finanzas/')) {
+  document.title = 'Gema · Centro financiero';
+  import('./finance/entry.jsx');
+} else if (legacySession) {
   void moveLegacyStudioSession(legacySession);
 } else if (isStudioEntry) {
   document.title = 'Estudios Creativos';

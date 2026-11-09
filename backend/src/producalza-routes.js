@@ -743,6 +743,12 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     createInitialPendingBalance(orderId, businessId, pendingAmount, userLabel);
   }
 
+  function financePaymentLocked(paymentId) {
+    if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='finance_movements'").get()) return false;
+    return Boolean(db.prepare(`SELECT id FROM finance_movements WHERE production_payment_id=?
+      AND (production_payment_owned=1 OR status='reconciled' OR EXISTS (SELECT 1 FROM finance_allocations WHERE movement_id=finance_movements.id))`).get(paymentId));
+  }
+
   function reducePendingBalance(orderId, businessId, amount, excludedPaymentId = null) {
     let remaining = moneyValue(amount);
     if (remaining <= 0) return;
@@ -4531,6 +4537,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       'SELECT * FROM production_order_payments WHERE id = ? AND order_id = ? AND establishment_id = ?'
     ).get(req.params.paymentId, order.id, business.id);
     if (!current) return res.status(404).json({ message: 'Cobro no encontrado' });
+    if (financePaymentLocked(current.id)) return res.status(409).json({ message: 'Este abono está vinculado a Finanzas. Corrige su conciliación desde el centro financiero.' });
     const payment = normalizePaymentPayload({ ...current, ...req.body });
     db.transaction(() => {
       db.prepare(
@@ -4574,6 +4581,7 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
       'SELECT * FROM production_order_payments WHERE id = ? AND order_id = ? AND establishment_id = ?'
     ).get(req.params.paymentId, order.id, business.id);
     if (!current) return res.status(404).json({ message: 'Cobro no encontrado' });
+    if (financePaymentLocked(current.id)) return res.status(409).json({ message: 'Este abono está vinculado a Finanzas. Corrige su conciliación desde el centro financiero.' });
     let result;
     db.transaction(() => {
       result = db.prepare(
@@ -5591,6 +5599,38 @@ export function registerProducalzaRoutes(app, db, getRequestEstablishmentId) {
     audit(req, 'batch_update', 'production_model', null, `${updates.length} modelos actualizados`);
     res.json({ ok: true, updated: updates.length });
   });
+
+  // Called by Finance inside a transaction on this same database connection.
+  return {
+    applyFinancePayment(movement, bankDay, bankName, actor) {
+      const order = db.prepare("SELECT * FROM production_orders WHERE id=? AND deleted_at IS NULL AND status<>'cancelled'").get(movement.order_id);
+      if (!order) throw Object.assign(new Error('El pedido ya no está disponible para aplicar el abono'), {status:409});
+      const amount = moneyValue(movement.amount_cents / 100);
+      const existing = movement.production_payment_id
+        ? db.prepare('SELECT * FROM production_order_payments WHERE id=? AND order_id=?').get(movement.production_payment_id, order.id)
+        : movement.source_system === 'producalza'
+          ? db.prepare('SELECT * FROM production_order_payments WHERE id=? AND order_id=?').get(Number(movement.external_id), order.id)
+          : movement.reference ? db.prepare("SELECT * FROM production_order_payments WHERE order_id=? AND reference=? AND ABS(amount-?)<0.005 AND status='paid' AND payment_type<>'saldo'").get(order.id,movement.reference,amount) : null;
+      if (existing?.status === 'paid') return {id:existing.id,owned:Boolean(movement.production_payment_owned)};
+      let id=existing?.id;
+      if (id) db.prepare("UPDATE production_order_payments SET status='paid',payment_date=?,bank=?,updated_at=datetime('now','localtime') WHERE id=?").run(bankDay,bankName,id);
+      else id=Number(db.prepare(`INSERT INTO production_order_payments (establishment_id,order_id,payment_type,amount,payment_date,status,bank,reference,notes,created_by)
+        VALUES (?,?,'transferencia',?,?,'paid',?,?,?,?)`).run(order.establishment_id,order.id,amount,bankDay,bankName,movement.reference,`Conciliación financiera #${movement.id}`,actor).lastInsertRowid);
+      deleteAutomaticDeliveryBalance(order.id,order.establishment_id);
+      reducePendingBalance(order.id,order.establishment_id,amount,id);
+      db.prepare("INSERT INTO production_audit_log (establishment_id,user_label,action,entity_type,entity_id,details) VALUES (?,?,'finance_payment_confirmed','order_payment',?,?)").run(order.establishment_id,actor,id,`Movimiento financiero #${movement.id}`);
+      return {id,owned:true};
+    },
+    reverseFinancePayment(movement, actor) {
+      if (!movement.production_payment_owned || !movement.production_payment_id) return;
+      const payment=db.prepare('SELECT * FROM production_order_payments WHERE id=?').get(movement.production_payment_id);
+      if (!payment || payment.status!=='paid') return;
+      db.prepare("UPDATE production_order_payments SET status='cancelled',updated_at=datetime('now','localtime') WHERE id=?").run(payment.id);
+      deleteAutomaticDeliveryBalance(payment.order_id,payment.establishment_id);
+      addPendingBalance(payment.order_id,payment.establishment_id,payment.amount,actor);
+      db.prepare("INSERT INTO production_audit_log (establishment_id,user_label,action,entity_type,entity_id,details) VALUES (?,?,'finance_payment_reversed','order_payment',?,?)").run(payment.establishment_id,actor,payment.id,`Corrección de conciliación #${movement.id}`);
+    }
+  };
 }
 
 function deriveModelStatus(model, fallback = 'received') {
