@@ -853,11 +853,11 @@ export function EditPanel({ type, initial = {}, onClose }) {
             {!initial.id && (
               <Field
                 label="Contraseña inicial"
-                hint="Mínimo 12 caracteres. Compártela por un canal privado."
+                hint="8 caracteres. Compártela por un canal privado."
                 type="password"
                 required
-                minLength={12}
-                maxLength={256}
+                minLength={8}
+                maxLength={8}
                 autoComplete="new-password"
                 value={form.password}
                 onChange={(e) => set("password", e.target.value)}

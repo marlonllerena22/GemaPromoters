@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { gunzipSync } from "node:zlib";
-import { audit, passwordHash, safeMember } from "./finance-db.js";
+import { audit, passwordHash, safeMember, validateFinancePassword } from "./finance-db.js";
 import { encryptDocument, decryptDocument } from "./finance-ai.js";
 import { fail, text } from "./finance-service.js";
 import { privateSetting, putPrivateSetting } from "./finance-operations.js";
@@ -274,12 +274,7 @@ export function registerPublicFinanceAccess(app, db, { route, startSession }) {
     "/api/finance/access/activate",
     route((req, res) => {
       const i = invitation(req);
-      if (
-        typeof req.body.password !== "string" ||
-        req.body.password.length < 12 ||
-        req.body.password.length > 256
-      )
-        fail("Usa una contraseña de al menos 12 caracteres");
+      validateFinancePassword(req.body.password);
       db.transaction(() => {
         db.prepare(
           "UPDATE finance_members SET password_hash=?,active=1 WHERE id=?",

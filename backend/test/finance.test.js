@@ -6,6 +6,8 @@ import express from "express";
 import {
   initFinanceDb,
   passwordHash,
+  passwordMatches,
+  validateFinancePassword,
   financeDay,
   validDay,
 } from "../src/finance-db.js";
@@ -17,7 +19,23 @@ import { initProducalzaDb } from "../src/producalza-db.js";
 import { registerProducalzaRoutes } from "../src/producalza-routes.js";
 import { syncInternalSources } from "../src/finance-sources.js";
 
-const password = "financial-fixture-password-123";
+const password = "Fixture8";
+test('eight-character passwords work while existing longer passwords still verify',()=>{
+  assert.equal(validateFinancePassword('NewPass8'),'NewPass8');
+  for(const value of ['short77','longer999','twelve-chars',null])assert.throws(()=>validateFinancePassword(value),e=>e.status===400);
+  const legacy='previous-financial-passphrase-123';assert.equal(passwordMatches(legacy,passwordHash(legacy)),true);
+});
+test('activation accepts exactly eight characters and consumes the invitation only after success',async t=>{
+  const f=await fixture(t);await f.login();
+  const owner=f.db.prepare("SELECT id FROM finance_members WHERE username='owner'").get();
+  const invite=await f.req(`/members/${owner.id}/invite`,'owner',{});assert.equal(invite.status,200);
+  const token=invite.body.token;
+  for(const invalid of ['seven77','nine99999'])assert.equal((await f.req('/access/activate','owner',{token,password:invalid})).status,400);
+  const activated=await f.req('/access/activate','owner',{token,password:'NewPass8'});assert.equal(activated.status,200);assert.equal(activated.body.user.username,'owner');
+  assert.equal((await f.req('/access/activate','owner',{token,password:'NewPass8'})).status,404);
+  assert.equal((await f.req('/login','owner',{username:'owner',password:'NewPass8'})).status,200);
+  assert.equal((await f.req('/login','owner',{username:'owner',password})).status,401);
+});
 test("manual Diners balances separate available and pending funds without creating bank income", async (t) => {
   const f = await fixture(t);
   await f.login();

@@ -751,7 +751,8 @@ export function InviteActivation() {
                 <input
                   type="password"
                   autoComplete="new-password"
-                  minLength={12}
+                  minLength={8}
+                  maxLength={8}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
@@ -761,14 +762,15 @@ export function InviteActivation() {
                 <input
                   type="password"
                   autoComplete="new-password"
-                  minLength={12}
+                  minLength={8}
+                  maxLength={8}
                   value={repeat}
                   onChange={(e) => setRepeat(e.target.value)}
                   required
                 />
               </Field>
               <p>
-                Al menos 12 caracteres. Este enlace se utiliza una sola vez.
+                Usa 8 caracteres. Este enlace se utiliza una sola vez.
               </p>
               <Button type="submit" icon={Check} loading={busy}>
                 Activar mi acceso

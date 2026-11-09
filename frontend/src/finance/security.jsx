@@ -221,10 +221,10 @@ export function SecurityPanel() {
                 <>
                   <Field
                     label="Nueva contraseña"
-                    hint="Entre 12 y 256 caracteres."
+                    hint="Usa 8 caracteres."
                     type="password"
-                    minLength={12}
-                    maxLength={256}
+                    minLength={8}
+                    maxLength={8}
                     required
                     autoComplete="new-password"
                     value={newPassword}

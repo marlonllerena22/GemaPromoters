@@ -51,14 +51,20 @@ export function cents(value, { signed = false, zero = false } = {}) {
   return value;
 }
 
+export function validateFinancePassword(password) {
+  if(typeof password!=='string'||password.length!==8)
+    throw Object.assign(new Error('La contraseña debe tener 8 caracteres'),{status:400});
+  return password;
+}
+
 export function passwordHash(password) {
   if (
     typeof password !== "string" ||
-    password.length < 12 ||
+    password.length < 8 ||
     password.length > 256
   )
     throw Object.assign(
-      new Error("La contraseña debe tener entre 12 y 256 caracteres"),
+      new Error("La contraseña debe tener entre 8 y 256 caracteres"),
       { status: 400 },
     );
   const salt = crypto.randomBytes(16).toString("hex");

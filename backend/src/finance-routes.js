@@ -24,6 +24,7 @@ import {
   financeDay,
   initFinanceDb,
   passwordHash,
+  validateFinancePassword,
   passwordMatches,
   safeMember,
   validDay,
@@ -1390,7 +1391,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
           .run(
             text(b.name),
             text(b.username, 100),
-            passwordHash(b.password),
+            passwordHash(validateFinancePassword(b.password)),
             b.role,
             JSON.stringify([...new Set(b.business_ids)]),
             JSON.stringify(b.unit_ids || []),

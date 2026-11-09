@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import QRCode from "qrcode";
-import { audit, passwordHash, passwordMatches } from "./finance-db.js";
+import { audit, passwordHash, passwordMatches, validateFinancePassword } from "./finance-db.js";
 import { decryptDocument, encryptDocument } from "./finance-ai.js";
 import { fail, text } from "./finance-service.js";
 
@@ -214,7 +214,7 @@ export function registerFinanceSecurity(app, db, { route, sessionToken }) {
     "/api/finance/security/password",
     route((req, res) => {
       const member = reauthenticate(req);
-      const hash = passwordHash(req.body.new_password);
+      const hash = passwordHash(validateFinancePassword(req.body.new_password));
       const current = crypto
         .createHash("sha256")
         .update(sessionToken(req))
