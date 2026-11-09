@@ -92,6 +92,18 @@ export function CollaboratorHome() {
           </div>
           <ArrowRight size={20} />
         </button>
+        {user.username === "norma" && (
+          <button onClick={() => open("quick", { mode: "receipt" })}>
+            <span className="gf-simple-action-icon">
+              <Camera size={27} />
+            </span>
+            <div>
+              <strong>Abono de un cliente</strong>
+              <p>Producalza · sube el comprobante recibido.</p>
+            </div>
+            <ArrowRight size={20} />
+          </button>
+        )}
         {store && (
           <button onClick={() => open("store-receipt")}>
             <span className="gf-simple-action-icon">
