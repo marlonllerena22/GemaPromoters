@@ -29,7 +29,13 @@ const html = (await fs.readFile(path.join(dist, "index.html"), "utf8"))
 await fs.writeFile(path.join(dist, "index.html"), html);
 await fs.writeFile(path.join(dist, "finanzas/index.html"), html);
 await fs.writeFile(path.join(dist, "demo-data.json"), JSON.stringify({ user, snapshots, exports }));
-await fs.writeFile(path.join(dist, "_redirects"), "/finanzas/* /index.html 200\n");
+await fs.writeFile(path.join(dist, "_redirects"), [
+  "/finanzas /index.html 200",
+  "/finanzas/ /index.html 200",
+  ...["inicio", "movimientos", "cuentas", "pendientes", "ventas", "gastos", "cierres", "reportes", "asistente", "conexiones", "equipo", "configuracion"]
+    .map(page => `/finanzas/${page} /index.html 200`),
+  "",
+].join("\n"));
 await fs.writeFile(path.join(dist, "_headers"), "/*\n  X-Robots-Tag: noindex, nofollow, noarchive\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: no-referrer\n  Cache-Control: no-store\n");
 await fs.writeFile(path.join(dist, "preview-api.js"), `
 // Read-only display adapter. No operational backend or credentials are present.
