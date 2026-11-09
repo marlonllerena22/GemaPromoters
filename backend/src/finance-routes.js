@@ -1,5 +1,11 @@
 import crypto from "node:crypto";
 import { registerQuickEntry } from "./finance-quick.js";
+import { attachWorkflow } from "./finance-workflow.js";
+import {
+  registerWorkflowRoutes,
+  assignSpaceMemberships,
+} from "./finance-workflow-routes.js";
+import { registerPaymentPush } from "./finance-push.js";
 import {
   audit,
   cents,
@@ -274,9 +280,19 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
   );
   app.get(
     "/api/finance/snapshot",
-    route((req, res) => res.json(snapshot(db, req.financeUser, req.query))),
+    route((req, res) =>
+      res.json(
+        attachWorkflow(
+          db,
+          req.financeUser,
+          snapshot(db, req.financeUser, req.query),
+        ),
+      ),
+    ),
   );
   registerFinanceSecurity(app, db, { route, sessionToken });
+  registerWorkflowRoutes(app, db, { route, owner });
+  registerPaymentPush(app, db, { route, owner });
   app.post(
     "/api/finance/quick/register",
     route((req, res) => {
@@ -308,6 +324,11 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         req.params.id,
         req.financeUser,
       );
+      if (movement.is_payment_request)
+        fail(
+          "Gestiona esta solicitud desde Por pagar para conservar su historial",
+          409,
+        );
       if (
         !["pending", "reported", "approved"].includes(movement.status) ||
         movement.allocated_cents
@@ -898,7 +919,11 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
       aiLimit(req);
       const question = text(req.body.question, 1500);
       if (!question) fail("Escribe tu consulta");
-      const data = snapshot(db, req.financeUser, req.body.filters || {});
+      const data = attachWorkflow(
+        db,
+        req.financeUser,
+        snapshot(db, req.financeUser, req.body.filters || {}),
+      );
       if (!process.env.OPENAI_API_KEY) {
         const usd = (n) =>
           new Intl.NumberFormat("es-EC", {
@@ -1235,7 +1260,21 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         members: db
           .prepare("SELECT * FROM finance_members ORDER BY id")
           .all()
-          .map(safeMember),
+          .map((m) => ({
+            ...safeMember(m),
+            space_ids: db
+              .prepare(
+                "SELECT space_id FROM finance_space_members WHERE member_id=?",
+              )
+              .all(m.id)
+              .map((s) => s.space_id),
+            space_role:
+              db
+                .prepare(
+                  "SELECT role FROM finance_space_members WHERE member_id=? LIMIT 1",
+                )
+                .get(m.id)?.role || "requester",
+          })),
       });
     }),
   );
@@ -1253,6 +1292,13 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
       )
         fail("Completa nombre, usuario, rol y negocios");
       for (const id of b.business_ids) businessAccess(req.financeUser, id);
+      if (
+        b.work_view === true &&
+        (b.role !== "viewer" || b.business_ids.includes("personal"))
+      )
+        fail(
+          "El perfil de consulta de trabajo excluye los detalles personales y utiliza rol de consulta",
+        );
       for (const id of b.unit_ids || []) {
         const u = db.prepare("SELECT * FROM finance_units WHERE id=?").get(id);
         if (!u || !b.business_ids.includes(u.business_id))
@@ -1267,7 +1313,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
       const result = db.transaction(() => {
         const row = db
           .prepare(
-            "INSERT INTO finance_members (name,username,password_hash,role,business_ids,unit_ids) VALUES (?,?,?,?,?,?)",
+            "INSERT INTO finance_members (name,username,password_hash,role,business_ids,unit_ids,work_view) VALUES (?,?,?,?,?,?,?)",
           )
           .run(
             text(b.name),
@@ -1276,6 +1322,15 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
             b.role,
             JSON.stringify([...new Set(b.business_ids)]),
             JSON.stringify(b.unit_ids || []),
+            b.work_view === true ? 1 : 0,
+          );
+        if (b.space_ids !== undefined)
+          assignSpaceMemberships(
+            db,
+            Number(row.lastInsertRowid),
+            b.space_ids,
+            b.role === "viewer" ? "observer" : b.space_role || "requester",
+            b.business_ids,
           );
         audit(
           db,
@@ -1294,6 +1349,74 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         return { id: Number(row.lastInsertRowid) };
       })();
       res.status(201).json(result);
+    }),
+  );
+  app.post(
+    "/api/finance/members/:id/access",
+    route((req, res) => {
+      owner(req);
+      const member = db
+          .prepare("SELECT * FROM finance_members WHERE id=?")
+          .get(req.params.id),
+        b = req.body;
+      if (!member || member.role === "owner")
+        fail("Este acceso no se puede cambiar desde aquí", 403);
+      if (
+        !["manager", "collector", "viewer"].includes(b.role) ||
+        !Array.isArray(b.business_ids) ||
+        !b.business_ids.length
+      )
+        fail("Selecciona rol y negocios");
+      for (const id of b.business_ids) businessAccess(req.financeUser, id);
+      for (const id of b.unit_ids || []) {
+        const unit = db
+          .prepare("SELECT * FROM finance_units WHERE id=?")
+          .get(id);
+        if (!unit || !b.business_ids.includes(unit.business_id))
+          fail("Local fuera del acceso");
+      }
+      if (
+        b.work_view === true &&
+        (b.role !== "viewer" || b.business_ids.includes("personal"))
+      )
+        fail("La consulta de trabajo excluye los detalles personales");
+      db.transaction(() => {
+        db.prepare(
+          "UPDATE finance_members SET name=?,role=?,business_ids=?,unit_ids=?,work_view=? WHERE id=?",
+        ).run(
+          text(b.name) || member.name,
+          b.role,
+          JSON.stringify([...new Set(b.business_ids)]),
+          JSON.stringify(b.unit_ids || []),
+          b.work_view === true ? 1 : 0,
+          member.id,
+        );
+        if (b.space_ids !== undefined)
+          assignSpaceMemberships(
+            db,
+            member.id,
+            b.space_ids,
+            b.role === "viewer" ? "observer" : b.space_role || "requester",
+            b.business_ids,
+          );
+        db.prepare("DELETE FROM finance_sessions WHERE member_id=?").run(
+          member.id,
+        );
+        audit(
+          db,
+          req.financeUser.username,
+          "member.permissions_changed",
+          "member",
+          member.id,
+          safeMember(member),
+          safeMember(
+            db
+              .prepare("SELECT * FROM finance_members WHERE id=?")
+              .get(member.id),
+          ),
+        );
+      })();
+      res.json({ ok: true });
     }),
   );
   app.post(

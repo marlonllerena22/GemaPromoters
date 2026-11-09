@@ -18,6 +18,278 @@ import { registerProducalzaRoutes } from "../src/producalza-routes.js";
 import { syncInternalSources } from "../src/finance-sources.js";
 
 const password = "financial-fixture-password-123";
+async function workflowReceipt(f, tag = "one", business = "producalza") {
+  const png =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aO8sAAAAASUVORK5CYII=";
+  const r = await f.req("/evidence", "owner", {
+    business_id: business,
+    name: `comprobante-${tag}.png`,
+    mime: "image/png",
+    data: Buffer.concat([
+      Buffer.from(png, "base64"),
+      Buffer.from(tag),
+    ]).toString("base64"),
+  });
+  assert.ok([200, 201].includes(r.status));
+  return r.body.id;
+}
+test("workspaces authorize named participants without exposing peer financial accounts", async (t) => {
+  const f = await fixture(t);
+  for (const u of ["owner", "normita", "peer"]) await f.login(u);
+  const member = f.db
+    .prepare("SELECT id FROM finance_members WHERE username='normita'")
+    .get();
+  assert.equal(
+    (
+      await f.req("/spaces/producalza-materiales/settings", "owner", {
+        members: [{ member_id: member.id, role: "requester" }],
+      })
+    ).status,
+    200,
+  );
+  const r = await f.req("/quick/register", "normita", {
+    request_id: crypto.randomUUID(),
+    text: "Solicito pagar $300 en materiales",
+    space_id: "producalza-materiales",
+  });
+  assert.equal(r.status, 201);
+  assert.equal(r.body.movement.is_payment_request, 1);
+  assert.equal(
+    (await f.req(`/payment-requests/${r.body.movement.id}`, "normita")).status,
+    200,
+  );
+  assert.equal(
+    (await f.req(`/payment-requests/${r.body.movement.id}`, "peer")).status,
+    404,
+  );
+  assert.equal(
+    (await f.req("/spaces/producalza-materiales", "peer")).status,
+    403,
+  );
+  assert.equal(
+    (
+      await f.req("/quick/register", "peer", {
+        request_id: crypto.randomUUID(),
+        text: "Solicito pagar Producalza $80",
+        space_id: "producalza-materiales",
+      })
+    ).status,
+    403,
+  );
+  const view = (await f.req("/snapshot", "normita")).body;
+  assert.equal(view.accounts.length, 0);
+  assert.equal(view.workflow.spaces.length, 1);
+  assert.equal(view.workflow.summary.pending_cents, 30000);
+});
+test("payable reminders survive reads and approval, resolve on evidenced payments and reopen on correction", async (t) => {
+  const f = await fixture(t);
+  await f.login();
+  const account = await f.account("producalza");
+  const created = await f.req("/quick/register", "owner", {
+    request_id: crypto.randomUUID(),
+    text: "Solicito pagar Producalza $300 de materiales",
+  });
+  const id = created.body.movement.id;
+  assert.equal(
+    (await f.req("/snapshot")).body.workflow.summary.pending_count,
+    1,
+  );
+  assert.equal(
+    (await f.req(`/movements/${id}/review`, "owner", { status: "approved" }))
+      .status,
+    409,
+  );
+  const firstReceipt = await workflowReceipt(f, "partial");
+  const first = {
+    request_key: crypto.randomUUID(),
+    amount_cents: 10000,
+    evidence_id: firstReceipt,
+    account_id: account,
+    paid_day: f.day,
+    reference: "TEST-PAGO-1",
+    confirm_paid: true,
+  };
+  assert.equal(
+    (
+      await f.req(`/payment-requests/${id}/payments`, "owner", {
+        ...first,
+        confirm_paid: false,
+      })
+    ).status,
+    400,
+  );
+  const paid = await f.req(`/payment-requests/${id}/payments`, "owner", first);
+  assert.equal(paid.status, 201);
+  assert.equal(
+    (await f.req(`/payment-requests/${id}/payments`, "owner", first)).body
+      .duplicate,
+    true,
+  );
+  assert.equal(
+    (await f.req("/snapshot")).body.workflow.summary.pending_cents,
+    20000,
+  );
+  assert.equal(
+    (
+      await f.req(`/payment-requests/${id}/payments`, "owner", {
+        ...first,
+        request_key: crypto.randomUUID(),
+        amount_cents: 25000,
+      })
+    ).status,
+    409,
+  );
+  const secondReceipt = await workflowReceipt(f, "final");
+  assert.equal(
+    (
+      await f.req(`/payment-requests/${id}/payments`, "owner", {
+        ...first,
+        request_key: crypto.randomUUID(),
+        amount_cents: 20000,
+        evidence_id: secondReceipt,
+        reference: "TEST-PAGO-2",
+      })
+    ).status,
+    201,
+  );
+  const complete = (await f.req("/snapshot")).body;
+  assert.equal(complete.workflow.summary.pending_count, 0);
+  assert.equal(complete.summary.expense_cents, 30000);
+  assert.equal(complete.summary.pending_cents, 0);
+  assert.equal(
+    f.db.prepare("SELECT COUNT(*) n FROM finance_bank_transactions").get().n,
+    0,
+  );
+  assert.equal(
+    (
+      await f.req(`/payments/${paid.body.payment.id}/void`, "owner", {
+        reason: "Comprobante de prueba corregido",
+      })
+    ).status,
+    200,
+  );
+  const reopened = (await f.req("/snapshot")).body;
+  assert.equal(reopened.workflow.summary.pending_cents, 10000);
+  assert.equal(reopened.summary.expense_cents, 20000);
+  assert.equal(
+    (
+      await f.req(`/payment-requests/${id}/cancel`, "owner", {
+        reason: "El saldo restante ya no se necesita",
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (await f.req("/snapshot")).body.workflow.summary.pending_count,
+    0,
+  );
+  assert.equal(
+    f.db.prepare("SELECT COUNT(*) n FROM finance_payments").get().n,
+    2,
+  );
+});
+test("work observer sees bank balances and work detail while personal transactions and allocations stay private", async (t) => {
+  const f = await fixture(t);
+  await f.login();
+  const account = await f.account();
+  await f.bank(account, [
+    {
+      day: f.day,
+      amount_cents: 20000,
+      external_id: "shared",
+      description: "SECRET-PERSONAL-BANK",
+    },
+  ]);
+  await f.movement({
+    business_id: "personal",
+    kind: "expense",
+    counterparty: "SECRET-PERSONAL-PAYEE",
+    description: "SECRET-PERSONAL-REASON",
+  });
+  await f.movement({ description: "Compra de materiales de trabajo" });
+  f.db
+    .prepare("INSERT INTO finance_account_allocations VALUES (?,?,?)")
+    .run(account, "personal", 12345);
+  const r = await f.req("/members", "owner", {
+    name: "Germán",
+    username: "german",
+    password,
+    role: "viewer",
+    work_view: true,
+    business_ids: ["producalza", "marjorie", "gemashow"],
+    space_ids: ["trabajo-varios"],
+  });
+  assert.equal(r.status, 201);
+  await f.login("german");
+  const snapshot = (await f.req("/snapshot", "german")).body;
+  assert.equal(
+    snapshot.accounts.find((a) => a.id === account).balance_cents,
+    20000,
+  );
+  assert.equal(snapshot.accounts[0].positions.personal, undefined);
+  assert.equal(
+    snapshot.accounts[0].opening_allocations.some(
+      (a) => a.business_id === "personal",
+    ),
+    false,
+  );
+  assert.equal(snapshot.bank_transactions.length, 0);
+  assert.equal(
+    snapshot.movements.some(
+      (m) => m.description === "Compra de materiales de trabajo",
+    ),
+    true,
+  );
+  assert.equal(JSON.stringify(snapshot).includes("SECRET-PERSONAL"), false);
+  assert.equal(
+    (await f.req("/snapshot?business_id=personal", "german")).status,
+    403,
+  );
+  assert.equal(
+    (
+      await f.req("/members", "owner", {
+        name: "Incorrecto",
+        username: "unsafe-observer",
+        password,
+        role: "viewer",
+        work_view: true,
+        business_ids: ["personal"],
+      })
+    ).status,
+    400,
+  );
+});
+test("space membership edits and profile changes revoke sessions without dismissing a pending payment", async (t) => {
+  const f = await fixture(t);
+  await f.login();
+  await f.login("normita");
+  const member = f.db
+    .prepare("SELECT id FROM finance_members WHERE username='normita'")
+    .get();
+  const r = await f.req("/quick/register", "normita", {
+    request_id: crypto.randomUUID(),
+    text: "Solicito pagar Producalza $90",
+  });
+  assert.equal(r.status, 201);
+  assert.equal(
+    (
+      await f.req(`/members/${member.id}/access`, "owner", {
+        name: "Norma",
+        role: "collector",
+        business_ids: ["producalza"],
+        unit_ids: [],
+        space_ids: ["producalza-materiales"],
+      })
+    ).status,
+    200,
+  );
+  assert.equal((await f.req("/snapshot", "normita")).status, 401);
+  assert.equal(
+    (await f.req("/snapshot")).body.workflow.summary.pending_cents,
+    9000,
+  );
+  assert.equal((await f.req("/push/config")).body.enabled, false);
+});
 test("quick owner registration is idempotent, audited and never accredits a bank", async (t) => {
   const f = await fixture(t);
   await f.login();

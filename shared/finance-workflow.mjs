@@ -1,0 +1,195 @@
+export const WORK_BUSINESSES = ["producalza", "marjorie", "gemashow"];
+export const SPACE_TEMPLATES = [
+  {
+    id: "producalza-pagos",
+    name: "Pagos Producalza",
+    kind: "general",
+    business_ids: ["producalza"],
+    unit_id: "producalza-fabrica",
+    description: "Cajas, servicios, proveedores, adelantos y transportes.",
+    suggested_members: ["Norma", "Morelia", "Germán", "Tú"],
+  },
+  {
+    id: "producalza-materiales",
+    name: "Materiales de bodega",
+    kind: "materials",
+    business_ids: ["producalza"],
+    unit_id: "producalza-fabrica",
+    description: "Compras de materiales para bodega.",
+    suggested_members: ["Norma", "Morelia", "Ana", "José", "Tú"],
+  },
+  {
+    id: "gema-mago-loja",
+    name: "Mago de Oz · Loja",
+    kind: "event",
+    business_ids: ["gemashow"],
+    unit_id: null,
+    description: "Solicitudes, pagos y comprobantes de este evento.",
+    suggested_members: ["Tú", "Personas que asignes"],
+  },
+  {
+    id: "gema-exterior-dani",
+    name: "Dani Manager · Exterior",
+    kind: "international",
+    business_ids: ["gemashow"],
+    unit_id: null,
+    description: "Pagos al exterior y consumos con tarjeta.",
+    suggested_members: ["Tú", "Personas que asignes"],
+  },
+  {
+    id: "trabajo-varios",
+    name: "Depósitos varios",
+    kind: "misc",
+    business_ids: WORK_BUSINESSES,
+    unit_id: null,
+    description: "Pagos de trabajo coordinados con papá.",
+    suggested_members: ["Germán", "Tú"],
+  },
+];
+export const PROFILE_TEMPLATES = [
+  {
+    id: "german",
+    name: "Germán",
+    label: "Papá · Consulta de negocios",
+    role: "viewer",
+    work_view: true,
+    business_ids: WORK_BUSINESSES,
+    spaces: ["producalza-pagos", "trabajo-varios"],
+    description:
+      "Saldos de negocios y, en un apartado separado, movimientos de trabajo. Sin detalles personales.",
+  },
+  {
+    id: "norma",
+    name: "Norma",
+    label: "Normita · Cobros y solicitudes",
+    role: "collector",
+    work_view: false,
+    business_ids: ["producalza"],
+    spaces: ["producalza-pagos", "producalza-materiales"],
+    description: "Sube cobros y solicita pagos en sus espacios.",
+  },
+  {
+    id: "morelia",
+    name: "Morelia",
+    label: "Organización",
+    role: "collector",
+    work_view: false,
+    business_ids: WORK_BUSINESSES,
+    spaces: ["producalza-pagos", "producalza-materiales"],
+    description:
+      "Organiza solicitudes y revisa el historial de los espacios asignados. El propietario realiza los pagos.",
+  },
+  {
+    id: "ana",
+    name: "Ana",
+    label: "Jefa de bodega",
+    role: "collector",
+    work_view: false,
+    business_ids: ["producalza"],
+    spaces: ["producalza-materiales"],
+    description: "Solicita materiales y consulta el estado de sus compras.",
+  },
+  {
+    id: "jose",
+    name: "José",
+    label: "Bodega",
+    role: "collector",
+    work_view: false,
+    business_ids: ["producalza"],
+    spaces: ["producalza-materiales"],
+    description: "Solicitudes y comprobantes de materiales.",
+  },
+];
+export function paymentProgress(request, payments = []) {
+  const paid = payments
+    .filter((p) => Number(p.request_id) === Number(request.id) && !p.voided_at)
+    .reduce((s, p) => s + p.amount_cents, 0);
+  const cancelled = request.status === "rejected";
+  return {
+    paid_cents: paid,
+    remaining_cents: cancelled ? 0 : Math.max(0, request.amount_cents - paid),
+    payment_state: cancelled
+      ? "cancelled"
+      : paid >= request.amount_cents
+      ? "paid"
+      : paid > 0
+      ? "partial"
+      : "pending",
+  };
+}
+export function canSeeSpace(space, user, members = []) {
+  const scope = space.business_ids.filter((id) =>
+    user.business_ids.includes(id)
+  );
+  return (
+    scope.length > 0 &&
+    (user.role === "owner" ||
+      (user.work_view && scope.some((id) => WORK_BUSINESSES.includes(id))) ||
+      members.some(
+        (m) =>
+          m.space_id === space.id && Number(m.member_id) === Number(user.id)
+      ))
+  );
+}
+export function canSeePaymentRequest(request, user, spaces = [], members = []) {
+  if (!user.business_ids.includes(request.business_id)) return false;
+  if (user.unit_ids?.length && !user.unit_ids.includes(request.unit_id))
+    return false;
+  return (
+    user.role === "owner" ||
+    request.created_by === user.username ||
+    user.work_view === true ||
+    (request.space_id &&
+      spaces.some(
+        (s) => s.id === request.space_id && canSeeSpace(s, user, members)
+      ))
+  );
+}
+export function workflowView(source, user) {
+  const spaces = source.spaces.filter((s) =>
+    canSeeSpace(s, user, source.members)
+  );
+  const requests = source.requests
+    .filter((r) => canSeePaymentRequest(r, user, source.spaces, source.members))
+    .map((r) => ({ ...r, ...paymentProgress(r, source.payments) }));
+  const ids = new Set(requests.map((r) => Number(r.id)));
+  const payments = source.payments.filter((p) => ids.has(Number(p.request_id)));
+  const queue = requests
+    .filter((r) => r.remaining_cents > 0)
+    .sort(
+      (a, b) =>
+        (a.due_date || "9999").localeCompare(b.due_date || "9999") ||
+        a.id - b.id
+    );
+  const described = spaces.map((s) => {
+    const rows = requests.filter((r) => r.space_id === s.id);
+    const members = source.members
+      .filter((m) => m.space_id === s.id)
+      .map(({ member_id, name, role }) => ({ member_id, name, role }));
+    return {
+      ...s,
+      business_ids: s.business_ids.filter((id) =>
+        user.business_ids.includes(id)
+      ),
+      members,
+      is_member: members.some((m) => Number(m.member_id) === Number(user.id)),
+      pending_count: rows.filter((r) => r.remaining_cents > 0).length,
+      pending_cents: rows.reduce((n, r) => n + r.remaining_cents, 0),
+      paid_cents: rows.reduce((n, r) => n + r.paid_cents, 0),
+    };
+  });
+  return {
+    spaces: described,
+    requests,
+    payments,
+    queue,
+    summary: {
+      pending_count: queue.length,
+      pending_cents: queue.reduce((s, r) => s + r.remaining_cents, 0),
+      paid_cents: payments
+        .filter((p) => !p.voided_at)
+        .reduce((s, p) => s + p.amount_cents, 0),
+    },
+    profiles: user.role === "owner" ? PROFILE_TEMPLATES : [],
+  };
+}

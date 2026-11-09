@@ -29,13 +29,14 @@ import {
   today,
 } from "./api.js";
 import { Badge, Button, Field, Modal } from "./components.jsx";
+import { AssistantAvatar, SpaceTiles } from "./workflows.jsx";
 
 export function QuickAccess() {
   const { open } = useFinance();
   return (
     <section className="gf-quick-access" aria-label="Registro rápido">
       <div className="gf-quick-access-symbol">
-        <Sparkles size={23} />
+        <AssistantAvatar size={54} />
       </div>
       <div>
         <span className="gf-eyebrow">MENOS PASOS. MÁS CLARIDAD.</span>
@@ -108,6 +109,11 @@ export function CollaboratorHome() {
           <ArrowRight size={19} />
         </button>
       </div>
+      <section className="gf-collaborator-spaces">
+        <h2>Mis espacios</h2>
+        <p>Entra al grupo donde necesitas pedir o consultar un pago.</p>
+        <SpaceTiles compact />
+      </section>
       <button className="gf-simple-dictation" onClick={() => open("quick")}>
         <Mic size={20} />
         <span>
@@ -162,7 +168,21 @@ export function QuickCapture({ initial = {}, onClose }) {
   const { user, data, filters, refresh, notify, navigate } = useFinance();
   const [mode, setMode] = useState(initial.mode || "message"),
     [text, setText] = useState(initial.text || "");
-  const [overrides, setOverrides] = useState({}),
+  const [overrides, setOverrides] = useState(
+      initial.business_id
+        ? {
+            business_id: initial.business_id,
+            ...(data.workflow?.spaces.find((s) => s.id === initial.space_id)
+              ?.unit_id
+              ? {
+                  unit_id: data.workflow.spaces.find(
+                    (s) => s.id === initial.space_id,
+                  ).unit_id,
+                }
+              : {}),
+          }
+        : {},
+    ),
     [amountText, setAmountText] = useState("");
   const [busy, setBusy] = useState(false),
     [uploading, setUploading] = useState(false),
@@ -170,6 +190,7 @@ export function QuickCapture({ initial = {}, onClose }) {
   const [error, setError] = useState(""),
     [evidence, setEvidence] = useState(null),
     [success, setSuccess] = useState(null);
+  const [spaceId, setSpaceId] = useState(initial.space_id || "");
   const recognition = useRef(),
     fileInput = useRef(),
     cameraInput = useRef(),
@@ -207,6 +228,32 @@ export function QuickCapture({ initial = {}, onClose }) {
     currentScope = `${d.business_id}:${d.unit_id || ""}`;
   scope.current = currentScope;
   const units = data.units.filter((u) => u.business_id === d.business_id);
+  const availableSpaces = (data.workflow?.spaces || []).filter(
+    (s) =>
+      s.active &&
+      s.business_ids.includes(d.business_id) &&
+      (user.role === "owner" ||
+        s.members?.some(
+          (m) => m.member_id === user.id && m.role !== "observer",
+        )),
+  );
+  const selectedSpace = availableSpaces.find((s) => s.id === spaceId);
+  useEffect(() => {
+    if (!parsed.is_request) return;
+    if (initial.space_id && spaceId === initial.space_id) return;
+    if (!availableSpaces.some((s) => s.id === spaceId))
+      setSpaceId(
+        availableSpaces.find(
+          (s) =>
+            s.kind ===
+            (/exterior|dani/i.test(text)
+              ? "international"
+              : d.category === "Materiales"
+                ? "materials"
+                : "general"),
+        )?.id || (availableSpaces.length === 1 ? availableSpaces[0].id : ""),
+      );
+  }, [d.business_id, d.category, parsed.is_request]);
   const accounts = data.accounts.filter(
     (a) => !a.business_id || a.business_id === d.business_id,
   );
@@ -231,7 +278,9 @@ export function QuickCapture({ initial = {}, onClose }) {
     setListening(false);
     setMode(value);
     setText("");
-    setOverrides({});
+    setOverrides(
+      initial.business_id ? { business_id: initial.business_id } : {},
+    );
     setAmountText("");
     setEvidence(null);
     setError("");
@@ -354,6 +403,13 @@ export function QuickCapture({ initial = {}, onClose }) {
   async function submit(event) {
     event.preventDefault();
     if (!parsed.ready || busy) return;
+    if (
+      parsed.is_request &&
+      ((spaceId && !selectedSpace) || (!spaceId && availableSpaces.length))
+    ) {
+      setError("Selecciona el espacio donde corresponde pedir este pago.");
+      return;
+    }
     setBusy(true);
     setError("");
     recognition.current?.abort();
@@ -363,6 +419,7 @@ export function QuickCapture({ initial = {}, onClose }) {
         text,
         request: mode === "request",
         evidence_id: evidence?.id || null,
+        space_id: parsed.is_request ? spaceId || null : null,
         overrides: {
           ...overrides,
           business_id: d.business_id,
@@ -372,7 +429,7 @@ export function QuickCapture({ initial = {}, onClose }) {
       });
       if (!mounted.current) return;
       setSuccess(result);
-      if (!result.preview) await refresh();
+      if (!result.preview || result.workflow_changed) await refresh();
     } catch (e) {
       if (mounted.current) setError(e.message);
     } finally {
@@ -409,11 +466,17 @@ export function QuickCapture({ initial = {}, onClose }) {
             <CheckCircle2 size={39} />
           </span>
           <small>
-            {success.preview ? "SIMULACIÓN · NO SE GUARDÓ" : "LISTO"}
+            {success.preview
+              ? success.workflow_changed
+                ? "SIMULACIÓN · DATOS DE PRUEBA"
+                : "SIMULACIÓN · NO SE GUARDÓ"
+              : "LISTO"}
           </small>
           <h3>
             {success.preview
-              ? "Así quedaría tu registro"
+              ? success.workflow_changed
+                ? "Solicitud de ejemplo enviada"
+                : "Así quedaría tu registro"
               : user.role === "collector" ||
                   success.movement.status === "pending"
                 ? "Enviado para revisión"
@@ -426,7 +489,9 @@ export function QuickCapture({ initial = {}, onClose }) {
           </p>
           <div>
             {success.preview
-              ? "Puedes probar el flujo. Tus finanzas reales no se modificaron."
+              ? success.workflow_changed
+                ? "Quedó pendiente en este ejemplo. Tus finanzas reales no se modificaron."
+                : "Puedes probar el flujo. Tus finanzas reales no se modificaron."
               : success.movement.kind === "income"
                 ? "El comprobante está organizado para su verificación."
                 : "Quedó registrado. La cuenta y el pago se comprueban por separado."}
@@ -444,7 +509,8 @@ export function QuickCapture({ initial = {}, onClose }) {
             variant="secondary"
             onClick={() => {
               onClose();
-              if (!success.preview) navigate("movimientos");
+              if (!success.preview && !initial.space_id)
+                navigate("movimientos");
             }}
           >
             Terminar
@@ -676,6 +742,23 @@ export function QuickCapture({ initial = {}, onClose }) {
                 {accounts.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name} · {a.bank} {a.last_four}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
+          {parsed.is_request && availableSpaces.length > 0 && (
+            <Field label="Espacio de este pago">
+              <select
+                value={spaceId}
+                onChange={(e) => setSpaceId(e.target.value)}
+              >
+                {!selectedSpace && (
+                  <option value="">Selecciona el espacio</option>
+                )}
+                {availableSpaces.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
                   </option>
                 ))}
               </select>

@@ -7,6 +7,10 @@ import {
   visibleAccounts,
 } from "./finance-service.js";
 import { interpretQuickEntry } from "../../shared/finance-quick.mjs";
+import {
+  validateRequestSpace,
+  queuePaymentNotice,
+} from "./finance-workflow.js";
 
 export function quickContext(db, user) {
   return {
@@ -49,6 +53,7 @@ export function registerQuickEntry(db, user, body) {
     overrides,
     evidence_id: body.evidence_id || null,
     request: body.request === true,
+    space_id: body.space_id || null,
   };
   const fingerprint = crypto
     .createHash("sha256")
@@ -83,6 +88,15 @@ export function registerQuickEntry(db, user, body) {
         parsed.error ||
           "Falta completar el negocio, tipo, monto, local o cuenta indicado en el resumen",
       );
+    if (payload.space_id && !parsed.is_request)
+      fail("El espacio de pagos se utiliza para solicitudes de pago");
+    validateRequestSpace(
+      db,
+      user,
+      payload.space_id,
+      parsed.draft.business_id,
+      parsed.draft.unit_id,
+    );
     const created = createMovement(db, user, {
       ...parsed.draft,
       evidence_id: payload.evidence_id,
@@ -94,8 +108,15 @@ export function registerQuickEntry(db, user, body) {
         ? "reported"
         : "pending";
     db.prepare(
-      "UPDATE finance_movements SET status=?,source_system='quick',external_id=? WHERE id=?",
-    ).run(status, `${user.id}:${body.request_id}`, created.id);
+      "UPDATE finance_movements SET status=?,source_system='quick',external_id=?,is_payment_request=?,space_id=? WHERE id=?",
+    ).run(
+      status,
+      `${user.id}:${body.request_id}`,
+      parsed.is_request ? 1 : 0,
+      payload.space_id,
+      created.id,
+    );
+    if (parsed.is_request) queuePaymentNotice(db, created.id);
     const movement = db
       .prepare("SELECT * FROM finance_movements WHERE id=?")
       .get(created.id);

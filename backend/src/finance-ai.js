@@ -214,6 +214,14 @@ export async function answerQuestion(question, data) {
     movements: data.movements.slice(0, 80),
     movements_in_period: data.movements_total,
     pending: data.pending.slice(0, 30),
+    payment_requests: data.workflow?.queue?.slice(0, 50) || [],
+    workspaces:
+      data.workflow?.spaces?.map((s) => ({
+        id: s.id,
+        name: s.name,
+        pending_cents: s.pending_cents,
+        paid_cents: s.paid_cents,
+      })) || [],
     recurring: data.recurring,
     budgets: data.budgets,
     integrations: data.integrations,

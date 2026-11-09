@@ -84,8 +84,34 @@ import "./legibility.css";
 import "./security.css";
 import { QuickCapture } from "./quick.jsx";
 import "./quick.css";
+import {
+  Spaces,
+  SpacePanel,
+  PaymentDesk,
+  PersistentPayments,
+  WorkSummary,
+  RequestDetails,
+  RecordPayment,
+  SharePayment,
+  SpaceSettings,
+  NewSpace,
+} from "./workflows.jsx";
+import "./workflows.css";
 
 const pages = [
+  {
+    id: "espacios",
+    label: "Espacios de pagos",
+    icon: Users,
+    component: Spaces,
+  },
+  {
+    id: "pagos",
+    label: "Por transferir",
+    icon: Bell,
+    component: PaymentDesk,
+    hideCollector: true,
+  },
   {
     id: "inicio",
     label: "Visión general",
@@ -157,6 +183,12 @@ const pages = [
     component: Settings,
   },
 ];
+pages.unshift(
+  pages.splice(
+    pages.findIndex((p) => p.id === "inicio"),
+    1,
+  )[0],
+);
 pages.find((p) => p.id === "equipo").component = Team;
 
 function Login({ session, onLogin }) {
@@ -348,6 +380,7 @@ function FinanceApp() {
   });
   const loadId = useRef(0),
     toastTimer = useRef();
+  const knownPayables = useRef(null);
   const notify = useCallback((message, error = false) => {
     clearTimeout(toastTimer.current);
     setToast({ message, error });
@@ -394,6 +427,26 @@ function FinanceApp() {
       return () => clearInterval(timer);
     }
   }, [user, refresh, page]);
+  useEffect(() => {
+    if (user?.role !== "owner") {
+      knownPayables.current = null;
+      return;
+    }
+    if (!data?.workflow) return;
+    const ids = new Set(data.workflow.queue.map((r) => r.id));
+    if (
+      knownPayables.current &&
+      [...ids].some((id) => !knownPayables.current.has(id))
+    )
+      notify(
+        "Tienes una nueva solicitud de transferencia. Quedará visible en Por transferir.",
+      );
+    knownPayables.current = ids;
+    navigator.serviceWorker?.controller?.postMessage({
+      type: "GEMA_PAYABLES_UPDATED",
+      count: data.workflow.summary.pending_count,
+    });
+  }, [data?.workflow, user?.role]);
   useEffect(() => {
     const ended = () => {
       setUser(null);
@@ -457,7 +510,13 @@ function FinanceApp() {
     window.scrollTo({ top: 0, behavior: "instant" });
   };
   const open = (type, initial = {}) => setModal({ type, initial });
-  const selectMovement = (movement) => setModal({ type: "detail", movement });
+  const selectMovement = (movement) =>
+    movement.is_payment_request
+      ? setModal({
+          type: "pay-request",
+          initial: { id: movement.id, return_space: movement.space_id },
+        })
+      : setModal({ type: "detail", movement });
   const run = async (path, body, success) => {
     try {
       const result = await financeApi(path, body);
@@ -514,14 +573,27 @@ function FinanceApp() {
     (p) =>
       (!p.ownerOnly || user?.role === "owner") &&
       (!data?.capabilities.public_preview ||
-        !["configuracion", "equipo"].includes(p.id)) &&
+        !["configuracion"].includes(p.id)) &&
       (user?.role !== "collector" ||
-        ["inicio", "movimientos"].includes(p.id)) &&
+        ["inicio", "movimientos", "espacios"].includes(p.id)) &&
+      (!user?.work_view ||
+        [
+          "inicio",
+          "movimientos",
+          "cuentas",
+          "espacios",
+          "pagos",
+          "reportes",
+        ].includes(p.id)) &&
       (!p.hideCollector || user?.role !== "collector"),
   );
   const current = visiblePages.find((p) => p.id === page) || visiblePages[0];
   const Page = current?.component;
   const close = () => setModal(null);
+  const requestClose = () =>
+    modal?.initial?.return_space
+      ? open("space", { id: modal.initial.return_space })
+      : close();
   if (!session)
     return (
       <div className="gf-loading-screen">
@@ -578,7 +650,7 @@ function FinanceApp() {
       }}
     >
       <div
-        className={`gf-app ${hidden ? "gf-values-hidden" : ""} ${user.role === "collector" ? "gf-collector" : ""}`}
+        className={`gf-app ${hidden ? "gf-values-hidden" : ""} ${user.role === "collector" ? "gf-collector" : ""} ${user.work_view ? "gf-work-view" : ""}`}
         data-page={current.id}
       >
         {mobileOpen && (
@@ -639,6 +711,11 @@ function FinanceApp() {
                   {p.id === "asistente" && (
                     <span className="gf-nav-ai">IA</span>
                   )}
+                  {p.id === "pagos" &&
+                    user.role === "owner" &&
+                    data.workflow?.summary.pending_count > 0 && (
+                      <small>{data.workflow.summary.pending_count}</small>
+                    )}
                 </button>
               </React.Fragment>
             ))}
@@ -744,24 +821,37 @@ function FinanceApp() {
                   role="group"
                   aria-label="Vista de demostración"
                 >
-                  <button
-                    aria-pressed={user.role !== "collector"}
-                    onClick={() => previewPersona("owner")}
+                  <select
+                    aria-label="Probar perfil de ejemplo"
+                    value={
+                      user.preview_persona ||
+                      (user.role === "owner"
+                        ? "owner"
+                        : user.work_view
+                          ? "german"
+                          : "norma")
+                    }
+                    onChange={(e) => previewPersona(e.target.value)}
                   >
-                    Mi panel
-                  </button>
-                  <button
-                    aria-pressed={user.role === "collector"}
-                    onClick={() => previewPersona("collector")}
-                  >
-                    Colaborador
-                  </button>
+                    {(
+                      data.preview_personas || [
+                        { id: "owner", label: "Mi panel" },
+                        { id: "norma", label: "Norma" },
+                        { id: "german", label: "Papá" },
+                      ]
+                    ).map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               ) : (
                 <ShieldCheck size={14} />
               )}
             </div>
           )}
+          <PersistentPayments />
           {!online && (
             <div className="gf-offline">
               <CloudOff size={17} />
@@ -769,78 +859,83 @@ function FinanceApp() {
             </div>
           )}
           <main className="gf-main" id="gf-main" tabIndex={-1}>
-            {user.role !== "collector" && (
-              <div className="gf-filterbar">
-                <div className="gf-business-filter">
-                  <Building2 size={16} />
-                  <select
-                    aria-label="Filtrar negocio"
-                    value={filters.business_id}
-                    onChange={(e) =>
-                      setFilters((f) => ({ ...f, business_id: e.target.value }))
-                    }
-                  >
-                    <option value="all">Todos mis negocios</option>
-                    {user.business_ids.map((id) => (
-                      <option key={id} value={id}>
-                        {businessNames[id]}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="gf-inline gf-period-filter">
-                  <CalendarDays size={15} />
-                  <input
-                    aria-label="Fecha inicial"
-                    type="date"
-                    disabled={data.capabilities.public_preview}
-                    title={
-                      data.capabilities.public_preview
-                        ? "Período fijo de esta demostración"
-                        : undefined
-                    }
-                    value={filters.from}
-                    onChange={(e) => {
-                      if (e.target.value)
-                        setFilters((f) => ({ ...f, from: e.target.value }));
-                    }}
-                  />
-                  <span>—</span>
-                  <input
-                    aria-label="Fecha final"
-                    type="date"
-                    disabled={data.capabilities.public_preview}
-                    title={
-                      data.capabilities.public_preview
-                        ? "Período fijo de esta demostración"
-                        : undefined
-                    }
-                    value={filters.to}
-                    onChange={(e) => {
-                      if (e.target.value)
-                        setFilters((f) => ({ ...f, to: e.target.value }));
-                    }}
-                  />
-                  {loading ? (
-                    <Loader2 size={15} className="gf-spin" />
-                  ) : (
-                    <span
-                      className="gf-live-dot"
-                      title="Vista actualizada desde el servidor"
+            {user.role !== "collector" &&
+              !(user.work_view && current.id === "inicio") &&
+              !["espacios", "pagos"].includes(current.id) && (
+                <div className="gf-filterbar">
+                  <div className="gf-business-filter">
+                    <Building2 size={16} />
+                    <select
+                      aria-label="Filtrar negocio"
+                      value={filters.business_id}
+                      onChange={(e) =>
+                        setFilters((f) => ({
+                          ...f,
+                          business_id: e.target.value,
+                        }))
+                      }
+                    >
+                      <option value="all">Todos mis negocios</option>
+                      {user.business_ids.map((id) => (
+                        <option key={id} value={id}>
+                          {businessNames[id]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="gf-inline gf-period-filter">
+                    <CalendarDays size={15} />
+                    <input
+                      aria-label="Fecha inicial"
+                      type="date"
+                      disabled={data.capabilities.public_preview}
+                      title={
+                        data.capabilities.public_preview
+                          ? "Período fijo de esta demostración"
+                          : undefined
+                      }
+                      value={filters.from}
+                      onChange={(e) => {
+                        if (e.target.value)
+                          setFilters((f) => ({ ...f, from: e.target.value }));
+                      }}
                     />
+                    <span>—</span>
+                    <input
+                      aria-label="Fecha final"
+                      type="date"
+                      disabled={data.capabilities.public_preview}
+                      title={
+                        data.capabilities.public_preview
+                          ? "Período fijo de esta demostración"
+                          : undefined
+                      }
+                      value={filters.to}
+                      onChange={(e) => {
+                        if (e.target.value)
+                          setFilters((f) => ({ ...f, to: e.target.value }));
+                      }}
+                    />
+                    {loading ? (
+                      <Loader2 size={15} className="gf-spin" />
+                    ) : (
+                      <span
+                        className="gf-live-dot"
+                        title="Vista actualizada desde el servidor"
+                      />
+                    )}
+                  </div>
+                  {user.role !== "viewer" && (
+                    <Button
+                      icon={Mic}
+                      onClick={() => open("quick")}
+                      className="gf-top-upload"
+                    >
+                      Registrar rápido
+                    </Button>
                   )}
                 </div>
-                {user.role !== "viewer" && (
-                  <Button
-                    icon={Mic}
-                    onClick={() => open("quick")}
-                    className="gf-top-upload"
-                  >
-                    Registrar rápido
-                  </Button>
-                )}
-              </div>
-            )}
+              )}
             {fatal && (
               <div className="gf-error gf-mb" role="alert">
                 {fatal} <button onClick={refresh}>Reintentar</button>
@@ -872,7 +967,11 @@ function FinanceApp() {
           >
             <ArrowUpRight size={21} />
             <span>
-              {user.role === "collector" ? "Mis envíos" : "Movimientos"}
+              {user.work_view
+                ? "Trabajo"
+                : user.role === "collector"
+                  ? "Mis envíos"
+                  : "Movimientos"}
             </span>
           </button>
           {user.role !== "viewer" && (
@@ -886,11 +985,20 @@ function FinanceApp() {
           )}
           {user.role !== "collector" && (
             <button
-              className={current.id === "pendientes" ? "active" : ""}
-              onClick={() => navigate("pendientes")}
+              className={
+                current.id === (user.work_view ? "espacios" : "pagos")
+                  ? "active"
+                  : ""
+              }
+              onClick={() => navigate(user.work_view ? "espacios" : "pagos")}
             >
-              <FileCheck2 size={21} />
-              <span>Revisión</span>
+              {user.work_view ? <Users size={21} /> : <Bell size={21} />}
+              <span>
+                {user.work_view ? "Espacios" : "Por pagar"}
+                {user.role === "owner" &&
+                  data.workflow?.summary.pending_count > 0 &&
+                  ` · ${data.workflow.summary.pending_count}`}
+              </span>
             </button>
           )}
           <button onClick={() => setMobileOpen(true)}>
@@ -941,8 +1049,34 @@ function FinanceApp() {
           <MovementDetail movement={modal.movement} onClose={close} />
         )}
         {modal?.type === "quick" && (
-          <QuickCapture initial={modal.initial} onClose={close} />
+          <QuickCapture
+            initial={modal.initial}
+            onClose={
+              modal.initial?.space_id
+                ? () => open("space", { id: modal.initial.space_id })
+                : close
+            }
+          />
         )}
+        {modal?.type === "space" && (
+          <SpacePanel id={modal.initial.id} onClose={close} />
+        )}
+        {modal?.type === "pay-request" && (
+          <RequestDetails id={modal.initial.id} onClose={requestClose} />
+        )}
+        {modal?.type === "record-payment" && (
+          <RecordPayment id={modal.initial.id} onClose={requestClose} />
+        )}
+        {modal?.type === "share-payment" && (
+          <SharePayment id={modal.initial.id} onClose={close} />
+        )}
+        {modal?.type === "space-settings" && (
+          <SpaceSettings
+            id={modal.initial.id}
+            onClose={() => open("space", { id: modal.initial.id })}
+          />
+        )}
+        {modal?.type === "new-space" && <NewSpace onClose={close} />}
         {modal?.type === "bank" && <BankImport onClose={close} />}
         {modal?.type === "transfer" && <TransferPanel onClose={close} />}
         {modal?.type === "allocation" && (

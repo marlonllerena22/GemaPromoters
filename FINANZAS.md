@@ -22,7 +22,13 @@ También se puede iniciar con `npm run finance:preview`. Mantener el proceso abi
 - Las frases habituales se interpretan con reglas compartidas entre cliente y servidor, sin requerir un proveedor de IA. Los casos ambiguos solicitan únicamente el campo faltante. Se validan de nuevo permisos, negocio, local y cuenta en el servidor; un identificador de envío evita duplicados al reintentar.
 - Gasto directo del propietario/administrador: registrado sin comprobación bancaria. Cobro, solicitud de pago o envío de colaborador: pendiente de revisión. Conservar estas diferencias evita tratar una solicitud como dinero ya pagado.
 - Comprobantes rápidos: foto o archivo, lectura automática si está configurada la IA y corrección del monto cuando no hay proveedor. Se usa el negocio y, cuando es único, el local asignado.
-- Pantalla de colaboradores con acciones grandes y navegación reducida a inicio y sus envíos. Conserva el aislamiento del servidor: no muestra saldos de cuentas ni movimientos de otros usuarios.
+- Pantalla de colaboradores con acciones grandes: subir un cobro, pedir un pago, mis envíos y mis espacios. No muestra saldos generales. Cada espacio permite consultar sus solicitudes y comprobantes según membresía; los envíos fuera de espacios siguen restringidos a su autor.
+- Espacios de pagos con participantes y permisos propios, notas, historial de solicitudes y comprobantes, destino sugerido de WhatsApp y configuración del propietario. La organización propuesta y los pasos de uso están en `docs/finance/GUIA-ESPACIOS.md`.
+- Bandeja persistente Por transferir, independiente de avisos descartables. Pagos completos y parciales con evidencia privada, fecha, referencia y cuenta; límites contra sobrepago y duplicados; anulaciones y reversiones con motivo auditado. Una solicitud no se contabiliza también como gasto pagado.
+- Vista de consulta para Germán: saldos de cuentas de trabajo y acceso separado al detalle de negocios. Los gastos personales, transacciones bancarias sin filtrar y asignaciones personales de cuentas compartidas se excluyen en el servidor.
+- Compartir el comprobante autorizado mediante el selector del dispositivo o descarga y WhatsApp con texto preparado. El destinatario se confirma en WhatsApp; no hay envío automático ni selección automática de grupos.
+- Avisos Web Push opcionales para el propietario, con suscripciones cifradas y cola durable con reintentos. Requieren configurar VAPID y permiso del dispositivo. La bandeja persistente no depende de ese servicio.
+- Nueva imagen transparente del asistente; archivo y prompt documentados en `docs/finance/ASISTENTE-IMAGEN.md`.
 - Iconos oficiales de Pichincha, Produbanco, Solidario, Pacífico, Guayaquil, Deuna, Payphone y Diners alojados en el propio proyecto. Fuente de cada imagen en `frontend/public/finanzas/banks/sources.json`. Tarjetas compactas en dos columnas en celular y detalles desplegables.
 
 - Panel consolidado, filtros de negocio y período, gráfico diario, distribución y cuentas.
@@ -40,7 +46,7 @@ También se puede iniciar con `npm run finance:preview`. Mantener el proceso abi
 - Gastos recurrentes que generan pendientes mensuales sin duplicarse; presupuestos por negocio y categoría, calculados sobre todos los registros del mes.
 - Reporte consolidado, CSV con dólares y centavos, neutralización de fórmulas e impresión para guardar PDF desde el navegador.
 - Asistente de consulta con fuentes autorizadas y referencias a movimientos. Sin proveedor ofrece un resumen determinista, identificado como tal.
-- Propietario, administrador, colaborador y consulta; negocios y unidades asignables. Un colaborador ve sus movimientos y no los saldos de otros. Las cuentas compartidas y conciliación requieren propietario.
+- Propietario, administrador, colaborador y consulta; negocios, unidades y espacios asignables. Los colaboradores ven sus envíos y los pagos de espacios autorizados. Los saldos compartidos pueden mostrarse de forma limitada en consulta de trabajo, sin revelar sus detalles personales; la conciliación requiere propietario.
 - Sesiones financieras independientes, cookies HttpOnly/SameSite, revocación, caducidad, límite de intentos y contraseñas con scrypt.
 - Autenticación TOTP opcional, QR generado localmente, códigos de recuperación de un uso y cambio de contraseña con reautenticación. Secretos de autenticadores cifrados; recuperación almacenada como hash.
 - Auditoría con actor, fecha, antes/después y hashes encadenados. Copia SQLite completa con comprobación de integridad.
@@ -110,3 +116,7 @@ La interfaz tiene un acabado financiero profesional; esto no constituye certific
 La lectura de documentos y el asistente usan [Responses y salidas estructuradas de OpenAI](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses), con `store: false` y sin herramientas de modificación. Los documentos se transmiten al proveedor únicamente al solicitar su análisis.
 
 El dictado usa [SpeechRecognition del navegador](https://developer.mozilla.org/en-US/docs/Web/API/SpeechRecognition), con disponibilidad variable y posible procesamiento de audio en línea por el proveedor del navegador. No empieza sin pulsar el micrófono. Siempre se puede escribir o usar el dictado del teclado; se revisa el monto antes de guardar. El proyecto no almacena grabaciones de voz.
+
+## Actualización de espacios y perfiles
+
+56 pruebas financieras y relacionadas aprobadas, incluido aislamiento de espacios, saldos de consulta sin detalles personales, pagos parciales, sobrepago, idempotencia, reversión, más de mil solicitudes pendientes y reintentos de notificaciones. Arranque completo con base aislada y compilación aprobados. En navegador se probó crear una solicitud como Ana y resolver un pago completo como propietario, además de la vista de Germán y la disposición móvil a 320 y 390 px. La vista privada publicada permite alternar seis perfiles ficticios y simular el flujo en memoria; recargar reinicia los cambios. No activa usuarios ni servicios externos de la aplicación operativa.

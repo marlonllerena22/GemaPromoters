@@ -70,6 +70,7 @@ export function visibleAccounts(db, user) {
     .filter(
       (a) =>
         user.role === "owner" ||
+        (user.work_view && !a.business_id && !user.unit_ids.length) ||
         (user.business_ids.includes(a.business_id) && !user.unit_ids.length),
     );
 }
@@ -289,6 +290,8 @@ export function reconcile(db, user, body, bridges = {}) {
       body.movement_id,
       user,
     );
+    if (movement.is_payment_request)
+      fail("Concilia el pago realizado, no la solicitud de transferencia", 409);
     const bank = db
       .prepare(
         "SELECT b.*,a.business_id AS account_business FROM finance_bank_transactions b JOIN finance_accounts a ON a.id=b.account_id WHERE b.id=?",
@@ -590,6 +593,7 @@ export function snapshot(db, user, filters = {}) {
   const allMovements = db
     .prepare(
       `SELECT m.*,COALESCE((SELECT SUM(a.amount_cents) FROM finance_allocations a WHERE a.movement_id=m.id),0) allocated_cents,
+      COALESCE((SELECT SUM(p.amount_cents) FROM finance_payments p WHERE p.request_id=m.id AND p.voided_at IS NULL),0) paid_total_cents,
     e.name evidence_name FROM finance_movements m LEFT JOIN finance_evidence e ON e.id=m.evidence_id ORDER BY m.day DESC,m.id DESC`,
     )
     .all()
@@ -661,19 +665,36 @@ export function snapshot(db, user, filters = {}) {
       }
       return {
         ...a,
+        ...(user.work_view && !a.business_id
+          ? { name: "Cuenta compartida", personal_details_private: true }
+          : {}),
         balance_cents: balance,
-        opening_allocations: openingAllocations,
-        positions,
-        unassigned_cents: a.business_id
+        opening_allocations: user.work_view
+          ? openingAllocations.filter((p) =>
+              user.business_ids.includes(p.business_id),
+            )
+          : openingAllocations,
+        positions: user.work_view
+          ? Object.fromEntries(
+              Object.entries(positions).filter(([id]) =>
+                user.business_ids.includes(id),
+              ),
+            )
+          : positions,
+        unassigned_cents: user.work_view
           ? 0
-          : balance - Object.values(positions).reduce((s, n) => s + n, 0),
+          : a.business_id
+            ? 0
+            : balance - Object.values(positions).reduce((s, n) => s + n, 0),
         discrepancy_cents:
           a.verified_cents === null ? null : a.verified_cents - atVerification,
-        transaction_count: db
-          .prepare(
-            "SELECT COUNT(*) n FROM finance_bank_transactions WHERE account_id=?",
-          )
-          .get(a.id).n,
+        transaction_count: user.work_view
+          ? undefined
+          : db
+              .prepare(
+                "SELECT COUNT(*) n FROM finance_bank_transactions WHERE account_id=?",
+              )
+              .get(a.id).n,
       };
     });
   const activeSales = sales.filter((s) => s.state === "active");
@@ -681,8 +702,10 @@ export function snapshot(db, user, filters = {}) {
     filters.business_id && filters.business_id !== "all"
       ? a.positions[filters.business_id] || 0
       : a.balance_cents;
-  const accepted = movements.filter((m) =>
-    ["approved", "reconciled", "reported"].includes(m.status),
+  const accepted = movements.filter(
+    (m) =>
+      !m.is_payment_request &&
+      ["approved", "reconciled", "reported"].includes(m.status),
   );
   const summary = {
     balances_visible: user.role !== "collector" && !user.unit_ids.length,
@@ -715,11 +738,24 @@ export function snapshot(db, user, filters = {}) {
     pending_cents: allMovements
       .filter(
         (m) =>
-          m.kind === "expense" && ["pending", "approved"].includes(m.status),
+          m.kind === "expense" &&
+          (m.is_payment_request
+            ? m.status !== "rejected"
+            : ["pending", "approved"].includes(m.status)),
       )
-      .reduce((s, m) => s + m.amount_cents - m.allocated_cents, 0),
-    pending_count: allMovements.filter((m) =>
-      ["pending", "reported"].includes(m.status),
+      .reduce(
+        (s, m) =>
+          s +
+          Math.max(
+            0,
+            m.amount_cents -
+              (m.is_payment_request ? m.paid_total_cents : m.allocated_cents),
+          ),
+        0,
+      ),
+    pending_count: allMovements.filter(
+      (m) =>
+        !m.is_payment_request && ["pending", "reported"].includes(m.status),
     ).length,
     reconciled_count: movements.filter((m) => m.status === "reconciled").length,
     movement_count: movements.filter((m) => m.status !== "rejected").length,
@@ -786,7 +822,11 @@ export function snapshot(db, user, filters = {}) {
       filters.export_all === true ? movements : movements.slice(0, 500),
     movements_total: movements.length,
     pending: allMovements
-      .filter((m) => ["pending", "approved", "reported"].includes(m.status))
+      .filter(
+        (m) =>
+          !m.is_payment_request &&
+          ["pending", "approved", "reported"].includes(m.status),
+      )
       .slice(0, 200),
     sales: sales.slice(0, 500),
     sales_total: sales.length,
@@ -816,6 +856,7 @@ export function snapshot(db, user, filters = {}) {
                     m.day.startsWith(b.month) &&
                     m.category === b.category &&
                     m.kind === "expense" &&
+                    !m.is_payment_request &&
                     ["approved", "reconciled", "reported"].includes(m.status),
                 )
                 .reduce((s, m) => s + m.amount_cents, 0),
@@ -859,6 +900,8 @@ export function csvExport(rows) {
     "status",
     "reference",
     "source_system",
+    "is_payment_request",
+    "paid_total_cents",
   ];
   const escape = (value) => {
     let string = String(value ?? "");
@@ -873,7 +916,11 @@ export function csvExport(rows) {
         columns
           .map((c) =>
             escape(
-              c === "amount_usd" ? (row.amount_cents / 100).toFixed(2) : row[c],
+              c === "kind" && row.is_payment_request
+                ? "payment_request"
+                : c === "amount_usd"
+                  ? (row.amount_cents / 100).toFixed(2)
+                  : row[c],
             ),
           )
           .join(","),
@@ -903,7 +950,7 @@ export function closingFigures(db, user, unitId, day) {
     .get(unitId, day).n;
   const pending = db
     .prepare(
-      "SELECT COUNT(*) n FROM finance_movements WHERE unit_id=? AND day=? AND payment_method='cash' AND status IN ('pending','approved','reported')",
+      "SELECT COUNT(*) n FROM finance_movements WHERE unit_id=? AND day=? AND payment_method='cash' AND is_payment_request=0 AND status IN ('pending','approved','reported')",
     )
     .get(unitId, day).n;
   return {

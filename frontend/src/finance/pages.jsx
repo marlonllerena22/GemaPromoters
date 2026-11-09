@@ -74,10 +74,12 @@ import {
 import { SecurityPanel } from "./security.jsx";
 import { CollaboratorHome, QuickAccess } from "./quick.jsx";
 import { BankLogo } from "./banks.jsx";
+import { WorkSummary, AssistantAvatar } from "./workflows.jsx";
 
 export function Overview() {
   const { data, user, open, navigate, selectMovement, filters } = useFinance();
   const s = data.summary;
+  if (user.work_view) return <WorkSummary />;
   if (user.role === "collector") return <CollaboratorHome />;
   return (
     <>
@@ -682,8 +684,16 @@ export function Accounts() {
                           ),
                         )}
                         <div>
-                          <span>Propiedad sin identificar</span>
-                          <strong>{money(a.unassigned_cents)}</strong>
+                          <span>
+                            {a.personal_details_private
+                              ? "Detalles personales"
+                              : "Propiedad sin identificar"}
+                          </span>
+                          <strong>
+                            {a.personal_details_private
+                              ? "Privados"
+                              : money(a.unassigned_cents)}
+                          </strong>
                         </div>
                         {user.role === "owner" && (
                           <Button
@@ -1646,7 +1656,7 @@ export function Assistant() {
           {!messages.length ? (
             <div className="gf-chat-welcome">
               <span className="gf-ai-orb">
-                <Sparkles size={30} />
+                <AssistantAvatar size={112} />
               </span>
               <span className="gf-eyebrow">MÁS CLARIDAD. MENOS BÚSQUEDAS.</span>
               <h2>Hablemos de tus finanzas.</h2>
@@ -1669,7 +1679,7 @@ export function Assistant() {
                 <article key={i} className={`gf-chat-message ${m.role}`}>
                   <span className="gf-chat-avatar">
                     {m.role === "assistant" ? (
-                      <Sparkles size={17} />
+                      <AssistantAvatar size={36} />
                     ) : (
                       <Users size={16} />
                     )}
@@ -1960,7 +1970,7 @@ export function Team() {
     <>
       <SectionHead
         eyebrow="CADA PERSONA, EL ACCESO ADECUADO"
-        title="Equipo y permisos"
+        title="Personas y permisos"
         description="Controla quién registra, revisa y consulta la información."
       >
         <Button icon={Plus} onClick={() => open("member")}>
@@ -1970,6 +1980,42 @@ export function Team() {
           Actualizar
         </Button>
       </SectionHead>
+      {data.workflow?.profiles?.length > 0 && (
+        <section className="gf-profile-presets">
+          <h3>Un perfil para cada persona</h3>
+          <p>
+            Propuesta basada en tus grupos. Tú decides cuándo crear o activar
+            cada acceso.
+          </p>
+          <div>
+            {data.workflow.profiles.map((p) => (
+              <button
+                key={p.id}
+                onClick={() =>
+                  open("member", {
+                    name: p.name,
+                    username: p.id,
+                    role: p.role,
+                    business_ids: p.business_ids,
+                    work_view: p.work_view,
+                    space_ids: p.spaces,
+                    space_role:
+                      p.id === "morelia"
+                        ? "coordinator"
+                        : p.role === "viewer"
+                          ? "observer"
+                          : "requester",
+                  })
+                }
+              >
+                <strong>{p.name}</strong>
+                <span>{p.label}</span>
+                <small>{p.description}</small>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
       <section className="gf-panel">
         {loading ? (
           <Empty title="Consultando accesos…" description="" />
@@ -2010,9 +2056,21 @@ export function Team() {
                       {m.role === "owner" ? (
                         <LockKeyhole size={17} />
                       ) : (
-                        <Button variant="ghost small" onClick={() => change(m)}>
-                          {m.active ? "Suspender" : "Activar"}
-                        </Button>
+                        <>
+                          <Button
+                            variant="ghost small"
+                            onClick={() => open("member", m)}
+                          >
+                            Permisos
+                          </Button>
+                          <Button
+                            variant="ghost small"
+                            disabled={data.capabilities.public_preview}
+                            onClick={() => change(m)}
+                          >
+                            {m.active ? "Suspender" : "Activar"}
+                          </Button>
+                        </>
                       )}
                     </td>
                   </tr>

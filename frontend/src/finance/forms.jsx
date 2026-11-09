@@ -48,6 +48,9 @@ export function EditPanel({ type, initial = {}, onClose }) {
     due_day: "5",
     month: filters.from.slice(0, 7),
     role: "collector",
+    work_view: false,
+    space_ids: [],
+    space_role: "requester",
     username: "",
     password: "",
     business_ids: ["producalza"],
@@ -98,7 +101,7 @@ export function EditPanel({ type, initial = {}, onClose }) {
     recurring: "Nuevo gasto recurrente",
     budget: "Definir presupuesto",
     closing: "Cerrar caja",
-    member: "Invitar a un colaborador",
+    member: initial.id ? "Editar acceso" : "Crear un acceso",
   };
   const subtitles = {
     movement:
@@ -302,17 +305,25 @@ export function EditPanel({ type, initial = {}, onClose }) {
           note: form.note,
         });
       if (type === "member")
-        await financeApi("/members", {
-          name: form.name,
-          username: form.username,
-          password: form.password,
-          role: form.role,
-          business_ids: form.business_ids,
-          unit_ids: form.unit_ids,
-        });
+        await financeApi(
+          initial.id ? `/members/${initial.id}/access` : "/members",
+          {
+            name: form.name,
+            username: form.username,
+            password: form.password,
+            role: form.role,
+            business_ids: form.business_ids,
+            unit_ids: form.unit_ids,
+            work_view: form.work_view,
+            space_ids: form.space_ids,
+            space_role: form.space_role,
+          },
+        );
       notify(
         type === "member"
-          ? "Acceso creado. Comparte sus credenciales por un canal privado."
+          ? initial.id
+            ? "Permisos actualizados. Sus sesiones anteriores se cerraron."
+            : "Acceso creado. Comparte sus credenciales por un canal privado."
           : "Guardado correctamente",
       );
       await refresh();
@@ -834,24 +845,31 @@ export function EditPanel({ type, initial = {}, onClose }) {
               label="Usuario"
               required
               autoComplete="off"
+              disabled={Boolean(initial.id) || data.capabilities.public_preview}
               value={form.username}
               onChange={(e) => set("username", e.target.value)}
             />
-            <Field
-              label="Contraseña inicial"
-              hint="Mínimo 12 caracteres. Compártela por un canal privado."
-              type="password"
-              required
-              minLength={12}
-              maxLength={256}
-              autoComplete="new-password"
-              value={form.password}
-              onChange={(e) => set("password", e.target.value)}
-            />
+            {!initial.id && (
+              <Field
+                label="Contraseña inicial"
+                hint="Mínimo 12 caracteres. Compártela por un canal privado."
+                type="password"
+                required
+                minLength={12}
+                maxLength={256}
+                autoComplete="new-password"
+                value={form.password}
+                onChange={(e) => set("password", e.target.value)}
+                disabled={data.capabilities.public_preview}
+              />
+            )}
             <Field label="Permisos">
               <select
                 value={form.role}
-                onChange={(e) => set("role", e.target.value)}
+                onChange={(e) => {
+                  set("role", e.target.value);
+                  if (e.target.value !== "viewer") set("work_view", false);
+                }}
               >
                 <option value="collector">
                   Colaborador · registra y ve sus movimientos
@@ -864,6 +882,26 @@ export function EditPanel({ type, initial = {}, onClose }) {
                 </option>
               </select>
             </Field>
+            {form.role === "viewer" && (
+              <label className="gf-profile-workview">
+                <input
+                  type="checkbox"
+                  checked={form.work_view}
+                  onChange={(e) => {
+                    set("work_view", e.target.checked);
+                    if (e.target.checked)
+                      set(
+                        "business_ids",
+                        form.business_ids.filter((id) => id !== "personal"),
+                      );
+                  }}
+                />
+                <span>
+                  Resumen de saldos de trabajo, incluidas cuentas compartidas.
+                  Detalles personales privados.
+                </span>
+              </label>
+            )}
             <fieldset className="gf-checks">
               <legend>Negocios autorizados</legend>
               {user.business_ids.map((id) => (
@@ -871,6 +909,7 @@ export function EditPanel({ type, initial = {}, onClose }) {
                   <input
                     type="checkbox"
                     checked={form.business_ids.includes(id)}
+                    disabled={form.work_view && id === "personal"}
                     onChange={(e) =>
                       set(
                         "business_ids",
@@ -906,10 +945,56 @@ export function EditPanel({ type, initial = {}, onClose }) {
                   </label>
                 ))}
             </fieldset>
-            <div className="gf-note">
-              Las cuentas compartidas, conciliación bancaria y administración de
-              accesos quedan reservadas al propietario.
+            <fieldset className="gf-large-checks">
+              <legend>Espacios asignados</legend>
+              {(data.workflow?.spaces || [])
+                .filter((s) =>
+                  s.business_ids.some((b) => form.business_ids.includes(b)),
+                )
+                .map((s) => (
+                  <label key={s.id}>
+                    <input
+                      type="checkbox"
+                      checked={form.space_ids.includes(s.id)}
+                      onChange={(e) =>
+                        set(
+                          "space_ids",
+                          e.target.checked
+                            ? [...form.space_ids, s.id]
+                            : form.space_ids.filter((id) => id !== s.id),
+                        )
+                      }
+                    />
+                    <span>{s.name}</span>
+                  </label>
+                ))}
+            </fieldset>
+            {form.role !== "viewer" && (
+              <Field label="Trabajo dentro de sus espacios">
+                <select
+                  value={form.space_role}
+                  onChange={(e) => set("space_role", e.target.value)}
+                >
+                  <option value="requester">Solicitar y consultar pagos</option>
+                  <option value="coordinator">
+                    Organizar solicitudes del equipo
+                  </option>
+                  <option value="observer">Solo consultar</option>
+                </select>
+              </Field>
+            )}
+            <div className="gf-profile-privacy">
+              Solo el propietario registra transferencias realizadas y
+              administra los accesos. El perfil de consulta de trabajo puede ver
+              saldos de cuentas compartidas sin acceder a tus movimientos
+              personales.
             </div>
+            {data.capabilities.public_preview && (
+              <div className="gf-note">
+                Perfil de ejemplo. Los accesos reales se activarán en la
+                aplicación operativa; no escribas contraseñas reales aquí.
+              </div>
+            )}
           </>
         )}
         {error && (
@@ -924,6 +1009,7 @@ export function EditPanel({ type, initial = {}, onClose }) {
           <Button
             loading={busy}
             disabled={
+              (type === "member" && data.capabilities.public_preview) ||
               uploading ||
               analyzing ||
               (type === "closing" && (!figures || figures.pending_count > 0))

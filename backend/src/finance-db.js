@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { initFinanceWorkflowDb } from "./finance-workflow-db.js";
 
 export const FINANCE_BUSINESSES = [
   ["producalza", "Producalza", "Producción y pedidos", "#3f725e", "P"],
@@ -250,6 +251,7 @@ export function initFinanceDb(db) {
       "INSERT OR IGNORE INTO finance_sync_log (source,state,detail) VALUES (?,'pending','Pendiente de configuración')",
     ).run(source);
   }
+  initFinanceWorkflowDb(db);
   if (
     process.env.FINANCE_ADMIN_PASSWORD &&
     !db.prepare("SELECT id FROM finance_members WHERE role='owner'").get()
@@ -310,5 +312,6 @@ export function safeMember(member) {
     unit_ids: JSON.parse(member.unit_ids || "[]"),
     active: Boolean(member.active),
     mfa_enabled: Boolean(member.mfa_enabled),
+    work_view: Boolean(member.work_view),
   };
 }

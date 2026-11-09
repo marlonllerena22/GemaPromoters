@@ -238,6 +238,7 @@ export function MovementTable({ rows, onSelect, compact = false }) {
                   <span>
                     <strong>{m.counterparty}</strong>
                     <small>
+                      {m.is_payment_request ? "Solicitud · " : ""}
                       {m.category} {m.evidence_id ? "· Adjunto" : ""}
                     </small>
                   </span>
@@ -253,12 +254,28 @@ export function MovementTable({ rows, onSelect, compact = false }) {
                 <span className="gf-date-cell">{dateLabel(m.day)}</span>
               </td>
               <td>
-                <Badge status={m.status} />
+                <Badge status={m.status}>
+                  {m.is_payment_request
+                    ? m.status === "reported"
+                      ? "Pagado"
+                      : m.status === "rejected"
+                        ? "Anulado"
+                        : m.paid_total_cents > 0
+                          ? "Pago parcial"
+                          : "Por pagar"
+                    : undefined}
+                </Badge>
               </td>
               <td
                 className={`gf-right gf-amount ${m.kind === "income" ? "positive" : ""}`}
               >
-                {m.kind === "income" ? "+" : m.kind === "transfer" ? "" : "−"}
+                {m.is_payment_request
+                  ? ""
+                  : m.kind === "income"
+                    ? "+"
+                    : m.kind === "transfer"
+                      ? ""
+                      : "−"}
                 {money(m.amount_cents)}
               </td>
               <td>
