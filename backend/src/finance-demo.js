@@ -113,7 +113,7 @@ export function seedFinanceDemo(db) {
     account.run(
       "personal",
       "Consumos personales",
-      "Diners",
+      "Tarjeta",
       "card",
       "936",
       "Administrador",

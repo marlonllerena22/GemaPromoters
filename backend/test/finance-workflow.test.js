@@ -12,6 +12,78 @@ import {
   flushPaymentPush,
 } from "../src/finance-push.js";
 import { workflowView } from "../../shared/finance-workflow.mjs";
+import {
+  analyzeBankDetails,
+  encryptDocument as encryptBankFixture,
+} from "../src/finance-ai.js";
+import { bankDraft } from "../../shared/finance-payees.mjs";
+test("bank photo extraction keeps all alternatives and never fills masked account digits", async (t) => {
+  const original = globalThis.fetch,
+    oldKey = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = "fixture-no-real-provider";
+  t.after(() => {
+    globalThis.fetch = original;
+    if (oldKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = oldKey;
+  });
+  globalThis.fetch = async (url, options) => {
+    assert.equal(url, "https://api.openai.com/v1/responses");
+    const request = JSON.parse(options.body);
+    assert.equal(request.store, false);
+    assert.match(request.instructions, /origen/);
+    assert.match(request.instructions, /No inventes/);
+    assert.equal(request.text.format.schema.properties.accounts.type, "array");
+    return new Response(
+      JSON.stringify({
+        output: [
+          {
+            content: [
+              {
+                type: "output_text",
+                text: JSON.stringify({
+                  name: "Proveedor ficticio",
+                  document: "",
+                  email: "",
+                  accounts: [
+                    {
+                      bank: "Pichincha",
+                      type: "savings",
+                      number: "0012345678",
+                      holder: "Titular ficticio",
+                    },
+                    {
+                      bank: "Produbanco",
+                      type: "checking",
+                      number: "****1234",
+                      holder: "",
+                    },
+                  ],
+                  warnings: ["Segunda cuenta incompleta."],
+                }),
+              },
+            ],
+          },
+        ],
+      }),
+      { status: 200 }
+    );
+  };
+  const analysis = await analyzeBankDetails({
+    mime: "image/png",
+    encrypted: encryptBankFixture(Buffer.from("synthetic-test-only")),
+  });
+  assert.equal(analysis.accounts.length, 2);
+  assert.equal(analysis.accounts[0].number, "0012345678");
+  assert.equal(analysis.accounts[1].number, "");
+  assert.equal(analysis.draft, true);
+  assert.equal(analysis.warnings.length, 1);
+  assert.equal(
+    bankDraft({
+      accounts: [{ number: "0012-3456", bank: "Test", type: "savings" }],
+    }).accounts[0].number,
+    "00123456"
+  );
+});
 process.env.FINANCE_DOCUMENT_KEY ||=
   "test-workflow-key-at-least-thirty-two-characters";
 const subscription = () => ({

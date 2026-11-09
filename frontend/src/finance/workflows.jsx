@@ -45,6 +45,8 @@ import {
   today,
 } from "./api.js";
 import { BankLogo } from "./banks.jsx";
+import { SettlementFunds } from "./settlements.jsx";
+import { BeneficiaryDetails, EvidenceThumbnail } from "./payees.jsx";
 const emptyWorkflow = {
   spaces: [],
   requests: [],
@@ -256,9 +258,18 @@ export function PaymentRow({ payment }) {
   );
   return (
     <div className={`gf-paid-row ${payment.voided_at ? "voided" : ""}`}>
-      <span className="gf-paid-check">
-        {payment.voided_at ? <X size={19} /> : <CheckCircle2 size={19} />}
-      </span>
+      {!payment.voided_at ? (
+        <EvidenceThumbnail
+          path={`/payments/${payment.id}/evidence`}
+          title="Comprobante de pago"
+          returnType="pay-request"
+          returnInitial={{ id: payment.request_id }}
+        />
+      ) : (
+        <span className="gf-paid-check">
+          {payment.voided_at ? <X size={19} /> : <CheckCircle2 size={19} />}
+        </span>
+      )}
       <div>
         <strong>{request?.counterparty || "Pago registrado"}</strong>
         <p>
@@ -272,6 +283,12 @@ export function PaymentRow({ payment }) {
             ? "Pago conciliado"
             : "Pago informado · por conciliar"}
         </small>
+        {payment.destination_bank && (
+          <small>
+            Destino: {payment.destination_bank} ··
+            {payment.destination_last_four}
+          </small>
+        )}
       </div>
       <div>
         <b>{money(payment.amount_cents)}</b>
@@ -526,6 +543,7 @@ export function WorkSummary() {
           </div>
         ))}
       </div>
+      <SettlementFunds />
       <div className="gf-work-explore">
         <div>
           <h2>Movimientos de trabajo</h2>
@@ -553,6 +571,7 @@ export function WorkSummary() {
 export function RequestDetails({ id, onClose }) {
   const { data, user, open, refresh, notify } = useFinance();
   const [detail, setDetail] = useState(null),
+    [destination, setDestination] = useState(null),
     [note, setNote] = useState(""),
     [error, setError] = useState(""),
     [cancel, setCancel] = useState(false),
@@ -602,6 +621,11 @@ export function RequestDetails({ id, onClose }) {
               {dateLabel(r.day)}
             </small>
           </div>
+          <BeneficiaryDetails
+            beneficiary={detail.beneficiary}
+            selected={destination}
+            onSelect={user.role === "owner" ? setDestination : undefined}
+          />
           <div className="gf-request-progress">
             <div>
               Pagado <b>{money(r.paid_cents)}</b>
@@ -611,25 +635,23 @@ export function RequestDetails({ id, onClose }) {
             </div>
           </div>
           {r.evidence_id && (
-            <Button
-              variant="secondary"
-              icon={Download}
-              onClick={() =>
-                downloadPrivate(
-                  `/payment-requests/${id}/evidence`,
-                  r.evidence_name
-                )
-              }
-            >
-              Ver documento de la solicitud
-            </Button>
+            <EvidenceThumbnail
+              path={`/payment-requests/${id}/evidence`}
+              title="Documento de la solicitud"
+              returnType="pay-request"
+              returnInitial={{ id }}
+            />
           )}
           {user.role === "owner" && r.remaining_cents > 0 && (
             <Button
               className="gf-full-width gf-mt"
               icon={ArrowUpRight}
               onClick={() =>
-                open("record-payment", { id: r.id, return_space: r.space_id })
+                open("record-payment", {
+                  id: r.id,
+                  return_space: r.space_id,
+                  destination_index: destination,
+                })
               }
             >
               Ya realicé la transferencia
@@ -719,9 +741,28 @@ async function downloadPrivate(path, name = "comprobante") {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-export function RecordPayment({ id, onClose }) {
+export function RecordPayment({ id, initialDestination, onClose }) {
   const { data, user, refresh, open } = useFinance();
   const request = data.workflow?.requests.find((r) => r.id === Number(id));
+  const [beneficiary, setBeneficiary] = useState(null),
+    [destination, setDestination] = useState(initialDestination ?? null),
+    [destinationLoaded, setDestinationLoaded] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    financeApi(`/payment-requests/${id}`)
+      .then((r) => {
+        if (cancelled) return;
+        setBeneficiary(r.beneficiary);
+        if (r.beneficiary?.accounts.length === 1) setDestination(0);
+        setDestinationLoaded(true);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
   const [value, setValue] = useState(
       request ? (request.remaining_cents / 100).toFixed(2) : ""
     ),
@@ -803,6 +844,7 @@ export function RecordPayment({ id, onClose }) {
         reference,
         evidence_id: evidence?.id,
         confirm_paid: confirmed,
+        destination_index: destination,
       });
       await refresh();
       setDone(result);
@@ -866,6 +908,11 @@ export function RecordPayment({ id, onClose }) {
               Ejemplo: prueba registrar el pago sin utilizar datos reales.
             </div>
           )}
+          <BeneficiaryDetails
+            beneficiary={beneficiary}
+            selected={destination}
+            onSelect={setDestination}
+          />
           <div className="gf-payment-fields">
             <Field label="Monto transferido (USD)">
               <input
@@ -980,6 +1027,8 @@ export function RecordPayment({ id, onClose }) {
             loading={busy}
             disabled={
               !evidence ||
+              !destinationLoaded ||
+              (beneficiary && destination === null) ||
               !confirmed ||
               uploading ||
               !account ||
@@ -1084,6 +1133,24 @@ export function SharePayment({ id, onClose }) {
             </p>
           </div>
           <pre className="gf-share-caption">{message}</pre>
+          <EvidenceThumbnail
+            path={`/payments/${id}/evidence`}
+            title="Comprobante del pago"
+            returnType="share-payment"
+            returnInitial={{ id }}
+          />
+          <Button
+            variant="secondary"
+            icon={Download}
+            onClick={() =>
+              downloadPrivate(
+                `/payments/${id}/evidence`,
+                payment.evidence_name
+              ).catch((e) => setError(e.message))
+            }
+          >
+            Descargar comprobante{preview ? " de ejemplo" : ""}
+          </Button>
           {preview ? (
             <div className="gf-note">
               Esta demostración no envía mensajes ni comparte documentos reales.

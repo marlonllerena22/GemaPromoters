@@ -18,6 +18,239 @@ import { registerProducalzaRoutes } from "../src/producalza-routes.js";
 import { syncInternalSources } from "../src/finance-sources.js";
 
 const password = "financial-fixture-password-123";
+test("manual Diners balances separate available and pending funds without creating bank income", async (t) => {
+  const f = await fixture(t);
+  await f.login();
+  await f.login("reader");
+  await f.login("normita");
+  const before = (await f.req("/snapshot")).body.summary.balance_cents;
+  const body = { available_cents: 123456, pending_cents: 65432, as_of: f.day };
+  assert.equal(
+    (await f.req("/settlement-funds/diners", "owner", body)).status,
+    200
+  );
+  assert.equal(
+    (await f.req("/settlement-funds/diners", "reader", body)).status,
+    403
+  );
+  assert.equal(
+    (
+      await f.req("/settlement-funds/diners", "owner", {
+        ...body,
+        available_cents: -1,
+      })
+    ).status,
+    400
+  );
+  const snapshot = (await f.req("/snapshot")).body;
+  assert.equal(snapshot.summary.balance_cents, before);
+  assert.equal(snapshot.settlement_funds[0].pending_cents, 65432);
+  assert.equal(
+    (await f.req("/snapshot", "reader")).body.settlement_funds[0]
+      .available_cents,
+    123456
+  );
+  assert.equal(
+    (await f.req("/snapshot", "normita")).body.settlement_funds.length,
+    0
+  );
+  assert.equal(
+    (await f.req("/snapshot?business_id=personal")).body.settlement_funds
+      .length,
+    0
+  );
+  await f.req("/settlement-funds/diners", "owner", {
+    ...body,
+    available_cents: 0,
+    pending_cents: 0,
+  });
+  assert.equal(
+    f.db.prepare("SELECT COUNT(*) n FROM finance_settlement_balances").get().n,
+    1
+  );
+  assert.equal(
+    f.db.prepare("SELECT COUNT(*) n FROM finance_movements").get().n,
+    0
+  );
+  assert.equal(
+    f.db.prepare("SELECT COUNT(*) n FROM finance_bank_transactions").get().n,
+    0
+  );
+  assert.equal(
+    f.db
+      .prepare(
+        "SELECT COUNT(*) n FROM finance_audit WHERE action='settlement.balance_updated'"
+      )
+      .get().n,
+    2
+  );
+});
+test("saved payees preserve leading zeroes, alternatives and encrypted historical destinations", async (t) => {
+  const f = await fixture(t);
+  await f.login();
+  await f.login("normita");
+  await f.login("peer");
+  const member = f.db
+    .prepare("SELECT id FROM finance_members WHERE username='normita'")
+    .get();
+  await f.req("/spaces/producalza-materiales/settings", "owner", {
+    members: [{ member_id: member.id, role: "requester" }],
+  });
+  const body = {
+    business_id: "producalza",
+    space_id: "producalza-materiales",
+    name: "Contacto de prueba",
+    document: "0012345678",
+    email: "pagos@example.invalid",
+    accounts: [
+      {
+        bank: "Pichincha",
+        type: "savings",
+        number: "001234567890",
+        holder: "Titular de prueba",
+      },
+      {
+        bank: "Produbanco",
+        type: "checking",
+        number: "009876543210",
+        holder: "Titular de prueba",
+      },
+    ],
+  };
+  const saved = await f.req("/payees", "normita", body);
+  assert.equal(saved.status, 201);
+  assert.equal(saved.body.contact.accounts[0].number, "001234567890");
+  const duplicate = await f.req("/payees", "normita", body);
+  assert.equal(duplicate.body.duplicate, true);
+  assert.equal(duplicate.body.contact.id, saved.body.contact.id);
+  assert.equal(
+    (
+      await f.req(
+        "/payees?business_id=producalza&space_id=producalza-materiales",
+        "peer"
+      )
+    ).status,
+    403
+  );
+  const stored = f.db.prepare("SELECT encrypted FROM finance_payees").get();
+  assert.equal(
+    stored.encrypted.includes(Buffer.from(body.accounts[0].number)),
+    false
+  );
+  const reqBody = {
+    request_id: crypto.randomUUID(),
+    contact_id: saved.body.contact.id,
+    business_id: "producalza",
+    space_id: "producalza-materiales",
+    unit_id: "producalza-fabrica",
+    amount_cents: 50000,
+    description: "Pago de transporte",
+  };
+  const created = await f.req("/payment-requests", "normita", reqBody);
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const id = created.body.movement.id,
+    detail = await f.req(`/payment-requests/${id}`, "owner");
+  assert.equal(detail.body.beneficiary.accounts.length, 2);
+  assert.equal(detail.body.beneficiary.document, "0012345678");
+  assert.equal(
+    (await f.req("/payment-requests", "normita", reqBody)).body.duplicate,
+    true
+  );
+  const encryptedSnapshot = f.db
+    .prepare("SELECT encrypted FROM finance_request_payees WHERE request_id=?")
+    .get(id);
+  assert.equal(
+    encryptedSnapshot.encrypted.includes(Buffer.from(body.accounts[1].number)),
+    false
+  );
+  const account = await f.account("producalza"),
+    proof = await workflowReceipt(f, "payee-choice");
+  const pay = {
+    request_key: crypto.randomUUID(),
+    amount_cents: 50000,
+    account_id: account,
+    evidence_id: proof,
+    paid_day: f.day,
+    reference: "TEST-DESTINATION",
+    confirm_paid: true,
+  };
+  assert.equal(
+    (await f.req(`/payment-requests/${id}/payments`, "owner", pay)).status,
+    400
+  );
+  const paid = await f.req(`/payment-requests/${id}/payments`, "owner", {
+    ...pay,
+    destination_index: 1,
+  });
+  assert.equal(paid.status, 201);
+  assert.equal(paid.body.payment.destination_index, 1);
+  assert.equal(
+    (
+      await f.req(`/payment-requests/${id}/payments`, "owner", {
+        ...pay,
+        destination_index: 0,
+      })
+    ).status,
+    409
+  );
+  assert.equal(
+    (await f.req("/payees", "normita", { ...body, document: "9999999999" }))
+      .status,
+    409
+  );
+  assert.equal((await f.req(`/payment-requests/${id}`, "peer")).status, 404);
+  assert.equal(
+    JSON.stringify((await f.req("/snapshot", "normita")).body).includes(
+      body.accounts[0].number
+    ),
+    false
+  );
+});
+test("contacts reject masked accounts and cannot move personal beneficiaries into work requests", async (t) => {
+  const f = await fixture(t);
+  await f.login();
+  await f.login("reader");
+  const body = {
+    business_id: "personal",
+    name: "Private beneficiary",
+    accounts: [{ bank: "Pichincha", type: "savings", number: "0012345678" }],
+  };
+  assert.equal(
+    (
+      await f.req("/payees", "owner", {
+        ...body,
+        accounts: [{ ...body.accounts[0], number: "***5678" }],
+      })
+    ).status,
+    400
+  );
+  const contact = await f.req("/payees", "owner", body);
+  assert.equal(contact.status, 201);
+  assert.equal(
+    (await f.req("/payees?business_id=personal", "reader")).status,
+    403
+  );
+  assert.equal(
+    (
+      await f.req("/payment-requests", "owner", {
+        contact_id: contact.body.contact.id,
+        request_id: crypto.randomUUID(),
+        business_id: "producalza",
+        amount_cents: 10000,
+      })
+    ).status,
+    403
+  );
+  assert.equal(
+    (await f.req("/payees", "reader", { ...body, business_id: "marjorie" }))
+      .status,
+    403
+  );
+  assert.equal(
+    f.db.prepare("SELECT COUNT(*) n FROM finance_movements").get().n,
+    0
+  );
+});
 async function workflowReceipt(f, tag = "one", business = "producalza") {
   const png =
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aO8sAAAAASUVORK5CYII=";
@@ -45,7 +278,7 @@ test("workspaces authorize named participants without exposing peer financial ac
         members: [{ member_id: member.id, role: "requester" }],
       })
     ).status,
-    200,
+    200
   );
   const r = await f.req("/quick/register", "normita", {
     request_id: crypto.randomUUID(),
@@ -56,15 +289,15 @@ test("workspaces authorize named participants without exposing peer financial ac
   assert.equal(r.body.movement.is_payment_request, 1);
   assert.equal(
     (await f.req(`/payment-requests/${r.body.movement.id}`, "normita")).status,
-    200,
+    200
   );
   assert.equal(
     (await f.req(`/payment-requests/${r.body.movement.id}`, "peer")).status,
-    404,
+    404
   );
   assert.equal(
     (await f.req("/spaces/producalza-materiales", "peer")).status,
-    403,
+    403
   );
   assert.equal(
     (
@@ -74,7 +307,7 @@ test("workspaces authorize named participants without exposing peer financial ac
         space_id: "producalza-materiales",
       })
     ).status,
-    403,
+    403
   );
   const view = (await f.req("/snapshot", "normita")).body;
   assert.equal(view.accounts.length, 0);
@@ -92,12 +325,12 @@ test("payable reminders survive reads and approval, resolve on evidenced payment
   const id = created.body.movement.id;
   assert.equal(
     (await f.req("/snapshot")).body.workflow.summary.pending_count,
-    1,
+    1
   );
   assert.equal(
     (await f.req(`/movements/${id}/review`, "owner", { status: "approved" }))
       .status,
-    409,
+    409
   );
   const firstReceipt = await workflowReceipt(f, "partial");
   const first = {
@@ -116,18 +349,18 @@ test("payable reminders survive reads and approval, resolve on evidenced payment
         confirm_paid: false,
       })
     ).status,
-    400,
+    400
   );
   const paid = await f.req(`/payment-requests/${id}/payments`, "owner", first);
   assert.equal(paid.status, 201);
   assert.equal(
     (await f.req(`/payment-requests/${id}/payments`, "owner", first)).body
       .duplicate,
-    true,
+    true
   );
   assert.equal(
     (await f.req("/snapshot")).body.workflow.summary.pending_cents,
-    20000,
+    20000
   );
   assert.equal(
     (
@@ -137,7 +370,7 @@ test("payable reminders survive reads and approval, resolve on evidenced payment
         amount_cents: 25000,
       })
     ).status,
-    409,
+    409
   );
   const secondReceipt = await workflowReceipt(f, "final");
   assert.equal(
@@ -150,7 +383,7 @@ test("payable reminders survive reads and approval, resolve on evidenced payment
         reference: "TEST-PAGO-2",
       })
     ).status,
-    201,
+    201
   );
   const complete = (await f.req("/snapshot")).body;
   assert.equal(complete.workflow.summary.pending_count, 0);
@@ -158,7 +391,7 @@ test("payable reminders survive reads and approval, resolve on evidenced payment
   assert.equal(complete.summary.pending_cents, 0);
   assert.equal(
     f.db.prepare("SELECT COUNT(*) n FROM finance_bank_transactions").get().n,
-    0,
+    0
   );
   assert.equal(
     (
@@ -166,7 +399,7 @@ test("payable reminders survive reads and approval, resolve on evidenced payment
         reason: "Comprobante de prueba corregido",
       })
     ).status,
-    200,
+    200
   );
   const reopened = (await f.req("/snapshot")).body;
   assert.equal(reopened.workflow.summary.pending_cents, 10000);
@@ -177,15 +410,15 @@ test("payable reminders survive reads and approval, resolve on evidenced payment
         reason: "El saldo restante ya no se necesita",
       })
     ).status,
-    200,
+    200
   );
   assert.equal(
     (await f.req("/snapshot")).body.workflow.summary.pending_count,
-    0,
+    0
   );
   assert.equal(
     f.db.prepare("SELECT COUNT(*) n FROM finance_payments").get().n,
-    2,
+    2
   );
 });
 test("work observer sees bank balances and work detail while personal transactions and allocations stay private", async (t) => {
@@ -224,26 +457,26 @@ test("work observer sees bank balances and work detail while personal transactio
   const snapshot = (await f.req("/snapshot", "german")).body;
   assert.equal(
     snapshot.accounts.find((a) => a.id === account).balance_cents,
-    20000,
+    20000
   );
   assert.equal(snapshot.accounts[0].positions.personal, undefined);
   assert.equal(
     snapshot.accounts[0].opening_allocations.some(
-      (a) => a.business_id === "personal",
+      (a) => a.business_id === "personal"
     ),
-    false,
+    false
   );
   assert.equal(snapshot.bank_transactions.length, 0);
   assert.equal(
     snapshot.movements.some(
-      (m) => m.description === "Compra de materiales de trabajo",
+      (m) => m.description === "Compra de materiales de trabajo"
     ),
-    true,
+    true
   );
   assert.equal(JSON.stringify(snapshot).includes("SECRET-PERSONAL"), false);
   assert.equal(
     (await f.req("/snapshot?business_id=personal", "german")).status,
-    403,
+    403
   );
   assert.equal(
     (
@@ -256,7 +489,7 @@ test("work observer sees bank balances and work detail while personal transactio
         business_ids: ["personal"],
       })
     ).status,
-    400,
+    400
   );
 });
 test("space membership edits and profile changes revoke sessions without dismissing a pending payment", async (t) => {
@@ -281,12 +514,12 @@ test("space membership edits and profile changes revoke sessions without dismiss
         space_ids: ["producalza-materiales"],
       })
     ).status,
-    200,
+    200
   );
   assert.equal((await f.req("/snapshot", "normita")).status, 401);
   assert.equal(
     (await f.req("/snapshot")).body.workflow.summary.pending_cents,
-    9000,
+    9000
   );
   assert.equal((await f.req("/push/config")).body.enabled, false);
 });
@@ -312,23 +545,23 @@ test("quick owner registration is idempotent, audited and never accredits a bank
         text: "Gasto personal gasolina $800",
       })
     ).status,
-    409,
+    409
   );
   assert.equal(
     f.db.prepare("SELECT COUNT(*) n FROM finance_movements").get().n,
-    1,
+    1
   );
   assert.equal(
     f.db.prepare("SELECT COUNT(*) n FROM finance_bank_transactions").get().n,
-    0,
+    0
   );
   assert.equal(
     f.db
       .prepare(
-        "SELECT COUNT(*) n FROM finance_audit WHERE action='movement.quick_recorded'",
+        "SELECT COUNT(*) n FROM finance_audit WHERE action='movement.quick_recorded'"
       )
       .get().n,
-    1,
+    1
   );
 });
 test("quick collaborators have assigned units, pending submissions and no cross-business access", async (t) => {
@@ -353,7 +586,7 @@ test("quick collaborators have assigned units, pending submissions and no cross-
         overrides: { unit_id: "marjorie-norte" },
       })
     ).status,
-    400,
+    400
   );
   assert.equal(
     (
@@ -362,7 +595,7 @@ test("quick collaborators have assigned units, pending submissions and no cross-
         text: "Gasto personal gasolina $80",
       })
     ).status,
-    400,
+    400
   );
   assert.equal(
     (
@@ -371,7 +604,7 @@ test("quick collaborators have assigned units, pending submissions and no cross-
         text: "Gasto Marjorie $80",
       })
     ).status,
-    403,
+    403
   );
   const missing = await f.req("/quick/register", "owner", {
     request_id: crypto.randomUUID(),
@@ -380,7 +613,7 @@ test("quick collaborators have assigned units, pending submissions and no cross-
   assert.equal(missing.status, 400);
   assert.equal(
     f.db.prepare("SELECT COUNT(*) n FROM finance_movements").get().n,
-    1,
+    1
   );
 });
 process.env.FINANCE_DOCUMENT_KEY ||=
@@ -406,7 +639,7 @@ test("shared account balances keep business ownership separate from unassigned m
         ],
       })
     ).status,
-    200,
+    200
   );
   await f.bank(id, [
     { day: f.day, amount_cents: 3000, external_id: "shared-in" },
@@ -421,7 +654,7 @@ test("shared account balances keep business ownership separate from unassigned m
         amount_cents: 2000,
       })
     ).status,
-    200,
+    200
   );
   const all = (await f.req("/snapshot")).body,
     produ = (await f.req("/snapshot?business_id=producalza")).body;
@@ -430,7 +663,7 @@ test("shared account balances keep business ownership separate from unassigned m
   assert.equal(produ.summary.balance_cents, 8000);
   assert.equal(
     all.businesses.find((x) => x.id === "marjorie").funds_cents,
-    4000,
+    4000
   );
   assert.equal(
     (
@@ -438,12 +671,12 @@ test("shared account balances keep business ownership separate from unassigned m
         allocations: [{ business_id: "producalza", amount_cents: 11000 }],
       })
     ).status,
-    400,
+    400
   );
   assert.equal(
     (await f.req("/snapshot?business_id=producalza")).body.summary
       .balance_cents,
-    8000,
+    8000
   );
 });
 async function fixture(t, withProduction = false) {
@@ -456,7 +689,7 @@ async function fixture(t, withProduction = false) {
     initProducalzaDb(db);
   }
   const member = db.prepare(
-    "INSERT INTO finance_members (name,username,password_hash,role,business_ids,unit_ids) VALUES (?,?,?,?,?,?)",
+    "INSERT INTO finance_members (name,username,password_hash,role,business_ids,unit_ids) VALUES (?,?,?,?,?,?)"
   );
   const hash = passwordHash(password);
   member.run(
@@ -465,7 +698,7 @@ async function fixture(t, withProduction = false) {
     hash,
     "owner",
     JSON.stringify(["producalza", "marjorie", "gemashow", "personal"]),
-    "[]",
+    "[]"
   );
   member.run("Manager", "manager", hash, "manager", '["marjorie"]', "[]");
   member.run("Normita", "normita", hash, "collector", '["producalza"]', "[]");
@@ -476,7 +709,7 @@ async function fixture(t, withProduction = false) {
     hash,
     "collector",
     '["marjorie"]',
-    '["marjorie-norte"]',
+    '["marjorie-norte"]'
   );
   member.run("Reader", "reader", hash, "viewer", '["marjorie"]', "[]");
   const app = express();
@@ -484,7 +717,7 @@ async function fixture(t, withProduction = false) {
     express.json({
       limit: "10mb",
       verify: (req, _res, buf) => (req.rawBody = buf),
-    }),
+    })
   );
   const production = withProduction
     ? registerProducalzaRoutes(app, db, () => 1)
@@ -511,7 +744,7 @@ async function fixture(t, withProduction = false) {
           ...headers,
         },
         ...(body ? { body: JSON.stringify(body) } : {}),
-      },
+      }
     );
   }
   async function req(path, user = "owner", body, method, headers) {
@@ -598,7 +831,7 @@ test("financial authentication is independent, uses private cookies, and never s
   assert.ok(!JSON.stringify(snapshot.body).includes(password));
   assert.equal(
     f.db.prepare("SELECT COUNT(*) n FROM finance_accounts").get().n,
-    0,
+    0
   );
 });
 
@@ -624,7 +857,7 @@ test("sales, reported receipts, actual bank entries and reconciliation remain se
         },
       ])
     ).status,
-    200,
+    200
   );
   s = (await f.req("/snapshot")).body.summary;
   assert.equal(s.balance_cents, 10000);
@@ -638,7 +871,7 @@ test("sales, reported receipts, actual bank entries and reconciliation remain se
         amount_cents: 10000,
       })
     ).status,
-    200,
+    200
   );
   s = (await f.req("/snapshot")).body.summary;
   assert.equal(s.balance_cents, 10000);
@@ -663,7 +896,7 @@ test("bank imports are atomic, idempotent, and reject indistinguishable rows and
   assert.equal((await f.bank(account, [...rows, ...rows])).status, 400);
   assert.equal(
     (await f.bank(account, [{ ...rows[0], amount_cents: 3000 }])).status,
-    409,
+    409
   );
   assert.equal(
     (
@@ -672,11 +905,11 @@ test("bank imports are atomic, idempotent, and reject indistinguishable rows and
         { ...rows[0], amount_cents: 3000 },
       ])
     ).status,
-    409,
+    409
   );
   assert.equal(
     f.db.prepare("SELECT COUNT(*) n FROM finance_bank_transactions").get().n,
-    1,
+    1
   );
 });
 
@@ -706,7 +939,7 @@ test("partial allocation cannot overdraw a receipt or reuse a bank entry; revers
         amount_cents: 1,
       })
     ).status,
-    409,
+    409
   );
   assert.equal(
     (
@@ -716,7 +949,7 @@ test("partial allocation cannot overdraw a receipt or reuse a bank entry; revers
         amount_cents: 6000,
       })
     ).status,
-    409,
+    409
   );
   assert.equal(
     (
@@ -726,7 +959,7 @@ test("partial allocation cannot overdraw a receipt or reuse a bank entry; revers
         amount_cents: 5000,
       })
     ).body.fully_reconciled,
-    true,
+    true
   );
   const allocation = f.db
     .prepare("SELECT id FROM finance_allocations LIMIT 1")
@@ -737,23 +970,23 @@ test("partial allocation cannot overdraw a receipt or reuse a bank entry; revers
         `/allocations/${allocation.id}`,
         "owner",
         { reason: "Corregir referencia" },
-        "DELETE",
+        "DELETE"
       )
     ).status,
-    200,
+    200
   );
   assert.equal(
     f.db
       .prepare("SELECT status FROM finance_movements WHERE id=?")
       .get(m.body.id).status,
-    "pending",
+    "pending"
   );
   assert.ok(
     f.db
       .prepare(
-        "SELECT id FROM finance_audit WHERE action='allocation.reversed'",
+        "SELECT id FROM finance_audit WHERE action='allocation.reversed'"
       )
-      .get(),
+      .get()
   );
 });
 
@@ -774,7 +1007,7 @@ test("reconciliation requires matching direction, account ownership, and approve
         amount_cents: 10000,
       })
     ).status,
-    400,
+    400
   );
   const expense = await f.movement({
     business_id: "marjorie",
@@ -788,7 +1021,7 @@ test("reconciliation requires matching direction, account ownership, and approve
         amount_cents: 10000,
       })
     ).status,
-    400,
+    400
   );
   await f.req(`/movements/${expense.body.id}/review`, "owner", {
     status: "approved",
@@ -801,7 +1034,7 @@ test("reconciliation requires matching direction, account ownership, and approve
         amount_cents: 10000,
       })
     ).status,
-    200,
+    200
   );
 });
 
@@ -824,7 +1057,7 @@ test("collectors only see their records and cannot access private balances, peer
   assert.equal(s.body.budgets.length, 0);
   assert.equal(
     (await f.req("/snapshot?business_id=personal", "normita")).status,
-    403,
+    403
   );
   assert.equal(
     (
@@ -832,11 +1065,11 @@ test("collectors only see their records and cannot access private balances, peer
         status: "approved",
       })
     ).status,
-    403,
+    403
   );
   assert.equal(
     (await f.movement({ business_id: "marjorie" }, "normita")).status,
-    403,
+    403
   );
 });
 
@@ -849,23 +1082,23 @@ test("unit assignments are enforced on writes, reads and account visibility", as
     (
       await f.movement(
         { business_id: "marjorie", unit_id: "marjorie-valle" },
-        "north",
+        "north"
       )
     ).status,
-    403,
+    403
   );
   assert.equal(
     (await f.movement({ business_id: "marjorie" }, "north")).status,
-    403,
+    403
   );
   assert.equal(
     (
       await f.movement(
         { business_id: "marjorie", unit_id: "marjorie-norte" },
-        "north",
+        "north"
       )
     ).status,
-    201,
+    201
   );
   assert.equal((await f.req("/snapshot", "north")).body.accounts.length, 0);
 });
@@ -875,11 +1108,11 @@ test("viewer cannot write and manager cannot approve own requests or reconcile b
   for (const u of ["owner", "manager", "reader"]) await f.login(u);
   assert.equal(
     (await f.movement({ business_id: "marjorie" }, "reader")).status,
-    403,
+    403
   );
   const m = await f.movement(
     { business_id: "marjorie", kind: "expense" },
-    "manager",
+    "manager"
   );
   assert.equal(
     (
@@ -887,7 +1120,7 @@ test("viewer cannot write and manager cannot approve own requests or reconcile b
         status: "approved",
       })
     ).status,
-    403,
+    403
   );
   assert.equal(
     (
@@ -895,12 +1128,12 @@ test("viewer cannot write and manager cannot approve own requests or reconcile b
         status: "approved",
       })
     ).status,
-    200,
+    200
   );
   assert.equal(
     (await f.req("/bank/import", "manager", { account_id: 1, rows: [] }))
       .status,
-    403,
+    403
   );
   assert.equal((await f.req("/members", "manager")).status, 403);
 });
@@ -912,7 +1145,7 @@ test("sales deliveries are idempotent, versioned and reject conflicting equal ve
   assert.equal(importSale(f.db, { ...sale }).ignored, true);
   assert.throws(
     () => importSale(f.db, { ...sale, total_cents: 20000 }),
-    /misma versión/,
+    /misma versión/
   );
   const updated = {
     ...sale,
@@ -924,7 +1157,7 @@ test("sales deliveries are idempotent, versioned and reject conflicting equal ve
   assert.equal(f.db.prepare("SELECT COUNT(*) n FROM finance_sales").get().n, 1);
   assert.equal(
     f.db.prepare("SELECT state FROM finance_sales").get().state,
-    "cancelled",
+    "cancelled"
   );
   assert.throws(
     () =>
@@ -932,7 +1165,7 @@ test("sales deliveries are idempotent, versioned and reject conflicting equal ve
         ...sale,
         payments: [{ method: "cash", amount_cents: 10001 }],
       }),
-    /desglose/,
+    /desglose/
   );
 });
 
@@ -963,14 +1196,14 @@ test("signed AlfaBusiness deliveries validate raw payload, timestamp and busines
         "none",
         payload,
         "POST",
-        headers,
+        headers
       )
     ).status,
-    200,
+    200
   );
   assert.equal(
     f.db.prepare("SELECT business_id FROM finance_sales").get().business_id,
-    "marjorie",
+    "marjorie"
   );
   assert.equal(
     (
@@ -979,10 +1212,10 @@ test("signed AlfaBusiness deliveries validate raw payload, timestamp and busines
         "none",
         { ...payload, total_cents: 11000 },
         "POST",
-        headers,
+        headers
       )
     ).status,
-    401,
+    401
   );
   const stale = String(Number(timestamp) - 400);
   assert.equal(
@@ -992,7 +1225,7 @@ test("signed AlfaBusiness deliveries validate raw payload, timestamp and busines
         "x-finance-signature": sign(payload, stale),
       })
     ).status,
-    401,
+    401
   );
 });
 
@@ -1007,7 +1240,7 @@ test("cash closing uses actual imported payment breakdown and flags later source
         { method: "cash", amount_cents: 10000 },
         { method: "card", amount_cents: 15000 },
       ],
-    }),
+    })
   );
   const body = {
     unit_id: "marjorie-norte",
@@ -1025,7 +1258,7 @@ test("cash closing uses actual imported payment breakdown and flags later source
   assert.equal(
     (await f.movement({ business_id: "marjorie", unit_id: "marjorie-norte" }))
       .status,
-    409,
+    409
   );
   importSale(
     f.db,
@@ -1036,12 +1269,12 @@ test("cash closing uses actual imported payment breakdown and flags later source
         { method: "card", amount_cents: 15000 },
       ],
       source_updated_at: `${f.day}T13:00:00-05:00`,
-    }),
+    })
   );
   assert.equal(
     f.db.prepare("SELECT needs_review FROM finance_closings").get()
       .needs_review,
-    1,
+    1
   );
   assert.equal(
     (
@@ -1049,12 +1282,12 @@ test("cash closing uses actual imported payment breakdown and flags later source
         reason: "Revisar nueva venta",
       })
     ).status,
-    200,
+    200
   );
   assert.ok(
     f.db
       .prepare("SELECT id FROM finance_audit WHERE action='cash.reopened'")
-      .get(),
+      .get()
   );
 });
 
@@ -1073,12 +1306,12 @@ test("recurring expenses create pending commitments once per month and never deb
   assert.equal(
     (await f.req("/recurring/generate", "owner", { month: f.day.slice(0, 7) }))
       .body.created,
-    1,
+    1
   );
   assert.equal(
     (await f.req("/recurring/generate", "owner", { month: f.day.slice(0, 7) }))
       .body.created,
-    0,
+    0
   );
   const s = (await f.req("/snapshot")).body;
   assert.equal(s.summary.pending_cents, 100000);
@@ -1101,17 +1334,17 @@ test("private evidence is encrypted, format-checked, deduplicated and scoped to 
   assert.equal(created.status, 201);
   assert.equal(
     (await f.req("/evidence", "normita", body)).body.duplicate,
-    true,
+    true
   );
   assert.equal((await f.req("/evidence", "peer", body)).status, 409);
   assert.equal(
     (await f.req("/evidence", "normita", { ...body, mime: "application/pdf" }))
       .status,
-    400,
+    400
   );
   assert.equal(
     (await f.raw(`/evidence/${created.body.id}`, "peer")).status,
-    404,
+    404
   );
   const downloaded = await f.raw(`/evidence/${created.body.id}`, "normita");
   assert.equal(downloaded.status, 200);
@@ -1137,7 +1370,7 @@ test("CSRF, revocation and idle sessions are enforced on financial mutations", a
         "X-Finance-Request": "",
       })
     ).status,
-    403,
+    403
   );
   assert.equal(
     (
@@ -1145,7 +1378,7 @@ test("CSRF, revocation and idle sessions are enforced on financial mutations", a
         Origin: "https://unrelated.example",
       })
     ).status,
-    403,
+    403
   );
   const member = f.db
     .prepare("SELECT id FROM finance_members WHERE username='normita'")
@@ -1153,7 +1386,7 @@ test("CSRF, revocation and idle sessions are enforced on financial mutations", a
   assert.equal(
     (await f.req(`/members/${member.id}/status`, "owner", { active: false }))
       .status,
-    200,
+    200
   );
   assert.equal((await f.req("/snapshot", "normita")).status, 401);
   f.db
@@ -1198,7 +1431,7 @@ test("CSV output neutralizes formulas and audit hashes retain a verifiable chain
     ];
     assert.equal(
       e.hash,
-      crypto.createHash("sha256").update(JSON.stringify(values)).digest("hex"),
+      crypto.createHash("sha256").update(JSON.stringify(values)).digest("hex")
     );
     previous = e.hash;
   }
@@ -1219,7 +1452,7 @@ test("a complete SQLite backup retains encrypted evidence and ledger consistency
     assert.equal(copy.pragma("quick_check", { simple: true }), "ok");
     assert.equal(
       copy.prepare("SELECT COUNT(*) n FROM finance_movements").get().n,
-      1,
+      1
     );
     copy.close();
   } finally {
@@ -1227,7 +1460,7 @@ test("a complete SQLite backup retains encrypted evidence and ledger consistency
       temporary = path.resolve(os.tmpdir()) + path.sep;
     assert.ok(
       resolved.startsWith(temporary) &&
-        path.basename(resolved).startsWith("gema-finance-test-"),
+        path.basename(resolved).startsWith("gema-finance-test-")
     );
     await fs.rm(resolved, { recursive: true, force: true });
   }
@@ -1263,7 +1496,7 @@ test("transfers preserve total funds and never count as revenue or expense", asy
           amount_cents: 5000,
         })
       ).status,
-      200,
+      200
     );
   }
   const s = (await f.req("/snapshot")).body.summary;
@@ -1299,7 +1532,7 @@ test("cash custody transfers require physical confirmation and affect only the c
   assert.equal(
     (await f.req("/transfers", "owner", { ...body, confirm_cash: true }))
       .status,
-    201,
+    201
   );
   const s = (await f.req("/snapshot")).body;
   assert.equal(s.accounts.find((a) => a.id === from).balance_cents, 7000);
@@ -1309,10 +1542,10 @@ test("cash custody transfers require physical confirmation and affect only the c
   assert.equal(
     f.db
       .prepare(
-        "SELECT COUNT(*) n FROM finance_bank_transactions WHERE source='cash_journal'",
+        "SELECT COUNT(*) n FROM finance_bank_transactions WHERE source='cash_journal'"
       )
       .get().n,
-    2,
+    2
   );
 });
 
@@ -1347,14 +1580,14 @@ test("MFA enrollment encrypts the secret, requires a second factor, and consumes
   assert.equal(confirmed.body.recovery_codes.length, 8);
   const stored = f.db
     .prepare(
-      "SELECT mfa_secret,mfa_enabled FROM finance_members WHERE username='owner'",
+      "SELECT mfa_secret,mfa_enabled FROM finance_members WHERE username='owner'"
     )
     .get();
   assert.equal(stored.mfa_enabled, 1);
   assert.notEqual(stored.mfa_secret.toString(), enrollment.body.secret);
   assert.equal(
     (await f.req("/login", "owner", { username: "owner", password })).body.code,
-    "MFA_REQUIRED",
+    "MFA_REQUIRED"
   );
   assert.equal(
     (
@@ -1364,25 +1597,25 @@ test("MFA enrollment encrypts the secret, requires a second factor, and consumes
         code: totp(enrollment.body.secret),
       })
     ).status,
-    401,
+    401
   );
   const code = confirmed.body.recovery_codes[0];
   assert.equal(
     (await f.req("/login", "owner", { username: "owner", password, code }))
       .status,
-    200,
+    200
   );
   assert.equal(
     (await f.req("/login", "owner", { username: "owner", password, code }))
       .status,
-    401,
+    401
   );
   assert.equal((await f.req("/security", "owner")).body.recovery_remaining, 7);
   assert.ok(
     !f.db
       .prepare("SELECT hash FROM finance_recovery_codes LIMIT 1")
       .get()
-      .hash.includes(code),
+      .hash.includes(code)
   );
   assert.equal(
     (
@@ -1391,12 +1624,12 @@ test("MFA enrollment encrypts the secret, requires a second factor, and consumes
         code: confirmed.body.recovery_codes[1],
       })
     ).status,
-    200,
+    200
   );
   assert.equal((await f.req("/security", "owner")).body.mfa_enabled, false);
   assert.equal(
     f.db.prepare("SELECT COUNT(*) n FROM finance_recovery_codes").get().n,
-    0,
+    0
   );
 });
 
@@ -1437,7 +1670,7 @@ test("AI receives only scoped context, cannot mutate records, and filters invent
             },
           ],
         }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
+        { status: 200, headers: { "Content-Type": "application/json" } }
       );
     }
     return actualFetch(url, options);
@@ -1452,7 +1685,7 @@ test("AI receives only scoped context, cannot mutate records, and filters invent
   assert.ok(!JSON.stringify(request).includes("Private personal marker"));
   assert.equal(
     f.db.prepare("SELECT COUNT(*) n FROM finance_movements").get().n,
-    2,
+    2
   );
 });
 
@@ -1461,17 +1694,17 @@ test("a reconciled Producalza receipt updates its original order once and revers
   await f.login();
   const client = f.db
     .prepare(
-      "INSERT INTO production_clients (establishment_id,name) VALUES (1,'Cliente de prueba')",
+      "INSERT INTO production_clients (establishment_id,name) VALUES (1,'Cliente de prueba')"
     )
     .run().lastInsertRowid;
   const order = f.db
     .prepare(
-      "INSERT INTO production_orders (establishment_id,client_id,order_number,status) VALUES (1,?,'PC-TEST-1','received')",
+      "INSERT INTO production_orders (establishment_id,client_id,order_number,status) VALUES (1,?,'PC-TEST-1','received')"
     )
     .run(client).lastInsertRowid;
   f.db
     .prepare(
-      "INSERT INTO production_order_payments (establishment_id,order_id,payment_type,amount,status,reference) VALUES (1,?,'saldo',500,'pending','MANUAL-TOTAL-PENDIENTE')",
+      "INSERT INTO production_order_payments (establishment_id,order_id,payment_type,amount,status,reference) VALUES (1,?,'saldo',500,'pending','MANUAL-TOTAL-PENDIENTE')"
     )
     .run(order);
   const account = await f.account("producalza");
@@ -1498,11 +1731,11 @@ test("a reconciled Producalza receipt updates its original order once and revers
         amount_cents: 20000,
       })
     ).status,
-    200,
+    200
   );
   let paid = f.db
     .prepare(
-      "SELECT * FROM production_order_payments WHERE order_id=? AND status='paid'",
+      "SELECT * FROM production_order_payments WHERE order_id=? AND status='paid'"
     )
     .all(order);
   assert.equal(paid.length, 1);
@@ -1510,15 +1743,15 @@ test("a reconciled Producalza receipt updates its original order once and revers
   assert.equal(
     f.db
       .prepare(
-        "SELECT SUM(amount) n FROM production_order_payments WHERE order_id=? AND status='pending'",
+        "SELECT SUM(amount) n FROM production_order_payments WHERE order_id=? AND status='pending'"
       )
       .get(order).n,
-    300,
+    300
   );
   syncInternalSources(f.db, { username: "owner" });
   assert.equal(
     f.db.prepare("SELECT COUNT(*) n FROM finance_movements").get().n,
-    1,
+    1
   );
   const allocation = f.db.prepare("SELECT id FROM finance_allocations").get();
   assert.equal(
@@ -1527,18 +1760,18 @@ test("a reconciled Producalza receipt updates its original order once and revers
         `/allocations/${allocation.id}`,
         "owner",
         { reason: "Revisar acreditación" },
-        "DELETE",
+        "DELETE"
       )
     ).status,
-    200,
+    200
   );
   assert.equal(
     f.db
       .prepare(
-        "SELECT SUM(amount) n FROM production_order_payments WHERE order_id=? AND status='pending'",
+        "SELECT SUM(amount) n FROM production_order_payments WHERE order_id=? AND status='pending'"
       )
       .get(order).n,
-    500,
+    500
   );
   assert.equal(
     (
@@ -1548,11 +1781,11 @@ test("a reconciled Producalza receipt updates its original order once and revers
         amount_cents: 20000,
       })
     ).status,
-    200,
+    200
   );
   paid = f.db
     .prepare(
-      "SELECT * FROM production_order_payments WHERE order_id=? AND status='paid'",
+      "SELECT * FROM production_order_payments WHERE order_id=? AND status='paid'"
     )
     .all(order);
   assert.equal(paid.length, 1);

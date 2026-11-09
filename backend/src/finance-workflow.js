@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { decryptDocument } from "./finance-ai.js";
 import { audit, financeDay, validDay, cents } from "./finance-db.js";
 import {
   businessAccess,
@@ -40,10 +41,41 @@ export function workflowSource(db) {
   };
 }
 export function financialWorkflow(db, user) {
-  return workflowView(workflowSource(db), user);
+  const result = workflowView(workflowSource(db), user),
+    cache = new Map();
+  for (const p of result.payments) {
+    if (p.destination_index === null || p.destination_index === undefined)
+      continue;
+    if (!cache.has(p.request_id)) {
+      const row = db
+        .prepare(
+          "SELECT encrypted FROM finance_request_payees WHERE request_id=?"
+        )
+        .get(p.request_id);
+      cache.set(
+        p.request_id,
+        row ? JSON.parse(decryptDocument(row.encrypted).toString()) : null
+      );
+    }
+    const a = cache.get(p.request_id)?.accounts?.[p.destination_index];
+    if (a) {
+      p.destination_bank = a.bank;
+      p.destination_last_four = a.number.slice(-4);
+    }
+  }
+  return result;
 }
 export function attachWorkflow(db, user, data) {
   data.workflow = financialWorkflow(db, user);
+  data.settlement_funds =
+    user.role !== "collector" &&
+    data.businesses.some((b) => b.id === "marjorie")
+      ? db
+          .prepare(
+            "SELECT * FROM finance_settlement_balances WHERE business_id='marjorie'"
+          )
+          .all()
+      : [];
   data.capabilities.push = Boolean(
     process.env.FINANCE_VAPID_PUBLIC_KEY &&
       process.env.FINANCE_VAPID_PRIVATE_KEY &&
@@ -111,6 +143,10 @@ export function recordRequestPayment(db, user, id, body) {
     account_id: Number(body.account_id),
     paid_day: validDay(body.paid_day),
     reference: text(body.reference, 200),
+    destination_index:
+      body.destination_index === undefined || body.destination_index === null
+        ? null
+        : Number(body.destination_index),
   };
   if (
     payload.paid_day > financeDay() ||
@@ -135,6 +171,21 @@ export function recordRequestPayment(db, user, id, body) {
       return { payment: previous, duplicate: true };
     }
     const request = requireRequest(db, user, id);
+    const beneficiaryRow = db
+      .prepare(
+        "SELECT encrypted FROM finance_request_payees WHERE request_id=?"
+      )
+      .get(request.id);
+    if (beneficiaryRow) {
+      const beneficiary = JSON.parse(
+        decryptDocument(beneficiaryRow.encrypted).toString()
+      );
+      if (
+        !Number.isInteger(payload.destination_index) ||
+        !beneficiary.accounts[payload.destination_index]
+      )
+        fail("Elige la cuenta de destino que utilizaste");
+    }
     if (!request.remaining_cents)
       fail("La solicitud ya no tiene un valor pendiente", 409);
     if (payload.amount_cents > request.remaining_cents)
@@ -181,7 +232,7 @@ export function recordRequestPayment(db, user, id, body) {
     ).run(request.space_id, movement.id);
     const inserted = db
       .prepare(
-        "INSERT INTO finance_payments (request_id,movement_id,amount_cents,evidence_id,account_id,paid_day,reference,created_by,request_key,fingerprint) VALUES (?,?,?,?,?,?,?,?,?,?)"
+        "INSERT INTO finance_payments (request_id,movement_id,amount_cents,evidence_id,account_id,paid_day,reference,created_by,request_key,fingerprint,destination_index) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
       )
       .run(
         request.id,
@@ -193,7 +244,8 @@ export function recordRequestPayment(db, user, id, body) {
         payload.reference,
         user.username,
         body.request_key,
-        fingerprint
+        fingerprint,
+        payload.destination_index
       );
     const remaining = request.remaining_cents - payload.amount_cents;
     db.prepare(

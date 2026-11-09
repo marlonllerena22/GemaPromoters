@@ -4,6 +4,7 @@ import { createMovement, importBank, reconcile } from "./finance-service.js";
 import { encryptDocument } from "./finance-ai.js";
 import { recordRequestPayment } from "./finance-workflow.js";
 import { PROFILE_TEMPLATES } from "../../shared/finance-workflow.mjs";
+import { savePayee } from "./finance-payees.js";
 export function seedWorkflowDemo(db) {
   if (db.pragma("database_list")[0].file !== "")
     throw new Error(
@@ -88,7 +89,7 @@ export function seedWorkflowDemo(db) {
   const card = Number(
     db
       .prepare(
-        "INSERT INTO finance_accounts (business_id,name,bank,kind,last_four,custodian,opening_cents,opening_date) VALUES ('gemashow','Tarjeta de eventos','Diners','card','4202','Propietario',0,?)"
+        "INSERT INTO finance_accounts (business_id,name,bank,kind,last_four,custodian,opening_cents,opening_date) VALUES ('gemashow','Tarjeta de eventos · ejemplo','Tarjeta','card','4202','Propietario',0,?)"
       )
       .run(`${day.slice(0, 7)}-01`).lastInsertRowid
   );
@@ -243,5 +244,62 @@ export function seedWorkflowDemo(db) {
   db.prepare(
     "INSERT INTO finance_space_notes (request_id,actor,body) VALUES (?,'ana','La compra corresponde únicamente a materiales de bodega. Datos de demostración.')"
   ).run(ids[1]);
+  for (const [space_id, actor, name] of [
+    ["producalza-materiales", "ana", "Materiales · contacto de ejemplo"],
+    ["producalza-pagos", "norma", "Servicios · contacto de ejemplo"],
+    ["gema-mago-loja", "owner", "Transporte · contacto de ejemplo"],
+  ]) {
+    const business_id = space_id.startsWith("producalza")
+      ? "producalza"
+      : "gemashow";
+    const { contact } = savePayee(
+      db,
+      profileUsers[actor] || profileUsers.owner,
+      {
+        business_id,
+        space_id,
+        name,
+        document: "",
+        email: "pagos@example.invalid",
+        accounts: [
+          {
+            bank: "Pichincha",
+            type: "savings",
+            number: "0012345678",
+            holder: "Titular de ejemplo",
+          },
+          {
+            bank: "Produbanco",
+            type: "checking",
+            number: "0098765432",
+            holder: "Titular de ejemplo",
+          },
+        ],
+      }
+    );
+    const rows = db
+      .prepare(
+        "SELECT id FROM finance_movements WHERE is_payment_request=1 AND space_id=?"
+      )
+      .all(space_id);
+    for (const row of rows)
+      db.prepare(
+        "INSERT INTO finance_request_payees (request_id,payee_id,encrypted) VALUES (?,?,?)"
+      ).run(
+        row.id,
+        contact.id,
+        encryptDocument(
+          Buffer.from(
+            JSON.stringify({
+              name: contact.name,
+              document: contact.document,
+              email: contact.email,
+              accounts: contact.accounts,
+              contact_id: contact.id,
+            })
+          )
+        )
+      );
+  }
   return profileUsers;
 }

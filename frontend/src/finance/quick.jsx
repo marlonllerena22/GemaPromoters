@@ -58,7 +58,7 @@ export function QuickAccess() {
 export function CollaboratorHome() {
   const { user, data, open, navigate, selectMovement } = useFinance();
   const pending = data.movements.filter((m) =>
-    ["pending", "reported", "approved"].includes(m.status),
+    ["pending", "reported", "approved"].includes(m.status)
   ).length;
   return (
     <div className="gf-collaborator-home">
@@ -69,7 +69,9 @@ export function CollaboratorHome() {
         <span className="gf-assigned-business">
           {user.business_ids.map((id) => businessNames[id]).join(" · ")}
           {user.unit_ids.length === 1
-            ? ` · ${data.units.find((u) => u.id === user.unit_ids[0])?.name || ""}`
+            ? ` · ${
+                data.units.find((u) => u.id === user.unit_ids[0])?.name || ""
+              }`
             : ""}
         </span>
       </div>
@@ -165,7 +167,7 @@ export function CollaboratorHome() {
 }
 
 export function QuickCapture({ initial = {}, onClose }) {
-  const { user, data, filters, refresh, notify, navigate } = useFinance();
+  const { user, data, filters, refresh, notify, navigate, open } = useFinance();
   const [mode, setMode] = useState(initial.mode || "message"),
     [text, setText] = useState(initial.text || "");
   const [overrides, setOverrides] = useState(
@@ -176,12 +178,12 @@ export function QuickCapture({ initial = {}, onClose }) {
               ?.unit_id
               ? {
                   unit_id: data.workflow.spaces.find(
-                    (s) => s.id === initial.space_id,
+                    (s) => s.id === initial.space_id
                   ).unit_id,
                 }
               : {}),
           }
-        : {},
+        : {}
     ),
     [amountText, setAmountText] = useState("");
   const [busy, setBusy] = useState(false),
@@ -203,12 +205,12 @@ export function QuickCapture({ initial = {}, onClose }) {
     filters.business_id !== "all"
       ? filters.business_id
       : mode !== "message" && user.business_ids.includes("producalza")
-        ? "producalza"
-        : user.business_ids.includes("personal")
-          ? "personal"
-          : user.business_ids.length === 1
-            ? user.business_ids[0]
-            : null;
+      ? "producalza"
+      : user.business_ids.includes("personal")
+      ? "personal"
+      : user.business_ids.length === 1
+      ? user.business_ids[0]
+      : null;
   const parsed = useMemo(
     () =>
       interpretQuickEntry(text, {
@@ -222,7 +224,7 @@ export function QuickCapture({ initial = {}, onClose }) {
         overrides,
         request: mode === "request",
       }),
-    [text, overrides, mode, user, data, defaultBusiness, preview],
+    [text, overrides, mode, user, data, defaultBusiness, preview]
   );
   const d = parsed.draft,
     currentScope = `${d.business_id}:${d.unit_id || ""}`;
@@ -234,8 +236,8 @@ export function QuickCapture({ initial = {}, onClose }) {
       s.business_ids.includes(d.business_id) &&
       (user.role === "owner" ||
         s.members?.some(
-          (m) => m.member_id === user.id && m.role !== "observer",
-        )),
+          (m) => m.member_id === user.id && m.role !== "observer"
+        ))
   );
   const selectedSpace = availableSpaces.find((s) => s.id === spaceId);
   useEffect(() => {
@@ -249,13 +251,13 @@ export function QuickCapture({ initial = {}, onClose }) {
             (/exterior|dani/i.test(text)
               ? "international"
               : d.category === "Materiales"
-                ? "materials"
-                : "general"),
-        )?.id || (availableSpaces.length === 1 ? availableSpaces[0].id : ""),
+              ? "materials"
+              : "general")
+        )?.id || (availableSpaces.length === 1 ? availableSpaces[0].id : "")
       );
   }, [d.business_id, d.category, parsed.is_request]);
   const accounts = data.accounts.filter(
-    (a) => !a.business_id || a.business_id === d.business_id,
+    (a) => !a.business_id || a.business_id === d.business_id
   );
   const update = (key, value) => setOverrides((p) => ({ ...p, [key]: value }));
   useEffect(
@@ -268,7 +270,7 @@ export function QuickCapture({ initial = {}, onClose }) {
         recognition.current.abort();
       }
     },
-    [],
+    []
   );
   useEffect(() => {
     setEvidence(null);
@@ -279,7 +281,7 @@ export function QuickCapture({ initial = {}, onClose }) {
     setMode(value);
     setText("");
     setOverrides(
-      initial.business_id ? { business_id: initial.business_id } : {},
+      initial.business_id ? { business_id: initial.business_id } : {}
     );
     setAmountText("");
     setEvidence(null);
@@ -293,7 +295,7 @@ export function QuickCapture({ initial = {}, onClose }) {
     }
     if (!Speech) {
       setError(
-        "Puedes escribir aquí o usar el micrófono del teclado de tu celular.",
+        "Puedes escribir aquí o usar el micrófono del teclado de tu celular."
       );
       return;
     }
@@ -321,8 +323,8 @@ export function QuickCapture({ initial = {}, onClose }) {
           event.error === "not-allowed"
             ? "El micrófono no tiene permiso. Puedes habilitarlo en el navegador o escribir tu registro."
             : event.error === "no-speech"
-              ? "No escuché una frase. Inténtalo de nuevo o escribe aquí."
-              : "El dictado no está disponible en este momento. Puedes escribir o usar el micrófono de tu teclado.",
+            ? "No escuché una frase. Inténtalo de nuevo o escribe aquí."
+            : "El dictado no está disponible en este momento. Puedes escribir o usar el micrófono de tu teclado."
         );
     };
     try {
@@ -336,13 +338,13 @@ export function QuickCapture({ initial = {}, onClose }) {
     if (!file) return;
     if (preview) {
       setError(
-        "Esta vista es de prueba. No subas documentos reales; puedes probar escribiendo el monto.",
+        "Esta vista es de prueba. No subas documentos reales; puedes probar escribiendo el monto."
       );
       return;
     }
     if (!d.business_id || (user.unit_ids.length && !d.unit_id)) {
       setError(
-        "Selecciona el negocio y tu local antes de adjuntar el comprobante.",
+        "Selecciona el negocio y tu local antes de adjuntar el comprobante."
       );
       return;
     }
@@ -371,7 +373,7 @@ export function QuickCapture({ initial = {}, onClose }) {
         try {
           const { analysis } = await financeApi(
             `/evidence/${saved.id}/analyze`,
-            {},
+            {}
           );
           if (!mounted.current || scope.current !== uploadScope) return;
           setOverrides((previous) => ({
@@ -390,7 +392,7 @@ export function QuickCapture({ initial = {}, onClose }) {
         } catch (e) {
           if (mounted.current)
             setError(
-              `Comprobante guardado. Completa el monto manualmente: ${e.message}`,
+              `Comprobante guardado. Completa el monto manualmente: ${e.message}`
             );
         }
       }
@@ -448,10 +450,10 @@ export function QuickCapture({ initial = {}, onClose }) {
         success
           ? "Todo en su lugar."
           : mode === "receipt"
-            ? "Subir un cobro"
-            : mode === "request"
-              ? "Pedir un pago"
-              : "Registrar rápido"
+          ? "Subir un cobro"
+          : mode === "request"
+          ? "Pedir un pago"
+          : "Registrar rápido"
       }
       subtitle={
         success
@@ -478,9 +480,9 @@ export function QuickCapture({ initial = {}, onClose }) {
                 ? "Solicitud de ejemplo enviada"
                 : "Así quedaría tu registro"
               : user.role === "collector" ||
-                  success.movement.status === "pending"
-                ? "Enviado para revisión"
-                : "Gasto registrado"}
+                success.movement.status === "pending"
+              ? "Enviado para revisión"
+              : "Gasto registrado"}
           </h3>
           <strong>{money(success.movement.amount_cents)}</strong>
           <p>
@@ -493,8 +495,8 @@ export function QuickCapture({ initial = {}, onClose }) {
                 ? "Quedó pendiente en este ejemplo. Tus finanzas reales no se modificaron."
                 : "Puedes probar el flujo. Tus finanzas reales no se modificaron."
               : success.movement.kind === "income"
-                ? "El comprobante está organizado para su verificación."
-                : "Quedó registrado. La cuenta y el pago se comprueban por separado."}
+              ? "El comprobante está organizado para su verificación."
+              : "Quedó registrado. La cuenta y el pago se comprueban por separado."}
           </div>
           <Button
             icon={Plus}
@@ -532,7 +534,11 @@ export function QuickCapture({ initial = {}, onClose }) {
                 type="button"
                 key={id}
                 aria-pressed={mode === id}
-                onClick={() => switchMode(id)}
+                onClick={() =>
+                  id === "request"
+                    ? open("quick", { mode: "request" })
+                    : switchMode(id)
+                }
                 disabled={busy || uploading}
               >
                 <Icon size={16} />
@@ -557,8 +563,8 @@ export function QuickCapture({ initial = {}, onClose }) {
                 {uploading
                   ? "Guardando y preparando el comprobante…"
                   : data.capabilities.ai
-                    ? "Leemos sus datos y los dejamos listos para revisar."
-                    : "Adjunta la foto y escribe el monto. El negocio ya está seleccionado."}
+                  ? "Leemos sus datos y los dejamos listos para revisar."
+                  : "Adjunta la foto y escribe el monto. El negocio ya está seleccionado."}
               </p>
               <div>
                 <Button
@@ -602,8 +608,8 @@ export function QuickCapture({ initial = {}, onClose }) {
               {mode === "receipt"
                 ? "Añade el monto o contexto"
                 : mode === "request"
-                  ? "¿Qué necesitas pagar?"
-                  : "¿Qué registramos?"}
+                ? "¿Qué necesitas pagar?"
+                : "¿Qué registramos?"}
             </label>
             <textarea
               id="gf-quick-text"
@@ -625,8 +631,8 @@ export function QuickCapture({ initial = {}, onClose }) {
                 mode === "receipt"
                   ? "Recibí $250 de abono de un cliente"
                   : mode === "request"
-                    ? "Necesito pagar $80 de materiales para Producalza"
-                    : "Registra un gasto personal de $80 en gasolina"
+                  ? "Necesito pagar $80 de materiales para Producalza"
+                  : "Registra un gasto personal de $80 en gasolina"
               }
               rows={3}
             />
@@ -773,8 +779,8 @@ export function QuickCapture({ initial = {}, onClose }) {
                 {d.kind === "income"
                   ? "COBRO"
                   : parsed.is_request
-                    ? "SOLICITUD DE PAGO"
-                    : "GASTO"}
+                  ? "SOLICITUD DE PAGO"
+                  : "GASTO"}
               </span>
               <strong>{d.amount_cents ? money(d.amount_cents) : "$ —"}</strong>
             </div>
@@ -860,7 +866,7 @@ export function QuickCapture({ initial = {}, onClose }) {
                     onChange={(e) =>
                       update(
                         "account_id",
-                        e.target.value ? Number(e.target.value) : null,
+                        e.target.value ? Number(e.target.value) : null
                       )
                     }
                   >
@@ -930,10 +936,10 @@ export function QuickCapture({ initial = {}, onClose }) {
               {preview
                 ? "Probar registro"
                 : parsed.is_request
-                  ? "Enviar solicitud"
-                  : d.kind === "income"
-                    ? "Enviar cobro"
-                    : "Registrar gasto"}
+                ? "Enviar solicitud"
+                : d.kind === "income"
+                ? "Enviar cobro"
+                : "Registrar gasto"}
               {parsed.ready && ` · ${money(d.amount_cents)}`}
             </Button>
             <p>

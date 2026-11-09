@@ -23,6 +23,24 @@ export function initFinanceWorkflowDb(db) {
     id INTEGER PRIMARY KEY,request_id INTEGER NOT NULL REFERENCES finance_movements(id),actor TEXT NOT NULL,body TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
   );
+  CREATE TABLE IF NOT EXISTS finance_payees (
+    id TEXT PRIMARY KEY,business_id TEXT NOT NULL,space_id TEXT REFERENCES finance_spaces(id),
+    encrypted BLOB NOT NULL,created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  );
+  CREATE TABLE IF NOT EXISTS finance_settlement_balances (
+    provider TEXT PRIMARY KEY,business_id TEXT NOT NULL,available_cents INTEGER NOT NULL CHECK(typeof(available_cents)='integer' AND available_cents>=0),
+    pending_cents INTEGER NOT NULL CHECK(typeof(pending_cents)='integer' AND pending_cents>=0),as_of TEXT NOT NULL,
+    updated_by TEXT NOT NULL,updated_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS finance_payee_accounts (
+    payee_id TEXT NOT NULL REFERENCES finance_payees(id),scope TEXT NOT NULL,fingerprint TEXT NOT NULL,
+    PRIMARY KEY(scope,fingerprint)
+  );
+  CREATE TABLE IF NOT EXISTS finance_request_payees (
+    request_id INTEGER PRIMARY KEY REFERENCES finance_movements(id),payee_id TEXT NOT NULL REFERENCES finance_payees(id),
+    encrypted BLOB NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS finance_push_subscriptions (
     endpoint_hash TEXT PRIMARY KEY,member_id INTEGER NOT NULL REFERENCES finance_members(id),encrypted BLOB NOT NULL,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
@@ -36,6 +54,7 @@ export function initFinanceWorkflowDb(db) {
     ["finance_movements", "is_payment_request", "INTEGER NOT NULL DEFAULT 0"],
     ["finance_movements", "space_id", "TEXT REFERENCES finance_spaces(id)"],
     ["finance_members", "work_view", "INTEGER NOT NULL DEFAULT 0"],
+    ["finance_payments", "destination_index", "INTEGER"],
   ])
     if (
       !db

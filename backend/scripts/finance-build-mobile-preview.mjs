@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createMobilePreview } from "./finance-mobile-preview.mjs";
@@ -6,6 +7,7 @@ import { safeMember } from "../src/finance-db.js";
 import { snapshot, csvExport } from "../src/finance-service.js";
 import { seedWorkflowDemo } from "../src/finance-workflow-demo.js";
 import { attachWorkflow, workflowSource } from "../src/finance-workflow.js";
+import { decryptDocument } from "../src/finance-ai.js";
 
 const destination = path.resolve(process.argv[2] || "");
 const manifest = JSON.parse(
@@ -19,6 +21,9 @@ const sourceRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../.."
 );
+// This generator only creates an in-memory synthetic fixture. Its disposable
+// encryption key must never depend on, or expose, the operational document key.
+process.env.FINANCE_DOCUMENT_KEY = crypto.randomBytes(32).toString("hex");
 const { db } = createMobilePreview();
 db.pragma("query_only=OFF");
 const personas = seedWorkflowDemo(db);
@@ -64,6 +69,25 @@ for (const business_id of ["all", ...owner.business_ids]) {
 const collector_snapshot = persona_snapshots.norma.all;
 collector_snapshot.capabilities = previewCapabilities;
 const workflow_source = workflowSource(db);
+workflow_source.contacts = db
+  .prepare("SELECT * FROM finance_payees")
+  .all()
+  .map((r) => ({
+    ...JSON.parse(decryptDocument(r.encrypted).toString()),
+    id: r.id,
+    business_id: r.business_id,
+    space_id: r.space_id,
+    created_by: r.created_by,
+  }));
+workflow_source.beneficiaries = Object.fromEntries(
+  db
+    .prepare("SELECT * FROM finance_request_payees")
+    .all()
+    .map((r) => [
+      r.request_id,
+      JSON.parse(decryptDocument(r.encrypted).toString()),
+    ])
+);
 workflow_source.notes = db
   .prepare(
     "SELECT n.*,m.name actor_name FROM finance_space_notes n LEFT JOIN finance_members m ON m.username=n.actor ORDER BY n.id"
@@ -130,6 +154,10 @@ await fs.copyFile(
 await fs.copyFile(
   path.join(sourceRoot, "shared/finance-workflow.mjs"),
   path.join(dist, "workflow.mjs")
+);
+await fs.copyFile(
+  path.join(sourceRoot, "shared/finance-payees.mjs"),
+  path.join(dist, "payees.mjs")
 );
 await fs.writeFile(
   path.join(dist, "_redirects"),

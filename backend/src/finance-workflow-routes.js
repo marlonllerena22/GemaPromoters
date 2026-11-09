@@ -1,7 +1,14 @@
 import crypto from "node:crypto";
+import { validDay, financeDay } from "./finance-db.js";
 import { audit } from "./finance-db.js";
 import { decryptDocument } from "./finance-ai.js";
 import { fail, text } from "./finance-service.js";
+import {
+  listPayees,
+  savePayee,
+  createPayeeRequest,
+  requestPayee,
+} from "./finance-payees.js";
 import {
   financialWorkflow,
   requireSpace,
@@ -36,6 +43,80 @@ export function assignSpaceMemberships(db, memberId, ids, role, businessIds) {
   for (const id of new Set(ids)) add.run(id, memberId, role);
 }
 export function registerWorkflowRoutes(app, db, { route, owner }) {
+  app.post(
+    "/api/finance/settlement-funds/diners",
+    route((req, res) => {
+      owner(req);
+      const b = req.body,
+        as_of = validDay(b.as_of);
+      if (
+        as_of > financeDay() ||
+        ![b.available_cents, b.pending_cents].every(
+          (n) => Number.isSafeInteger(n) && n >= 0 && n <= 100_000_000_000
+        )
+      )
+        fail("Revisa los dos saldos y la fecha de actualización");
+      const previous =
+        db
+          .prepare(
+            "SELECT * FROM finance_settlement_balances WHERE provider='diners'"
+          )
+          .get() || null;
+      db.transaction(() => {
+        db.prepare(
+          "INSERT INTO finance_settlement_balances (provider,business_id,available_cents,pending_cents,as_of,updated_by,updated_at) VALUES ('diners','marjorie',?,?,?,?,?) ON CONFLICT(provider) DO UPDATE SET available_cents=excluded.available_cents,pending_cents=excluded.pending_cents,as_of=excluded.as_of,updated_by=excluded.updated_by,updated_at=excluded.updated_at"
+        ).run(
+          b.available_cents,
+          b.pending_cents,
+          as_of,
+          req.financeUser.username,
+          new Date().toISOString()
+        );
+        audit(
+          db,
+          req.financeUser.username,
+          "settlement.balance_updated",
+          "settlement",
+          "diners",
+          previous,
+          {
+            available_cents: b.available_cents,
+            pending_cents: b.pending_cents,
+            as_of,
+          },
+          "marjorie"
+        );
+      })();
+      res.json({ ok: true });
+    })
+  );
+  app.get(
+    "/api/finance/payees",
+    route((req, res) =>
+      res.json({
+        contacts: listPayees(
+          db,
+          req.financeUser,
+          req.query.business_id,
+          req.query.space_id || null
+        ),
+      })
+    )
+  );
+  app.post(
+    "/api/finance/payees",
+    route((req, res) => {
+      const result = savePayee(db, req.financeUser, req.body);
+      res.status(result.duplicate ? 200 : 201).json(result);
+    })
+  );
+  app.post(
+    "/api/finance/payment-requests",
+    route((req, res) => {
+      const result = createPayeeRequest(db, req.financeUser, req.body);
+      res.status(result.duplicate ? 200 : 201).json(result);
+    })
+  );
   app.get(
     "/api/finance/spaces",
     route((req, res) => res.json(financialWorkflow(db, req.financeUser)))
@@ -185,8 +266,11 @@ export function registerWorkflowRoutes(app, db, { route, owner }) {
         .all(request.id);
       res.json({
         request,
+        beneficiary: requestPayee(db, request.id),
         space,
-        payments: source.payments.filter((p) => p.request_id === request.id),
+        payments: financialWorkflow(db, req.financeUser).payments.filter(
+          (p) => p.request_id === request.id
+        ),
         notes,
       });
     })

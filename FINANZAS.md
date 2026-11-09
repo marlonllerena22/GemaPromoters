@@ -18,6 +18,10 @@ También se puede iniciar con `npm run finance:preview`. Mantener el proceso abi
 
 ## Funciones implementadas
 
+- Peticiones con contactos guardados y múltiples cuentas: monto grande, búsqueda, lectura opcional de datos bancarios desde imágenes y elección de banco por el propietario. Destinatarios cifrados, historial inmutable y números copiables. Ver `docs/finance/CONTACTOS-Y-DINERS.md`.
+- Comprobantes de las peticiones con miniatura, visor a pantalla completa, zoom, descarga y preparación para compartir. Las miniaturas se cargan al entrar en pantalla.
+- Saldos manuales de Diners para Marjorie: efectivizado y por efectivizar separados, fecha y auditoría. No se exige número de cuenta y no se contabilizan como ventas nuevas ni como saldo bancario.
+
 - Registro rápido desde cualquier pantalla: texto o dictado compatible del navegador. Una frase como “Registra un gasto personal de $80 en gasolina” completa negocio, monto, categoría y fecha. Solo requiere revisar el resumen y pulsar guardar; cuenta y respaldo son opcionales, con estado pendiente de verificar cuando corresponda. No se inventan acreditaciones ni se ejecutan pagos.
 - Las frases habituales se interpretan con reglas compartidas entre cliente y servidor, sin requerir un proveedor de IA. Los casos ambiguos solicitan únicamente el campo faltante. Se validan de nuevo permisos, negocio, local y cuenta en el servidor; un identificador de envío evita duplicados al reintentar.
 - Gasto directo del propietario/administrador: registrado sin comprobación bancaria. Cobro, solicitud de pago o envío de colaborador: pendiente de revisión. Conservar estas diferencias evita tratar una solicitud como dinero ya pagado.

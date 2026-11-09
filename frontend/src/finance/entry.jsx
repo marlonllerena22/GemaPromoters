@@ -97,6 +97,9 @@ import {
   NewSpace,
 } from "./workflows.jsx";
 import "./workflows.css";
+import { RequestComposer, EvidenceViewer } from "./payees.jsx";
+import "./payees.css";
+import { SettlementBalanceForm } from "./settlements.jsx";
 
 const pages = [
   {
@@ -186,8 +189,8 @@ const pages = [
 pages.unshift(
   pages.splice(
     pages.findIndex((p) => p.id === "inicio"),
-    1,
-  )[0],
+    1
+  )[0]
 );
 pages.find((p) => p.id === "equipo").component = Team;
 
@@ -205,7 +208,7 @@ function Login({ session, onLogin }) {
     try {
       const data = await financeApi(
         demo ? "/demo" : "/login",
-        demo ? {} : { username, password, code },
+        demo ? {} : { username, password, code }
       );
       onLogin(data.user);
     } catch (e) {
@@ -248,7 +251,9 @@ function Login({ session, onLogin }) {
             {Array.from({ length: 12 }, (_, i) => (
               <path
                 key={i}
-                d={`M-100 ${350 + i * 15} C130 ${-80 + i * 20},420 ${650 - i * 20},800 ${80 + i * 15}`}
+                d={`M-100 ${350 + i * 15} C130 ${-80 + i * 20},420 ${
+                  650 - i * 20
+                },800 ${80 + i * 15}`}
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="1"
@@ -362,7 +367,7 @@ function FinanceApp() {
     [data, setData] = useState(null),
     [fatal, setFatal] = useState("");
   const [page, setPage] = useState(
-      window.location.pathname.split("/")[2] || "inicio",
+      window.location.pathname.split("/")[2] || "inicio"
     ),
     [mobileOpen, setMobileOpen] = useState(false),
     [modal, setModal] = useState(null);
@@ -395,7 +400,7 @@ function FinanceApp() {
           `/snapshot?${new URLSearchParams(filters)}`,
           undefined,
           undefined,
-          { interactive: background !== true },
+          { interactive: background !== true }
         );
         if (id === loadId.current) {
           setData(result);
@@ -408,7 +413,7 @@ function FinanceApp() {
         if (id === loadId.current) setLoading(false);
       }
     },
-    [filters],
+    [filters]
   );
   useEffect(() => {
     financeApi("/session")
@@ -439,7 +444,7 @@ function FinanceApp() {
       [...ids].some((id) => !knownPayables.current.has(id))
     )
       notify(
-        "Tienes una nueva solicitud de transferencia. Quedará visible en Por transferir.",
+        "Tienes una nueva solicitud de transferencia. Quedará visible en Por transferir."
       );
     knownPayables.current = ids;
     navigator.serviceWorker?.controller?.postMessage({
@@ -524,7 +529,7 @@ function FinanceApp() {
       notify(
         result.created !== undefined
           ? `${result.created} pendientes nuevos preparados`
-          : success,
+          : success
       );
       return result;
     } catch (e) {
@@ -585,7 +590,7 @@ function FinanceApp() {
           "pagos",
           "reportes",
         ].includes(p.id)) &&
-      (!p.hideCollector || user?.role !== "collector"),
+      (!p.hideCollector || user?.role !== "collector")
   );
   const current = visiblePages.find((p) => p.id === page) || visiblePages[0];
   const Page = current?.component;
@@ -650,7 +655,9 @@ function FinanceApp() {
       }}
     >
       <div
-        className={`gf-app ${hidden ? "gf-values-hidden" : ""} ${user.role === "collector" ? "gf-collector" : ""} ${user.work_view ? "gf-work-view" : ""}`}
+        className={`gf-app ${hidden ? "gf-values-hidden" : ""} ${
+          user.role === "collector" ? "gf-collector" : ""
+        } ${user.work_view ? "gf-work-view" : ""}`}
         data-page={current.id}
       >
         {mobileOpen && (
@@ -794,7 +801,7 @@ function FinanceApp() {
                 aria-label={`${data.summary.pending_count} movimientos pendientes`}
                 onClick={() =>
                   navigate(
-                    user.role === "collector" ? "movimientos" : "pendientes",
+                    user.role === "collector" ? "movimientos" : "pendientes"
                   )
                 }
               >
@@ -828,8 +835,8 @@ function FinanceApp() {
                       (user.role === "owner"
                         ? "owner"
                         : user.work_view
-                          ? "german"
-                          : "norma")
+                        ? "german"
+                        : "norma")
                     }
                     onChange={(e) => previewPersona(e.target.value)}
                   >
@@ -970,8 +977,8 @@ function FinanceApp() {
               {user.work_view
                 ? "Trabajo"
                 : user.role === "collector"
-                  ? "Mis envíos"
-                  : "Movimientos"}
+                ? "Mis envíos"
+                : "Movimientos"}
             </span>
           </button>
           {user.role !== "viewer" && (
@@ -1048,7 +1055,17 @@ function FinanceApp() {
         {modal?.type === "detail" && (
           <MovementDetail movement={modal.movement} onClose={close} />
         )}
-        {modal?.type === "quick" && (
+        {modal?.type === "quick" && modal.initial?.mode === "request" && (
+          <RequestComposer
+            initial={modal.initial}
+            onClose={
+              modal.initial?.space_id
+                ? () => open("space", { id: modal.initial.space_id })
+                : close
+            }
+          />
+        )}
+        {modal?.type === "quick" && modal.initial?.mode !== "request" && (
           <QuickCapture
             initial={modal.initial}
             onClose={
@@ -1065,10 +1082,28 @@ function FinanceApp() {
           <RequestDetails id={modal.initial.id} onClose={requestClose} />
         )}
         {modal?.type === "record-payment" && (
-          <RecordPayment id={modal.initial.id} onClose={requestClose} />
+          <RecordPayment
+            id={modal.initial.id}
+            initialDestination={modal.initial.destination_index}
+            onClose={requestClose}
+          />
         )}
         {modal?.type === "share-payment" && (
           <SharePayment id={modal.initial.id} onClose={close} />
+        )}
+        {modal?.type === "evidence-viewer" && (
+          <EvidenceViewer
+            path={modal.initial.path}
+            title={modal.initial.title}
+            onClose={() =>
+              modal.initial.return_type
+                ? open(
+                    modal.initial.return_type,
+                    modal.initial.return_initial || {}
+                  )
+                : close()
+            }
+          />
         )}
         {modal?.type === "space-settings" && (
           <SpaceSettings
@@ -1077,6 +1112,9 @@ function FinanceApp() {
           />
         )}
         {modal?.type === "new-space" && <NewSpace onClose={close} />}
+        {modal?.type === "diners-balance" && (
+          <SettlementBalanceForm onClose={close} />
+        )}
         {modal?.type === "bank" && <BankImport onClose={close} />}
         {modal?.type === "transfer" && <TransferPanel onClose={close} />}
         {modal?.type === "allocation" && (
@@ -1101,9 +1139,11 @@ function FinanceApp() {
             <div className="gf-global-results">
               {data.movements
                 .filter((m) =>
-                  `${m.counterparty} ${m.reference} ${m.description} ${m.amount_cents / 100}`
+                  `${m.counterparty} ${m.reference} ${m.description} ${
+                    m.amount_cents / 100
+                  }`
                     .toLowerCase()
-                    .includes(search.toLowerCase()),
+                    .includes(search.toLowerCase())
                 )
                 .slice(0, 12)
                 .map((m) => (
@@ -1204,5 +1244,5 @@ class FinanceErrorBoundary extends React.Component {
 createRoot(document.getElementById("root")).render(
   <FinanceErrorBoundary>
     <FinanceApp />
-  </FinanceErrorBoundary>,
+  </FinanceErrorBoundary>
 );

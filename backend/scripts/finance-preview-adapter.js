@@ -92,6 +92,11 @@
           previous = workflowView(baseline, user);
         const belongs = (r) => business === "all" || r.business_id === business;
         result.workflow = workflow;
+        result.settlement_funds =
+          user.role !== "collector" &&
+          result.businesses.some((b) => b.id === "marjorie")
+            ? clone(source.settlements || [])
+            : [];
         result.summary.pending_cents +=
           workflow.queue
             .filter(belongs)
@@ -130,6 +135,168 @@
         return json({ orders: [] });
       if (url.pathname === "/api/finance/push/config" && method === "GET")
         return json({ enabled: false, public_key: null });
+      if (
+        url.pathname === "/api/finance/settlement-funds/diners" &&
+        method === "POST"
+      ) {
+        if (!owner) return forbidden();
+        if (
+          ![body.available_cents, body.pending_cents].every(
+            (n) => Number.isSafeInteger(n) && n >= 0
+          ) ||
+          !/^\d{4}-\d{2}-\d{2}$/.test(body.as_of) ||
+          body.as_of > period.today
+        )
+          return json({ message: "Revisa los saldos y la fecha" }, 400);
+        source.settlements = [
+          {
+            provider: "diners",
+            business_id: "marjorie",
+            available_cents: body.available_cents,
+            pending_cents: body.pending_cents,
+            as_of: body.as_of,
+            updated_at: new Date().toISOString(),
+            updated_by: user.username,
+          },
+        ];
+        return json({ ok: true, preview: true });
+      }
+      if (url.pathname === "/api/finance/payees") {
+        if (user.role === "viewer") return forbidden();
+        const b =
+            method === "GET"
+              ? url.searchParams.get("business_id")
+              : body.business_id,
+          s =
+            method === "GET"
+              ? url.searchParams.get("space_id") || null
+              : body.space_id || null;
+        const space = s ? source.spaces.find((x) => x.id === s) : null;
+        if (
+          !user.business_ids.includes(b) ||
+          (s &&
+            (!space ||
+              !canSeeSpace(space, user, source.members) ||
+              (!owner &&
+                source.members.find(
+                  (m) => m.space_id === s && m.member_id === user.id
+                )?.role === "observer")))
+        )
+          return forbidden();
+        const contacts = (source.contacts || []).filter(
+          (c) =>
+            c.business_id === b &&
+            (c.space_id || null) === s &&
+            (owner || s || c.created_by === user.username)
+        );
+        if (method === "GET") return json({ contacts });
+        const { normalizePayee, payeeError } = await import("/payees.mjs");
+        const p = normalizePayee(body),
+          error = payeeError(p);
+        if (error) return json({ message: error }, 400);
+        const previous = contacts.find((c) =>
+          c.accounts.some((a) =>
+            p.accounts.some(
+              (x) =>
+                x.bank.toLowerCase() === a.bank.toLowerCase() &&
+                x.number === a.number
+            )
+          )
+        );
+        if (previous) {
+          if (previous.name !== p.name)
+            return json(
+              {
+                message:
+                  "La cuenta ya está guardada. Selecciona el contacto existente.",
+              },
+              409
+            );
+          return json({ contact: previous, duplicate: true, preview: true });
+        }
+        const contact = {
+          ...p,
+          id: crypto.randomUUID(),
+          business_id: b,
+          space_id: s,
+          created_by: user.username,
+        };
+        (source.contacts ||= []).push(contact);
+        return json({ contact, preview: true }, 201);
+      }
+      if (
+        url.pathname === "/api/finance/payment-requests" &&
+        method === "POST"
+      ) {
+        const c = source.contacts.find((c) => c.id === body.contact_id);
+        if (
+          !c ||
+          c.business_id !== body.business_id ||
+          c.space_id !== (body.space_id || null) ||
+          user.role === "viewer"
+        )
+          return forbidden();
+        const result = await window.fetch("/api/finance/quick/register", {
+          method: "POST",
+          body: JSON.stringify({
+            request_id: body.request_id,
+            request: true,
+            text: body.description || "Pago solicitado",
+            space_id: body.space_id,
+            evidence_id: body.evidence_id,
+            overrides: {
+              kind: "expense",
+              amount_cents: body.amount_cents,
+              business_id: body.business_id,
+              unit_id: body.unit_id,
+              counterparty: c.name,
+              payment_method: "transfer",
+              category: body.category || "Otros",
+            },
+          }),
+        });
+        if (!result.ok) return result;
+        const saved = await result.json();
+        source.beneficiaries[saved.movement.id] = {
+          name: c.name,
+          document: c.document,
+          email: c.email,
+          accounts: clone(c.accounts),
+          contact_id: c.id,
+        };
+        return json(saved, 201);
+      }
+      const receipt = url.pathname.match(
+        /^\/api\/finance\/(payments|payment-requests)\/(\d+)\/evidence$/
+      );
+      if (receipt && method === "GET") {
+        const payment =
+          receipt[1] === "payments"
+            ? source.payments.find((p) => p.id === Number(receipt[2]))
+            : null;
+        const request = requestById(payment?.request_id || receipt[2]);
+        if (!request || (receipt[1] === "payments" && !payment))
+          return forbidden();
+        const total = (
+          (payment?.amount_cents || request.amount_cents) / 100
+        ).toFixed(2);
+        const suffix = String(
+          source.beneficiaries?.[request.id]?.accounts?.[
+            payment?.destination_index
+          ]?.number || "5678"
+        )
+          .slice(-4)
+          .replace(/[^A-Z0-9]/g, "");
+        return new Response(
+          `<svg xmlns="http://www.w3.org/2000/svg" width="680" height="940" viewBox="0 0 680 940"><rect width="680" height="940" fill="#edf3e7"/><rect x="32" y="32" width="616" height="876" rx="30" fill="white"/><text x="340" y="110" text-anchor="middle" font-family="Arial" font-size="22" fill="#41614b">GEMA · COMPROBANTE FICTICIO</text><circle cx="340" cy="210" r="50" fill="#e8f1de"/><text x="340" y="229" text-anchor="middle" font-family="Arial" font-size="50" fill="#517646">✓</text><text x="340" y="335" text-anchor="middle" font-family="Arial" font-size="58" fill="#244b39">$ ${total}</text><text x="340" y="410" text-anchor="middle" font-family="Arial" font-size="25" fill="#41614b">Transferencia de ejemplo</text><path d="M90 455H590" stroke="#dce5d5"/><text x="90" y="520" font-family="Arial" font-size="22" fill="#5b705c">Destino: Contacto de demostración</text><text x="90" y="575" font-family="Arial" font-size="22" fill="#5b705c">Cuenta ficticia: ···· ${suffix}</text><text x="90" y="630" font-family="Arial" font-size="22" fill="#5b705c">Referencia: EJEMPLO-SIN-VALIDEZ</text><text x="340" y="755" text-anchor="middle" font-family="Arial" font-size="31" fill="#a58140">SIN VALIDEZ BANCARIA</text><text x="340" y="805" text-anchor="middle" font-family="Arial" font-size="19" fill="#73806a">No acredita ni realiza un pago.</text></svg>`,
+          {
+            headers: {
+              "Content-Type": "image/svg+xml",
+              "Cache-Control": "no-store",
+            },
+          }
+        );
+      }
       if (url.pathname === "/api/finance/quick/register" && method === "POST") {
         if (user.role === "viewer") return forbidden();
         const { interpretQuickEntry } = await import("/quick-intent.mjs");
@@ -187,6 +354,7 @@
         if (!request) return forbidden();
         return json({
           request,
+          beneficiary: source.beneficiaries?.[request.id] || null,
           space: source.spaces.find((s) => s.id === request.space_id) || null,
           payments: source.payments.filter((p) => p.request_id === request.id),
           notes: (source.notes || []).filter(
@@ -201,6 +369,16 @@
         if (!owner) return forbidden();
         const request = requestById(pay[1]);
         if (!request) return forbidden();
+        const beneficiary = source.beneficiaries?.[request.id];
+        if (
+          beneficiary &&
+          (!Number.isInteger(body.destination_index) ||
+            !beneficiary.accounts[body.destination_index])
+        )
+          return json(
+            { message: "Elige la cuenta de destino que utilizaste" },
+            400
+          );
         if (
           !body.confirm_paid ||
           !body.evidence_id ||
@@ -240,6 +418,12 @@
           amount_cents: body.amount_cents,
           evidence_id: -1,
           account_id: account.id,
+          destination_index: body.destination_index ?? null,
+          destination_bank:
+            beneficiary?.accounts?.[body.destination_index]?.bank || null,
+          destination_last_four:
+            beneficiary?.accounts?.[body.destination_index]?.number.slice(-4) ||
+            null,
           account_bank: account.bank,
           last_four: account.last_four,
           paid_day: body.paid_day,
