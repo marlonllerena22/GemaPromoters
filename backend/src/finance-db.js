@@ -122,6 +122,12 @@ export function initFinanceDb(db) {
       UNIQUE(source_system, business_id, external_id)
     );
     CREATE INDEX IF NOT EXISTS finance_movements_period ON finance_movements(business_id, day, status);
+    CREATE TABLE IF NOT EXISTS finance_quick_requests (
+      member_id INTEGER NOT NULL REFERENCES finance_members(id), request_id TEXT NOT NULL,
+      fingerprint TEXT NOT NULL, movement_id INTEGER NOT NULL REFERENCES finance_movements(id),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      PRIMARY KEY(member_id,request_id)
+    );
     CREATE TABLE IF NOT EXISTS finance_bank_transactions (
       id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES finance_accounts(id), day TEXT NOT NULL,
       amount_cents INTEGER NOT NULL CHECK(typeof(amount_cents)='integer' AND amount_cents<>0), reference TEXT NOT NULL DEFAULT '',

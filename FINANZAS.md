@@ -6,6 +6,8 @@ Centro financiero para Producalza, Marjorie Botas, Gemashow y finanzas personale
 
 Desde celular: <https://gema-finanzas-vista-20261109.marlonllerena22.chatgpt.site/finanzas/>. Vista alojada privada, accesible con la misma cuenta de ChatGPT propietaria del sitio. Reutiliza la interfaz compilada y ejemplos nuevos generados en memoria. Permite navegar, filtrar negocios y exportar ejemplos; el período es fijo y las escrituras están bloqueadas. No contiene bases operativas ni credenciales, y no depende de que la PC esté encendida. Su fuente independiente está en la carpeta hermana `vista-movil-gema`, con la identidad del sitio en `.openai/hosting.json`.
 
+La barra de demostración permite alternar **Mi panel / Colaborador**. El primero muestra el panel completo y el segundo, una entrada con tres acciones: subir un cobro, pedir un pago y consultar sus envíos. El registro rápido se puede probar con texto; responde como simulación y no guarda nada en las finanzas reales. El cambio de vista solo existe en el paquete de ejemplo: no cambia roles ni permisos de la aplicación operativa.
+
 `backend/scripts/finance-build-mobile-preview.mjs` actualiza ese paquete estático a partir de la interfaz compilada. `npm run finance:mobile-preview` ofrece además una vista local de consulta en el puerto 4180 con base exclusivamente en memoria; no publica enlaces externos. La ruta operativa de demostración local de abajo conserva sus formularios completos.
 
 En Windows, ejecutar `ABRIR_FINANZAS.cmd` y abrir <http://127.0.0.1:4178/finanzas/>. Elegir **Abrir demostración**. La primera compilación está preparada; la base de ejemplo se guarda exclusivamente en `backend/data/finance-demo.sqlite`.
@@ -15,6 +17,13 @@ Los nombres y valores de esta demostración son ficticios. Su acceso automático
 También se puede iniciar con `npm run finance:preview`. Mantener el proceso abierto para utilizarla. El instalador PWA está preparado para Chrome/Edge y la opción de agregar a inicio de Safari; compartirla con teléfonos requiere una publicación HTTPS accesible desde ellos.
 
 ## Funciones implementadas
+
+- Registro rápido desde cualquier pantalla: texto o dictado compatible del navegador. Una frase como “Registra un gasto personal de $80 en gasolina” completa negocio, monto, categoría y fecha. Solo requiere revisar el resumen y pulsar guardar; cuenta y respaldo son opcionales, con estado pendiente de verificar cuando corresponda. No se inventan acreditaciones ni se ejecutan pagos.
+- Las frases habituales se interpretan con reglas compartidas entre cliente y servidor, sin requerir un proveedor de IA. Los casos ambiguos solicitan únicamente el campo faltante. Se validan de nuevo permisos, negocio, local y cuenta en el servidor; un identificador de envío evita duplicados al reintentar.
+- Gasto directo del propietario/administrador: registrado sin comprobación bancaria. Cobro, solicitud de pago o envío de colaborador: pendiente de revisión. Conservar estas diferencias evita tratar una solicitud como dinero ya pagado.
+- Comprobantes rápidos: foto o archivo, lectura automática si está configurada la IA y corrección del monto cuando no hay proveedor. Se usa el negocio y, cuando es único, el local asignado.
+- Pantalla de colaboradores con acciones grandes y navegación reducida a inicio y sus envíos. Conserva el aislamiento del servidor: no muestra saldos de cuentas ni movimientos de otros usuarios.
+- Iconos oficiales de Pichincha, Produbanco, Solidario, Pacífico, Guayaquil, Deuna, Payphone y Diners alojados en el propio proyecto. Fuente de cada imagen en `frontend/public/finanzas/banks/sources.json`. Tarjetas compactas en dos columnas en celular y detalles desplegables.
 
 - Panel consolidado, filtros de negocio y período, gráfico diario, distribución y cuentas.
 - Comprobantes JPG, PNG, WebP y PDF privados, cifrados AES-256-GCM, con hash y detección de archivos repetidos.
@@ -88,7 +97,7 @@ Para probar recuperación: detener un servidor de pruebas, configurar otro `DB_P
 
 La ejecución completa de `node --test` también revisa módulos ajenos. Se comprobó una falla preexistente en `content-studio.test.js`, prueba “logos, exact social dimensions…”, que espera cuatro planes y encuentra cinco. Se reprodujo sobre el checkout original sin estos cambios. No se alteraron planes ni pruebas de Estudios Creativos para ocultarla.
 
-Validación de esta entrega: 41 pruebas financieras y relacionadas aprobadas; arranque completo con base aislada y conexión de módulos aprobado; suite global con 65 de 66 aprobadas y la falla preexistente descrita. Compilación de producción completada. En navegador se verificaron registro desde celular, carga privada de archivo, cierre con cálculo del servidor, reporte descargado y respuesta de datos sin proveedor IA. La instalación no se ha probado en un teléfono físico ni la IA contra una cuenta real.
+Validación inicial: 41 pruebas financieras y relacionadas aprobadas; arranque completo con base aislada y conexión de módulos aprobado; suite global con 65 de 66 aprobadas y la falla preexistente descrita. Actualización de captura rápida y vista móvil: 48 pruebas financieras y relacionadas aprobadas; compilación completada. En navegador se verificaron el gasto personal de gasolina, solicitud de materiales del colaborador, aislamiento visual, logos cargados y disposición de cuentas en celular y computadora. La revisión inicial también incluyó carga privada de archivo, cierre, CSV descargado y resumen sin IA. La instalación no se ha probado en un teléfono físico ni se ha validado una grabación real de voz o la IA contra una cuenta real.
 
 ## Límites para interpretar cifras
 
@@ -99,3 +108,5 @@ Los cierres conservan el conteo físico y su diferencia. Registrar “entregado 
 La interfaz tiene un acabado financiero profesional; esto no constituye certificación bancaria ni una auditoría externa de seguridad. Antes de operar públicamente con datos reales corresponden la configuración, validación de fuentes y revisión de despliegue. Los módulos antiguos comparten origen, servidor y base: su seguridad también forma parte del alcance de una revisión de producción.
 
 La lectura de documentos y el asistente usan [Responses y salidas estructuradas de OpenAI](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses), con `store: false` y sin herramientas de modificación. Los documentos se transmiten al proveedor únicamente al solicitar su análisis.
+
+El dictado usa [SpeechRecognition del navegador](https://developer.mozilla.org/en-US/docs/Web/API/SpeechRecognition), con disponibilidad variable y posible procesamiento de audio en línea por el proveedor del navegador. No empieza sin pulsar el micrófono. Siempre se puede escribir o usar el dictado del teclado; se revisa el monto antes de guardar. El proyecto no almacena grabaciones de voz.

@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { registerQuickEntry } from "./finance-quick.js";
 import {
   audit,
   cents,
@@ -276,6 +277,13 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
     route((req, res) => res.json(snapshot(db, req.financeUser, req.query))),
   );
   registerFinanceSecurity(app, db, { route, sessionToken });
+  app.post(
+    "/api/finance/quick/register",
+    route((req, res) => {
+      const result = registerQuickEntry(db, req.financeUser, req.body);
+      res.status(result.duplicate ? 200 : 201).json(result);
+    }),
+  );
   app.get(
     "/api/finance/orders",
     route((req, res) => {

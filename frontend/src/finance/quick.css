@@ -1,0 +1,1250 @@
+.gf-quick-access {
+  display: flex;
+  align-items: center;
+  gap: 19px;
+  padding: 23px 25px;
+  margin: 0 0 25px;
+  border: 1px solid #dce6d8;
+  background: linear-gradient(110deg, #f1f6ec, #fff);
+  border-radius: 12px;
+}
+.gf-quick-access-symbol {
+  height: 51px;
+  width: 51px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  background: #e1eadb;
+  border-radius: 14px;
+  color: #42613c;
+}
+.gf-quick-access h2 {
+  font:
+    600 21px/1.4 Manrope,
+    sans-serif;
+  letter-spacing: -0.5px;
+  margin: 5px 0 4px;
+  color: #294837;
+}
+.gf-quick-access p {
+  font-size: 12px;
+  color: #72836b;
+  margin: 0;
+}
+.gf-quick-access .gf-eyebrow {
+  font-size: 8px;
+  letter-spacing: 1.5px;
+}
+.gf-quick-access-actions {
+  margin-left: auto;
+  display: grid;
+  gap: 9px;
+  flex-shrink: 0;
+}
+.gf-quick-access-actions > button:last-child {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  background: none;
+  font-size: 10px;
+  color: #6c8061;
+  cursor: pointer;
+}
+.gf-quick-floating {
+  position: fixed;
+  right: 27px;
+  bottom: 24px;
+  z-index: 25;
+  box-shadow: 0 8px 25px #173b3029;
+  border-radius: 40px;
+  padding: 14px 21px;
+}
+.gf-quick-floating svg {
+  width: 19px;
+  height: 19px;
+}
+.gf-quick-tabs {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
+  gap: 5px;
+  padding: 5px;
+  background: #f0f3ec;
+  border: 1px solid #e6eadf;
+  border-radius: 10px;
+  margin-bottom: 20px;
+}
+.gf-quick-tabs > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 0;
+  background: none;
+  padding: 11px 6px;
+  color: #788673;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 550;
+}
+.gf-quick-tabs > button[aria-pressed="true"] {
+  background: white;
+  color: #31533b;
+  box-shadow: 0 2px 6px #20381c0c;
+}
+.gf-quick-preview-note {
+  font-size: 11px;
+  padding: 10px 13px;
+  background: #faf5e7;
+  border-radius: 7px;
+  color: #8c733c;
+  margin-bottom: 15px;
+}
+.gf-quick-compose {
+  border: 1px solid #dce5d7;
+  border-radius: 12px;
+  background: #fcfdf9;
+  padding: 17px 17px 11px;
+  transition: border-color 0.2s;
+}
+.gf-quick-compose:focus-within {
+  border-color: #648059;
+  box-shadow: 0 0 0 3px #6480590c;
+}
+.gf-quick-compose.listening {
+  border-color: #ae6a58;
+}
+.gf-quick-compose > label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #607854;
+  display: block;
+  margin-bottom: 10px;
+}
+.gf-quick-compose textarea {
+  width: 100%;
+  min-height: 85px;
+  background: none;
+  resize: vertical;
+  border: 0;
+  outline: 0;
+  padding: 0;
+  font:
+    500 18px/1.6 "DM Sans",
+    sans-serif;
+  color: #2d4934;
+}
+.gf-quick-compose textarea::placeholder {
+  color: #a4b09a;
+  font-weight: 400;
+}
+.gf-quick-compose > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}
+.gf-quick-compose > div > span {
+  font-size: 10px;
+  color: #87967b;
+}
+.gf-quick-compose > div > button {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  border: 1px solid #d9e2d1;
+  border-radius: 50%;
+  background: #edf3e7;
+  color: #456d3c;
+  cursor: pointer;
+}
+.gf-quick-compose > div > button.active {
+  background: #b66e58;
+  border-color: #b66e58;
+  color: #fff;
+  box-shadow: 0 0 0 5px #b66e5810;
+}
+.gf-quick-examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 12px 0;
+}
+.gf-quick-examples > button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10px;
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid #e3e8de;
+  background: white;
+  border-radius: 7px;
+  color: #718565;
+  cursor: pointer;
+}
+.gf-quick-voice-note {
+  font-size: 9px;
+  line-height: 1.6;
+  color: #91a085;
+  margin: 10px 0 17px;
+}
+.gf-quick-businesses {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 17px 0;
+}
+.gf-quick-businesses > button {
+  border: 1px solid #e0e6da;
+  background: #fff;
+  border-radius: 20px;
+  padding: 8px 12px;
+  color: #849179;
+  font-size: 10px;
+  cursor: pointer;
+}
+.gf-quick-businesses > button[aria-pressed="true"] {
+  border-color: #738c62;
+  background: #ecf3e7;
+  color: #405e37;
+  font-weight: 600;
+}
+.gf-quick-form > .gf-field {
+  margin-top: 15px;
+}
+.gf-quick-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: 18px;
+  border: 1px solid #e2e8dc;
+  background: #f6f8f1;
+  border-radius: 10px;
+  margin-top: 20px;
+}
+.gf-quick-summary > div:first-child {
+  padding-right: 17px;
+  border-right: 1px solid #dce4d3;
+  min-width: 73px;
+}
+.gf-quick-summary > div:first-child > span {
+  display: block;
+  font-size: 8px;
+  letter-spacing: 1px;
+  color: #879776;
+  margin-bottom: 5px;
+}
+.gf-quick-summary > div:first-child > strong {
+  font:
+    600 24px/1.2 Manrope,
+    sans-serif;
+  letter-spacing: -0.9px;
+  white-space: nowrap;
+  color: #355b3e;
+}
+.gf-quick-summary > div:nth-child(2) > strong {
+  font-size: 13px;
+  color: #506841;
+}
+.gf-quick-summary p {
+  font-size: 10px;
+  line-height: 1.6;
+  color: #7f9070;
+  margin: 5px 0;
+}
+.gf-quick-summary small {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  color: #8c987d;
+}
+.gf-quick-summary > svg {
+  color: #becdb2;
+}
+.gf-quick-summary.ready > svg {
+  color: #688e50;
+}
+.gf-quick-details {
+  border-bottom: 1px solid #e5eadd;
+  margin: 14px 0;
+}
+.gf-quick-details > summary {
+  font-size: 11px;
+  color: #657a55;
+  padding: 12px 0;
+  cursor: pointer;
+}
+.gf-quick-details > summary > span {
+  float: right;
+  font-size: 9px;
+  color: #9ba88f;
+}
+.gf-quick-details > div {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+  padding: 12px 0 20px;
+}
+.gf-quick-details input,
+.gf-quick-details select {
+  min-width: 0;
+  width: 100%;
+}
+.gf-quick-attach {
+  border: 0;
+  background: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #7a8c68;
+  font-size: 11px;
+  padding: 8px 0;
+  cursor: pointer;
+}
+.gf-quick-attach:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.gf-quick-submit {
+  margin-top: 21px;
+}
+.gf-quick-submit > .gf-button {
+  width: 100%;
+  justify-content: center;
+  min-height: 49px;
+  font-size: 13px;
+}
+.gf-quick-submit > p {
+  font-size: 10px;
+  text-align: center;
+  color: #919e83;
+  line-height: 1.6;
+  margin: 11px 0 0;
+}
+.gf-quick-upload {
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  gap: 8px;
+  border: 1px dashed #cad9bf;
+  background: #f6f9f1;
+  border-radius: 11px;
+  padding: 23px 16px;
+  margin-bottom: 18px;
+}
+.gf-quick-upload > span {
+  color: #759164;
+}
+.gf-quick-upload > strong {
+  font-size: 13px;
+  color: #4c6a3f;
+  overflow-wrap: anywhere;
+}
+.gf-quick-upload > p {
+  font-size: 11px;
+  line-height: 1.7;
+  color: #89997b;
+  max-width: 330px;
+  margin: 0 0 6px;
+}
+.gf-quick-upload > div {
+  display: flex;
+  gap: 9px;
+}
+.gf-quick-upload .gf-button {
+  font-size: 11px;
+}
+.gf-quick-success {
+  padding: 20px 5px;
+  display: grid;
+  justify-items: center;
+  text-align: center;
+}
+.gf-quick-success > span {
+  width: 79px;
+  height: 79px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #edf4e5;
+  color: #6b9055;
+  margin-bottom: 21px;
+}
+.gf-quick-success > small {
+  font-size: 9px;
+  color: #8ba079;
+  letter-spacing: 1.5px;
+}
+.gf-quick-success > h3 {
+  font:
+    600 23px Manrope,
+    sans-serif;
+  color: #35553b;
+  margin: 11px 0 20px;
+}
+.gf-quick-success > strong {
+  font:
+    600 39px Manrope,
+    sans-serif;
+  letter-spacing: -1.5px;
+  color: #365b3c;
+}
+.gf-quick-success > p {
+  font-size: 13px;
+  color: #7c9068;
+}
+.gf-quick-success > div {
+  font-size: 12px;
+  line-height: 1.8;
+  color: #91a080;
+  max-width: 340px;
+  margin: 4px 0 25px;
+}
+.gf-quick-success > .gf-button {
+  width: 100%;
+  justify-content: center;
+  margin-top: 9px;
+}
+.gf-collaborator-heading {
+  margin: 8px 0 27px;
+}
+.gf-collaborator-heading h1 {
+  font:
+    600 36px/1.3 Manrope,
+    sans-serif;
+  letter-spacing: -1px;
+  color: #2e4b33;
+  margin: 13px 0;
+}
+.gf-collaborator-heading p {
+  font-size: 14px;
+  color: #8b9a7d;
+  line-height: 1.7;
+}
+.gf-assigned-business {
+  display: inline-block;
+  background: #edf2e6;
+  border: 1px solid #e1e8d7;
+  border-radius: 20px;
+  color: #71865f;
+  font-size: 11px;
+  padding: 7px 12px;
+  margin-top: 9px;
+}
+.gf-simple-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 15px;
+}
+.gf-simple-actions > button {
+  min-width: 0;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 25px 18px;
+  border: 1px solid #e0e8d9;
+  border-radius: 12px;
+  background: #fff;
+  cursor: pointer;
+  box-shadow: 0 4px 14px #37501c03;
+}
+.gf-simple-actions > button:hover {
+  border-color: #a6bc94;
+  transform: translateY(-1px);
+}
+.gf-simple-action-icon {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  flex: none;
+  border-radius: 13px;
+  background: #ecf2e4;
+  color: #668653;
+}
+.gf-simple-action-icon.amber {
+  background: #f7f0e4;
+  color: #ad8e57;
+}
+.gf-simple-action-icon.lilac {
+  background: #f0ecf5;
+  color: #9381a5;
+}
+.gf-simple-actions strong {
+  display: block;
+  font:
+    600 16px/1.4 Manrope,
+    sans-serif;
+  color: #49633b;
+}
+.gf-simple-actions p {
+  font-size: 11px;
+  line-height: 1.7;
+  color: #91a080;
+  margin: 7px 0 0;
+}
+.gf-simple-actions > button > svg:last-child {
+  margin-left: auto;
+  color: #a8b797;
+  flex: none;
+  width: 16px;
+}
+.gf-simple-dictation {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-align: left;
+  width: 100%;
+  padding: 19px;
+  border: 1px dashed #d4dfc9;
+  background: #f5f8ef;
+  border-radius: 10px;
+  margin: 20px 0 29px;
+  color: #7c9369;
+  cursor: pointer;
+}
+.gf-simple-dictation span {
+  font-size: 10px;
+  color: #97a887;
+}
+.gf-simple-dictation strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: #6c8656;
+  margin-top: 4px;
+}
+.gf-simple-dictation > svg:last-child {
+  margin-left: auto;
+}
+.gf-simple-history {
+  padding: 22px !important;
+}
+.gf-simple-history-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.gf-simple-history-head h2 {
+  font:
+    600 17px Manrope,
+    sans-serif;
+  color: #536c43;
+}
+.gf-simple-history-head > button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: none;
+  font-size: 10px;
+  color: #7c9368;
+  cursor: pointer;
+}
+.gf-simple-record {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid #edf0e5;
+  background: none;
+  padding: 15px 0;
+  text-align: left;
+  cursor: pointer;
+}
+.gf-simple-record:last-child {
+  border: 0;
+}
+.gf-simple-record-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  background: #f1f5ea;
+  border: 1px solid #e8eddf;
+  border-radius: 9px;
+  color: #91a47e;
+}
+.gf-simple-record > span:nth-child(2) {
+  min-width: 0;
+  flex: 1;
+}
+.gf-simple-record strong {
+  display: block;
+  font-size: 12px;
+  color: #607650;
+  font-weight: 550;
+}
+.gf-simple-record small {
+  display: block;
+  font-size: 10px;
+  color: #9aaa8a;
+  margin-top: 6px;
+}
+.gf-simple-record > span:last-child {
+  text-align: right;
+  flex: none;
+}
+.gf-simple-record .gf-badge {
+  font-size: 8px;
+  margin-top: 5px;
+}
+.gf-simple-private {
+  font-size: 11px;
+  text-align: center;
+  color: #95a485;
+  margin-top: 21px;
+}
+.gf-simple-empty {
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 30px 15px;
+  color: #9cb18c;
+}
+.gf-simple-empty > p {
+  font-size: 12px;
+  max-width: 300px;
+  line-height: 1.8;
+}
+.gf-preview-personas {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  flex: none;
+}
+.gf-preview-personas > button {
+  border: 1px solid #ded9bf;
+  background: none;
+  color: #97895c;
+  padding: 6px 9px;
+  font-size: 9px;
+  cursor: pointer;
+  border-radius: 5px;
+}
+.gf-preview-personas > button[aria-pressed="true"] {
+  background: #fffdf6;
+  color: #6d643d;
+  border-color: #b8aa75;
+}
+.gf-bank-logo.gf-bank-official {
+  background: #fff !important;
+  border: 1px solid #e7ebdf;
+  color: #879a75;
+  border-radius: 7px;
+  overflow: hidden;
+  width: 32px;
+  height: 32px;
+}
+.gf-bank-official > img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  display: block;
+}
+.gf-mini-accounts {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+.gf-account-page .gf-accounts-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+  gap: 13px;
+}
+.gf-account-page .gf-account-card {
+  padding: 18px;
+  min-width: 0;
+}
+.gf-account-page .gf-account-card:before {
+  display: none;
+}
+.gf-account-page .gf-bank-wordmark {
+  font-size: 13px;
+  gap: 9px;
+  min-width: 0;
+  line-height: 1.35;
+}
+.gf-account-page .gf-bank-wordmark > span:last-child {
+  overflow-wrap: anywhere;
+}
+.gf-account-page .gf-account-card > p {
+  font-size: 11px;
+  margin: 12px 0 4px;
+  line-height: 1.5;
+}
+.gf-account-subtitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.gf-account-subtitle > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.gf-account-subtitle > small {
+  flex: none;
+  color: #97a488;
+  font-size: 9px;
+}
+.gf-account-page .gf-account-balance {
+  font-size: 26px;
+  margin: 12px 0 3px;
+  letter-spacing: -1px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.gf-account-page .gf-account-card > small {
+  font-size: 9px;
+}
+.gf-account-compact-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: #9a915f;
+  margin: 13px 0 9px;
+}
+.gf-account-compact-status.verified {
+  color: #6e8c5c;
+}
+.gf-account-compact-status > svg {
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
+.gf-account-more {
+  border-top: 1px solid #e9eddf;
+  margin-top: 10px;
+  padding-top: 5px;
+}
+.gf-account-more > summary {
+  font-size: 10px;
+  color: #869875;
+  cursor: pointer;
+  padding: 7px 0;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.gf-account-more[open] > summary {
+  color: #566f44;
+}
+.gf-account-more[open] > summary > svg {
+  transform: rotate(180deg);
+}
+.gf-account-more .gf-account-status {
+  padding: 10px 0 0;
+  margin: 0;
+}
+.gf-account-more footer {
+  margin-top: 15px;
+  padding: 10px 0 0;
+}
+.gf-account-more .gf-account-positions {
+  margin-top: 12px;
+}
+.gf-account-tools {
+  position: relative;
+}
+.gf-account-tools > summary {
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 15px;
+  border: 1px solid #dce5d3;
+  background: white;
+  border-radius: 8px;
+  color: #6a8159;
+}
+.gf-account-tools > div {
+  position: absolute;
+  right: 0;
+  top: 46px;
+  min-width: 215px;
+  padding: 9px;
+  background: white;
+  border: 1px solid #dce6d2;
+  box-shadow: 0 9px 25px #2e481c0e;
+  z-index: 15;
+  border-radius: 9px;
+  display: grid;
+  gap: 5px;
+}
+.gf-account-tools > div > .gf-button {
+  justify-content: flex-start;
+  font-size: 11px;
+}
+.gf-account-tools > div > .gf-button:last-child {
+  justify-content: center;
+}
+@media (max-width: 1050px) {
+  .gf-simple-actions {
+    grid-template-columns: 1fr;
+  }
+  .gf-simple-actions > button {
+    padding: 21px;
+  }
+  .gf-account-page .gf-accounts-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 700px) {
+  .gf-quick-floating {
+    display: none;
+  }
+  .gf-quick-access {
+    padding: 17px;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin: 0 0 20px;
+  }
+  .gf-quick-access-symbol {
+    width: 39px;
+    height: 39px;
+    border-radius: 11px;
+  }
+  .gf-quick-access > div:nth-child(2) {
+    flex: 1;
+    min-width: 0;
+  }
+  .gf-quick-access h2 {
+    font-size: 17px;
+    margin: 4px 0;
+  }
+  .gf-quick-access p {
+    font-size: 10px;
+    line-height: 1.6;
+  }
+  .gf-quick-access .gf-eyebrow {
+    font-size: 7px;
+    letter-spacing: 1px;
+  }
+  .gf-quick-access-actions {
+    width: 100%;
+    margin-top: 4px;
+    grid-template-columns: 1fr 1fr;
+    align-items: center;
+  }
+  .gf-quick-access-actions > .gf-button {
+    font-size: 11px;
+    justify-content: center;
+    min-height: 42px;
+  }
+  .gf-quick-access-actions > button:last-child {
+    font-size: 9px;
+    gap: 4px;
+  }
+  .gf-quick-tabs {
+    margin-bottom: 15px;
+  }
+  .gf-quick-tabs > button {
+    font-size: 9px;
+    gap: 5px;
+    padding: 11px 3px;
+  }
+  .gf-quick-tabs > button > svg {
+    width: 14px;
+    flex: none;
+  }
+  .gf-quick-compose {
+    padding: 14px;
+  }
+  .gf-quick-compose textarea {
+    font-size: 17px;
+  }
+  .gf-quick-compose > div > span {
+    font-size: 9px;
+    line-height: 1.5;
+    max-width: 200px;
+  }
+  .gf-quick-summary {
+    padding: 14px 12px;
+    gap: 11px;
+  }
+  .gf-quick-summary > div:first-child {
+    padding-right: 11px;
+    min-width: 64px;
+  }
+  .gf-quick-summary > div:first-child > strong {
+    font-size: 22px;
+  }
+  .gf-quick-summary > div:nth-child(2) > strong {
+    font-size: 12px;
+  }
+  .gf-quick-summary p {
+    font-size: 9px;
+  }
+  .gf-quick-summary > svg {
+    width: 17px;
+  }
+  .gf-quick-businesses {
+    gap: 5px;
+  }
+  .gf-quick-businesses > button {
+    padding: 8px 10px;
+    font-size: 9px;
+  }
+  .gf-quick-details > div {
+    gap: 13px;
+  }
+  .gf-quick-details input,
+  .gf-quick-details select {
+    font-size: 16px !important;
+  }
+  .gf-quick-form > .gf-field input {
+    font-size: 16px;
+  }
+  .gf-quick-upload {
+    padding: 20px 12px;
+  }
+  .gf-quick-upload > div {
+    gap: 5px;
+  }
+  .gf-quick-upload .gf-button {
+    font-size: 10px;
+    padding: 10px;
+  }
+  .gf-quick-submit > .gf-button {
+    font-size: 12px;
+  }
+  .gf-collaborator-heading {
+    margin: 8px 0 21px;
+  }
+  .gf-collaborator-heading h1 {
+    font-size: 29px;
+    margin: 12px 0 7px;
+  }
+  .gf-collaborator-heading p {
+    font-size: 12px;
+    line-height: 1.8;
+    margin-bottom: 9px;
+  }
+  .gf-simple-actions {
+    gap: 11px;
+  }
+  .gf-simple-actions > button {
+    padding: 18px 15px;
+    gap: 14px;
+  }
+  .gf-simple-action-icon {
+    width: 45px;
+    height: 45px;
+    border-radius: 12px;
+  }
+  .gf-simple-action-icon > svg {
+    width: 23px;
+    height: 23px;
+  }
+  .gf-simple-actions strong {
+    font-size: 16px;
+  }
+  .gf-simple-actions p {
+    font-size: 11px;
+    margin-top: 4px;
+  }
+  .gf-simple-dictation {
+    margin: 16px 0 22px;
+    padding: 16px;
+  }
+  .gf-simple-history {
+    padding: 17px !important;
+  }
+  .gf-simple-history-head h2 {
+    font-size: 15px;
+  }
+  .gf-simple-record {
+    gap: 10px;
+    padding: 14px 0;
+  }
+  .gf-simple-record strong {
+    font-size: 11px;
+  }
+  .gf-simple-record small {
+    font-size: 9px;
+  }
+  .gf-simple-record-icon {
+    width: 31px;
+    height: 31px;
+  }
+  .gf-simple-private {
+    font-size: 10px;
+    line-height: 1.8;
+  }
+  .gf-app.gf-collector .gf-bottom-nav {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  .gf-collector .gf-main {
+    max-width: 1000px;
+  }
+  .gf-preview-personas {
+    gap: 4px;
+  }
+  .gf-preview-personas > button {
+    font-size: 8px;
+    padding: 6px;
+  }
+  .gf-demo-banner:has(.gf-preview-personas) {
+    flex-wrap: wrap;
+    row-gap: 7px;
+  }
+  .gf-demo-banner:has(.gf-preview-personas) > p {
+    font-size: 9px;
+    flex: 1;
+    min-width: 100px;
+  }
+  .gf-demo-banner .gf-preview-personas {
+    width: 100%;
+    justify-content: flex-end;
+    margin-top: -2px;
+  }
+  .gf-mini-accounts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .gf-mini-accounts > button {
+    padding: 10px;
+    gap: 8px;
+  }
+  .gf-mini-accounts .gf-bank-logo {
+    width: 25px;
+    height: 25px;
+    border-radius: 6px;
+  }
+  .gf-mini-accounts .gf-bank-official > img {
+    width: 21px;
+    height: 21px;
+  }
+  .gf-mini-accounts strong {
+    font-size: 11px;
+  }
+  .gf-mini-accounts .gf-amount {
+    font-size: 18px;
+    margin-top: 4px;
+  }
+  .gf-mini-accounts small {
+    font-size: 9px;
+  }
+  .gf-account-page > .gf-section-head {
+    margin-bottom: 15px;
+    align-items: center;
+    gap: 10px;
+  }
+  .gf-account-page > .gf-section-head > div > p {
+    display: none;
+  }
+  .gf-account-page > .gf-section-head h2 {
+    font-size: 23px;
+  }
+  .gf-account-page > .gf-section-head .gf-eyebrow {
+    font-size: 7px;
+  }
+  .gf-account-page .gf-account-tools > summary {
+    font-size: 9px;
+    padding: 9px;
+    gap: 6px;
+  }
+  .gf-account-page .gf-stats.three {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+    margin-bottom: 16px;
+  }
+  .gf-account-page .gf-stats.three > .gf-stat {
+    grid-column: auto !important;
+    padding: 10px 9px;
+    min-height: 0;
+    border-radius: 8px;
+  }
+  .gf-account-page .gf-stats.three .gf-stat > strong {
+    font-size: 16px !important;
+    letter-spacing: -0.6px;
+    line-height: 1.5;
+    margin: 5px 0 0;
+  }
+  .gf-account-page .gf-stats.three .gf-stat > p,
+  .gf-account-page .gf-stats.three .gf-stat > div > svg {
+    display: none;
+  }
+  .gf-account-page .gf-stat-top {
+    margin: 0;
+    min-height: 24px;
+  }
+  .gf-account-page .gf-stat-top > span {
+    font-size: 8px !important;
+    line-height: 1.5;
+  }
+  .gf-account-page .gf-stats.three .gf-stat > small {
+    display: none;
+  }
+  .gf-account-page > .gf-tabs {
+    margin-bottom: 14px;
+    gap: 0;
+  }
+  .gf-account-page > .gf-tabs > button {
+    font-size: 9px;
+    padding: 9px 8px;
+    white-space: nowrap;
+  }
+  .gf-account-page .gf-accounts-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px;
+  }
+  .gf-account-page .gf-account-card {
+    padding: 10px;
+    border-radius: 10px;
+  }
+  .gf-account-page .gf-bank-wordmark {
+    font-size: 11px;
+    gap: 7px;
+    line-height: 1.3;
+  }
+  .gf-account-page .gf-bank-logo {
+    width: 24px;
+    height: 24px;
+    flex: none;
+  }
+  .gf-account-page .gf-bank-official > img {
+    width: 21px;
+    height: 21px;
+  }
+  .gf-account-page .gf-account-owner {
+    display: none;
+  }
+  .gf-account-page .gf-account-card > p {
+    font-size: 9px;
+    line-height: 1.4;
+    margin: 6px 0 0;
+  }
+  .gf-account-page .gf-account-balance {
+    font-size: 21px;
+    letter-spacing: -0.7px;
+    margin: 5px 0 0;
+    line-height: 1.3;
+  }
+  .gf-account-page .gf-account-card > small {
+    display: none;
+  }
+  .gf-account-compact-status {
+    font-size: 8px;
+    margin: 3px 0 3px;
+    gap: 4px;
+  }
+  .gf-account-compact-status > svg {
+    width: 11px;
+    height: 11px;
+  }
+  .gf-account-more {
+    margin-top: 4px;
+    padding-top: 0;
+  }
+  .gf-account-more > summary {
+    font-size: 9px;
+    padding: 4px 0;
+  }
+  .gf-account-more .gf-account-status {
+    font-size: 9px;
+    gap: 9px;
+  }
+  .gf-account-more .gf-account-status small {
+    font-size: 8px;
+  }
+  .gf-account-more .gf-account-positions {
+    font-size: 8px;
+  }
+  .gf-account-page .gf-note {
+    font-size: 9px;
+    line-height: 1.7;
+    padding: 12px;
+  }
+  .gf-account-more footer {
+    display: grid;
+    gap: 8px;
+  }
+  .gf-account-more footer > .gf-button {
+    padding: 8px;
+    font-size: 9px;
+    width: 100%;
+    white-space: normal;
+  }
+  .gf-account-more footer > span {
+    font-size: 8px;
+  }
+  .gf-app[data-page="cuentas"] .gf-filterbar {
+    margin-bottom: 17px;
+  }
+  .gf-app[data-page="cuentas"] .gf-period-filter,
+  .gf-app[data-page="cuentas"] .gf-top-upload {
+    display: none;
+  }
+  .gf-app[data-page="cuentas"] .gf-demo-banner > p {
+    display: none;
+  }
+  .gf-app[data-page="cuentas"] .gf-demo-banner .gf-preview-personas {
+    width: auto;
+    margin-left: auto;
+    margin-top: 0;
+  }
+}
+@media (max-width: 360px) {
+  .gf-account-page .gf-account-balance {
+    font-size: 18px;
+  }
+  .gf-account-page .gf-bank-wordmark {
+    font-size: 10px;
+    gap: 5px;
+  }
+  .gf-account-page .gf-bank-logo {
+    width: 23px;
+    height: 23px;
+  }
+  .gf-account-page .gf-stats.three .gf-stat > strong {
+    font-size: 14px !important;
+  }
+  .gf-quick-summary > div:first-child > strong {
+    font-size: 19px;
+  }
+  .gf-quick-summary {
+    gap: 8px;
+    padding: 13px 10px;
+  }
+  .gf-quick-summary > div:first-child {
+    padding-right: 8px;
+  }
+  .gf-quick-businesses > button {
+    font-size: 8px;
+  }
+  .gf-quick-tabs > button {
+    font-size: 8px;
+  }
+}
+@media print {
+  .gf-quick-access,
+  .gf-quick-floating,
+  .gf-preview-personas,
+  .gf-account-tools {
+    display: none !important;
+  }
+  .gf-account-more > div {
+    display: block !important;
+  }
+}

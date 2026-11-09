@@ -72,42 +72,13 @@ import {
   Stat,
 } from "./components.jsx";
 import { SecurityPanel } from "./security.jsx";
+import { CollaboratorHome, QuickAccess } from "./quick.jsx";
+import { BankLogo } from "./banks.jsx";
 
 export function Overview() {
   const { data, user, open, navigate, selectMovement, filters } = useFinance();
   const s = data.summary;
-  if (user.role === "collector")
-    return (
-      <>
-        <SectionHead
-          eyebrow="TU ESPACIO DE TRABAJO"
-          title="Lo esencial, a tu alcance."
-          description="Entrega tus comprobantes y consulta cómo avanza su revisión."
-        />
-        <div className="gf-collector-welcome">
-          <span>
-            <Upload size={32} />
-          </span>
-          <div>
-            <h2>Un comprobante. Todo organizado.</h2>
-            <p>
-              Selecciona el negocio, adjunta el archivo y añade el contexto.
-              Administración se encarga de la verificación.
-            </p>
-            <Button icon={Plus} onClick={() => open("movement")}>
-              Subir comprobante
-            </Button>
-          </div>
-        </div>
-        <section className="gf-panel">
-          <SectionHead title="Tus últimos movimientos" />
-          <MovementTable
-            rows={data.movements.slice(0, 8)}
-            onSelect={selectMovement}
-          />
-        </section>
-      </>
-    );
+  if (user.role === "collector") return <CollaboratorHome />;
   return (
     <>
       <div className="gf-welcome">
@@ -129,6 +100,7 @@ export function Overview() {
           </span>
         </div>
       </div>
+      {user.role !== "viewer" && <QuickAccess />}
       <div className="gf-stats">
         <Stat
           label={
@@ -288,13 +260,10 @@ export function Overview() {
         </SectionHead>
         <div className="gf-mini-accounts">
           {data.accounts
-            .filter((a) => ["bank", "wallet"].includes(a.kind))
-            .slice(0, 4)
+            .filter((a) => ["bank", "wallet", "card"].includes(a.kind))
             .map((a) => (
               <button key={a.id} onClick={() => navigate("cuentas")}>
-                <span className={`gf-bank-logo ${a.bank.toLowerCase()}`}>
-                  {a.bank.slice(0, 1)}
-                </span>
+                <BankLogo bank={a.bank} kind={a.kind} />
                 <span>
                   <strong>{a.bank}</strong>
                   <small>{a.last_four ? `···· ${a.last_four}` : a.name}</small>
@@ -540,32 +509,37 @@ export function Accounts() {
           : a.kind === kind),
   );
   return (
-    <>
+    <div className="gf-account-page">
       <SectionHead
         eyebrow="DÓNDE ESTÁ TU DINERO"
         title="Cuentas y fondos"
         description="Bancos, billeteras, efectivo y dinero bajo responsabilidad de terceros."
       >
         {user.role === "owner" && (
-          <>
-            <Button
-              variant="secondary"
-              icon={ArrowLeftRight}
-              onClick={() => open("transfer")}
-            >
-              Trasladar fondos
-            </Button>
-            <Button
-              variant="secondary"
-              icon={Upload}
-              onClick={() => open("bank")}
-            >
-              Importar movimientos
-            </Button>
-            <Button icon={Plus} onClick={() => open("account")}>
-              Añadir cuenta
-            </Button>
-          </>
+          <details className="gf-account-tools">
+            <summary>
+              Gestionar cuentas <ChevronRight size={14} />
+            </summary>
+            <div>
+              <Button
+                variant="secondary"
+                icon={ArrowLeftRight}
+                onClick={() => open("transfer")}
+              >
+                Trasladar fondos
+              </Button>
+              <Button
+                variant="secondary"
+                icon={Upload}
+                onClick={() => open("bank")}
+              >
+                Importar movimientos
+              </Button>
+              <Button icon={Plus} onClick={() => open("account")}>
+                Añadir cuenta
+              </Button>
+            </div>
+          </details>
         )}
       </SectionHead>
       <div className="gf-stats three">
@@ -622,21 +596,20 @@ export function Accounts() {
             <article className="gf-account-card" key={a.id}>
               <div className="gf-between">
                 <span className="gf-bank-wordmark">
-                  <span className={`gf-bank-logo ${a.bank.toLowerCase()}`}>
-                    {a.bank.slice(0, 1)}
-                  </span>
-                  {a.bank}
+                  <BankLogo bank={a.bank} kind={a.kind} />
+                  <span>{a.bank}</span>
                 </span>
                 <span className="gf-account-owner">
                   {a.business_id ? businessNames[a.business_id] : "Compartida"}
                 </span>
               </div>
-              <p>{a.name}</p>
-              <span className="gf-card-number">
-                {a.last_four
-                  ? `••••  ••••  ${a.last_four}`
-                  : "Fondos registrados"}
-              </span>
+              <p
+                className="gf-account-subtitle"
+                title={`${a.name}${a.last_four ? ` · ${a.last_four}` : ""}`}
+              >
+                <span>{a.name}</span>
+                {a.last_four && <small>··{a.last_four}</small>}
+              </p>
               <strong className="gf-account-balance">
                 {money(a.balance_cents)}
               </strong>
@@ -645,63 +618,97 @@ export function Accounts() {
                   ? "Saldo calculado · deuda si es negativo"
                   : "Saldo calculado al día de hoy"}
               </small>
-              <div className="gf-account-status">
-                <span
-                  className={
-                    a.verified_at && a.discrepancy_cents === 0
-                      ? "verified"
-                      : "unverified"
-                  }
-                >
-                  {a.verified_at && a.discrepancy_cents === 0 ? (
-                    <CheckCircle2 size={15} />
-                  ) : (
-                    <Clock3 size={15} />
-                  )}{" "}
-                  {a.verified_at
-                    ? `Comparado al ${dateLabel(a.verified_at)}`
-                    : "Saldo pendiente de comprobar"}
-                </span>
-                {a.discrepancy_cents !== null && a.discrepancy_cents !== 0 && (
-                  <span className="gf-negative">
-                    Diferencia: {money(a.discrepancy_cents)}
-                  </span>
+              <div
+                className={`gf-account-compact-status ${a.verified_at && a.discrepancy_cents === 0 ? "verified" : ""}`}
+              >
+                {a.verified_at && a.discrepancy_cents === 0 ? (
+                  <CheckCircle2 size={13} />
+                ) : (
+                  <Clock3 size={13} />
                 )}
-                {a.custodian && <small>Responsable: {a.custodian}</small>}
-                {!a.business_id && (
-                  <div className="gf-account-positions">
-                    {Object.entries(a.positions || {}).map(([id, value]) => (
-                      <div key={id}>
-                        <span>{businessNames[id]}</span>
-                        <strong>{money(value)}</strong>
+                {a.discrepancy_cents !== null && a.discrepancy_cents !== 0
+                  ? `Diferencia: ${money(a.discrepancy_cents)}`
+                  : a.verified_at && a.discrepancy_cents === 0
+                    ? "Saldo comprobado"
+                    : "Por comprobar"}
+              </div>
+              <details className="gf-account-more">
+                <summary>
+                  Ver detalles <ChevronRight size={12} />
+                </summary>
+                <div>
+                  <div className="gf-account-status">
+                    <small>
+                      Cuenta: {a.name}
+                      {a.last_four ? ` · terminada en ${a.last_four}` : ""}
+                    </small>
+                    <small>
+                      Negocio:{" "}
+                      {a.business_id
+                        ? businessNames[a.business_id]
+                        : "Cuenta compartida"}
+                    </small>
+                    <span
+                      className={
+                        a.verified_at && a.discrepancy_cents === 0
+                          ? "verified"
+                          : "unverified"
+                      }
+                    >
+                      {a.verified_at && a.discrepancy_cents === 0 ? (
+                        <CheckCircle2 size={15} />
+                      ) : (
+                        <Clock3 size={15} />
+                      )}{" "}
+                      {a.verified_at
+                        ? `Comparado al ${dateLabel(a.verified_at)}`
+                        : "Saldo pendiente de comprobar"}
+                    </span>
+                    {a.discrepancy_cents !== null &&
+                      a.discrepancy_cents !== 0 && (
+                        <span className="gf-negative">
+                          Diferencia: {money(a.discrepancy_cents)}
+                        </span>
+                      )}
+                    {a.custodian && <small>Responsable: {a.custodian}</small>}
+                    {!a.business_id && (
+                      <div className="gf-account-positions">
+                        {Object.entries(a.positions || {}).map(
+                          ([id, value]) => (
+                            <div key={id}>
+                              <span>{businessNames[id]}</span>
+                              <strong>{money(value)}</strong>
+                            </div>
+                          ),
+                        )}
+                        <div>
+                          <span>Propiedad sin identificar</span>
+                          <strong>{money(a.unassigned_cents)}</strong>
+                        </div>
+                        {user.role === "owner" && (
+                          <Button
+                            variant="ghost small"
+                            onClick={() => open("allocation", a)}
+                          >
+                            Asignar saldo inicial
+                          </Button>
+                        )}
                       </div>
-                    ))}
-                    <div>
-                      <span>Propiedad sin identificar</span>
-                      <strong>{money(a.unassigned_cents)}</strong>
-                    </div>
-                    {user.role === "owner" && (
-                      <Button
-                        variant="ghost small"
-                        onClick={() => open("allocation", a)}
-                      >
-                        Asignar saldo inicial
-                      </Button>
                     )}
                   </div>
-                )}
-              </div>
-              {user.role === "owner" && (
-                <footer>
-                  <Button
-                    variant="ghost small"
-                    onClick={() => open("verify", a)}
-                  >
-                    Comprobar saldo
-                  </Button>
-                  <span>{a.transaction_count} movimientos</span>
-                </footer>
-              )}
+                  {user.role === "owner" && (
+                    <footer>
+                      <Button
+                        variant="ghost small"
+                        onClick={() => open("verify", a)}
+                      >
+                        Comprobar saldo
+                      </Button>
+                      <span>{a.transaction_count} movimientos</span>
+                    </footer>
+                  )}
+                </div>
+              </details>
             </article>
           ))}
         </div>
@@ -718,7 +725,7 @@ export function Accounts() {
         Registrar o comparar un saldo no conecta automáticamente el banco.
         Consulta las fuentes activas y sus fechas de actualización.
       </div>
-    </>
+    </div>
   );
 }
 

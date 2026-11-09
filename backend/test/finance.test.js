@@ -18,6 +18,99 @@ import { registerProducalzaRoutes } from "../src/producalza-routes.js";
 import { syncInternalSources } from "../src/finance-sources.js";
 
 const password = "financial-fixture-password-123";
+test("quick owner registration is idempotent, audited and never accredits a bank", async (t) => {
+  const f = await fixture(t);
+  await f.login();
+  const request = {
+    request_id: crypto.randomUUID(),
+    text: "Puedes registrar un gasto personal de $80 en gasolina",
+  };
+  const first = await f.req("/quick/register", "owner", request);
+  assert.equal(first.status, 201);
+  assert.equal(first.body.movement.amount_cents, 8000);
+  assert.equal(first.body.movement.status, "reported");
+  assert.equal(first.body.movement.account_id, null);
+  const replay = await f.req("/quick/register", "owner", request);
+  assert.equal(replay.body.duplicate, true);
+  assert.equal(replay.body.movement.id, first.body.movement.id);
+  assert.equal(
+    (
+      await f.req("/quick/register", "owner", {
+        ...request,
+        text: "Gasto personal gasolina $800",
+      })
+    ).status,
+    409,
+  );
+  assert.equal(
+    f.db.prepare("SELECT COUNT(*) n FROM finance_movements").get().n,
+    1,
+  );
+  assert.equal(
+    f.db.prepare("SELECT COUNT(*) n FROM finance_bank_transactions").get().n,
+    0,
+  );
+  assert.equal(
+    f.db
+      .prepare(
+        "SELECT COUNT(*) n FROM finance_audit WHERE action='movement.quick_recorded'",
+      )
+      .get().n,
+    1,
+  );
+});
+test("quick collaborators have assigned units, pending submissions and no cross-business access", async (t) => {
+  const f = await fixture(t);
+  await f.login("north");
+  await f.login("reader");
+  await f.login("owner");
+  const r = await f.req("/quick/register", "north", {
+    request_id: crypto.randomUUID(),
+    text: "Solicito pagar $80 en materiales",
+  });
+  assert.equal(r.status, 201);
+  assert.equal(r.body.movement.business_id, "marjorie");
+  assert.equal(r.body.movement.unit_id, "marjorie-norte");
+  assert.equal(r.body.movement.created_by, "north");
+  assert.equal(r.body.movement.status, "pending");
+  assert.equal(
+    (
+      await f.req("/quick/register", "north", {
+        request_id: crypto.randomUUID(),
+        text: "Solicito pagar Marjorie Sur $80",
+        overrides: { unit_id: "marjorie-norte" },
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await f.req("/quick/register", "north", {
+        request_id: crypto.randomUUID(),
+        text: "Gasto personal gasolina $80",
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await f.req("/quick/register", "reader", {
+        request_id: crypto.randomUUID(),
+        text: "Gasto Marjorie $80",
+      })
+    ).status,
+    403,
+  );
+  const missing = await f.req("/quick/register", "owner", {
+    request_id: crypto.randomUUID(),
+    text: "Gasto personal",
+  });
+  assert.equal(missing.status, 400);
+  assert.equal(
+    f.db.prepare("SELECT COUNT(*) n FROM finance_movements").get().n,
+    1,
+  );
+});
 process.env.FINANCE_DOCUMENT_KEY ||=
   "test-only-document-key-at-least-32-characters";
 
@@ -1013,7 +1106,12 @@ test("MFA enrollment encrypts the secret, requires a second factor, and consumes
     401,
   );
   assert.equal((await f.req("/security", "owner")).body.recovery_remaining, 7);
-  assert.ok(!f.db.prepare('SELECT hash FROM finance_recovery_codes LIMIT 1').get().hash.includes(code));
+  assert.ok(
+    !f.db
+      .prepare("SELECT hash FROM finance_recovery_codes LIMIT 1")
+      .get()
+      .hash.includes(code),
+  );
   assert.equal(
     (
       await f.req("/security/totp/reset", "owner", {
@@ -1024,7 +1122,10 @@ test("MFA enrollment encrypts the secret, requires a second factor, and consumes
     200,
   );
   assert.equal((await f.req("/security", "owner")).body.mfa_enabled, false);
-  assert.equal(f.db.prepare('SELECT COUNT(*) n FROM finance_recovery_codes').get().n,0);
+  assert.equal(
+    f.db.prepare("SELECT COUNT(*) n FROM finance_recovery_codes").get().n,
+    0,
+  );
 });
 
 test("AI receives only scoped context, cannot mutate records, and filters invented citations", async (t) => {

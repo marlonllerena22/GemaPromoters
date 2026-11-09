@@ -1,0 +1,13 @@
+{
+  "note": "Iconos de marca obtenidos de las páginas oficiales de cada entidad y sus CDN vinculados. Se sirven localmente, sin consultas a los bancos desde el navegador. Marcas de sus respectivos titulares.",
+  "sources": {
+    "pichincha": "https://www.pichincha.com/themes/custom/pichincha_theme/favicon.ico",
+    "produbanco": "https://www.produbanco.com.ec/assets/img/favicon.png",
+    "solidario": "https://www.banco-solidario.com/themes/solidario/favicon.ico",
+    "pacifico": "https://www.bancodelpacifico.com/BancoPacifico/media/layout-images/favicon.png",
+    "guayaquil": "https://www.bancoguayaquil.com/favicon.svg",
+    "deuna": "https://www.deuna.ec/assets/images/icon-deuna.png",
+    "payphone": "https://cdn.prod.website-files.com/68013add215ea6b316cbe481/683df565cb376434b82e2aed_webclip.png",
+    "diners": "https://dce-documents.s3.amazonaws.com/s3fs-public/favicon_0.png?VersionId=PEFLxgyXbmLl0ry1XG8HDbzDTkux3.ep"
+  }
+}
