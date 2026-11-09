@@ -294,8 +294,9 @@ function Login({ session, onLogin }) {
             <div className="gf-demo-entry">
               <span>EXPLORA LA EXPERIENCIA</span>
               <p>
-                Conoce el centro financiero con datos ficticios en un entorno
-                local independiente.
+                {session.public_preview
+                  ? "Recorre el centro financiero con datos ficticios, sin guardar cambios ni subir documentos."
+                  : "Conoce el centro financiero con datos ficticios en un entorno local independiente."}
               </p>
               <Button
                 variant="secondary"
@@ -378,6 +379,8 @@ function FinanceApp() {
       .then((s) => {
         setSession(s);
         setUser(s.user);
+        if (s.public_preview && s.period)
+          setFilters((f) => ({ ...f, from: s.period.from, to: s.period.to }));
       })
       .catch((e) => setFatal(e.message));
   }, []);
@@ -488,6 +491,7 @@ function FinanceApp() {
   const visiblePages = pages.filter(
     (p) =>
       (!p.ownerOnly || user?.role === "owner") &&
+      (!data?.capabilities.public_preview || p.id !== "configuracion") &&
       (!p.hideCollector || user?.role !== "collector"),
   );
   const current = visiblePages.find((p) => p.id === page) || visiblePages[0];
@@ -686,7 +690,9 @@ function FinanceApp() {
                 DEMOSTRACIÓN
               </span>
               <p>
-                Datos ficticios · entorno local separado de tus negocios reales.
+                {data.capabilities.public_preview
+                  ? "Datos ficticios · solo consulta · no subas información real."
+                  : "Datos ficticios · entorno local separado de tus negocios reales."}
               </p>
               <ShieldCheck size={14} />
             </div>
@@ -721,6 +727,8 @@ function FinanceApp() {
                 <input
                   aria-label="Fecha inicial"
                   type="date"
+                  disabled={data.capabilities.public_preview}
+                  title={data.capabilities.public_preview ? "Período fijo de esta demostración" : undefined}
                   value={filters.from}
                   onChange={(e) => {
                     if (e.target.value)
@@ -731,6 +739,8 @@ function FinanceApp() {
                 <input
                   aria-label="Fecha final"
                   type="date"
+                  disabled={data.capabilities.public_preview}
+                  title={data.capabilities.public_preview ? "Período fijo de esta demostración" : undefined}
                   value={filters.to}
                   onChange={(e) => {
                     if (e.target.value)

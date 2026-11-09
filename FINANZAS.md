@@ -4,6 +4,10 @@ Centro financiero para Producalza, Marjorie Botas, Gemashow y finanzas personale
 
 ## Abrir la versión de revisión
 
+Desde celular: <https://gema-finanzas-vista-20261109.marlonllerena22.chatgpt.site/finanzas/>. Vista alojada privada, accesible con la misma cuenta de ChatGPT propietaria del sitio. Reutiliza la interfaz compilada y ejemplos nuevos generados en memoria. Permite navegar, filtrar negocios y exportar ejemplos; el período es fijo y las escrituras están bloqueadas. No contiene bases operativas ni credenciales, y no depende de que la PC esté encendida. Su fuente independiente está en la carpeta hermana `vista-movil-gema`, con la identidad del sitio en `.openai/hosting.json`.
+
+`backend/scripts/finance-build-mobile-preview.mjs` actualiza ese paquete estático a partir de la interfaz compilada. `npm run finance:mobile-preview` ofrece además una vista local de consulta en el puerto 4180 con base exclusivamente en memoria; no publica enlaces externos. La ruta operativa de demostración local de abajo conserva sus formularios completos.
+
 En Windows, ejecutar `ABRIR_FINANZAS.cmd` y abrir <http://127.0.0.1:4178/finanzas/>. Elegir **Abrir demostración**. La primera compilación está preparada; la base de ejemplo se guarda exclusivamente en `backend/data/finance-demo.sqlite`.
 
 Los nombres y valores de esta demostración son ficticios. Su acceso automático funciona únicamente en loopback y fuera de producción. No se carga una copia de la base operativa y no se envían correos, pagos ni transacciones Payphone.

@@ -9,7 +9,8 @@
     "start": "npm run start --prefix backend",
     "seed": "npm run seed --prefix backend",
     "finance:preview": "node backend/scripts/finance-preview.mjs",
-    "finance:test": "node --test backend/test/finance.test.js backend/test/marjorie-promoters.test.js backend/test/ticketing-transfer.test.js",
+    "finance:mobile-preview": "node backend/scripts/finance-mobile-preview.mjs",
+    "finance:test": "node --test backend/test/finance.test.js backend/test/finance-mobile-preview.test.js backend/test/marjorie-promoters.test.js backend/test/ticketing-transfer.test.js",
     "finance:backup": "node backend/scripts/finance-backup.mjs",
     "finance:smoke": "node backend/scripts/finance-smoke.mjs"
   },
