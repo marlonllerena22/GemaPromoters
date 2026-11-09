@@ -313,5 +313,10 @@ export function safeMember(member) {
     active: Boolean(member.active),
     mfa_enabled: Boolean(member.mfa_enabled),
     work_view: Boolean(member.work_view),
+    request_payments:member.role!=='viewer'||Boolean(member.request_payments),
+    review_unit_ids:JSON.parse(member.review_unit_ids||'[]'),
+    auto_confirm_unit_ids:JSON.parse(member.auto_confirm_unit_ids||'[]'),
+    custody_adjust:Boolean(member.custody_adjust),
+    checks_manage:member.role==='owner'||Boolean(member.checks_manage),
   };
 }

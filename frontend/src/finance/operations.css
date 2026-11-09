@@ -1,0 +1,567 @@
+.gf-retail-brand {
+  width: 180px;
+  height: 82px;
+  object-fit: contain;
+  display: block;
+  margin: 0 0 20px;
+}
+.gf-operation-form {
+  display: grid;
+  gap: 20px;
+  margin: 15px 0 25px;
+}
+.gf-operation-amount {
+  font-size: 35px !important;
+  min-height: 66px;
+  font-variant-numeric: tabular-nums;
+}
+.gf-custody-section {
+  margin: 25px 0;
+}
+.gf-custody-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 15px;
+}
+.gf-custody-card {
+  border: 1px solid #d9e3d1;
+  border-radius: 15px;
+  background: white;
+  padding: 20px;
+  display: grid;
+  gap: 14px;
+  color: #315640;
+}
+.gf-custody-card > span {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 17px;
+  font-weight: 600;
+}
+.gf-custody-card > strong {
+  font-size: 30px;
+  letter-spacing: -0.5px;
+}
+.gf-custody-card > small {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #64795b;
+}
+.gf-custody-current {
+  border-radius: 15px;
+  background: #eef4e6;
+  padding: 21px;
+  display: grid;
+  gap: 10px;
+  color: #396443;
+}
+.gf-custody-current > strong {
+  font-size: 38px;
+}
+.gf-custody-history {
+  display: grid;
+  gap: 12px;
+}
+.gf-custody-history > article,
+.gf-mail-list > article {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #dbe3d4;
+  padding: 16px;
+  border-radius: 12px;
+  background: #f8faf5;
+  color: #32563f;
+}
+.gf-custody-history p {
+  margin: 0;
+}
+.gf-custody-history small {
+  font-size: 12px;
+  color: #688060;
+}
+.gf-custody-history span {
+  font-size: 14px;
+}
+.gf-store-review-list {
+  display: grid;
+  gap: 16px;
+}
+.gf-store-review-list > article {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  flex-wrap: wrap;
+  border: 1px solid #d9e2d0;
+  padding: 22px;
+  border-radius: 15px;
+  background: white;
+  color: #33593e;
+}
+.gf-store-review-list > article > div {
+  flex: 1;
+  min-width: 160px;
+}
+.gf-store-review-list h3 {
+  font-size: 32px;
+  margin: 10px 0;
+}
+.gf-store-review-list p {
+  font-size: 14px;
+  color: #688060;
+}
+.gf-store-review-list .gf-evidence-thumb {
+  width: 110px;
+  margin: 0;
+}
+.gf-store-review-list .gf-evidence-thumb img {
+  height: 130px;
+}
+.gf-store-review-list .gf-evidence-thumb > span {
+  font-size: 11px;
+}
+.gf-gmail-panel {
+  padding: 24px;
+  background: white;
+  border: 1px solid #d8e4d0;
+  border-radius: 16px;
+  margin: 0 0 24px;
+  color: #3b5e43;
+}
+.gf-gmail-title {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+}
+.gf-gmail-title > div {
+  flex: 1;
+  min-width: 0;
+}
+.gf-gmail-title h3 {
+  margin: 0 0 7px;
+  font-size: 20px;
+}
+.gf-gmail-title p {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.gf-gmail-title > span {
+  font-size: 12px;
+  padding: 8px 10px;
+  background: #edf3e5;
+  border-radius: 8px;
+}
+.gf-gmail-panel > p {
+  font-size: 14px;
+  line-height: 1.7;
+}
+.gf-gmail-panel > small {
+  display: block;
+  margin-top: 14px;
+  color: #6c7e60;
+}
+.gf-mail-list {
+  display: grid;
+  gap: 13px;
+}
+.gf-mail-list h3 {
+  margin: 5px 0;
+  font-size: 23px;
+}
+.gf-mail-list details p {
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.gf-mail-list summary {
+  padding: 12px 0;
+  cursor: pointer;
+}
+.gf-activation {
+  min-height: 100vh;
+  background: #f1f5ec;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: #315b43;
+}
+.gf-activation > div {
+  max-width: 470px;
+  width: 100%;
+  border: 1px solid #d8e4ce;
+  border-radius: 20px;
+  padding: 30px;
+  background: white;
+}
+.gf-activation h1 {
+  font-size: 29px;
+  line-height: 1.3;
+}
+.gf-activation p {
+  line-height: 1.6;
+  font-size: 15px;
+}
+.gf-loan-alert-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid #ecd8b7;
+  background: #faf0df;
+  color: #845d2d;
+  padding: 14px 30px;
+  text-align: left;
+}
+.gf-loan-alert-bar > span {
+  display: grid;
+  gap: 5px;
+  flex: 1;
+}
+.gf-loan-alert-bar strong {
+  font-size: 14px;
+}
+.gf-loan-alert-bar small {
+  font-size: 12px;
+}
+.gf-loan-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+  margin: 24px 0;
+}
+.gf-loan-card {
+  border: 1px solid #d7e3cd;
+  background: white;
+  border-radius: 16px;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 19px;
+  color: #2f563e;
+}
+.gf-loan-card header {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+.gf-loan-card header > div {
+  flex: 1;
+}
+.gf-loan-card header h3 {
+  font-size: 17px;
+  margin: 0 0 6px;
+}
+.gf-loan-card header span {
+  font-size: 12px;
+  color: #6d7c60;
+}
+.gf-loan-next {
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+}
+.gf-loan-next > span {
+  font-size: 14px;
+  line-height: 1.6;
+}
+.gf-loan-next > strong {
+  font-size: 39px;
+  letter-spacing: -1px;
+}
+.gf-loan-next > small {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.gf-loan-funding {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid #e1e8db;
+  padding-top: 18px;
+}
+.gf-loan-funding > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.gf-loan-funding b {
+  white-space: nowrap;
+}
+.gf-loan-funding .short {
+  color: #a15d35;
+}
+.gf-loan-funding .enough {
+  color: #5b7b42;
+}
+.gf-loan-remind {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #617c50;
+}
+.gf-loan-variable {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #7c866f;
+}
+.gf-loan-schedule summary {
+  font-size: 17px;
+  color: #3e6544;
+  padding: 15px 0;
+  cursor: pointer;
+}
+.gf-staff-nav {
+  grid-template-columns: repeat(4, 1fr) !important;
+}
+.gf-staff-nav:has(> button:nth-child(5)) {
+  grid-template-columns: repeat(5, 1fr) !important;
+}
+@media (max-width: 1100px) {
+  .gf-loan-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+@media (max-width: 700px) {
+  .gf-custody-grid,
+  .gf-loan-grid {
+    grid-template-columns: 1fr;
+  }
+  .gf-custody-grid {
+    gap: 12px;
+  }
+  .gf-custody-card {
+    padding: 18px;
+  }
+  .gf-custody-card > .gf-btn {
+    justify-self: start;
+  }
+  .gf-store-review-list > article {
+    padding: 18px;
+    gap: 12px;
+  }
+  .gf-store-review-list > article > .gf-btn {
+    width: 100%;
+  }
+  .gf-loan-alert-bar {
+    padding: 12px 17px;
+  }
+  .gf-gmail-panel {
+    padding: 18px;
+  }
+  .gf-gmail-title {
+    flex-wrap: wrap;
+  }
+  .gf-retail-brand {
+    width: 150px;
+    height: 70px;
+  }
+  .gf-loan-card {
+    padding: 20px;
+  }
+  .gf-custody-section .gf-section-head h2 {
+    font-size: 22px;
+  }
+  .gf-staff-nav button span {
+    font-size: 11px !important;
+  }
+}
+.gf-funding-account {
+  margin-bottom: 24px;
+}
+.gf-funding-account > header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 22px;
+}
+.gf-funding-account > header > div {
+  flex: 1;
+}
+.gf-funding-account > header h3,
+.gf-funding-account > header p {
+  margin: 0;
+}
+.gf-funding-account > header p {
+  color: var(--muted, #69756f);
+  margin-top: 6px;
+  font-size: 14px;
+}
+.gf-funding-account > header > strong {
+  font-size: 30px;
+  letter-spacing: -1px;
+}
+.gf-funding-shortfall {
+  margin: 0 22px 22px;
+  padding: 20px;
+  border-radius: 16px;
+  background: #fff2e9;
+  display: grid;
+  gap: 9px;
+  color: #87451d;
+}
+.gf-funding-shortfall > strong {
+  font-size: 38px;
+  letter-spacing: -1.5px;
+}
+.gf-funding-shortfall > small {
+  font-size: 14px;
+  line-height: 1.5;
+}
+.gf-check-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.gf-check-list > button {
+  background: white;
+  border: 1px solid #dce4df;
+  border-radius: 15px;
+  padding: 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+.gf-check-number {
+  font-weight: 700;
+  background: #eff4f0;
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 15px;
+  color: #3d6650;
+}
+.gf-check-list > button > span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+}
+.gf-check-list strong {
+  display: block;
+  font-size: 16px;
+}
+.gf-check-list small {
+  display: block;
+  margin-top: 7px;
+  font-size: 14px;
+  color: #68766d;
+}
+.gf-check-list b {
+  font-size: 21px;
+  letter-spacing: -0.6px;
+}
+.gf-card-statement {
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 18px 0;
+  border: 0;
+  border-top: 1px solid #e3e9e5;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.gf-card-statement strong {
+  font-size: 22px;
+  display: block;
+}
+.gf-card-statement small {
+  font-size: 14px;
+  color: #64736a;
+  display: block;
+  margin-top: 8px;
+}
+.gf-card-statement b {
+  font-size: 13px;
+  color: #755129;
+  background: #faf0de;
+  padding: 8px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+@media (max-width: 700px) {
+  .gf-check-list {
+    grid-template-columns: 1fr;
+  }
+  .gf-funding-account > header {
+    padding: 17px;
+    flex-wrap: wrap;
+  }
+  .gf-funding-account > header > strong {
+    font-size: 27px;
+  }
+  .gf-funding-shortfall {
+    margin: 0 16px 16px;
+  }
+  .gf-check-list > button {
+    padding: 15px;
+    gap: 11px;
+  }
+  .gf-check-list b {
+    font-size: 20px;
+  }
+  .gf-check-list small {
+    font-size: 14px;
+  }
+}
+.gf-fees {
+  padding: 20px;
+  margin-bottom: 24px;
+}
+.gf-fees > summary {
+  font-size: 17px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.gf-fees > p {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #617168;
+}
+.gf-fees > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.gf-fees article {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #dce6df;
+  border-radius: 12px;
+  flex-wrap: wrap;
+}
+.gf-fees article > span {
+  flex: 1;
+}
+.gf-fees article small {
+  display: block;
+  font-size: 13px;
+  color: #62736a;
+  margin-top: 5px;
+}
+.gf-fees article p {
+  width: 100%;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.gf-fees article a {
+  font-size: 13px;
+  color: #376b52;
+}
+.gf-fees article b {
+  font-size: 22px;
+}
+@media (max-width: 700px) {
+  .gf-fees > div {
+    grid-template-columns: 1fr;
+  }
+}

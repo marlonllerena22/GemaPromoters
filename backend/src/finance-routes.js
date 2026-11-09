@@ -1,4 +1,16 @@
 import crypto from "node:crypto";
+import { registerFundingRoutes } from "./finance-funding.js";
+import { registerLoanRoutes } from "./finance-loans.js";
+import { registerGmailPublic, registerGmailRoutes } from "./finance-gmail.js";
+import {
+  applyFinanceBootstrap,
+  registerPublicFinanceAccess,
+  registerInviteManagement,
+} from "./finance-onboarding.js";
+import {
+  attachOperations,
+  registerOperationsRoutes,
+} from "./finance-operations.js";
 import { registerQuickEntry } from "./finance-quick.js";
 import { attachWorkflow } from "./finance-workflow.js";
 import {
@@ -58,6 +70,7 @@ const localHost = (req) =>
 
 export function registerFinanceRoutes(app, db, bridges = {}) {
   initFinanceDb(db);
+  applyFinanceBootstrap(db);
   startFinanceSyncWorker(db);
   const loginAttempts = new Map();
   const aiAttempts = new Map();
@@ -66,7 +79,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
     res.set("X-Frame-Options", "DENY");
     res.set(
       "Content-Security-Policy",
-      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
     );
     next();
   });
@@ -117,7 +130,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
       member.id,
       now + 12 * 60 * 60 * 1000,
       now,
-      now
+      now,
     );
     res.cookie("gema_finance_session", token, cookieOptions);
     return safeMember(member);
@@ -151,7 +164,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         }
       }
       next();
-    })
+    }),
   );
 
   app.get(
@@ -162,20 +175,20 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         token &&
         db
           .prepare(
-            `SELECT m.* FROM finance_members m JOIN finance_sessions s ON s.member_id=m.id WHERE s.token_hash=? AND s.expires_at>? AND m.active=1`
+            `SELECT m.* FROM finance_members m JOIN finance_sessions s ON s.member_id=m.id WHERE s.token_hash=? AND s.expires_at>? AND m.active=1`,
           )
           .get(hashToken(token), Date.now());
       res.json({
         user: member ? safeMember(member) : null,
         configured: Boolean(
-          db.prepare("SELECT id FROM finance_members WHERE role='owner'").get()
+          db.prepare("SELECT id FROM finance_members WHERE role='owner'").get(),
         ),
         demo:
           process.env.FINANCE_DEMO === "1" &&
           process.env.NODE_ENV !== "production" &&
           localHost(req),
       });
-    })
+    }),
   );
 
   app.post(
@@ -183,12 +196,12 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
     route((req, res) => {
       const key = req.socket.remoteAddress;
       const recent = (loginAttempts.get(key) || []).filter(
-        (t) => Date.now() - t < 15 * 60 * 1000
+        (t) => Date.now() - t < 15 * 60 * 1000,
       );
       if (recent.length >= 10)
         fail(
           "Demasiados intentos. Espera 15 minutos antes de reintentar.",
-          429
+          429,
         );
       recent.push(Date.now());
       loginAttempts.set(key, recent);
@@ -202,22 +215,22 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
       const dummy = "00000000000000000000000000000000:" + "00".repeat(64);
       const valid = passwordMatches(
         req.body.password,
-        member?.password_hash || dummy
+        member?.password_hash || dummy,
       );
       if (!member || !valid) fail("Usuario o contraseña incorrectos", 401);
       if (member.mfa_enabled && !req.body.code)
         throw Object.assign(
           new Error(
-            "Ingresa el código de tu aplicación de autenticación o un código de recuperación"
+            "Ingresa el código de tu aplicación de autenticación o un código de recuperación",
           ),
-          { status: 401, code: "MFA_REQUIRED" }
+          { status: 401, code: "MFA_REQUIRED" },
         );
       if (member.mfa_enabled && !verifySecondFactor(db, member, req.body.code))
         fail("Código de autenticación no válido o ya utilizado", 401);
       loginAttempts.delete(key);
       audit(db, member.username, "session.started", "member", member.id);
       res.json({ user: startSession(res, member) });
-    })
+    }),
   );
 
   app.post(
@@ -231,14 +244,16 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         fail("No encontrado", 404);
       const member = db
         .prepare(
-          "SELECT * FROM finance_members WHERE username='demo' AND active=1"
+          "SELECT * FROM finance_members WHERE username='demo' AND active=1",
         )
         .get();
       if (!member) fail("La demostración no está preparada", 503);
       res.json({ user: startSession(res, member) });
-    })
+    }),
   );
 
+  registerPublicFinanceAccess(app, db, { route, startSession });
+  registerGmailPublic(app, db, { route });
   app.use(
     "/api/finance",
     route((req, res, next) => {
@@ -248,7 +263,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         db
           .prepare(
             `SELECT m.*,s.last_seen FROM finance_members m JOIN finance_sessions s ON s.member_id=m.id
-      WHERE s.token_hash=? AND s.expires_at>? AND m.active=1`
+      WHERE s.token_hash=? AND s.expires_at>? AND m.active=1`,
           )
           .get(hashToken(token), Date.now());
       // Signed server-to-server deliveries use their own authentication below.
@@ -256,64 +271,73 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
       if (!member) fail("Inicia sesión para continuar", 401);
       if (Date.now() - member.last_seen > 30 * 60 * 1000) {
         db.prepare("DELETE FROM finance_sessions WHERE token_hash=?").run(
-          hashToken(token)
+          hashToken(token),
         );
         fail("La sesión se cerró por inactividad", 401);
       }
       if (req.get("x-finance-interactive") === "1")
         db.prepare(
-          "UPDATE finance_sessions SET last_seen=? WHERE token_hash=?"
+          "UPDATE finance_sessions SET last_seen=? WHERE token_hash=?",
         ).run(Date.now(), hashToken(token));
       req.financeUser = safeMember(member);
       next();
-    })
+    }),
   );
 
   app.post(
     "/api/finance/logout",
     route((req, res) => {
       db.prepare("DELETE FROM finance_sessions WHERE token_hash=?").run(
-        hashToken(sessionToken(req))
+        hashToken(sessionToken(req)),
       );
       res.clearCookie("gema_finance_session", cookieOptions);
       res.json({ ok: true });
-    })
+    }),
   );
   app.get(
     "/api/finance/snapshot",
     route((req, res) =>
       res.json(
-        attachWorkflow(
+        attachOperations(
           db,
           req.financeUser,
-          snapshot(db, req.financeUser, req.query)
-        )
-      )
-    )
+          attachWorkflow(
+            db,
+            req.financeUser,
+            snapshot(db, req.financeUser, req.query),
+          ),
+        ),
+      ),
+    ),
   );
   registerFinanceSecurity(app, db, { route, sessionToken });
   registerWorkflowRoutes(app, db, { route, owner });
+  registerOperationsRoutes(app, db, { route, owner });
+  registerInviteManagement(app, db, { route, owner });
+  registerGmailRoutes(app, db, { route, owner });
+  registerLoanRoutes(app, db, { route, owner });
+  registerFundingRoutes(app, db, { route, owner });
   registerPaymentPush(app, db, { route, owner });
   app.post(
     "/api/finance/quick/register",
     route((req, res) => {
       const result = registerQuickEntry(db, req.financeUser, req.body);
       res.status(result.duplicate ? 200 : 201).json(result);
-    })
+    }),
   );
   app.get(
     "/api/finance/orders",
     route((req, res) => {
       businessAccess(req.financeUser, "producalza");
       res.json({ orders: productionOrders(db, text(req.query.q, 100)) });
-    })
+    }),
   );
   app.post(
     "/api/finance/movements",
     route((req, res) => {
       writer(req);
       res.status(201).json(createMovement(db, req.financeUser, req.body));
-    })
+    }),
   );
   app.post(
     "/api/finance/movements/:id/review",
@@ -323,12 +347,12 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         db,
         "finance_movements",
         req.params.id,
-        req.financeUser
+        req.financeUser,
       );
       if (movement.is_payment_request)
         fail(
           "Gestiona esta solicitud desde Por pagar para conservar su historial",
-          409
+          409,
         );
       if (
         !["pending", "reported", "approved"].includes(movement.status) ||
@@ -337,7 +361,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         fail("El estado actual impide esta revisión", 409);
       const allocations = db
         .prepare(
-          "SELECT COUNT(*) n FROM finance_allocations WHERE movement_id=?"
+          "SELECT COUNT(*) n FROM finance_allocations WHERE movement_id=?",
         )
         .get(movement.id).n;
       if (allocations)
@@ -361,14 +385,14 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         fail("Indica el motivo del rechazo");
       db.transaction(() => {
         db.prepare(
-          "UPDATE finance_movements SET status=?,reviewed_by=?,reviewed_at=?,review_note=?,updated_at=? WHERE id=?"
+          "UPDATE finance_movements SET status=?,reviewed_by=?,reviewed_at=?,review_note=?,updated_at=? WHERE id=?",
         ).run(
           req.body.status,
           req.financeUser.username,
           new Date().toISOString(),
           note,
           new Date().toISOString(),
-          movement.id
+          movement.id,
         );
         audit(
           db,
@@ -378,11 +402,11 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
           movement.id,
           movement,
           { status: req.body.status, note },
-          movement.business_id
+          movement.business_id,
         );
       })();
       res.json({ ok: true });
-    })
+    }),
   );
   app.post(
     "/api/finance/accounts",
@@ -405,7 +429,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
       const row = db.transaction(() => {
         const result = db
           .prepare(
-            `INSERT INTO finance_accounts (business_id,name,bank,kind,last_four,custodian,opening_cents,opening_date) VALUES (?,?,?,?,?,?,?,?)`
+            `INSERT INTO finance_accounts (business_id,name,bank,kind,last_four,custodian,opening_cents,opening_date) VALUES (?,?,?,?,?,?,?,?)`,
           )
           .run(
             b.business_id || null,
@@ -415,7 +439,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
             text(b.last_four, 4),
             text(b.custodian),
             b.opening_cents,
-            b.opening_date
+            b.opening_date,
           );
         audit(
           db,
@@ -425,12 +449,12 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
           result.lastInsertRowid,
           null,
           { ...b, last_four: text(b.last_four, 4) },
-          b.business_id || null
+          b.business_id || null,
         );
         return { id: Number(result.lastInsertRowid) };
       })();
       res.status(201).json(row);
-    })
+    }),
   );
   app.post(
     "/api/finance/accounts/:id/verify",
@@ -446,7 +470,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         fail("Fecha de comprobación fuera de rango");
       db.transaction(() => {
         db.prepare(
-          "UPDATE finance_accounts SET verified_cents=?,verified_at=? WHERE id=?"
+          "UPDATE finance_accounts SET verified_cents=?,verified_at=? WHERE id=?",
         ).run(req.body.balance_cents, `${day}T23:59:59-05:00`, a.id);
         audit(
           db,
@@ -460,15 +484,15 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
             day,
             method: "manual_bank_comparison",
           },
-          a.business_id
+          a.business_id,
         );
       })();
       res.json({ ok: true });
-    })
+    }),
   );
   app.post(
     "/api/finance/bank/import",
-    route((req, res) => res.json(importBank(db, req.financeUser, req.body)))
+    route((req, res) => res.json(importBank(db, req.financeUser, req.body))),
   );
   app.post(
     "/api/finance/accounts/:id/allocate-opening",
@@ -501,15 +525,15 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
       db.transaction(() => {
         const previous = db
           .prepare(
-            "SELECT business_id,amount_cents FROM finance_account_allocations WHERE account_id=?"
+            "SELECT business_id,amount_cents FROM finance_account_allocations WHERE account_id=?",
           )
           .all(account.id);
         db.prepare(
-          "DELETE FROM finance_account_allocations WHERE account_id=?"
+          "DELETE FROM finance_account_allocations WHERE account_id=?",
         ).run(account.id);
         for (const row of rows)
           db.prepare(
-            "INSERT INTO finance_account_allocations (account_id,business_id,amount_cents) VALUES (?,?,?)"
+            "INSERT INTO finance_account_allocations (account_id,business_id,amount_cents) VALUES (?,?,?)",
           ).run(account.id, row.business_id, row.amount_cents);
         audit(
           db,
@@ -518,17 +542,17 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
           "account",
           account.id,
           previous,
-          rows
+          rows,
         );
       })();
       res.json({ ok: true, unassigned_cents: account.opening_cents - total });
-    })
+    }),
   );
   app.post(
     "/api/finance/reconcile",
     route((req, res) =>
-      res.json(reconcile(db, req.financeUser, req.body, bridges))
-    )
+      res.json(reconcile(db, req.financeUser, req.body, bridges)),
+    ),
   );
   app.post(
     "/api/finance/transfers",
@@ -564,7 +588,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         const ids = [];
         const previous = db
           .prepare(
-            "SELECT * FROM finance_movements WHERE transfer_group=? ORDER BY id"
+            "SELECT * FROM finance_movements WHERE transfer_group=? ORDER BY id",
           )
           .all(group);
         if (previous.length) {
@@ -581,7 +605,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
           )
             fail(
               "El identificador del traslado ya tiene datos diferentes",
-              409
+              409,
             );
           return {
             group,
@@ -596,7 +620,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
           const insert = db
             .prepare(
               `INSERT INTO finance_movements (business_id,account_id,kind,amount_cents,day,category,counterparty,description,payment_method,status,transfer_group,transfer_side,created_by,reviewed_by)
-          VALUES (?,?,'transfer',?,?,'Traslado interno',?,?,'transfer','approved',?,?,?,?)`
+          VALUES (?,?,'transfer',?,?,'Traslado interno',?,?,'transfer','approved',?,?,?,?)`,
             )
             .run(
               business,
@@ -608,14 +632,14 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
               group,
               side,
               req.financeUser.username,
-              req.financeUser.username
+              req.financeUser.username,
             );
           const id = Number(insert.lastInsertRowid);
           ids.push(id);
           if (cash(account)) {
             const bank = db
               .prepare(
-                `INSERT INTO finance_bank_transactions (account_id,day,amount_cents,reference,description,fingerprint,batch_id,source,created_by) VALUES (?,?,?,?,?,?,?,'cash_journal',?)`
+                `INSERT INTO finance_bank_transactions (account_id,day,amount_cents,reference,description,fingerprint,batch_id,source,created_by) VALUES (?,?,?,?,?,?,?,'cash_journal',?)`,
               )
               .run(
                 account.id,
@@ -625,7 +649,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
                 text(b.description, 500),
                 `${group}:${side}`,
                 group,
-                req.financeUser.username
+                req.financeUser.username,
               );
             reconcile(db, req.financeUser, {
               movement_id: id,
@@ -649,12 +673,12 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
             to_business: toBusiness,
             day,
             description: text(b.description, 2000),
-          }
+          },
         );
         return { group, movement_ids: ids };
       })();
       res.status(201).json(result);
-    })
+    }),
   );
   app.post(
     "/api/finance/cash/confirm",
@@ -666,7 +690,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         db,
         "finance_movements",
         req.body.movement_id,
-        req.financeUser
+        req.financeUser,
       );
       const a =
         m.account_id &&
@@ -679,7 +703,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         fail("El movimiento es anterior al saldo inicial de la cuenta");
       const assigned = db
         .prepare(
-          "SELECT COALESCE(SUM(amount_cents),0) n FROM finance_allocations WHERE movement_id=?"
+          "SELECT COALESCE(SUM(amount_cents),0) n FROM finance_allocations WHERE movement_id=?",
         )
         .get(m.id).n;
       const remaining = m.amount_cents - assigned;
@@ -689,7 +713,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         const positive = m.kind === "income" || m.transfer_side === "incoming";
         const result = db
           .prepare(
-            `INSERT INTO finance_bank_transactions (account_id,day,amount_cents,reference,description,fingerprint,batch_id,source,created_by) VALUES (?,?,?,?,?,?,?,'cash_journal',?)`
+            `INSERT INTO finance_bank_transactions (account_id,day,amount_cents,reference,description,fingerprint,batch_id,source,created_by) VALUES (?,?,?,?,?,?,?,'cash_journal',?)`,
           )
           .run(
             a.id,
@@ -699,7 +723,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
             text(req.body.note, 500),
             id,
             id,
-            req.financeUser.username
+            req.financeUser.username,
           );
         reconcile(
           db,
@@ -709,7 +733,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
             bank_transaction_id: Number(result.lastInsertRowid),
             amount_cents: remaining,
           },
-          bridges
+          bridges,
         );
         audit(
           db,
@@ -719,11 +743,11 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
           m.id,
           null,
           { note: text(req.body.note, 1000), amount_cents: remaining },
-          m.business_id
+          m.business_id,
         );
       })();
       res.json({ ok: true });
-    })
+    }),
   );
   app.delete(
     "/api/finance/allocations/:id",
@@ -739,17 +763,17 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
           db,
           "finance_movements",
           a.movement_id,
-          req.financeUser
+          req.financeUser,
         );
         if (m.status === "reconciled" && bridges.production)
           bridges.production.reverseFinancePayment(m, req.financeUser.username);
         db.prepare("DELETE FROM finance_allocations WHERE id=?").run(a.id);
         db.prepare(
-          "UPDATE finance_movements SET status=?,updated_at=? WHERE id=?"
+          "UPDATE finance_movements SET status=?,updated_at=? WHERE id=?",
         ).run(
           m.reviewed_by ? "approved" : "pending",
           new Date().toISOString(),
-          m.id
+          m.id,
         );
         audit(
           db,
@@ -759,11 +783,11 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
           m.id,
           a,
           { reason: text(req.body.reason) },
-          m.business_id
+          m.business_id,
         );
       })();
       res.json({ ok: true });
-    })
+    }),
   );
   app.get(
     "/api/finance/allocations/:movementId",
@@ -773,16 +797,16 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         db,
         "finance_movements",
         req.params.movementId,
-        req.financeUser
+        req.financeUser,
       );
       res.json({
         allocations: db
           .prepare(
-            "SELECT a.*,b.reference,b.day FROM finance_allocations a JOIN finance_bank_transactions b ON b.id=a.bank_transaction_id WHERE movement_id=?"
+            "SELECT a.*,b.reference,b.day FROM finance_allocations a JOIN finance_bank_transactions b ON b.id=a.bank_transaction_id WHERE movement_id=?",
           )
           .all(req.params.movementId),
       });
-    })
+    }),
   );
   app.post(
     "/api/finance/evidence",
@@ -794,7 +818,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
       const sha = crypto.createHash("sha256").update(buffer).digest("hex");
       const old = db
         .prepare(
-          "SELECT id,created_by,unit_id FROM finance_evidence WHERE business_id=? AND sha256=?"
+          "SELECT id,created_by,unit_id FROM finance_evidence WHERE business_id=? AND sha256=?",
         )
         .get(req.body.business_id, sha);
       if (old) {
@@ -814,18 +838,18 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         .prepare("SELECT COALESCE(SUM(bytes),0) n FROM finance_evidence")
         .get().n;
       const limit = Number(
-        process.env.FINANCE_MAX_DOCUMENT_BYTES || 256 * 1024 * 1024
+        process.env.FINANCE_MAX_DOCUMENT_BYTES || 256 * 1024 * 1024,
       );
       if (stored + buffer.length > limit)
         fail(
           "Se alcanzó la capacidad de comprobantes configurada. Amplía el almacenamiento antes de continuar.",
-          413
+          413,
         );
       const encrypted = encryptDocument(buffer);
       const id = db.transaction(() => {
         const result = db
           .prepare(
-            "INSERT INTO finance_evidence (business_id,unit_id,name,mime,bytes,sha256,encrypted,created_by) VALUES (?,?,?,?,?,?,?,?)"
+            "INSERT INTO finance_evidence (business_id,unit_id,name,mime,bytes,sha256,encrypted,created_by) VALUES (?,?,?,?,?,?,?,?)",
           )
           .run(
             req.body.business_id,
@@ -836,7 +860,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
             buffer.length,
             sha,
             encrypted,
-            req.financeUser.username
+            req.financeUser.username,
           );
         audit(
           db,
@@ -846,19 +870,19 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
           result.lastInsertRowid,
           null,
           { sha256: sha, bytes: buffer.length },
-          req.body.business_id
+          req.body.business_id,
         );
         return Number(result.lastInsertRowid);
       })();
       res.status(201).json({ id, duplicate: false });
-    })
+    }),
   );
   function evidenceAccess(req) {
     const e = requireRow(
       db,
       "finance_evidence",
       req.params.id,
-      req.financeUser
+      req.financeUser,
     );
     if (
       req.financeUser.role === "collector" &&
@@ -873,15 +897,15 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
       const e = evidenceAccess(req);
       res.set(
         "Content-Disposition",
-        `attachment; filename*=UTF-8''${encodeURIComponent(e.name)}`
+        `attachment; filename*=UTF-8''${encodeURIComponent(e.name)}`,
       );
       res.type(e.mime).send(decryptDocument(e.encrypted));
-    })
+    }),
   );
   const aiLimit = (req) => {
     const key = req.financeUser.id;
     const recent = (aiAttempts.get(key) || []).filter(
-      (t) => Date.now() - t < 60_000
+      (t) => Date.now() - t < 60_000,
     );
     if (recent.length >= 6)
       fail("Espera un momento antes de otra consulta de IA", 429);
@@ -898,7 +922,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
       db.transaction(() => {
         db.prepare("UPDATE finance_evidence SET analysis=? WHERE id=?").run(
           JSON.stringify(analysis),
-          e.id
+          e.id,
         );
         audit(
           db,
@@ -908,11 +932,11 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
           e.id,
           null,
           { draft: true },
-          e.business_id
+          e.business_id,
         );
       })();
       res.json({ analysis, draft: true });
-    })
+    }),
   );
   app.post(
     "/api/finance/evidence/:id/bank-details",
@@ -929,10 +953,10 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         e.id,
         null,
         { draft: true, account_count: analysis.accounts.length },
-        e.business_id
+        e.business_id,
       );
       res.json({ analysis, draft: true });
-    })
+    }),
   );
   app.post(
     "/api/finance/assistant",
@@ -940,10 +964,14 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
       aiLimit(req);
       const question = text(req.body.question, 1500);
       if (!question) fail("Escribe tu consulta");
-      const data = attachWorkflow(
+      const data = attachOperations(
         db,
         req.financeUser,
-        snapshot(db, req.financeUser, req.body.filters || {})
+        attachWorkflow(
+          db,
+          req.financeUser,
+          snapshot(db, req.financeUser, req.body.filters || {}),
+        ),
       );
       if (!process.env.OPENAI_API_KEY) {
         const usd = (n) =>
@@ -958,10 +986,10 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
             .map(
               (f) =>
                 `Diners · saldo manual al ${f.as_of}: ${usd(
-                  f.available_cents
+                  f.available_cents,
                 )} efectivizado y ${usd(
-                  f.pending_cents
-                )} por efectivizar, separado de bancos.\n\n`
+                  f.pending_cents,
+                )} por efectivizar, separado de bancos.\n\n`,
             )
             .join("")}Resumen de los registros del ${data.period.from} al ${
             data.period.to
@@ -970,11 +998,11 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
               ? usd(s.balance_cents)
               : "no disponible para este acceso"
           }.\n• Cobros conciliados del período: ${usd(
-            s.income_cents
+            s.income_cents,
           )}.\n• Gastos registrados aceptados del período: ${usd(
-            s.expense_cents
+            s.expense_cents,
           )}.\n• Compromisos de gasto pendientes, de todas las fechas: ${usd(
-            s.pending_cents
+            s.pending_cents,
           )}.\n• ${s.pending_count} movimientos por revisar.\n\n${
             s.unverified_accounts
           } cuentas requieren comprobación. Estos datos no equivalen a utilidad ni dinero libre. La IA conversacional está pendiente de configurar; este resumen se calcula directamente desde tus registros.`,
@@ -982,7 +1010,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         });
       }
       res.json(await answerQuestion(question, data));
-    })
+    }),
   );
   app.post(
     "/api/finance/recurring",
@@ -1004,7 +1032,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
       const result = db.transaction(() => {
         const row = db
           .prepare(
-            "INSERT INTO finance_recurring (business_id,unit_id,name,category,counterparty,amount_cents,due_day,created_by) VALUES (?,?,?,?,?,?,?,?)"
+            "INSERT INTO finance_recurring (business_id,unit_id,name,category,counterparty,amount_cents,due_day,created_by) VALUES (?,?,?,?,?,?,?,?)",
           )
           .run(
             b.business_id,
@@ -1014,7 +1042,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
             text(b.counterparty),
             b.amount_cents,
             b.due_day,
-            req.financeUser.username
+            req.financeUser.username,
           );
         audit(
           db,
@@ -1024,12 +1052,12 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
           row.lastInsertRowid,
           null,
           b,
-          b.business_id
+          b.business_id,
         );
         return { id: Number(row.lastInsertRowid) };
       })();
       res.status(201).json(result);
-    })
+    }),
   );
   app.post(
     "/api/finance/recurring/generate",
@@ -1048,7 +1076,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
           if (
             db
               .prepare(
-                "SELECT id FROM finance_movements WHERE source_system='recurring' AND business_id=? AND external_id=?"
+                "SELECT id FROM finance_movements WHERE source_system='recurring' AND business_id=? AND external_id=?",
               )
               .get(r.business_id, external)
           )
@@ -1066,13 +1094,13 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
             description: r.name,
           });
           db.prepare(
-            "UPDATE finance_movements SET source_system='recurring',external_id=? WHERE id=?"
+            "UPDATE finance_movements SET source_system='recurring',external_id=? WHERE id=?",
           ).run(external, row.id);
           created++;
         }
       })();
       res.json({ created });
-    })
+    }),
   );
   app.post(
     "/api/finance/recurring/:id/deactivate",
@@ -1082,11 +1110,11 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         db,
         "finance_recurring",
         req.params.id,
-        req.financeUser
+        req.financeUser,
       );
       db.transaction(() => {
         db.prepare("UPDATE finance_recurring SET active=0 WHERE id=?").run(
-          r.id
+          r.id,
         );
         audit(
           db,
@@ -1096,11 +1124,11 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
           r.id,
           r,
           { active: false },
-          r.business_id
+          r.business_id,
         );
       })();
       res.json({ ok: true });
-    })
+    }),
   );
   app.post(
     "/api/finance/budgets",
@@ -1111,7 +1139,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
       if (req.financeUser.unit_ids.length)
         fail(
           "El presupuesto del negocio requiere acceso a todas sus unidades",
-          403
+          403,
         );
       if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(b.month) || !text(b.category))
         fail("Mes o categoría inválidos");
@@ -1119,11 +1147,11 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
       db.transaction(() => {
         const old = db
           .prepare(
-            "SELECT * FROM finance_budgets WHERE business_id=? AND month=? AND category=?"
+            "SELECT * FROM finance_budgets WHERE business_id=? AND month=? AND category=?",
           )
           .get(b.business_id, b.month, text(b.category));
         db.prepare(
-          "INSERT INTO finance_budgets (business_id,month,category,amount_cents) VALUES (?,?,?,?) ON CONFLICT(business_id,month,category) DO UPDATE SET amount_cents=excluded.amount_cents"
+          "INSERT INTO finance_budgets (business_id,month,category,amount_cents) VALUES (?,?,?,?) ON CONFLICT(business_id,month,category) DO UPDATE SET amount_cents=excluded.amount_cents",
         ).run(b.business_id, b.month, text(b.category), b.amount_cents);
         audit(
           db,
@@ -1133,11 +1161,11 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
           `${b.business_id}:${b.month}:${b.category}`,
           old,
           b,
-          b.business_id
+          b.business_id,
         );
       })();
       res.json({ ok: true });
-    })
+    }),
   );
   app.post(
     "/api/finance/closings",
@@ -1167,7 +1195,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
       if (unresolved)
         fail(
           "Revisa los movimientos de efectivo pendientes antes de cerrar",
-          409
+          409,
         );
       const expected = b.opening_cents + sales - expenses - b.deposits_cents;
       const difference = b.counted_cents - expected;
@@ -1176,7 +1204,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
       const id = db.transaction(() => {
         const result = db
           .prepare(
-            "INSERT INTO finance_closings (unit_id,day,opening_cents,sales_cents,expenses_cents,deposits_cents,counted_cents,expected_cents,difference_cents,note,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
+            "INSERT INTO finance_closings (unit_id,day,opening_cents,sales_cents,expenses_cents,deposits_cents,counted_cents,expected_cents,difference_cents,note,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
           )
           .run(
             unit.id,
@@ -1189,7 +1217,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
             expected,
             difference,
             text(b.note, 2000),
-            req.financeUser.username
+            req.financeUser.username,
           );
         audit(
           db,
@@ -1199,14 +1227,14 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
           result.lastInsertRowid,
           null,
           { ...b, expected_cents: expected, difference_cents: difference },
-          unit.business_id
+          unit.business_id,
         );
         return Number(result.lastInsertRowid);
       })();
       res
         .status(201)
         .json({ id, expected_cents: expected, difference_cents: difference });
-    })
+    }),
   );
   app.get(
     "/api/finance/closings/preview",
@@ -1216,10 +1244,10 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
           db,
           req.financeUser,
           text(req.query.unit_id),
-          text(req.query.day, 10)
-        )
-      )
-    )
+          text(req.query.day, 10),
+        ),
+      ),
+    ),
   );
   app.post(
     "/api/finance/closings/:id/reopen",
@@ -1243,18 +1271,18 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
           old.id,
           old,
           { reason: text(req.body.reason) },
-          unit.business_id
+          unit.business_id,
         );
       })();
       res.json({ ok: true });
-    })
+    }),
   );
   app.post(
     "/api/finance/sync",
     route((req, res) => {
       owner(req);
       res.json(syncInternalSources(db, req.financeUser));
-    })
+    }),
   );
   app.post(
     "/api/finance/integrations/alfabusiness",
@@ -1291,10 +1319,10 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         fail("El aviso de venta excede el tamaño permitido", 413);
       const result = importSale(db, sale);
       db.prepare(
-        "UPDATE finance_sync_log SET state='ready',last_run=?,count=count+?,detail='Recepción de ventas autenticadas; cotejar cobertura con AlfaBusiness' WHERE source='alfabusiness'"
+        "UPDATE finance_sync_log SET state='ready',last_run=?,count=count+?,detail='Recepción de ventas autenticadas; cotejar cobertura con AlfaBusiness' WHERE source='alfabusiness'",
       ).run(new Date().toISOString(), result.ignored ? 0 : 1);
       res.json(result);
-    })
+    }),
   );
   app.get(
     "/api/finance/members",
@@ -1308,19 +1336,19 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
             ...safeMember(m),
             space_ids: db
               .prepare(
-                "SELECT space_id FROM finance_space_members WHERE member_id=?"
+                "SELECT space_id FROM finance_space_members WHERE member_id=?",
               )
               .all(m.id)
               .map((s) => s.space_id),
             space_role:
               db
                 .prepare(
-                  "SELECT role FROM finance_space_members WHERE member_id=? LIMIT 1"
+                  "SELECT role FROM finance_space_members WHERE member_id=? LIMIT 1",
                 )
                 .get(m.id)?.role || "requester",
           })),
       });
-    })
+    }),
   );
   app.post(
     "/api/finance/members",
@@ -1341,7 +1369,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         (b.role !== "viewer" || b.business_ids.includes("personal"))
       )
         fail(
-          "El perfil de consulta de trabajo excluye los detalles personales y utiliza rol de consulta"
+          "El perfil de consulta de trabajo excluye los detalles personales y utiliza rol de consulta",
         );
       for (const id of b.unit_ids || []) {
         const u = db.prepare("SELECT * FROM finance_units WHERE id=?").get(id);
@@ -1357,7 +1385,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
       const result = db.transaction(() => {
         const row = db
           .prepare(
-            "INSERT INTO finance_members (name,username,password_hash,role,business_ids,unit_ids,work_view) VALUES (?,?,?,?,?,?,?)"
+            "INSERT INTO finance_members (name,username,password_hash,role,business_ids,unit_ids,work_view) VALUES (?,?,?,?,?,?,?)",
           )
           .run(
             text(b.name),
@@ -1366,7 +1394,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
             b.role,
             JSON.stringify([...new Set(b.business_ids)]),
             JSON.stringify(b.unit_ids || []),
-            b.work_view === true ? 1 : 0
+            b.work_view === true ? 1 : 0,
           );
         if (b.space_ids !== undefined)
           assignSpaceMemberships(
@@ -1374,7 +1402,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
             Number(row.lastInsertRowid),
             b.space_ids,
             b.role === "viewer" ? "observer" : b.space_role || "requester",
-            b.business_ids
+            b.business_ids,
           );
         audit(
           db,
@@ -1388,12 +1416,12 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
             role: b.role,
             business_ids: b.business_ids,
             unit_ids: b.unit_ids || [],
-          }
+          },
         );
         return { id: Number(row.lastInsertRowid) };
       })();
       res.status(201).json(result);
-    })
+    }),
   );
   app.post(
     "/api/finance/members/:id/access",
@@ -1426,14 +1454,14 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         fail("La consulta de trabajo excluye los detalles personales");
       db.transaction(() => {
         db.prepare(
-          "UPDATE finance_members SET name=?,role=?,business_ids=?,unit_ids=?,work_view=? WHERE id=?"
+          "UPDATE finance_members SET name=?,role=?,business_ids=?,unit_ids=?,work_view=? WHERE id=?",
         ).run(
           text(b.name) || member.name,
           b.role,
           JSON.stringify([...new Set(b.business_ids)]),
           JSON.stringify(b.unit_ids || []),
           b.work_view === true ? 1 : 0,
-          member.id
+          member.id,
         );
         if (b.space_ids !== undefined)
           assignSpaceMemberships(
@@ -1441,10 +1469,10 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
             member.id,
             b.space_ids,
             b.role === "viewer" ? "observer" : b.space_role || "requester",
-            b.business_ids
+            b.business_ids,
           );
         db.prepare("DELETE FROM finance_sessions WHERE member_id=?").run(
-          member.id
+          member.id,
         );
         audit(
           db,
@@ -1456,12 +1484,12 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
           safeMember(
             db
               .prepare("SELECT * FROM finance_members WHERE id=?")
-              .get(member.id)
-          )
+              .get(member.id),
+          ),
         );
       })();
       res.json({ ok: true });
-    })
+    }),
   );
   app.post(
     "/api/finance/members/:id/status",
@@ -1475,10 +1503,10 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
       db.transaction(() => {
         db.prepare("UPDATE finance_members SET active=? WHERE id=?").run(
           req.body.active === true ? 1 : 0,
-          member.id
+          member.id,
         );
         db.prepare("DELETE FROM finance_sessions WHERE member_id=?").run(
-          member.id
+          member.id,
         );
         audit(
           db,
@@ -1487,11 +1515,11 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
           "member",
           member.id,
           { active: Boolean(member.active) },
-          { active: req.body.active === true }
+          { active: req.body.active === true },
         );
       })();
       res.json({ ok: true });
-    })
+    }),
   );
   app.get(
     "/api/finance/audit",
@@ -1502,7 +1530,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
           .prepare("SELECT * FROM finance_audit ORDER BY id DESC LIMIT 100")
           .all(),
       });
-    })
+    }),
   );
   app.get(
     "/api/finance/export",
@@ -1510,7 +1538,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
       if (req.financeUser.role === "collector")
         fail(
           "La exportación requiere acceso de consulta o administración",
-          403
+          403,
         );
       const data = snapshot(db, req.financeUser, {
         ...req.query,
@@ -1518,7 +1546,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
       });
       if (data.movements_total > 100000)
         fail(
-          "Reduce el período para exportar hasta 100000 movimientos por archivo"
+          "Reduce el período para exportar hasta 100000 movimientos por archivo",
         );
       audit(
         db,
@@ -1527,15 +1555,15 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         "report",
         `${data.period.from}:${data.period.to}`,
         null,
-        { rows: data.movements.length }
+        { rows: data.movements.length },
       );
       res
         .set("Content-Disposition", 'attachment; filename="gema-finanzas.csv"')
         .type("text/csv")
         .send(csvExport(data.movements));
-    })
+    }),
   );
   app.use("/api/finance", (_req, res) =>
-    res.status(404).json({ message: "Recurso financiero no encontrado" })
+    res.status(404).json({ message: "Recurso financiero no encontrado" }),
   );
 }

@@ -45,6 +45,8 @@ import {
   today,
 } from "./api.js";
 import { BankLogo } from "./banks.jsx";
+import { transferFeeQuote } from "../../../shared/finance-fees.mjs";
+import { CustodyFunds } from "./operations.jsx";
 import { SettlementFunds } from "./settlements.jsx";
 import { BeneficiaryDetails, EvidenceThumbnail } from "./payees.jsx";
 const emptyWorkflow = {
@@ -106,7 +108,7 @@ export function SpaceTiles({ pinned = false, compact = false }) {
   const { data, user, open } = useFinance();
   const w = data.workflow || emptyWorkflow;
   const spaces = w.spaces.filter(
-    (s) => s.active && (!pinned || s.is_member || user.role === "owner")
+    (s) => s.active && (!pinned || s.is_member || user.role === "owner"),
   );
   if (!spaces.length)
     return (
@@ -198,10 +200,10 @@ export function RequestCard({ request, returnSpace = null }) {
           {request.payment_state === "partial"
             ? "Pago parcial"
             : request.payment_state === "paid"
-            ? "Pagado"
-            : request.payment_state === "cancelled"
-            ? "Anulado"
-            : "Por transferir"}
+              ? "Pagado"
+              : request.payment_state === "cancelled"
+                ? "Anulado"
+                : "Por transferir"}
         </span>
         <span>{space?.name || businessNames[request.business_id]}</span>
       </div>
@@ -254,7 +256,7 @@ export function RequestCard({ request, returnSpace = null }) {
 export function PaymentRow({ payment }) {
   const { data, open } = useFinance();
   const request = data.workflow?.requests.find(
-    (r) => r.id === payment.request_id
+    (r) => r.id === payment.request_id,
   );
   return (
     <div className={`gf-paid-row ${payment.voided_at ? "voided" : ""}`}>
@@ -280,8 +282,8 @@ export function PaymentRow({ payment }) {
           {payment.voided_at
             ? "Corregido, historial conservado"
             : payment.verification_status === "reconciled"
-            ? "Pago conciliado"
-            : "Pago informado · por conciliar"}
+              ? "Pago conciliado"
+              : "Pago informado · por conciliar"}
         </small>
         {payment.destination_bank && (
           <small>
@@ -378,7 +380,7 @@ export function PaymentDesk() {
               (p) =>
                 space === "all" ||
                 w.requests.find((r) => r.id === p.request_id)?.space_id ===
-                  space
+                  space,
             )
             .map((p) => (
               <PaymentRow key={p.id} payment={p} />
@@ -510,15 +512,23 @@ export function SpacePanel({ id, onClose }) {
   );
 }
 export function WorkSummary() {
-  const { data, user, navigate } = useFinance();
+  const { data, user, navigate, open } = useFinance();
   const accounts = data.accounts.filter((a) =>
-    ["bank", "wallet"].includes(a.kind)
+    ["bank", "wallet"].includes(a.kind),
   );
   return (
     <div className="gf-work-summary">
       <span className="gf-eyebrow">LOS NEGOCIOS, A TU ALCANCE</span>
       <h1>Hola, {user.name.split(" ")[0]}.</h1>
       <p>Los saldos primero. El detalle, solo cuando lo necesites.</p>
+      {user.request_payments && (
+        <Button
+          icon={ArrowUpRight}
+          onClick={() => open("quick", { mode: "request" })}
+        >
+          Pedir pago
+        </Button>
+      )}
       <div className="gf-work-total">
         <Wallet size={25} />
         <div>
@@ -544,6 +554,7 @@ export function WorkSummary() {
         ))}
       </div>
       <SettlementFunds />
+      <CustodyFunds />
       <div className="gf-work-explore">
         <div>
           <h2>Movimientos de trabajo</h2>
@@ -764,11 +775,11 @@ export function RecordPayment({ id, initialDestination, onClose }) {
     };
   }, [id]);
   const [value, setValue] = useState(
-      request ? (request.remaining_cents / 100).toFixed(2) : ""
+      request ? (request.remaining_cents / 100).toFixed(2) : "",
     ),
     [account, setAccount] = useState(""),
     [day, setDay] = useState(
-      data.capabilities.public_preview ? data.period.today : today()
+      data.capabilities.public_preview ? data.period.today : today(),
     ),
     [reference, setReference] = useState(""),
     [evidence, setEvidence] = useState(null),
@@ -783,7 +794,9 @@ export function RecordPayment({ id, initialDestination, onClose }) {
     accounts = data.accounts.filter(
       (a) =>
         ["bank", "wallet", "card"].includes(a.kind) &&
-        (!a.business_id || a.business_id === request?.business_id)
+        (user.role === "owner" ||
+          !a.business_id ||
+          a.business_id === request?.business_id),
     );
   async function upload(selected) {
     if (!selected || preview) return;
@@ -810,7 +823,7 @@ export function RecordPayment({ id, initialDestination, onClose }) {
         try {
           const { analysis } = await financeApi(
             `/evidence/${result.id}/analyze`,
-            {}
+            {},
           );
           if (analysis.reference) setReference(analysis.reference);
           if (analysis.day) setDay(analysis.day);
@@ -821,7 +834,7 @@ export function RecordPayment({ id, initialDestination, onClose }) {
             setValue((analysis.amount_cents / 100).toFixed(2));
         } catch {
           setError(
-            "El comprobante se guardó. Completa la referencia y revisa el monto."
+            "El comprobante se guardó. Completa la referencia y revisa el monto.",
           );
         }
       }
@@ -962,6 +975,22 @@ export function RecordPayment({ id, initialDestination, onClose }) {
               required
             />
           </Field>
+          {account &&
+            beneficiary?.accounts?.[destination] &&
+            (() => {
+              const fee = transferFeeQuote(
+                accounts.find((a) => a.id === Number(account))?.bank,
+                beneficiary.accounts[destination].bank,
+              );
+              return (
+                <p className="gf-note">
+                  Comisión de referencia:{" "}
+                  {fee.cents === null ? "Por comprobar" : money(fee.cents)}.{" "}
+                  {fee.note ||
+                    "Se comprobará con el cargo real del banco y se registrará aparte del monto enviado."}
+                </p>
+              );
+            })()}
           <div className="gf-payment-evidence">
             <FileCheck2 size={27} />
             <strong>
@@ -1063,7 +1092,7 @@ export function SharePayment({ id, onClose }) {
     ? `${space?.name || businessNames[request?.business_id] || "Pago"}\n${
         request?.counterparty || "Pago registrado"
       } · ${money(payment.amount_cents)}\nFecha: ${dateLabel(
-        payment.paid_day
+        payment.paid_day,
       )}\nReferencia: ${payment.reference}\nComprobante del pago adjunto.`
     : "";
   useEffect(() => {
@@ -1082,7 +1111,7 @@ export function SharePayment({ id, onClose }) {
           setFile(
             new File([blob], payment.evidence_name || "comprobante", {
               type: blob.type,
-            })
+            }),
           );
       })
       .catch((e) => {
@@ -1107,7 +1136,7 @@ export function SharePayment({ id, onClose }) {
     }
   }
   const native = Boolean(
-    file && navigator.share && navigator.canShare?.({ files: [file] })
+    file && navigator.share && navigator.canShare?.({ files: [file] }),
   );
   return (
     <Modal
@@ -1145,7 +1174,7 @@ export function SharePayment({ id, onClose }) {
             onClick={() =>
               downloadPrivate(
                 `/payments/${id}/evidence`,
-                payment.evidence_name
+                payment.evidence_name,
               ).catch((e) => setError(e.message))
             }
           >
@@ -1183,7 +1212,7 @@ export function SharePayment({ id, onClose }) {
                       onClick={() =>
                         downloadPrivate(
                           `/payments/${id}/evidence`,
-                          payment.evidence_name
+                          payment.evidence_name,
                         )
                       }
                     >
@@ -1194,12 +1223,12 @@ export function SharePayment({ id, onClose }) {
                       onClick={() =>
                         window.open(
                           `https://wa.me/${String(
-                            space?.share_phone || ""
+                            space?.share_phone || "",
                           ).replace(/\D/g, "")}?text=${encodeURIComponent(
-                            message
+                            message,
                           )}`,
                           "_blank",
-                          "noopener,noreferrer"
+                          "noopener,noreferrer",
                         )
                       }
                     >
@@ -1235,7 +1264,7 @@ export function SpaceSettings({ id, onClose }) {
     [phone, setPhone] = useState(space?.share_phone || ""),
     [members, setMembers] = useState([]),
     [selected, setSelected] = useState(
-      space?.members?.map((m) => m.member_id) || []
+      space?.members?.map((m) => m.member_id) || [],
     ),
     [error, setError] = useState("");
   useEffect(() => {
@@ -1247,9 +1276,9 @@ export function SpaceSettings({ id, onClose }) {
             (m) =>
               m.active &&
               m.role !== "owner" &&
-              m.business_ids.some((b) => space?.business_ids.includes(b))
-          )
-        )
+              m.business_ids.some((b) => space?.business_ids.includes(b)),
+          ),
+        ),
       )
       .catch((e) => setError(e.message));
   }, [id]);
@@ -1298,7 +1327,7 @@ export function SpaceSettings({ id, onClose }) {
                   setSelected((p) =>
                     e.target.checked
                       ? [...p, m.id]
-                      : p.filter((id) => id !== m.id)
+                      : p.filter((id) => id !== m.id),
                   )
                 }
               />
@@ -1359,7 +1388,7 @@ export function NewSpace({ onClose }) {
   const { user, refresh, notify } = useFinance();
   const [name, setName] = useState(""),
     [business, setBusiness] = useState(
-      user.business_ids.filter((id) => id !== "personal").slice(0, 1)
+      user.business_ids.filter((id) => id !== "personal").slice(0, 1),
     ),
     [kind, setKind] = useState("event"),
     [error, setError] = useState("");
@@ -1407,7 +1436,7 @@ export function NewSpace({ onClose }) {
                 checked={business.includes(id)}
                 onChange={(e) =>
                   setBusiness((p) =>
-                    e.target.checked ? [...p, id] : p.filter((b) => b !== id)
+                    e.target.checked ? [...p, id] : p.filter((b) => b !== id),
                   )
                 }
               />
@@ -1436,23 +1465,23 @@ export function PushEnrollment() {
         !("Notification" in window)
       )
         throw new Error(
-          "Este navegador no permite activar estos avisos. Los pendientes seguirán visibles dentro de la app."
+          "Este navegador no permite activar estos avisos. Los pendientes seguirán visibles dentro de la app.",
         );
       const config = await financeApi("/push/config");
       if (!config.enabled)
         throw new Error(
-          "Los avisos al celular están pendientes de configurar en el servidor."
+          "Los avisos al celular están pendientes de configurar en el servidor.",
         );
       const permission = await Notification.requestPermission();
       if (permission !== "granted")
         throw new Error(
-          "No se activaron los avisos. La bandeja de transferencias seguirá funcionando."
+          "No se activaron los avisos. La bandeja de transferencias seguirá funcionando.",
         );
       const registration = await navigator.serviceWorker.ready;
       const key = config.public_key.replace(/-/g, "+").replace(/_/g, "/");
       const bytes = Uint8Array.from(
         atob(key + "=".repeat((4 - (key.length % 4)) % 4)),
-        (c) => c.charCodeAt(0)
+        (c) => c.charCodeAt(0),
       );
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,

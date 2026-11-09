@@ -83,6 +83,23 @@ import "./finance.css";
 import "./legibility.css";
 import "./security.css";
 import { QuickCapture } from "./quick.jsx";
+import {
+  CustodyFunds,
+  CustodyEditor,
+  StoreReceiptForm,
+  StoreReview,
+  MailInbox,
+  InviteActivation,
+} from "./operations.jsx";
+import { Loans, LoanDetail, LoanAlertsBar } from "./loans.jsx";
+import {
+  Checks,
+  CheckEditor,
+  Cards,
+  CardStatement,
+  FundingAlertBar,
+} from "./funding.jsx";
+import "./operations.css";
 import "./quick.css";
 import {
   Spaces,
@@ -102,6 +119,34 @@ import "./payees.css";
 import { SettlementBalanceForm } from "./settlements.jsx";
 
 const pages = [
+  {
+    id: "cheques",
+    label: "Cheques y cuenta corriente",
+    icon: FileText,
+    component: Checks,
+    checksOnly: true,
+  },
+  {
+    id: "tarjetas",
+    label: "Pagos de tarjetas",
+    icon: CalendarDays,
+    component: Cards,
+    ownerOnly: true,
+  },
+  {
+    id: "confirmaciones",
+    label: "Confirmar transferencias",
+    icon: FileCheck2,
+    component: StoreReview,
+    reviewOnly: true,
+  },
+  {
+    id: "prestamos",
+    label: "Préstamos y débitos",
+    icon: CalendarDays,
+    component: Loans,
+    ownerOnly: true,
+  },
   {
     id: "espacios",
     label: "Espacios de pagos",
@@ -189,8 +234,8 @@ const pages = [
 pages.unshift(
   pages.splice(
     pages.findIndex((p) => p.id === "inicio"),
-    1
-  )[0]
+    1,
+  )[0],
 );
 pages.find((p) => p.id === "equipo").component = Team;
 
@@ -208,7 +253,7 @@ function Login({ session, onLogin }) {
     try {
       const data = await financeApi(
         demo ? "/demo" : "/login",
-        demo ? {} : { username, password, code }
+        demo ? {} : { username, password, code },
       );
       onLogin(data.user);
     } catch (e) {
@@ -367,7 +412,7 @@ function FinanceApp() {
     [data, setData] = useState(null),
     [fatal, setFatal] = useState("");
   const [page, setPage] = useState(
-      window.location.pathname.split("/")[2] || "inicio"
+      window.location.pathname.split("/")[2] || "inicio",
     ),
     [mobileOpen, setMobileOpen] = useState(false),
     [modal, setModal] = useState(null);
@@ -400,7 +445,7 @@ function FinanceApp() {
           `/snapshot?${new URLSearchParams(filters)}`,
           undefined,
           undefined,
-          { interactive: background !== true }
+          { interactive: background !== true },
         );
         if (id === loadId.current) {
           setData(result);
@@ -413,7 +458,7 @@ function FinanceApp() {
         if (id === loadId.current) setLoading(false);
       }
     },
-    [filters]
+    [filters],
   );
   useEffect(() => {
     financeApi("/session")
@@ -444,7 +489,7 @@ function FinanceApp() {
       [...ids].some((id) => !knownPayables.current.has(id))
     )
       notify(
-        "Tienes una nueva solicitud de transferencia. Quedará visible en Por transferir."
+        "Tienes una nueva solicitud de transferencia. Quedará visible en Por transferir.",
       );
     knownPayables.current = ids;
     navigator.serviceWorker?.controller?.postMessage({
@@ -529,7 +574,7 @@ function FinanceApp() {
       notify(
         result.created !== undefined
           ? `${result.created} pendientes nuevos preparados`
-          : success
+          : success,
       );
       return result;
     } catch (e) {
@@ -577,10 +622,19 @@ function FinanceApp() {
   const visiblePages = pages.filter(
     (p) =>
       (!p.ownerOnly || user?.role === "owner") &&
+      (!p.checksOnly || user?.role === "owner" || user?.checks_manage) &&
+      (!p.reviewOnly ||
+        user?.role === "owner" ||
+        user?.review_unit_ids?.length > 0) &&
       (!data?.capabilities.public_preview ||
         !["configuracion"].includes(p.id)) &&
       (user?.role !== "collector" ||
-        ["inicio", "movimientos", "espacios"].includes(p.id)) &&
+        [
+          "inicio",
+          "espacios",
+          "confirmaciones",
+          ...(user.checks_manage ? ["cheques"] : []),
+        ].includes(p.id)) &&
       (!user?.work_view ||
         [
           "inicio",
@@ -589,8 +643,9 @@ function FinanceApp() {
           "espacios",
           "pagos",
           "reportes",
+          "cheques",
         ].includes(p.id)) &&
-      (!p.hideCollector || user?.role !== "collector")
+      (!p.hideCollector || user?.role !== "collector"),
   );
   const current = visiblePages.find((p) => p.id === page) || visiblePages[0];
   const Page = current?.component;
@@ -707,11 +762,7 @@ function FinanceApp() {
                   aria-current={current.id === p.id ? "page" : undefined}
                 >
                   <p.icon size={18} />
-                  <span>
-                    {user.role === "collector" && p.id === "movimientos"
-                      ? "Mis envíos"
-                      : p.label}
-                  </span>
+                  <span>{p.label}</span>
                   {p.id === "pendientes" && data.summary.pending_count > 0 && (
                     <small>{data.summary.pending_count}</small>
                   )}
@@ -801,7 +852,7 @@ function FinanceApp() {
                 aria-label={`${data.summary.pending_count} movimientos pendientes`}
                 onClick={() =>
                   navigate(
-                    user.role === "collector" ? "movimientos" : "pendientes"
+                    user.role === "collector" ? "movimientos" : "pendientes",
                   )
                 }
               >
@@ -835,8 +886,8 @@ function FinanceApp() {
                       (user.role === "owner"
                         ? "owner"
                         : user.work_view
-                        ? "german"
-                        : "norma")
+                          ? "german"
+                          : "norma")
                     }
                     onChange={(e) => previewPersona(e.target.value)}
                   >
@@ -859,6 +910,8 @@ function FinanceApp() {
             </div>
           )}
           <PersistentPayments />
+          <LoanAlertsBar />
+          <FundingAlertBar />
           {!online && (
             <div className="gf-offline">
               <CloudOff size={17} />
@@ -960,59 +1013,90 @@ function FinanceApp() {
             </footer>
           </main>
         </div>
-        <nav className="gf-bottom-nav" aria-label="Navegación móvil">
-          <button
-            className={current.id === "inicio" ? "active" : ""}
-            onClick={() => navigate("inicio")}
+        {user.role === "collector" && (
+          <nav
+            className="gf-bottom-nav gf-staff-nav"
+            aria-label="Navegación móvil"
           >
-            <LayoutDashboard size={21} />
-            <span>Inicio</span>
-          </button>
-          <button
-            className={current.id === "movimientos" ? "active" : ""}
-            onClick={() => navigate("movimientos")}
-          >
-            <ArrowUpRight size={21} />
-            <span>
-              {user.work_view
-                ? "Trabajo"
-                : user.role === "collector"
-                ? "Mis envíos"
-                : "Movimientos"}
-            </span>
-          </button>
-          {user.role !== "viewer" && (
-            <button
-              className="gf-mobile-add"
-              aria-label="Registrar rápido"
-              onClick={() => open("quick")}
-            >
-              <Plus size={25} />
+            <button onClick={() => navigate("inicio")}>
+              <Home size={22} />
+              <span>Inicio</span>
             </button>
-          )}
-          {user.role !== "collector" && (
+            <button onClick={() => open("quick", { mode: "request" })}>
+              <ArrowUpRight size={22} />
+              <span>Pedir pago</span>
+            </button>
+            <button onClick={() => navigate("espacios")}>
+              <Users size={22} />
+              <span>Espacios</span>
+            </button>
+            {Boolean(user.review_unit_ids?.length) && (
+              <button onClick={() => navigate("confirmaciones")}>
+                <FileCheck2 size={22} />
+                <span>Confirmar</span>
+              </button>
+            )}
+            <button onClick={() => setMobileOpen(true)}>
+              <Menu size={22} />
+              <span>Más</span>
+            </button>
+          </nav>
+        )}
+        {user.role !== "collector" && (
+          <nav className="gf-bottom-nav" aria-label="Navegación móvil">
             <button
-              className={
-                current.id === (user.work_view ? "espacios" : "pagos")
-                  ? "active"
-                  : ""
-              }
-              onClick={() => navigate(user.work_view ? "espacios" : "pagos")}
+              className={current.id === "inicio" ? "active" : ""}
+              onClick={() => navigate("inicio")}
             >
-              {user.work_view ? <Users size={21} /> : <Bell size={21} />}
+              <LayoutDashboard size={21} />
+              <span>Inicio</span>
+            </button>
+            <button
+              className={current.id === "movimientos" ? "active" : ""}
+              onClick={() => navigate("movimientos")}
+            >
+              <ArrowUpRight size={21} />
               <span>
-                {user.work_view ? "Espacios" : "Por pagar"}
-                {user.role === "owner" &&
-                  data.workflow?.summary.pending_count > 0 &&
-                  ` · ${data.workflow.summary.pending_count}`}
+                {user.work_view
+                  ? "Trabajo"
+                  : user.role === "collector"
+                    ? "Mis envíos"
+                    : "Movimientos"}
               </span>
             </button>
-          )}
-          <button onClick={() => setMobileOpen(true)}>
-            <Menu size={21} />
-            <span>Más</span>
-          </button>
-        </nav>
+            {user.role !== "viewer" && (
+              <button
+                className="gf-mobile-add"
+                aria-label="Registrar rápido"
+                onClick={() => open("quick")}
+              >
+                <Plus size={25} />
+              </button>
+            )}
+            {user.role !== "collector" && (
+              <button
+                className={
+                  current.id === (user.work_view ? "espacios" : "pagos")
+                    ? "active"
+                    : ""
+                }
+                onClick={() => navigate(user.work_view ? "espacios" : "pagos")}
+              >
+                {user.work_view ? <Users size={21} /> : <Bell size={21} />}
+                <span>
+                  {user.work_view ? "Espacios" : "Por pagar"}
+                  {user.role === "owner" &&
+                    data.workflow?.summary.pending_count > 0 &&
+                    ` · ${data.workflow.summary.pending_count}`}
+                </span>
+              </button>
+            )}
+            <button onClick={() => setMobileOpen(true)}>
+              <Menu size={21} />
+              <span>Más</span>
+            </button>
+          </nav>
+        )}
         {user.role !== "viewer" && (
           <Button
             className="gf-quick-floating"
@@ -1099,7 +1183,7 @@ function FinanceApp() {
               modal.initial.return_type
                 ? open(
                     modal.initial.return_type,
-                    modal.initial.return_initial || {}
+                    modal.initial.return_initial || {},
                   )
                 : close()
             }
@@ -1112,6 +1196,22 @@ function FinanceApp() {
           />
         )}
         {modal?.type === "new-space" && <NewSpace onClose={close} />}
+        {modal?.type === "custody" && (
+          <CustodyEditor id={modal.initial.id} onClose={close} />
+        )}
+        {modal?.type === "store-receipt" && (
+          <StoreReceiptForm onClose={close} />
+        )}
+        {modal?.type === "loan-detail" && (
+          <LoanDetail id={modal.initial.id} onClose={close} />
+        )}
+        {modal?.type === "check-editor" && (
+          <CheckEditor id={modal.initial?.id} onClose={close} />
+        )}
+        {modal?.type === "card-statement" && (
+          <CardStatement id={modal.initial.id} onClose={close} />
+        )}
+        {modal?.type === "mail-inbox" && <MailInbox onClose={close} />}
         {modal?.type === "diners-balance" && (
           <SettlementBalanceForm onClose={close} />
         )}
@@ -1143,7 +1243,7 @@ function FinanceApp() {
                     m.amount_cents / 100
                   }`
                     .toLowerCase()
-                    .includes(search.toLowerCase())
+                    .includes(search.toLowerCase()),
                 )
                 .slice(0, 12)
                 .map((m) => (
@@ -1243,6 +1343,10 @@ class FinanceErrorBoundary extends React.Component {
 
 createRoot(document.getElementById("root")).render(
   <FinanceErrorBoundary>
-    <FinanceApp />
-  </FinanceErrorBoundary>
+    {new URLSearchParams(window.location.hash.slice(1)).has("invite") ? (
+      <InviteActivation />
+    ) : (
+      <FinanceApp />
+    )}
+  </FinanceErrorBoundary>,
 );

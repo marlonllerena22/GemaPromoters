@@ -100,6 +100,62 @@ export const PROFILE_TEMPLATES = [
     description: "Solicitudes y comprobantes de materiales.",
   },
 ];
+PROFILE_TEMPLATES.find((p) => p.id === "german").request_payments = true;
+PROFILE_TEMPLATES.find((p) => p.id === "german").custody_adjust = true;
+PROFILE_TEMPLATES.find((p) => p.id === "german").checks_manage = true;
+PROFILE_TEMPLATES.find((p) => p.id === "morelia").checks_manage = true;
+PROFILE_TEMPLATES.find((p) => p.id === "morelia").review_unit_ids = [
+  "marjorie-sur",
+];
+export const STORE_PROFILES = [
+  {
+    id: "lili",
+    name: "Lili",
+    unit_ids: ["marjorie-norte"],
+    auto_confirm_unit_ids: ["marjorie-norte"],
+  },
+  {
+    id: "martha",
+    name: "Martha",
+    unit_ids: ["marjorie-norte", "marjorie-bosque"],
+  },
+  { id: "nayeli", name: "Nayeli", unit_ids: ["marjorie-valle"] },
+  {
+    id: "yamileth",
+    name: "Yamileth",
+    unit_ids: ["marjorie-valle", "marjorie-sur"],
+  },
+  { id: "selena", name: "Selena", unit_ids: ["marjorie-sur"] },
+  { id: "belen", name: "Belén", unit_ids: ["marjorie-bosque"] },
+];
+PROFILE_TEMPLATES.push(
+  ...STORE_PROFILES.map((p) => ({
+    ...p,
+    label: "Locales · Marjorie",
+    role: "collector",
+    business_ids: ["marjorie"],
+    spaces: ["marjorie-pagos"],
+    description: "Pide pagos y registra transferencias de sus locales.",
+  })),
+);
+SPACE_TEMPLATES.push({
+  id: "marjorie-pagos",
+  name: "Pagos de locales",
+  kind: "general",
+  business_ids: ["marjorie"],
+  unit_id: null,
+  description: "Solicitudes de transferencias de los locales asignados.",
+  suggested_members: [
+    "Lili",
+    "Martha",
+    "Nayeli",
+    "Yamileth",
+    "Selena",
+    "Belén",
+    "Morelia",
+    "Tú",
+  ],
+});
 export function paymentProgress(request, payments = []) {
   const paid = payments
     .filter((p) => Number(p.request_id) === Number(request.id) && !p.voided_at)
@@ -111,15 +167,15 @@ export function paymentProgress(request, payments = []) {
     payment_state: cancelled
       ? "cancelled"
       : paid >= request.amount_cents
-      ? "paid"
-      : paid > 0
-      ? "partial"
-      : "pending",
+        ? "paid"
+        : paid > 0
+          ? "partial"
+          : "pending",
   };
 }
 export function canSeeSpace(space, user, members = []) {
   const scope = space.business_ids.filter((id) =>
-    user.business_ids.includes(id)
+    user.business_ids.includes(id),
   );
   return (
     scope.length > 0 &&
@@ -127,7 +183,7 @@ export function canSeeSpace(space, user, members = []) {
       (user.work_view && scope.some((id) => WORK_BUSINESSES.includes(id))) ||
       members.some(
         (m) =>
-          m.space_id === space.id && Number(m.member_id) === Number(user.id)
+          m.space_id === space.id && Number(m.member_id) === Number(user.id),
       ))
   );
 }
@@ -141,13 +197,13 @@ export function canSeePaymentRequest(request, user, spaces = [], members = []) {
     user.work_view === true ||
     (request.space_id &&
       spaces.some(
-        (s) => s.id === request.space_id && canSeeSpace(s, user, members)
+        (s) => s.id === request.space_id && canSeeSpace(s, user, members),
       ))
   );
 }
 export function workflowView(source, user) {
   const spaces = source.spaces.filter((s) =>
-    canSeeSpace(s, user, source.members)
+    canSeeSpace(s, user, source.members),
   );
   const requests = source.requests
     .filter((r) => canSeePaymentRequest(r, user, source.spaces, source.members))
@@ -159,7 +215,7 @@ export function workflowView(source, user) {
     .sort(
       (a, b) =>
         (a.due_date || "9999").localeCompare(b.due_date || "9999") ||
-        a.id - b.id
+        a.id - b.id,
     );
   const described = spaces.map((s) => {
     const rows = requests.filter((r) => r.space_id === s.id);
@@ -169,7 +225,7 @@ export function workflowView(source, user) {
     return {
       ...s,
       business_ids: s.business_ids.filter((id) =>
-        user.business_ids.includes(id)
+        user.business_ids.includes(id),
       ),
       members,
       is_member: members.some((m) => Number(m.member_id) === Number(user.id)),

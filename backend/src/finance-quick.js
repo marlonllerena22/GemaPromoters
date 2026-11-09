@@ -19,10 +19,14 @@ export function quickContext(db, user) {
     day: financeDay(),
     units: db.prepare("SELECT id,business_id,name FROM finance_units").all(),
     accounts: visibleAccounts(db, user),
+    allow_cross_account: user.role === "owner",
   };
 }
 export function registerQuickEntry(db, user, body) {
-  if (!["owner", "manager", "collector"].includes(user.role))
+  if (
+    !["owner", "manager", "collector"].includes(user.role) &&
+    !(user.request_payments && body.request === true)
+  )
     fail("Tu acceso es de consulta", 403);
   if (
     typeof body.request_id !== "string" ||

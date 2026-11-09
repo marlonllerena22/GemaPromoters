@@ -1,8 +1,18 @@
 import { audit, financeDay } from "./finance-db.js";
 import crypto from "node:crypto";
 import { importSale, tableExists } from "./finance-service.js";
+import { privateSetting } from "./finance-operations.js";
+const sourceTime = (value) => {
+  const s = String(value || "").replace(" ", "T");
+  return Date.parse(
+    /(Z|[+-]\d{2}:\d{2})$/.test(s)
+      ? s
+      : s + (process.env.FINANCE_LEGACY_TIMESTAMP_OFFSET || "Z"),
+  );
+};
 
 export function syncInternalSources(db, user) {
+  const cutoff = privateSetting(db, "opening_cutoff");
   return db.transaction(() => {
     let payments = 0,
       sales = 0;
@@ -28,6 +38,13 @@ export function syncInternalSources(db, user) {
             "SELECT * FROM finance_movements WHERE source_system='producalza' AND business_id='producalza' AND external_id=?",
           )
           .get(String(p.id));
+        if (
+          !old &&
+          cutoff &&
+          (!Number.isFinite(sourceTime(p.created_at)) ||
+            sourceTime(p.created_at) <= Date.parse(cutoff))
+        )
+          continue;
         // Legacy evidence must never override a bank-reconciled transaction.
         if (old && old.status !== "reported") continue;
         if (p.status !== "paid" || p.amount <= 0) {
@@ -114,6 +131,17 @@ export function syncInternalSources(db, user) {
         )
         .all();
       for (const o of rows) {
+        if (
+          cutoff &&
+          Math.max(sourceTime(o.created_at) || 0, sourceTime(o.paid_at) || 0) <=
+            Date.parse(cutoff) &&
+          !db
+            .prepare(
+              "SELECT id FROM finance_sales WHERE source_system='protickets' AND external_id=?",
+            )
+            .get(String(o.id))
+        )
+          continue;
         const unitId = `gemashow-event-${o.event_id}`;
         db.prepare(
           "INSERT OR IGNORE INTO finance_units (id,business_id,name,kind,source_id) VALUES (?,'gemashow',?,'event',?)",
@@ -134,7 +162,7 @@ export function syncInternalSources(db, user) {
           return new Date(
             /(Z|[+-]\d{2}:\d{2})$/.test(normalized)
               ? normalized
-              : `${normalized}${process.env.FINANCE_LEGACY_TIMESTAMP_OFFSET || ""}`,
+              : `${normalized}${process.env.FINANCE_LEGACY_TIMESTAMP_OFFSET || "Z"}`,
           ).toISOString();
         };
         let version = withZone(timestamp);

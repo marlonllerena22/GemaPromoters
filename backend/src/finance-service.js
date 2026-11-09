@@ -103,7 +103,9 @@ export function createMovement(db, user, body) {
       .get(body.account_id);
     if (
       !account ||
-      (account.business_id && account.business_id !== body.business_id)
+      (account.business_id &&
+        account.business_id !== body.business_id &&
+        !(user.role === "owner" && body.allow_cross_account === true))
     )
       fail("La cuenta no corresponde al negocio");
   }
@@ -165,6 +167,19 @@ export function createMovement(db, user, body) {
         body.order_id || null,
         user.username,
       );
+    if (
+      user.role === "owner" &&
+      body.allow_cross_account === true &&
+      body.account_id
+    ) {
+      const a = db
+        .prepare("SELECT business_id FROM finance_accounts WHERE id=?")
+        .get(body.account_id);
+      if (a.business_id && a.business_id !== body.business_id)
+        db.prepare(
+          "UPDATE finance_movements SET cross_account=1 WHERE id=?",
+        ).run(result.lastInsertRowid);
+    }
     const row = db
       .prepare("SELECT * FROM finance_movements WHERE id=?")
       .get(result.lastInsertRowid);
@@ -195,6 +210,16 @@ export function importBank(db, user, body) {
     const day = validDay(row.day);
     if (day < account.opening_date)
       fail("Hay movimientos anteriores al saldo inicial de la cuenta");
+    if (account.opening_at && day === account.opening_date) {
+      const timestamp = Date.parse(row.occurred_at || "");
+      if (
+        !Number.isFinite(timestamp) ||
+        timestamp <= Date.parse(account.opening_at)
+      )
+        fail(
+          "El primer día requiere la hora del movimiento posterior al saldo inicial; evita sumar operaciones ya incluidas en la captura",
+        );
+    }
     if (day > financeDay()) fail("Hay movimientos con fecha futura");
     return {
       day,
@@ -298,7 +323,11 @@ export function reconcile(db, user, body, bridges = {}) {
       )
       .get(body.bank_transaction_id);
     if (!bank) fail("Movimiento bancario no encontrado");
-    if (bank.account_business && bank.account_business !== movement.business_id)
+    if (
+      bank.account_business &&
+      bank.account_business !== movement.business_id &&
+      !(user.role === "owner" && movement.cross_account)
+    )
       fail("El banco y el movimiento pertenecen a negocios diferentes");
     if (movement.account_id && movement.account_id !== bank.account_id)
       fail("La cuenta del comprobante no coincide");

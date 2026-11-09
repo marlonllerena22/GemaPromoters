@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { TransferFees } from "./fees.jsx";
 import {
   Activity,
   ArrowDownLeft,
@@ -42,6 +43,7 @@ import {
   X,
 } from "lucide-react";
 import { useFinance } from "./context.jsx";
+import { CustodyFunds, GmailPanel } from "./operations.jsx";
 import { SettlementFunds } from "./settlements.jsx";
 import {
   amount,
@@ -104,6 +106,7 @@ export function Overview() {
         </div>
       </div>
       {user.role !== "viewer" && <QuickAccess />}
+      <CustodyFunds />
       <SettlementFunds />
       <div className="gf-stats">
         <Stat
@@ -305,7 +308,7 @@ export function Movements({ expenses = false }) {
       (kind === "all" || m.kind === kind) &&
       `${m.counterparty} ${m.reference} ${m.category} ${m.description}`
         .toLowerCase()
-        .includes(query.toLowerCase())
+        .includes(query.toLowerCase()),
   );
   return (
     <>
@@ -377,7 +380,7 @@ export function Movements({ expenses = false }) {
                     "reported",
                     "reconciled",
                     "rejected",
-                  ].includes(v)
+                  ].includes(v),
                 )
                 .map(([v, l]) => (
                   <option key={v} value={v}>
@@ -424,8 +427,8 @@ export function Review() {
       (tab === "income"
         ? m.kind === "income"
         : tab === "expense"
-        ? m.kind === "expense"
-        : m.status === "reported")
+          ? m.kind === "expense"
+          : m.status === "reported"),
   );
   return (
     <>
@@ -509,11 +512,13 @@ export function Accounts() {
       (kind === "bank"
         ? ["bank", "wallet"].includes(a.kind)
         : kind === "cash"
-        ? ["cash", "custody"].includes(a.kind)
-        : a.kind === kind)
+          ? ["cash", "custody"].includes(a.kind)
+          : a.kind === kind),
   );
   return (
     <div className="gf-account-page">
+      {user.role === "owner" && <TransferFees />}
+      <CustodyFunds />
       <SettlementFunds />
       <SectionHead
         eyebrow="DÓNDE ESTÁ TU DINERO"
@@ -636,8 +641,8 @@ export function Accounts() {
                 {a.discrepancy_cents !== null && a.discrepancy_cents !== 0
                   ? `Diferencia: ${money(a.discrepancy_cents)}`
                   : a.verified_at && a.discrepancy_cents === 0
-                  ? "Saldo comprobado"
-                  : "Por comprobar"}
+                    ? "Saldo comprobado"
+                    : "Por comprobar"}
               </div>
               <details className="gf-account-more">
                 <summary>
@@ -686,7 +691,7 @@ export function Accounts() {
                               <span>{businessNames[id]}</span>
                               <strong>{money(value)}</strong>
                             </div>
-                          )
+                          ),
                         )}
                         <div>
                           <span>
@@ -755,7 +760,7 @@ export function MovementDetail({ movement, onClose }) {
     [busy, setBusy] = useState(false),
     [selected, setSelected] = useState(""),
     [value, setValue] = useState(
-      ((m.amount_cents - m.allocated_cents) / 100).toFixed(2)
+      ((m.amount_cents - m.allocated_cents) / 100).toFixed(2),
     ),
     [allocations, setAllocations] = useState([]);
   useEffect(() => {
@@ -770,22 +775,22 @@ export function MovementDetail({ movement, onClose }) {
         data.accounts.some(
           (a) =>
             a.id === b.account_id &&
-            (!a.business_id || a.business_id === m.business_id)
-        ) && !allocations.some((a) => a.bank_transaction_id === b.id)
+            (!a.business_id || a.business_id === m.business_id),
+        ) && !allocations.some((a) => a.bank_transaction_id === b.id),
     )
     .filter(
       (b) =>
         Math.abs(b.amount_cents) > b.allocated_cents &&
         Math.sign(b.amount_cents) ===
           (m.kind === "income" || m.transfer_side === "incoming" ? 1 : -1) &&
-        (!m.account_id || m.account_id === b.account_id)
+        (!m.account_id || m.account_id === b.account_id),
     )
     .sort(
       (a, b) =>
         Number(b.reference === m.reference) -
           Number(a.reference === m.reference) ||
         Math.abs(Math.abs(a.amount_cents) - m.amount_cents) -
-          Math.abs(Math.abs(b.amount_cents) - m.amount_cents)
+          Math.abs(Math.abs(b.amount_cents) - m.amount_cents),
     );
   async function action(path, body, method) {
     setBusy(true);
@@ -857,7 +862,7 @@ export function MovementDetail({ movement, onClose }) {
             icon={Download}
             onClick={() =>
               downloadEvidence(m.evidence_id, m.evidence_name).catch((e) =>
-                setError(e.message)
+                setError(e.message),
               )
             }
           >
@@ -870,7 +875,7 @@ export function MovementDetail({ movement, onClose }) {
         )}
         {user.role === "owner" &&
           ["cash", "custody"].includes(
-            data.accounts.find((a) => a.id === m.account_id)?.kind
+            data.accounts.find((a) => a.id === m.account_id)?.kind,
           ) &&
           !["reconciled", "rejected"].includes(m.status) && (
             <section className="gf-detail-section">
@@ -975,9 +980,9 @@ export function MovementDetail({ movement, onClose }) {
                               (
                                 Math.min(
                                   Math.abs(b.amount_cents) - b.allocated_cents,
-                                  m.amount_cents - m.allocated_cents
+                                  m.amount_cents - m.allocated_cents,
                                 ) / 100
-                              ).toFixed(2)
+                              ).toFixed(2),
                             );
                           }}
                         />
@@ -1043,11 +1048,11 @@ export function MovementDetail({ movement, onClose }) {
                       action(
                         `/allocations/${a.id}`,
                         { reason: note },
-                        "DELETE"
+                        "DELETE",
                       );
                     else
                       setError(
-                        "Escribe el motivo de la corrección antes de revertir."
+                        "Escribe el motivo de la corrección antes de revertir.",
                       );
                   }}
                 >
@@ -1086,7 +1091,7 @@ export function Sales() {
   const rows = data.sales.filter((s) =>
     `${s.document_number} ${data.units.find((u) => u.id === s.unit_id)?.name}`
       .toLowerCase()
-      .includes(query.toLowerCase())
+      .includes(query.toLowerCase()),
   );
   const totals = {};
   for (const sale of rows.filter((s) => s.state === "active"))
@@ -1286,7 +1291,7 @@ export function Closings() {
                             run(
                               `/closings/${c.id}/reopen`,
                               { reason },
-                              "Cierre reabierto con historial"
+                              "Cierre reabierto con historial",
                             )
                           }
                         >
@@ -1369,7 +1374,7 @@ export function RecurringAndBudgets() {
               run(
                 "/recurring/generate",
                 { month: filters.from.slice(0, 7) },
-                "Pendientes mensuales preparados sin duplicados"
+                "Pendientes mensuales preparados sin duplicados",
               )
             }
           >
@@ -1705,7 +1710,7 @@ export function Assistant() {
                       <div className="gf-chat-sources">
                         {m.ids.map((id) => {
                           const movement = data.movements.find(
-                            (x) => x.id === id
+                            (x) => x.id === id,
                           );
                           return (
                             movement && (
@@ -1855,6 +1860,7 @@ export function Integrations() {
         title="Fuentes y conexiones"
         description="Estado real de las integraciones y de su última actualización."
       />
+      <GmailPanel />
       <div className="gf-integrations-grid">
         {sources.map((s) => {
           const Icon = icons[s.source] || Link2;
@@ -1869,17 +1875,17 @@ export function Integrations() {
                     s.state === "ready" || s.state === "manual"
                       ? "approved"
                       : s.state === "demo"
-                      ? "reported"
-                      : "pending"
+                        ? "reported"
+                        : "pending"
                   }
                 >
                   {s.state === "ready"
                     ? "Disponible"
                     : s.state === "manual"
-                    ? "Importación manual"
-                    : s.state === "demo"
-                    ? "Demostración"
-                    : "Por configurar"}
+                      ? "Importación manual"
+                      : s.state === "demo"
+                        ? "Demostración"
+                        : "Por configurar"}
                 </Badge>
               </div>
               <h3>{names[s.source] || s.source}</h3>
@@ -1889,7 +1895,7 @@ export function Integrations() {
                 <span>
                   {s.last_run
                     ? `Última actualización: ${new Date(
-                        s.last_run
+                        s.last_run,
                       ).toLocaleString("es-EC", {
                         timeZone: "America/Guayaquil",
                       })}`
@@ -1948,6 +1954,7 @@ export function Integrations() {
 export function Team() {
   const { open, notify, data } = useFinance();
   const [members, setMembers] = useState([]),
+    [invite, setInvite] = useState(null),
     [loading, setLoading] = useState(true);
   const load = () =>
     financeApi("/members")
@@ -1971,9 +1978,20 @@ export function Team() {
       notify(
         member.active
           ? "Acceso suspendido y sesiones cerradas"
-          : "Acceso activado"
+          : "Acceso activado",
       );
       load();
+    } catch (e) {
+      notify(e.message, true);
+    }
+  }
+  async function inviteMember(m) {
+    try {
+      const r = await financeApi(`/members/${m.id}/invite`, {});
+      setInvite({
+        name: m.name,
+        url: `${window.location.origin}/finanzas/activar#invite=${r.token}`,
+      });
     } catch (e) {
       notify(e.message, true);
     }
@@ -1992,6 +2010,32 @@ export function Team() {
           Actualizar
         </Button>
       </SectionHead>
+      {invite && (
+        <section className="gf-panel gf-operation-form">
+          <h3>Acceso de {invite.name}</h3>
+          <p>
+            Enlace privado de un solo uso, válido por 7 días. Esta persona elige
+            su contraseña.
+          </p>
+          <input
+            readOnly
+            value={invite.url}
+            onFocus={(e) => e.target.select()}
+          />
+          <Button
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(invite.url);
+                notify("Enlace copiado");
+              } catch {
+                notify("Mantén presionado el enlace para copiarlo");
+              }
+            }}
+          >
+            Copiar enlace
+          </Button>
+        </section>
+      )}
       {data.workflow?.profiles?.length > 0 && (
         <section className="gf-profile-presets">
           <h3>Un perfil para cada persona</h3>
@@ -2015,8 +2059,8 @@ export function Team() {
                       p.id === "morelia"
                         ? "coordinator"
                         : p.role === "viewer"
-                        ? "observer"
-                        : "requester",
+                          ? "observer"
+                          : "requester",
                   })
                 }
               >
@@ -2074,6 +2118,13 @@ export function Team() {
                             onClick={() => open("member", m)}
                           >
                             Permisos
+                          </Button>
+                          <Button
+                            variant="ghost small"
+                            disabled={data.capabilities.public_preview}
+                            onClick={() => inviteMember(m)}
+                          >
+                            Enlace de acceso
                           </Button>
                           <Button
                             variant="ghost small"

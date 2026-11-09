@@ -20,6 +20,7 @@ import {
   quickMoney,
 } from "../../../shared/finance-quick.mjs";
 import { useFinance } from "./context.jsx";
+import { RetailBrand, isStoreUser } from "./operations.jsx";
 import {
   businessNames,
   categories,
@@ -56,111 +57,82 @@ export function QuickAccess() {
 }
 
 export function CollaboratorHome() {
-  const { user, data, open, navigate, selectMovement } = useFinance();
-  const pending = data.movements.filter((m) =>
-    ["pending", "reported", "approved"].includes(m.status)
-  ).length;
+  const { user, data, open, navigate } = useFinance();
+  const store = isStoreUser(user),
+    reviews = (data.store_receipts || []).filter(
+      (r) =>
+        user.review_unit_ids?.includes(r.unit_id) &&
+        !r.confirmed_at &&
+        r.status !== "reconciled",
+    );
   return (
     <div className="gf-collaborator-home">
+      {store && <RetailBrand />}
       <div className="gf-collaborator-heading">
         <span className="gf-eyebrow">TU ESPACIO, SIN COMPLICACIONES</span>
         <h1>Hola, {user.name.split(" ")[0]}.</h1>
-        <p>Sube, envía y sigue con tu día. Nosotros organizamos lo demás.</p>
+        <p>Pide una transferencia en pocos pasos.</p>
         <span className="gf-assigned-business">
-          {user.business_ids.map((id) => businessNames[id]).join(" · ")}
-          {user.unit_ids.length === 1
-            ? ` · ${
-                data.units.find((u) => u.id === user.unit_ids[0])?.name || ""
-              }`
-            : ""}
+          {user.unit_ids.length
+            ? user.unit_ids
+                .map((id) => data.units.find((u) => u.id === id)?.name)
+                .filter(Boolean)
+                .join(" · ")
+            : user.business_ids.map((id) => businessNames[id]).join(" · ")}
         </span>
       </div>
       <div className="gf-simple-actions">
-        <button onClick={() => open("quick", { mode: "receipt" })}>
-          <span className="gf-simple-action-icon">
-            <Camera size={26} />
-          </span>
-          <div>
-            <strong>Subir un cobro</strong>
-            <p>Toma una foto o adjunta el comprobante.</p>
-          </div>
-          <ArrowRight size={19} />
-        </button>
         <button onClick={() => open("quick", { mode: "request" })}>
           <span className="gf-simple-action-icon amber">
-            <ArrowUpRight size={26} />
+            <ArrowUpRight size={27} />
           </span>
           <div>
-            <strong>Pedir un pago</strong>
-            <p>Di cuánto necesitas y para qué.</p>
+            <strong>Pedir pago</strong>
+            <p>Contacto, valor y motivo.</p>
           </div>
-          <ArrowRight size={19} />
+          <ArrowRight size={20} />
         </button>
-        <button onClick={() => navigate("movimientos")}>
-          <span className="gf-simple-action-icon lilac">
-            <ListChecks size={26} />
-          </span>
-          <div>
-            <strong>Mis envíos</strong>
-            <p>
-              {pending
-                ? `${pending} por revisar · consulta su estado.`
-                : "Revisa lo que ya enviaste."}
-            </p>
-          </div>
-          <ArrowRight size={19} />
-        </button>
+        {store && (
+          <button onClick={() => open("store-receipt")}>
+            <span className="gf-simple-action-icon">
+              <Camera size={27} />
+            </span>
+            <div>
+              <strong>Transferencia de un cliente</strong>
+              <p>
+                {user.auto_confirm_unit_ids?.length
+                  ? "Súbela y quedará confirmada por ti."
+                  : "Elige el local y envía el comprobante."}
+              </p>
+            </div>
+            <ArrowRight size={20} />
+          </button>
+        )}
+        {Boolean(user.review_unit_ids?.length) && (
+          <button onClick={() => navigate("confirmaciones")}>
+            <span className="gf-simple-action-icon lilac">
+              <CheckCircle2 size={27} />
+            </span>
+            <div>
+              <strong>Confirmar transferencias</strong>
+              <p>
+                {reviews.length
+                  ? `${reviews.length} por confirmar en Sur`
+                  : "Revisión de transferencias del Sur."}
+              </p>
+            </div>
+            <ArrowRight size={20} />
+          </button>
+        )}
       </div>
       <section className="gf-collaborator-spaces">
         <h2>Mis espacios</h2>
-        <p>Entra al grupo donde necesitas pedir o consultar un pago.</p>
+        <p>Solicitudes, pagos y comprobantes de tus grupos.</p>
         <SpaceTiles compact />
       </section>
-      <button className="gf-simple-dictation" onClick={() => open("quick")}>
-        <Mic size={20} />
-        <span>
-          ¿Prefieres contarlo?<strong>Hablar o escribir un movimiento</strong>
-        </span>
-        <ArrowRight size={17} />
-      </button>
-      <section className="gf-panel gf-simple-history">
-        <div className="gf-simple-history-head">
-          <h2>Tus últimos envíos</h2>
-          <button onClick={() => navigate("movimientos")}>
-            Ver todos <ArrowRight size={14} />
-          </button>
-        </div>
-        {data.movements.slice(0, 5).map((m) => (
-          <button
-            className="gf-simple-record"
-            key={m.id}
-            onClick={() => selectMovement(m)}
-          >
-            <span className="gf-simple-record-icon">
-              <FileText size={19} />
-            </span>
-            <span>
-              <strong>{m.counterparty}</strong>
-              <small>
-                {dateLabel(m.day)} · {m.category}
-              </small>
-            </span>
-            <span>
-              <strong>{money(m.amount_cents)}</strong>
-              <Badge status={m.status} />
-            </span>
-          </button>
-        ))}
-        {!data.movements.length && (
-          <div className="gf-simple-empty">
-            <CheckCircle2 size={27} />
-            <p>Tu espacio está listo. Aquí verás el estado de cada envío.</p>
-          </div>
-        )}
-      </section>
       <p className="gf-simple-private">
-        Solo ves tus envíos. Administración se encarga de aprobar y verificar
-        los pagos.
+        Los contactos que guardas son propios de tu usuario. No se mezclan con
+        los de tus compañeros.
       </p>
     </div>
   );
@@ -178,12 +150,12 @@ export function QuickCapture({ initial = {}, onClose }) {
               ?.unit_id
               ? {
                   unit_id: data.workflow.spaces.find(
-                    (s) => s.id === initial.space_id
+                    (s) => s.id === initial.space_id,
                   ).unit_id,
                 }
               : {}),
           }
-        : {}
+        : {},
     ),
     [amountText, setAmountText] = useState("");
   const [busy, setBusy] = useState(false),
@@ -205,12 +177,12 @@ export function QuickCapture({ initial = {}, onClose }) {
     filters.business_id !== "all"
       ? filters.business_id
       : mode !== "message" && user.business_ids.includes("producalza")
-      ? "producalza"
-      : user.business_ids.includes("personal")
-      ? "personal"
-      : user.business_ids.length === 1
-      ? user.business_ids[0]
-      : null;
+        ? "producalza"
+        : user.business_ids.includes("personal")
+          ? "personal"
+          : user.business_ids.length === 1
+            ? user.business_ids[0]
+            : null;
   const parsed = useMemo(
     () =>
       interpretQuickEntry(text, {
@@ -218,13 +190,14 @@ export function QuickCapture({ initial = {}, onClose }) {
         unit_ids: user.unit_ids,
         units: data.units,
         accounts: data.accounts,
+        allow_cross_account: user.role === "owner",
         default_business_id: defaultBusiness,
         default_kind: mode === "receipt" ? "income" : "expense",
         day: preview ? data.period.today : today(),
         overrides,
         request: mode === "request",
       }),
-    [text, overrides, mode, user, data, defaultBusiness, preview]
+    [text, overrides, mode, user, data, defaultBusiness, preview],
   );
   const d = parsed.draft,
     currentScope = `${d.business_id}:${d.unit_id || ""}`;
@@ -236,8 +209,8 @@ export function QuickCapture({ initial = {}, onClose }) {
       s.business_ids.includes(d.business_id) &&
       (user.role === "owner" ||
         s.members?.some(
-          (m) => m.member_id === user.id && m.role !== "observer"
-        ))
+          (m) => m.member_id === user.id && m.role !== "observer",
+        )),
   );
   const selectedSpace = availableSpaces.find((s) => s.id === spaceId);
   useEffect(() => {
@@ -251,13 +224,16 @@ export function QuickCapture({ initial = {}, onClose }) {
             (/exterior|dani/i.test(text)
               ? "international"
               : d.category === "Materiales"
-              ? "materials"
-              : "general")
-        )?.id || (availableSpaces.length === 1 ? availableSpaces[0].id : "")
+                ? "materials"
+                : "general"),
+        )?.id || (availableSpaces.length === 1 ? availableSpaces[0].id : ""),
       );
   }, [d.business_id, d.category, parsed.is_request]);
   const accounts = data.accounts.filter(
-    (a) => !a.business_id || a.business_id === d.business_id
+    (a) =>
+      user.role === "owner" ||
+      !a.business_id ||
+      a.business_id === d.business_id,
   );
   const update = (key, value) => setOverrides((p) => ({ ...p, [key]: value }));
   useEffect(
@@ -270,7 +246,7 @@ export function QuickCapture({ initial = {}, onClose }) {
         recognition.current.abort();
       }
     },
-    []
+    [],
   );
   useEffect(() => {
     setEvidence(null);
@@ -281,7 +257,7 @@ export function QuickCapture({ initial = {}, onClose }) {
     setMode(value);
     setText("");
     setOverrides(
-      initial.business_id ? { business_id: initial.business_id } : {}
+      initial.business_id ? { business_id: initial.business_id } : {},
     );
     setAmountText("");
     setEvidence(null);
@@ -295,7 +271,7 @@ export function QuickCapture({ initial = {}, onClose }) {
     }
     if (!Speech) {
       setError(
-        "Puedes escribir aquí o usar el micrófono del teclado de tu celular."
+        "Puedes escribir aquí o usar el micrófono del teclado de tu celular.",
       );
       return;
     }
@@ -323,8 +299,8 @@ export function QuickCapture({ initial = {}, onClose }) {
           event.error === "not-allowed"
             ? "El micrófono no tiene permiso. Puedes habilitarlo en el navegador o escribir tu registro."
             : event.error === "no-speech"
-            ? "No escuché una frase. Inténtalo de nuevo o escribe aquí."
-            : "El dictado no está disponible en este momento. Puedes escribir o usar el micrófono de tu teclado."
+              ? "No escuché una frase. Inténtalo de nuevo o escribe aquí."
+              : "El dictado no está disponible en este momento. Puedes escribir o usar el micrófono de tu teclado.",
         );
     };
     try {
@@ -338,13 +314,13 @@ export function QuickCapture({ initial = {}, onClose }) {
     if (!file) return;
     if (preview) {
       setError(
-        "Esta vista es de prueba. No subas documentos reales; puedes probar escribiendo el monto."
+        "Esta vista es de prueba. No subas documentos reales; puedes probar escribiendo el monto.",
       );
       return;
     }
     if (!d.business_id || (user.unit_ids.length && !d.unit_id)) {
       setError(
-        "Selecciona el negocio y tu local antes de adjuntar el comprobante."
+        "Selecciona el negocio y tu local antes de adjuntar el comprobante.",
       );
       return;
     }
@@ -373,7 +349,7 @@ export function QuickCapture({ initial = {}, onClose }) {
         try {
           const { analysis } = await financeApi(
             `/evidence/${saved.id}/analyze`,
-            {}
+            {},
           );
           if (!mounted.current || scope.current !== uploadScope) return;
           setOverrides((previous) => ({
@@ -392,7 +368,7 @@ export function QuickCapture({ initial = {}, onClose }) {
         } catch (e) {
           if (mounted.current)
             setError(
-              `Comprobante guardado. Completa el monto manualmente: ${e.message}`
+              `Comprobante guardado. Completa el monto manualmente: ${e.message}`,
             );
         }
       }
@@ -450,10 +426,10 @@ export function QuickCapture({ initial = {}, onClose }) {
         success
           ? "Todo en su lugar."
           : mode === "receipt"
-          ? "Subir un cobro"
-          : mode === "request"
-          ? "Pedir un pago"
-          : "Registrar rápido"
+            ? "Subir un cobro"
+            : mode === "request"
+              ? "Pedir un pago"
+              : "Registrar rápido"
       }
       subtitle={
         success
@@ -480,9 +456,9 @@ export function QuickCapture({ initial = {}, onClose }) {
                 ? "Solicitud de ejemplo enviada"
                 : "Así quedaría tu registro"
               : user.role === "collector" ||
-                success.movement.status === "pending"
-              ? "Enviado para revisión"
-              : "Gasto registrado"}
+                  success.movement.status === "pending"
+                ? "Enviado para revisión"
+                : "Gasto registrado"}
           </h3>
           <strong>{money(success.movement.amount_cents)}</strong>
           <p>
@@ -495,8 +471,8 @@ export function QuickCapture({ initial = {}, onClose }) {
                 ? "Quedó pendiente en este ejemplo. Tus finanzas reales no se modificaron."
                 : "Puedes probar el flujo. Tus finanzas reales no se modificaron."
               : success.movement.kind === "income"
-              ? "El comprobante está organizado para su verificación."
-              : "Quedó registrado. La cuenta y el pago se comprueban por separado."}
+                ? "El comprobante está organizado para su verificación."
+                : "Quedó registrado. La cuenta y el pago se comprueban por separado."}
           </div>
           <Button
             icon={Plus}
@@ -563,8 +539,8 @@ export function QuickCapture({ initial = {}, onClose }) {
                 {uploading
                   ? "Guardando y preparando el comprobante…"
                   : data.capabilities.ai
-                  ? "Leemos sus datos y los dejamos listos para revisar."
-                  : "Adjunta la foto y escribe el monto. El negocio ya está seleccionado."}
+                    ? "Leemos sus datos y los dejamos listos para revisar."
+                    : "Adjunta la foto y escribe el monto. El negocio ya está seleccionado."}
               </p>
               <div>
                 <Button
@@ -608,8 +584,8 @@ export function QuickCapture({ initial = {}, onClose }) {
               {mode === "receipt"
                 ? "Añade el monto o contexto"
                 : mode === "request"
-                ? "¿Qué necesitas pagar?"
-                : "¿Qué registramos?"}
+                  ? "¿Qué necesitas pagar?"
+                  : "¿Qué registramos?"}
             </label>
             <textarea
               id="gf-quick-text"
@@ -631,8 +607,8 @@ export function QuickCapture({ initial = {}, onClose }) {
                 mode === "receipt"
                   ? "Recibí $250 de abono de un cliente"
                   : mode === "request"
-                  ? "Necesito pagar $80 de materiales para Producalza"
-                  : "Registra un gasto personal de $80 en gasolina"
+                    ? "Necesito pagar $80 de materiales para Producalza"
+                    : "Registra un gasto personal de $80 en gasolina"
               }
               rows={3}
             />
@@ -779,8 +755,8 @@ export function QuickCapture({ initial = {}, onClose }) {
                 {d.kind === "income"
                   ? "COBRO"
                   : parsed.is_request
-                  ? "SOLICITUD DE PAGO"
-                  : "GASTO"}
+                    ? "SOLICITUD DE PAGO"
+                    : "GASTO"}
               </span>
               <strong>{d.amount_cents ? money(d.amount_cents) : "$ —"}</strong>
             </div>
@@ -866,7 +842,7 @@ export function QuickCapture({ initial = {}, onClose }) {
                     onChange={(e) =>
                       update(
                         "account_id",
-                        e.target.value ? Number(e.target.value) : null
+                        e.target.value ? Number(e.target.value) : null,
                       )
                     }
                   >
@@ -936,10 +912,10 @@ export function QuickCapture({ initial = {}, onClose }) {
               {preview
                 ? "Probar registro"
                 : parsed.is_request
-                ? "Enviar solicitud"
-                : d.kind === "income"
-                ? "Enviar cobro"
-                : "Registrar gasto"}
+                  ? "Enviar solicitud"
+                  : d.kind === "income"
+                    ? "Enviar cobro"
+                    : "Registrar gasto"}
               {parsed.ready && ` · ${money(d.amount_cents)}`}
             </Button>
             <p>

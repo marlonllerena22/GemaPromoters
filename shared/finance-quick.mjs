@@ -300,7 +300,10 @@ export function interpretQuickEntry(value, context = {}) {
     error = "Ese local no pertenece a tu acceso o al negocio.";
   if ((context.unit_ids || []).length && !unit_id) missing.push("unit_id");
   const relevant = accounts.filter(
-    (a) => !a.business_id || a.business_id === business_id,
+    (a) =>
+      context.allow_cross_account === true ||
+      !a.business_id ||
+      a.business_id === business_id,
   );
   const named = relevant.filter((a) =>
     [a.bank, a.name].some((label) => {
@@ -378,6 +381,7 @@ export function interpretQuickEntry(value, context = {}) {
       reference: String(overrides.reference || "").slice(0, 200),
       payment_method,
       account_id: account_id ? Number(account_id) : null,
+      allow_cross_account: context.allow_cross_account === true,
     },
     is_request:
       context.request === true ||

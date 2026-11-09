@@ -1,0 +1,354 @@
+import crypto from "node:crypto";
+import { audit, cents, financeDay } from "./finance-db.js";
+import {
+  businessAccess,
+  unitAccess,
+  createMovement,
+  fail,
+  text,
+} from "./finance-service.js";
+import { encryptDocument, decryptDocument } from "./finance-ai.js";
+import { loanOverview } from "./finance-loans.js";
+import { fundingOverview } from "./finance-funding.js";
+export const putPrivateSetting = (db, key, value) =>
+  db
+    .prepare(
+      "INSERT INTO finance_runtime_settings (key,encrypted) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET encrypted=excluded.encrypted",
+    )
+    .run(key, encryptDocument(Buffer.from(JSON.stringify(value))));
+export function privateSetting(db, key) {
+  const r = db
+    .prepare("SELECT encrypted FROM finance_runtime_settings WHERE key=?")
+    .get(key);
+  return r ? JSON.parse(decryptDocument(r.encrypted).toString()) : null;
+}
+export function adjustCustody(db, user, id, body) {
+  if (user.role !== "owner" && !user.custody_adjust)
+    fail("No puedes modificar estos fondos", 403);
+  businessAccess(user, "gemashow");
+  if (
+    !Number.isSafeInteger(body.balance_cents) ||
+    body.balance_cents < 0 ||
+    body.balance_cents > 100_000_000_000 ||
+    !text(body.reason, 500) ||
+    !/^[A-Za-z0-9_-]{16,100}$/.test(body.request_key || "")
+  )
+    fail("Completa el saldo nuevo y el motivo");
+  const fingerprint = crypto
+    .createHash("sha256")
+    .update(
+      JSON.stringify([
+        id,
+        body.balance_cents,
+        text(body.reason, 500),
+        body.version,
+      ]),
+    )
+    .digest("hex");
+  return db.transaction(() => {
+    const old = db
+      .prepare(
+        "SELECT * FROM finance_custody_adjustments WHERE actor=? AND request_key=?",
+      )
+      .get(user.username, body.request_key);
+    if (old) {
+      if (old.fingerprint !== fingerprint)
+        fail("Ese envío ya se utilizó con otros datos", 409);
+      return { adjustment: old, duplicate: true };
+    }
+    const current = db
+      .prepare("SELECT * FROM finance_custody_balances WHERE id=?")
+      .get(id);
+    if (!current) fail("Responsable no encontrado", 404);
+    if (current.version !== body.version)
+      fail(
+        "Este saldo fue actualizado por otra persona. Revisa el nuevo valor antes de guardar",
+        409,
+      );
+    const delta = body.balance_cents - (current.balance_cents || 0),
+      now = new Date().toISOString();
+    db.prepare(
+      "UPDATE finance_custody_balances SET balance_cents=?,version=version+1,updated_at=?,updated_by=? WHERE id=?",
+    ).run(body.balance_cents, now, user.username, id);
+    const inserted = db
+      .prepare(
+        "INSERT INTO finance_custody_adjustments (custody_id,before_cents,after_cents,delta_cents,reason,actor,request_key,fingerprint,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+      )
+      .run(
+        id,
+        current.balance_cents,
+        body.balance_cents,
+        delta,
+        text(body.reason, 500),
+        user.username,
+        body.request_key,
+        fingerprint,
+        now,
+      );
+    audit(
+      db,
+      user.username,
+      "custody.adjusted",
+      "custodian",
+      id,
+      { balance_cents: current.balance_cents, version: current.version },
+      {
+        balance_cents: body.balance_cents,
+        delta_cents: delta,
+        reason: text(body.reason, 500),
+      },
+      "gemashow",
+    );
+    return {
+      adjustment: db
+        .prepare("SELECT * FROM finance_custody_adjustments WHERE id=?")
+        .get(inserted.lastInsertRowid),
+      duplicate: false,
+    };
+  })();
+}
+export function canConfirmStore(user, m) {
+  return (
+    m.business_id === "marjorie" &&
+    m.kind === "income" &&
+    !m.is_payment_request &&
+    user.business_ids.includes("marjorie") &&
+    (user.role === "owner" || (user.review_unit_ids || []).includes(m.unit_id))
+  );
+}
+export function confirmStoreReceipt(db, user, id, mode = "review") {
+  return db.transaction(() => {
+    const m = db.prepare("SELECT * FROM finance_movements WHERE id=?").get(id);
+    if (
+      !m ||
+      m.business_id !== "marjorie" ||
+      m.kind !== "income" ||
+      m.is_payment_request ||
+      (!canConfirmStore(user, m) &&
+        !(
+          mode === "on_upload" &&
+          m.created_by === user.username &&
+          (user.auto_confirm_unit_ids || []).includes(m.unit_id)
+        ))
+    )
+      fail("No puedes confirmar esta transferencia", 403);
+    const old = db
+      .prepare("SELECT * FROM finance_store_confirmations WHERE movement_id=?")
+      .get(id);
+    if (old) return { confirmation: old, duplicate: true };
+    if (
+      !m.evidence_id ||
+      !["pending", "reported", "approved"].includes(m.status)
+    )
+      fail("Revisa el comprobante y el estado de la transferencia", 409);
+    const now = new Date().toISOString();
+    db.prepare("INSERT INTO finance_store_confirmations VALUES (?,?,?,?)").run(
+      id,
+      user.username,
+      now,
+      mode,
+    );
+    db.prepare(
+      "UPDATE finance_movements SET status='approved',reviewed_by=?,updated_at=? WHERE id=?",
+    ).run(user.username, now, id);
+    audit(
+      db,
+      user.username,
+      "store.receipt_confirmed",
+      "movement",
+      id,
+      { status: m.status },
+      { status: "approved", mode, bank_reconciled: false },
+      "marjorie",
+    );
+    return {
+      confirmation: {
+        movement_id: id,
+        actor: user.username,
+        confirmed_at: now,
+        mode,
+      },
+      duplicate: false,
+    };
+  })();
+}
+export function storeReceipts(db, user) {
+  if (!user.business_ids.includes("marjorie")) return [];
+  return db
+    .prepare(
+      "SELECT m.*,c.actor confirmed_by,c.confirmed_at,c.mode confirmation_mode,u.name creator_name FROM finance_movements m LEFT JOIN finance_store_confirmations c ON c.movement_id=m.id LEFT JOIN finance_members u ON u.username=m.created_by WHERE m.business_id='marjorie' AND m.kind='income' AND m.unit_id LIKE 'marjorie-%' AND m.is_payment_request=0 ORDER BY m.created_at DESC,m.id DESC",
+    )
+    .all()
+    .filter((m) => !user.unit_ids.length || user.unit_ids.includes(m.unit_id))
+    .filter(
+      (m) =>
+        user.role === "owner" ||
+        user.role === "manager" ||
+        user.work_view ||
+        m.created_by === user.username ||
+        canConfirmStore(user, m),
+    );
+}
+export function attachOperations(db, user, data) {
+  const scope = data.businesses.map((b) => b.id);
+  data.custody_funds =
+    user.role !== "collector" && scope.includes("gemashow")
+      ? db.prepare("SELECT * FROM finance_custody_balances").all()
+      : [];
+  data.store_receipts = scope.includes("marjorie")
+    ? storeReceipts(db, user)
+    : [];
+  data.loan_overview =
+    user.role === "owner" ? loanOverview(db, user) : { loans: [], alerts: [] };
+  data.funding_overview = fundingOverview(db, user);
+  data.mail_status =
+    user.role === "owner"
+      ? {
+          connected: Boolean(
+            db
+              .prepare("SELECT id FROM finance_mail_oauth WHERE id='gmail'")
+              .get(),
+          ),
+          configured: Boolean(
+            process.env.FINANCE_GMAIL_CLIENT_ID &&
+              process.env.FINANCE_GMAIL_CLIENT_SECRET &&
+              process.env.FINANCE_GMAIL_REDIRECT_URI,
+          ),
+          email:
+            privateSetting(db, "mail_address") ||
+            process.env.FINANCE_GMAIL_ADDRESS ||
+            null,
+          draft_count: db
+            .prepare(
+              "SELECT COUNT(*) n FROM finance_mail_messages WHERE state='draft'",
+            )
+            .get().n,
+          cutoff: privateSetting(db, "opening_cutoff"),
+          last_sync: privateSetting(db, "mail_last_sync"),
+        }
+      : null;
+  return data;
+}
+export function registerOperationsRoutes(app, db, { route, owner }) {
+  app.get(
+    "/api/finance/custody",
+    route((req, res) => {
+      businessAccess(req.financeUser, "gemashow");
+      if (req.financeUser.role === "collector")
+        fail("Acceso de consulta restringido", 403);
+      res.json({
+        funds: db.prepare("SELECT * FROM finance_custody_balances").all(),
+        adjustments: db
+          .prepare(
+            "SELECT a.*,m.name actor_name FROM finance_custody_adjustments a LEFT JOIN finance_members m ON m.username=a.actor ORDER BY a.id DESC LIMIT 500",
+          )
+          .all(),
+      });
+    }),
+  );
+  app.post(
+    "/api/finance/custody/:id/adjust",
+    route((req, res) =>
+      res.json(adjustCustody(db, req.financeUser, req.params.id, req.body)),
+    ),
+  );
+  app.get(
+    "/api/finance/store-receipts",
+    route((req, res) =>
+      res.json({ receipts: storeReceipts(db, req.financeUser) }),
+    ),
+  );
+  app.post(
+    "/api/finance/store-receipts",
+    route((req, res) => {
+      const u = req.financeUser,
+        b = req.body;
+      if (!["owner", "manager", "collector"].includes(u.role))
+        fail("Acceso de consulta", 403);
+      businessAccess(u, "marjorie");
+      unitAccess(db, u, b.unit_id, "marjorie");
+      if (!String(b.unit_id).startsWith("marjorie-") || !b.evidence_id)
+        fail("Selecciona el local y adjunta el comprobante");
+      const e = db
+        .prepare("SELECT * FROM finance_evidence WHERE id=?")
+        .get(b.evidence_id);
+      if (
+        !e ||
+        e.business_id !== "marjorie" ||
+        e.unit_id !== b.unit_id ||
+        (u.role === "collector" && e.created_by !== u.username)
+      )
+        fail("Comprobante fuera del local", 403);
+      const existing = db
+        .prepare(
+          "SELECT * FROM finance_movements WHERE evidence_id=? AND kind='income' AND status!='rejected'",
+        )
+        .get(e.id);
+      if (existing) {
+        if (
+          existing.created_by === u.username &&
+          existing.unit_id === b.unit_id &&
+          existing.amount_cents === b.amount_cents
+        )
+          return res.json({
+            id: existing.id,
+            confirmed: Boolean(
+              db
+                .prepare(
+                  "SELECT movement_id FROM finance_store_confirmations WHERE movement_id=?",
+                )
+                .get(existing.id),
+            ),
+            duplicate: true,
+          });
+        fail("Este comprobante ya fue registrado con otros datos", 409);
+      }
+      const result = db.transaction(() => {
+        const m = createMovement(db, u, {
+          business_id: "marjorie",
+          unit_id: b.unit_id,
+          kind: "income",
+          amount_cents: cents(b.amount_cents),
+          day: b.day || financeDay(),
+          category: "Ventas de local",
+          counterparty: text(b.customer, 150) || "Transferencia de cliente",
+          description: "Transferencia recibida en local",
+          payment_method: "transfer",
+          evidence_id: e.id,
+          reference: text(b.reference, 200),
+        });
+        db.prepare(
+          "UPDATE finance_movements SET source_system='store-receipt',status='pending' WHERE id=?",
+        ).run(m.id);
+        const auto = (u.auto_confirm_unit_ids || []).includes(b.unit_id);
+        if (auto) confirmStoreReceipt(db, u, m.id, "on_upload");
+        return { id: m.id, confirmed: auto };
+      })();
+      res.status(201).json(result);
+    }),
+  );
+  app.post(
+    "/api/finance/store-receipts/:id/confirm",
+    route((req, res) =>
+      res.json(confirmStoreReceipt(db, req.financeUser, Number(req.params.id))),
+    ),
+  );
+  app.get(
+    "/api/finance/store-receipts/:id/evidence",
+    route((req, res) => {
+      const m = storeReceipts(db, req.financeUser).find(
+        (r) => r.id === Number(req.params.id),
+      );
+      if (!m) fail("Comprobante no disponible", 404);
+      const e = db
+        .prepare("SELECT * FROM finance_evidence WHERE id=?")
+        .get(m.evidence_id);
+      if (!e) fail("Archivo no disponible", 404);
+      res
+        .type(e.mime)
+        .set("Content-Security-Policy", "sandbox; default-src 'none'")
+        .attachment(e.name)
+        .send(decryptDocument(e.encrypted));
+    }),
+  );
+}

@@ -27,9 +27,9 @@ export function seedWorkflowDemo(db) {
     },
   };
   for (const p of PROFILE_TEMPLATES) {
-    const units = ["ana", "jose", "norma"].includes(p.id)
+    const units = p.unit_ids || (["ana", "jose", "norma"].includes(p.id)
       ? ["producalza-fabrica"]
-      : [];
+      : []);
     insert.run(
       p.name,
       p.id,
@@ -39,6 +39,7 @@ export function seedWorkflowDemo(db) {
       JSON.stringify(units),
       p.work_view ? 1 : 0
     );
+    db.prepare('UPDATE finance_members SET request_payments=?,review_unit_ids=?,auto_confirm_unit_ids=?,custody_adjust=?,checks_manage=? WHERE username=?').run(p.request_payments?1:0,JSON.stringify(p.review_unit_ids||[]),JSON.stringify(p.auto_confirm_unit_ids||[]),p.custody_adjust?1:0,p.checks_manage?1:0,p.id);
     const member = db
       .prepare("SELECT * FROM finance_members WHERE username=?")
       .get(p.id);
@@ -49,7 +50,7 @@ export function seedWorkflowDemo(db) {
       ).run(
         id,
         member.id,
-        p.role === "viewer"
+        p.role === "viewer"&&!p.request_payments
           ? "observer"
           : p.id === "morelia"
           ? "coordinator"

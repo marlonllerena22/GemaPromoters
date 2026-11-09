@@ -23,6 +23,7 @@ import { registerAuthRecoveryRoutes, verifyRecoveryPassword } from './auth-recov
 import { registerContentStudioRoutes } from './content-studio-routes.js';
 import { registerContentStudioLegalRoutes } from './content-studio-legal.js';
 import { registerFinanceRoutes } from './finance-routes.js';
+import { backupBeforeFinanceBootstrap } from './finance-bootstrap-backup.js';
 import { findContentStudioSellerForLogin, findContentStudioUserForLogin } from './content-studio-db.js';
 
 dotenv.config();
@@ -3085,6 +3086,7 @@ registerTicketingRoutes(app, db);
 registerMarjoriePromotersRoutes(app, db);
 registerContentStudioRoutes(app, db);
 registerContentStudioLegalRoutes(app);
+await backupBeforeFinanceBootstrap(db,databasePath);
 registerFinanceRoutes(app, db, { production: financeProductionBridge });
 
 recalculateAllCommissions();

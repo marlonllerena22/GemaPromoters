@@ -25,17 +25,17 @@ export function workflowSource(db) {
       })),
     members: db
       .prepare(
-        "SELECT s.*,m.name FROM finance_space_members s JOIN finance_members m ON m.id=s.member_id AND m.active=1"
+        "SELECT s.*,m.name FROM finance_space_members s JOIN finance_members m ON m.id=s.member_id AND m.active=1",
       )
       .all(),
     requests: db
       .prepare(
-        "SELECT m.*,u.name requester_name,e.name evidence_name FROM finance_movements m LEFT JOIN finance_members u ON u.username=m.created_by LEFT JOIN finance_evidence e ON e.id=m.evidence_id WHERE is_payment_request=1 ORDER BY m.created_at DESC,m.id DESC"
+        "SELECT m.*,u.name requester_name,e.name evidence_name FROM finance_movements m LEFT JOIN finance_members u ON u.username=m.created_by LEFT JOIN finance_evidence e ON e.id=m.evidence_id WHERE is_payment_request=1 ORDER BY m.created_at DESC,m.id DESC",
       )
       .all(),
     payments: db
       .prepare(
-        "SELECT p.*,a.bank account_bank,a.last_four,m.status verification_status,e.name evidence_name,u.name payer_name FROM finance_payments p JOIN finance_accounts a ON a.id=p.account_id JOIN finance_movements m ON m.id=p.movement_id JOIN finance_evidence e ON e.id=p.evidence_id LEFT JOIN finance_members u ON u.username=p.created_by ORDER BY p.created_at DESC,p.id DESC"
+        "SELECT p.*,a.bank account_bank,a.last_four,m.status verification_status,e.name evidence_name,u.name payer_name FROM finance_payments p JOIN finance_accounts a ON a.id=p.account_id JOIN finance_movements m ON m.id=p.movement_id JOIN finance_evidence e ON e.id=p.evidence_id LEFT JOIN finance_members u ON u.username=p.created_by ORDER BY p.created_at DESC,p.id DESC",
       )
       .all(),
   };
@@ -49,12 +49,12 @@ export function financialWorkflow(db, user) {
     if (!cache.has(p.request_id)) {
       const row = db
         .prepare(
-          "SELECT encrypted FROM finance_request_payees WHERE request_id=?"
+          "SELECT encrypted FROM finance_request_payees WHERE request_id=?",
         )
         .get(p.request_id);
       cache.set(
         p.request_id,
-        row ? JSON.parse(decryptDocument(row.encrypted).toString()) : null
+        row ? JSON.parse(decryptDocument(row.encrypted).toString()) : null,
       );
     }
     const a = cache.get(p.request_id)?.accounts?.[p.destination_index];
@@ -72,7 +72,7 @@ export function attachWorkflow(db, user, data) {
     data.businesses.some((b) => b.id === "marjorie")
       ? db
           .prepare(
-            "SELECT * FROM finance_settlement_balances WHERE business_id='marjorie'"
+            "SELECT * FROM finance_settlement_balances WHERE business_id='marjorie'",
           )
           .all()
       : [];
@@ -81,7 +81,7 @@ export function attachWorkflow(db, user, data) {
       process.env.FINANCE_VAPID_PRIVATE_KEY &&
       process.env.FINANCE_VAPID_SUBJECT &&
       process.env.FINANCE_DOCUMENT_KEY &&
-      process.env.FINANCE_DEMO !== "1"
+      process.env.FINANCE_DEMO !== "1",
   );
   return data;
 }
@@ -92,11 +92,13 @@ export function requireSpace(db, user, id, { write = false } = {}) {
     fail("Espacio no disponible para tu acceso", 403);
   if (write) {
     const membership = source.members.find(
-      (m) => m.space_id === id && Number(m.member_id) === Number(user.id)
+      (m) => m.space_id === id && Number(m.member_id) === Number(user.id),
     );
     if (
       user.role !== "owner" &&
-      (user.role === "viewer" || !membership || membership.role === "observer")
+      ((user.role === "viewer" && !user.request_payments) ||
+        !membership ||
+        membership.role === "observer")
     )
       fail("En este espacio tienes acceso de consulta", 403);
     if (!space.active) fail("Este espacio está archivado", 409);
@@ -123,7 +125,7 @@ export function validateRequestSpace(db, user, id, business, unit) {
 }
 export function queuePaymentNotice(db, id) {
   db.prepare(
-    "INSERT OR IGNORE INTO finance_push_outbox (event_key,request_id) VALUES (?,?)"
+    "INSERT OR IGNORE INTO finance_push_outbox (event_key,request_id) VALUES (?,?)",
   ).run(`payment-request:${id}`, id);
 }
 export function recordRequestPayment(db, user, id, body) {
@@ -162,7 +164,7 @@ export function recordRequestPayment(db, user, id, body) {
   return db.transaction(() => {
     const previous = db
       .prepare(
-        "SELECT * FROM finance_payments WHERE created_by=? AND request_key=?"
+        "SELECT * FROM finance_payments WHERE created_by=? AND request_key=?",
       )
       .get(user.username, body.request_key);
     if (previous) {
@@ -173,12 +175,12 @@ export function recordRequestPayment(db, user, id, body) {
     const request = requireRequest(db, user, id);
     const beneficiaryRow = db
       .prepare(
-        "SELECT encrypted FROM finance_request_payees WHERE request_id=?"
+        "SELECT encrypted FROM finance_request_payees WHERE request_id=?",
       )
       .get(request.id);
     if (beneficiaryRow) {
       const beneficiary = JSON.parse(
-        decryptDocument(beneficiaryRow.encrypted).toString()
+        decryptDocument(beneficiaryRow.encrypted).toString(),
       );
       if (
         !Number.isInteger(payload.destination_index) ||
@@ -198,24 +200,25 @@ export function recordRequestPayment(db, user, id, body) {
     if (
       db
         .prepare(
-          "SELECT id FROM finance_payments WHERE evidence_id=? AND voided_at IS NULL"
+          "SELECT id FROM finance_payments WHERE evidence_id=? AND voided_at IS NULL",
         )
         .get(payload.evidence_id)
     )
       fail(
         "Ese comprobante ya respalda otro pago. Conserva un solo registro para evitar duplicados",
-        409
+        409,
       );
     const account = db
       .prepare("SELECT * FROM finance_accounts WHERE id=? AND active=1")
       .get(payload.account_id);
     if (!account || !["bank", "wallet", "card"].includes(account.kind))
       fail(
-        "Selecciona la cuenta bancaria, billetera o tarjeta desde la que pagaste"
+        "Selecciona la cuenta bancaria, billetera o tarjeta desde la que pagaste",
       );
     const movement = createMovement(db, user, {
       business_id: request.business_id,
       unit_id: request.unit_id,
+      allow_cross_account: true,
       kind: "expense",
       amount_cents: payload.amount_cents,
       day: payload.paid_day,
@@ -228,11 +231,11 @@ export function recordRequestPayment(db, user, id, body) {
       evidence_id: payload.evidence_id,
     });
     db.prepare(
-      "UPDATE finance_movements SET status='reported',space_id=? WHERE id=?"
+      "UPDATE finance_movements SET status='reported',space_id=? WHERE id=?",
     ).run(request.space_id, movement.id);
     const inserted = db
       .prepare(
-        "INSERT INTO finance_payments (request_id,movement_id,amount_cents,evidence_id,account_id,paid_day,reference,created_by,request_key,fingerprint,destination_index) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
+        "INSERT INTO finance_payments (request_id,movement_id,amount_cents,evidence_id,account_id,paid_day,reference,created_by,request_key,fingerprint,destination_index) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
       )
       .run(
         request.id,
@@ -245,15 +248,15 @@ export function recordRequestPayment(db, user, id, body) {
         user.username,
         body.request_key,
         fingerprint,
-        payload.destination_index
+        payload.destination_index,
       );
     const remaining = request.remaining_cents - payload.amount_cents;
     db.prepare(
-      "UPDATE finance_movements SET status=?,updated_at=? WHERE id=?"
+      "UPDATE finance_movements SET status=?,updated_at=? WHERE id=?",
     ).run(
       remaining === 0 ? "reported" : request.status,
       new Date().toISOString(),
-      request.id
+      request.id,
     );
     const payment = db
       .prepare("SELECT * FROM finance_payments WHERE id=?")
@@ -271,7 +274,7 @@ export function recordRequestPayment(db, user, id, body) {
         remaining_cents: remaining,
         verification: "reported",
       },
-      request.business_id
+      request.business_id,
     );
     return { payment, duplicate: false, remaining_cents: remaining };
   })();
@@ -300,14 +303,14 @@ export function voidRequestPayment(db, user, id, reason) {
     )
       fail("Reabre el cierre de ese día antes de corregir este pago", 409);
     db.prepare(
-      "UPDATE finance_payments SET voided_at=?,voided_by=?,void_reason=? WHERE id=?"
+      "UPDATE finance_payments SET voided_at=?,voided_by=?,void_reason=? WHERE id=?",
     ).run(new Date().toISOString(), user.username, note, payment.id);
     db.prepare(
-      "UPDATE finance_movements SET status='rejected',review_note=?,updated_at=? WHERE id=?"
+      "UPDATE finance_movements SET status='rejected',review_note=?,updated_at=? WHERE id=?",
     ).run(note, new Date().toISOString(), payment.movement_id);
     if (request.status !== "rejected")
       db.prepare(
-        "UPDATE finance_movements SET status='pending',updated_at=? WHERE id=?"
+        "UPDATE finance_movements SET status='pending',updated_at=? WHERE id=?",
       ).run(new Date().toISOString(), request.id);
     audit(
       db,
@@ -317,7 +320,7 @@ export function voidRequestPayment(db, user, id, reason) {
       payment.id,
       payment,
       { reason: note },
-      request.business_id
+      request.business_id,
     );
     return { ok: true };
   })();

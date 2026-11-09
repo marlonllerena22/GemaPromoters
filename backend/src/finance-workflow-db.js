@@ -1,4 +1,5 @@
 import { SPACE_TEMPLATES } from "../../shared/finance-workflow.mjs";
+import {initFinanceOperationsDb} from './finance-operations-db.js';
 export function initFinanceWorkflowDb(db) {
   db.exec(`CREATE TABLE IF NOT EXISTS finance_spaces (
     id TEXT PRIMARY KEY,name TEXT NOT NULL,kind TEXT NOT NULL,business_ids TEXT NOT NULL,unit_id TEXT,
@@ -78,4 +79,5 @@ export function initFinanceWorkflowDb(db) {
       s.name,
       "system"
     );
+  initFinanceOperationsDb(db);
 }

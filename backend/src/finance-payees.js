@@ -17,7 +17,7 @@ const decode = (row) => ({
 });
 function scopeAccess(db, user, business, space, { write = false } = {}) {
   businessAccess(user, business);
-  if (write && !["owner", "manager", "collector"].includes(user.role))
+  if (write && !["owner", "manager", "collector"].includes(user.role)&&!user.request_payments)
     fail("Tu acceso es de consulta", 403);
   if (space) {
     const s = requireSpace(db, user, space, { write });
@@ -29,14 +29,16 @@ export function listPayees(db, user, business, space) {
   scopeAccess(db, user, business, space);
   return db
     .prepare(
-      "SELECT * FROM finance_payees WHERE business_id=? AND space_id IS ? AND (?='owner' OR space_id IS NOT NULL OR created_by=?) ORDER BY created_at DESC"
+      "SELECT * FROM finance_payees WHERE business_id=? AND space_id IS ? AND created_by=? ORDER BY created_at DESC"
     )
-    .all(business, space || null, user.role, user.username)
+    .all(business, space || null, user.username)
     .map(decode);
 }
 export function getPayee(db, user, id, { write = false } = {}) {
   const row = db.prepare("SELECT * FROM finance_payees WHERE id=?").get(id);
   if (!row) fail("Contacto no disponible", 404);
+  if(row.created_by!==user.username&&user.role!=='owner')fail('Contacto privado de otro usuario',404);
+  if(write&&row.created_by!==user.username)fail('Elige un contacto de tu usuario',404);
   scopeAccess(db, user, row.business_id, row.space_id, { write });
   if (
     !row.space_id &&
@@ -53,7 +55,7 @@ export function savePayee(db, user, body) {
   const p = normalizePayee(body),
     error = payeeError(p);
   if (error) fail(error);
-  const scope = `${business}|${space || `private:${user.username}`}`;
+  const scope = `${business}|${space || `private:${user.username}`}|user:${user.username}`;
   const hashes = p.accounts.map((a) =>
     privateFingerprint(
       JSON.stringify([

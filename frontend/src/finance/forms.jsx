@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { transferFeeQuote } from "../../../shared/finance-fees.mjs";
 import {
   Camera,
   Check,
@@ -1350,6 +1351,7 @@ export function TransferPanel({ onClose }) {
     [error, setError] = useState("");
   const source = data.accounts.find((a) => a.id === Number(from)),
     target = data.accounts.find((a) => a.id === Number(to));
+  const fee = transferFeeQuote(source?.bank, target?.bank);
   const cash = [source, target].some(
     (a) => a && ["cash", "custody"].includes(a.kind),
   );
@@ -1452,6 +1454,17 @@ export function TransferPanel({ onClose }) {
             onChange={(e) => setDay(e.target.value)}
           />
         </div>
+        {source && target && (
+          <p className="gf-note">
+            Comisión de referencia:{" "}
+            {fee.cents === null ? "Por comprobar" : money(fee.cents)}.{" "}
+            {fee.note || fee.label}{" "}
+            {fee.cents !== null && value
+              ? `Salida prevista: ${money(amount(value) + fee.cents)}.`
+              : ""}{" "}
+            Este estimado no modifica el saldo.
+          </p>
+        )}
         <Field label="Motivo y propiedad de los fondos">
           <textarea
             required

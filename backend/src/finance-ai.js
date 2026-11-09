@@ -252,6 +252,9 @@ export async function answerQuestion(question, data) {
     period: data.period,
     summary: data.summary,
     settlement_funds: data.settlement_funds || [],
+    custody_funds: data.custody_funds || [],
+    loans: data.loan_overview?.loans || [],
+    funding: data.funding_overview || {},
     businesses: data.businesses,
     accounts: data.accounts.map(
       ({
