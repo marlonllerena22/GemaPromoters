@@ -65,6 +65,7 @@ export function initFinanceOperationsDb(db) {
     ["marcela", "Marcela"],
     ["henry", "Henry"],
     ["paty", "Ñaña Paty"],
+    ["anita", "Anita"],
   ])
     db.prepare(
       "INSERT OR IGNORE INTO finance_custody_balances (id,name,business_id) VALUES (?,?,'gemashow')",

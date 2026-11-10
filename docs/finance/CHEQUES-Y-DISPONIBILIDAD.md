@@ -8,7 +8,7 @@ La asociación automática exige cuenta, importe negativo exacto, número explí
 
 La disponibilidad general excluye corriente y muestra ese saldo por separado. Para cheques se reserva únicamente la diferencia entre los compromisos acumulados y el dinero ya apartado en corriente. También se contemplan cuotas, tarjetas, solicitudes y pagos reportados pendientes de conciliación dentro de los próximos tres días, incluidos vencidos. Un monto desconocido se presenta como pendiente de indicar.
 
-La vista de Germán agrupa las cuentas propias de Pichincha y Guayaquil, sin exponer números ni detalles personales. Henry, Marcela y Ñaña Paty se mantienen separados. Los pagos de tarjeta muestran totales y vencimientos; su edición sigue reservada al propietario. Los números completos se guardan cifrados y las auditorías conservan únicamente terminaciones.
+La vista de Germán agrupa las cuentas propias de Pichincha y Guayaquil, sin exponer números ni detalles personales. Henry, Marcela, Ñaña Paty y Anita se mantienen separados. Los pagos de tarjeta muestran totales y vencimientos; su edición sigue reservada al propietario. Los números completos se guardan cifrados y las auditorías conservan únicamente terminaciones.
 
 ## Conexiones
 
