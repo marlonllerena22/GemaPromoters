@@ -1870,3 +1870,21 @@ test("full account numbers are owner-managed, encrypted and never exposed to oth
   const log = f.db.prepare("SELECT * FROM finance_audit").all();
   assert.equal(JSON.stringify(log).includes("0000001234"), false);
 });
+
+
+test('financial conversation is restricted to the four responsible people',async t=>{
+ const f=await fixture(t);await f.login();await f.login('normita');await f.login('reader');await f.login('north');
+ for(const name of ['german','morelia'])f.db.prepare("INSERT INTO finance_members(name,username,password_hash,role,business_ids,unit_ids) VALUES (?,?,?,'collector','[\"producalza\"]','[]')").run(name,name,passwordHash(password));
+ for(const name of ['german','morelia'])await f.login(name);
+ for(const name of ['owner','german','morelia','normita'])assert.equal((await f.req('/assistant',name,{question:'¿Qué ventas hay hoy?'})).status,200);
+ for(const name of ['reader','north'])assert.equal((await f.req('/assistant',name,{question:'¿Qué ventas hay hoy?'})).status,403);
+});
+
+test('remembered devices survive inactivity while ordinary sessions still expire',async t=>{
+ const f=await fixture(t);await f.login();
+ f.db.prepare('UPDATE finance_sessions SET last_seen=?').run(Date.now()-3600000);assert.equal((await f.req('/snapshot')).status,401);
+ await f.login();const remembered=await f.raw('/remember-device','owner',{remember:true});assert.equal(remembered.status,200);assert.match(remembered.headers.get('set-cookie'),/Max-Age=2592000/);assert.match(remembered.headers.get('set-cookie'),/HttpOnly/);
+ f.db.prepare('UPDATE finance_sessions SET last_seen=?').run(Date.now()-3600000);assert.equal((await f.req('/snapshot')).status,200);
+ assert.equal((await f.req('/session')).body.remember_device,true);
+ await f.req('/remember-device','owner',{remember:false});f.db.prepare('UPDATE finance_sessions SET last_seen=?').run(Date.now()-3600000);assert.equal((await f.req('/snapshot')).status,401);
+});

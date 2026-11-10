@@ -30,7 +30,7 @@ export function workflowSource(db) {
       .all(),
     requests: db
       .prepare(
-        "SELECT m.*,u.name requester_name,e.name evidence_name FROM finance_movements m LEFT JOIN finance_members u ON u.username=m.created_by LEFT JOIN finance_evidence e ON e.id=m.evidence_id WHERE is_payment_request=1 ORDER BY m.created_at DESC,m.id DESC",
+        "SELECT m.*,u.name requester_name,e.name evidence_name FROM finance_movements m LEFT JOIN finance_members u ON u.username=m.created_by LEFT JOIN finance_evidence e ON e.id=m.evidence_id WHERE is_payment_request=1 AND hidden_at IS NULL ORDER BY m.created_at DESC,m.id DESC",
       )
       .all(),
     payments: db

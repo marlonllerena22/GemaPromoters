@@ -48,7 +48,7 @@ import {
   X,
 } from "lucide-react";
 import { useFinance } from "./context.jsx";
-import { CustodyFunds, GmailPanel } from "./operations.jsx";
+import { CustodyFunds, GmailPanel, IncomingNotices } from "./operations.jsx";
 import { SettlementFunds } from "./settlements.jsx";
 import {
   amount,
@@ -91,13 +91,13 @@ export function Overview() {
   if (user.role === "collector") return <CollaboratorHome />;
   return (
     <>
-      <div className="gf-welcome">
+      <div className="gf-welcome gf-owner-greeting">
         <div>
-          <span className="gf-eyebrow">CLARIDAD PARA CADA DECISIÓN</span>
+          <span className="gf-eyebrow">TU CENTRO FINANCIERO</span>
           <h1>
-            Tu panorama financiero<span>.</span>
+            Hola, {user.name.split(" ")[0]}
+            <span>.</span>
           </h1>
-          <p>Todos tus negocios, una perspectiva completa.</p>
         </div>
         <div className="gf-welcome-date">
           <CalendarDays size={17} />
@@ -110,8 +110,9 @@ export function Overview() {
           </span>
         </div>
       </div>
-      {user.role !== "viewer" && <QuickAccess />}
       <LiquidityPlan />
+      {user.role !== "viewer" && <QuickAccess />}
+      <IncomingNotices />
       <SettlementFunds />
       <div className="gf-stats">
         <Stat
@@ -619,21 +620,25 @@ export function Accounts() {
               >
                 <span>{a.name}</span>
                 <small className="gf-account-number">
-                  {a.account_number ||
-                    (a.grouped
-                      ? `${a.account_count} cuentas agrupadas`
-                      : a.last_four
-                        ? `··${a.last_four} · por completar`
-                        : "Número por completar")}
+                  {a.manual_provider
+                    ? `Saldo manual · ${dateLabel(a.balance_as_of)}`
+                    : a.account_number ||
+                      (a.grouped
+                        ? `${a.account_count} cuentas agrupadas`
+                        : a.last_four
+                          ? `··${a.last_four} · por completar`
+                          : "Número por completar")}
                 </small>
               </p>
               <strong className="gf-account-balance">
                 {money(a.balance_cents)}
               </strong>
               <small>
-                {a.kind === "card"
-                  ? "Saldo calculado · deuda si es negativo"
-                  : "Saldo calculado al día de hoy"}
+                {a.manual_provider
+                  ? "Informado por Marlon · conexión pendiente"
+                  : a.kind === "card"
+                    ? "Saldo calculado · deuda si es negativo"
+                    : "Saldo calculado al día de hoy"}
               </small>
               <div
                 className={`gf-account-compact-status ${
@@ -645,11 +650,13 @@ export function Accounts() {
                 ) : (
                   <Clock3 size={13} />
                 )}
-                {a.discrepancy_cents !== null && a.discrepancy_cents !== 0
-                  ? `Diferencia: ${money(a.discrepancy_cents)}`
-                  : a.verified_at && a.discrepancy_cents === 0
-                    ? "Saldo comprobado"
-                    : "Por comprobar"}
+                {a.manual_provider
+                  ? "Actualización manual"
+                  : a.discrepancy_cents !== null && a.discrepancy_cents !== 0
+                    ? `Diferencia: ${money(a.discrepancy_cents)}`
+                    : a.verified_at && a.discrepancy_cents === 0
+                      ? "Saldo comprobado"
+                      : "Por comprobar"}
               </div>
               <details className="gf-account-more">
                 <summary>
@@ -690,6 +697,9 @@ export function Accounts() {
                         </span>
                       )}
                     {a.custodian && <small>Responsable: {a.custodian}</small>}
+                    {a.provider_fee_policy && (
+                      <small>{a.provider_fee_policy}</small>
+                    )}
                     {!a.business_id && (
                       <div className="gf-account-positions">
                         {Object.entries(a.positions || {}).map(
@@ -1647,6 +1657,9 @@ export function Assistant() {
       const response = await financeApi("/assistant", {
         question: value,
         filters,
+        history: messages
+          .slice(-8)
+          .map((m) => ({ role: m.role, text: m.text, topic: m.topic })),
       });
       setMessages((m) => [
         ...m,
@@ -1655,6 +1668,8 @@ export function Assistant() {
           text: response.answer,
           ids: response.movement_ids,
           mode: response.mode,
+          topic: response.topic,
+          references: response.references,
         },
       ]);
     } catch (e) {
@@ -1723,6 +1738,15 @@ export function Assistant() {
                         : "Tú"}
                     </small>
                     <p>{m.text}</p>
+                    {m.references?.length > 0 && (
+                      <div className="gf-chat-sources">
+                        {m.references.map((r) => (
+                          <span key={`${r.kind}:${r.id}`}>
+                            <FileText size={13} /> {r.label}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                     {m.ids?.length > 0 && (
                       <div className="gf-chat-sources">
                         {m.ids.map((id) => {

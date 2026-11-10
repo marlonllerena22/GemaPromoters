@@ -87,9 +87,24 @@ export function fundingOverview(db, user, now = new Date()) {
         .map((c) => {
           const rows = db
             .prepare(
-              "SELECT * FROM finance_card_statements WHERE card_id=? ORDER BY due_date DESC",
+              "SELECT s.*,(SELECT COALESCE(SUM(amount_cents),0) FROM finance_card_payments p WHERE p.statement_id=s.id) mail_paid_cents FROM finance_card_statements s WHERE card_id=? ORDER BY due_date DESC",
             )
-            .all(c.id);
+            .all(c.id)
+            .map((s) => {
+              const paid =
+                s.mail_paid_cents ||
+                (["paid", "paid_before_start"].includes(s.state)
+                  ? s.total_cents || 0
+                  : 0);
+              return {
+                ...s,
+                paid_cents: paid,
+                remaining_cents:
+                  s.total_cents === null
+                    ? null
+                    : Math.max(0, s.total_cents - paid),
+              };
+            });
           return user.role === "owner"
             ? { ...c, statements: rows }
             : {
@@ -101,12 +116,22 @@ export function fundingOverview(db, user, now = new Date()) {
                 account_name: c.debit_account_id ? c.bank : null,
                 fixed_debit_account: Boolean(c.debit_account_id),
                 statements: rows.map(
-                  ({ id, cut_date, due_date, total_cents, state }) => ({
+                  ({
                     id,
                     cut_date,
                     due_date,
                     total_cents,
                     state,
+                    paid_cents,
+                    remaining_cents,
+                  }) => ({
+                    id,
+                    cut_date,
+                    due_date,
+                    total_cents,
+                    state,
+                    paid_cents,
+                    remaining_cents,
                   }),
                 ),
               };
@@ -214,9 +239,9 @@ export function debitAlreadyUsed(db, id) {
   return Boolean(
     db
       .prepare(
-        "SELECT 1 FROM finance_loan_installments WHERE bank_transaction_id=? UNION ALL SELECT 1 FROM finance_checks WHERE cleared_bank_id=? UNION ALL SELECT 1 FROM finance_card_statements WHERE paid_bank_id=?",
+        "SELECT 1 FROM finance_loan_installments WHERE bank_transaction_id=? UNION ALL SELECT 1 FROM finance_checks WHERE cleared_bank_id=? UNION ALL SELECT 1 FROM finance_card_statements WHERE paid_bank_id=? UNION ALL SELECT 1 FROM finance_card_payments WHERE bank_transaction_id=?",
       )
-      .get(id, id, id),
+      .get(id, id, id, id),
   );
 }
 export function evaluateFundingAlerts(db, now = new Date()) {

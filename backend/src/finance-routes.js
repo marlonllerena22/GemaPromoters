@@ -1,3 +1,6 @@
+import { applyPrivateBankReview } from "./finance-bank-review.js";
+import { assistantFilters, sourcedAnswer } from "./finance-assistant.js";
+import { canUseFinanceAssistant } from "../../shared/finance-workflow.mjs";
 import crypto from "node:crypto";
 import { registerFundingRoutes } from "./finance-funding.js";
 import { registerLoanRoutes } from "./finance-loans.js";
@@ -72,6 +75,7 @@ const localHost = (req) =>
 export function registerFinanceRoutes(app, db, bridges = {}) {
   initFinanceDb(db);
   applyFinanceBootstrap(db);
+  applyPrivateBankReview(db);
   startFinanceSyncWorker(db);
   const loginAttempts = new Map();
   const aiAttempts = new Map();
@@ -122,18 +126,25 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
     path: "/api/finance",
     maxAge: 12 * 60 * 60 * 1000,
   };
-  const startSession = (res, member) => {
+  const startSession = (res, member, { remember = false } = {}) => {
     const token = crypto.randomBytes(32).toString("hex");
-    const now = Date.now();
+    const now = Date.now(),
+      duration = (remember ? 30 * 24 : 12) * 60 * 60 * 1000;
     db.prepare("DELETE FROM finance_sessions WHERE expires_at<?").run(now);
-    db.prepare("INSERT INTO finance_sessions VALUES (?,?,?,?,?)").run(
+    db.prepare(
+      "INSERT INTO finance_sessions (token_hash,member_id,expires_at,created_at,last_seen,remembered) VALUES (?,?,?,?,?,?)",
+    ).run(
       hashToken(token),
       member.id,
-      now + 12 * 60 * 60 * 1000,
+      now + duration,
       now,
       now,
+      remember ? 1 : 0,
     );
-    res.cookie("gema_finance_session", token, cookieOptions);
+    res.cookie("gema_finance_session", token, {
+      ...cookieOptions,
+      maxAge: duration,
+    });
     return safeMember(member);
   };
   app.use(
@@ -176,11 +187,12 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         token &&
         db
           .prepare(
-            `SELECT m.* FROM finance_members m JOIN finance_sessions s ON s.member_id=m.id WHERE s.token_hash=? AND s.expires_at>? AND m.active=1`,
+            `SELECT m.*,s.remembered FROM finance_members m JOIN finance_sessions s ON s.member_id=m.id WHERE s.token_hash=? AND s.expires_at>? AND m.active=1`,
           )
           .get(hashToken(token), Date.now());
       res.json({
         user: member ? safeMember(member) : null,
+        remember_device: Boolean(member?.remembered),
         configured: Boolean(
           db.prepare("SELECT id FROM finance_members WHERE role='owner'").get(),
         ),
@@ -230,7 +242,11 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         fail("Código de autenticación no válido o ya utilizado", 401);
       loginAttempts.delete(key);
       audit(db, member.username, "session.started", "member", member.id);
-      res.json({ user: startSession(res, member) });
+      res.json({
+        user: startSession(res, member, {
+          remember: req.body.remember === true,
+        }),
+      });
     }),
   );
 
@@ -263,14 +279,17 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         token &&
         db
           .prepare(
-            `SELECT m.*,s.last_seen FROM finance_members m JOIN finance_sessions s ON s.member_id=m.id
+            `SELECT m.*,s.last_seen,s.remembered FROM finance_members m JOIN finance_sessions s ON s.member_id=m.id
       WHERE s.token_hash=? AND s.expires_at>? AND m.active=1`,
           )
           .get(hashToken(token), Date.now());
       // Signed server-to-server deliveries use their own authentication below.
       if (req.path === "/integrations/alfabusiness") return next();
       if (!member) fail("Inicia sesión para continuar", 401);
-      if (Date.now() - member.last_seen > 30 * 60 * 1000) {
+      if (
+        !member.remembered &&
+        Date.now() - member.last_seen > 30 * 60 * 1000
+      ) {
         db.prepare("DELETE FROM finance_sessions WHERE token_hash=?").run(
           hashToken(token),
         );
@@ -285,6 +304,39 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
     }),
   );
 
+  app.post(
+    "/api/finance/remember-device",
+    route((req, res) => {
+      if (typeof req.body.remember !== "boolean")
+        fail("Indica si quieres recordar este dispositivo");
+      const token = sessionToken(req),
+        remember = req.body.remember,
+        duration = (remember ? 30 * 24 : 12) * 60 * 60 * 1000;
+      db.prepare(
+        "UPDATE finance_sessions SET remembered=?,expires_at=?,last_seen=? WHERE token_hash=? AND member_id=?",
+      ).run(
+        remember ? 1 : 0,
+        Date.now() + duration,
+        Date.now(),
+        hashToken(token),
+        req.financeUser.id,
+      );
+      res.cookie("gema_finance_session", token, {
+        ...cookieOptions,
+        maxAge: duration,
+      });
+      audit(
+        db,
+        req.financeUser.username,
+        "session.remembered",
+        "session",
+        "current",
+        null,
+        { remembered: remember },
+      );
+      res.json({ ok: true, remember_device: remember });
+    }),
+  );
   app.post(
     "/api/finance/logout",
     route((req, res) => {
@@ -962,6 +1014,11 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
   app.post(
     "/api/finance/assistant",
     route(async (req, res) => {
+      if (!canUseFinanceAssistant(req.financeUser))
+        fail(
+          "El asistente está habilitado para Marlon, Germán, Morelia y Norma",
+          403,
+        );
       aiLimit(req);
       const question = text(req.body.question, 1500);
       if (!question) fail("Escribe tu consulta");
@@ -971,9 +1028,15 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         attachWorkflow(
           db,
           req.financeUser,
-          snapshot(db, req.financeUser, req.body.filters || {}),
+          snapshot(
+            db,
+            req.financeUser,
+            assistantFilters(question, req.body.filters || {}),
+          ),
         ),
       );
+      const precise = sourcedAnswer(question, data, req.body.history);
+      if (precise) return res.json(precise);
       if (!process.env.OPENAI_API_KEY) {
         const usd = (n) =>
           new Intl.NumberFormat("es-EC", {
@@ -1010,7 +1073,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
           movement_ids: [],
         });
       }
-      res.json(await answerQuestion(question, data));
+      res.json(await answerQuestion(question, data, req.body.history));
     }),
   );
   app.post(

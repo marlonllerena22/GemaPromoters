@@ -1,12 +1,20 @@
 export function initFinanceOperationsDb(db) {
   for (const [table, column, type] of [
     ["finance_members", "request_payments", "INTEGER NOT NULL DEFAULT 0"],
+    ["finance_sessions", "remembered", "INTEGER NOT NULL DEFAULT 0"],
     ["finance_members", "review_unit_ids", "TEXT NOT NULL DEFAULT '[]'"],
     ["finance_members", "auto_confirm_unit_ids", "TEXT NOT NULL DEFAULT '[]'"],
     ["finance_members", "custody_adjust", "INTEGER NOT NULL DEFAULT 0"],
     ["finance_members", "checks_manage", "INTEGER NOT NULL DEFAULT 0"],
     ["finance_accounts", "opening_at", "TEXT"],
     ["finance_movements", "cross_account", "INTEGER NOT NULL DEFAULT 0"],
+    [
+      "finance_bank_transactions",
+      "import_source",
+      "TEXT NOT NULL DEFAULT 'csv'",
+    ],
+    ["finance_bank_transactions", "occurred_at", "TEXT"],
+    ["finance_movements", "hidden_at", "TEXT"],
   ]) {
     if (
       !db
@@ -30,6 +38,8 @@ export function initFinanceOperationsDb(db) {
     ).run();
   }
   db.exec(`
+    CREATE TABLE IF NOT EXISTS finance_balance_checkpoints (id INTEGER PRIMARY KEY,account_id INTEGER NOT NULL REFERENCES finance_accounts(id),as_of_at TEXT NOT NULL,balance_cents INTEGER NOT NULL,source_hash TEXT NOT NULL,created_by TEXT NOT NULL,created_at TEXT NOT NULL,UNIQUE(account_id,source_hash));
+    CREATE TABLE IF NOT EXISTS finance_incoming_notices (id TEXT PRIMARY KEY,business_id TEXT NOT NULL,account_id INTEGER NOT NULL REFERENCES finance_accounts(id),amount_cents INTEGER NOT NULL,counterparty TEXT NOT NULL,day TEXT NOT NULL,source_hash TEXT NOT NULL,created_by TEXT NOT NULL,created_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS finance_runtime_settings (key TEXT PRIMARY KEY,encrypted BLOB NOT NULL);
     CREATE TABLE IF NOT EXISTS finance_member_invites (token_hash TEXT PRIMARY KEY,member_id INTEGER NOT NULL REFERENCES finance_members(id),expires_at INTEGER NOT NULL,used_at TEXT,created_by TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS finance_custody_balances (id TEXT PRIMARY KEY,name TEXT NOT NULL,business_id TEXT NOT NULL,balance_cents INTEGER,version INTEGER NOT NULL DEFAULT 0,updated_at TEXT,updated_by TEXT);
@@ -44,6 +54,7 @@ export function initFinanceOperationsDb(db) {
     CREATE TABLE IF NOT EXISTS finance_check_actions (id INTEGER PRIMARY KEY,check_id TEXT NOT NULL REFERENCES finance_checks(id),actor TEXT NOT NULL,request_key TEXT NOT NULL,fingerprint TEXT NOT NULL,created_at TEXT NOT NULL,UNIQUE(actor,request_key));
     CREATE TABLE IF NOT EXISTS finance_credit_cards (id TEXT PRIMARY KEY,name TEXT NOT NULL,bank TEXT NOT NULL,debit_account_id INTEGER REFERENCES finance_accounts(id),cut_day INTEGER NOT NULL,due_day INTEGER NOT NULL DEFAULT 9);
     CREATE TABLE IF NOT EXISTS finance_card_statements (id TEXT PRIMARY KEY,card_id TEXT NOT NULL REFERENCES finance_credit_cards(id),cut_date TEXT NOT NULL,due_date TEXT NOT NULL,total_cents INTEGER,min_cents INTEGER,state TEXT NOT NULL DEFAULT 'awaiting',source_mail_id TEXT,updated_by TEXT,updated_at TEXT,paid_bank_id INTEGER UNIQUE REFERENCES finance_bank_transactions(id));
+    CREATE TABLE IF NOT EXISTS finance_card_payments (id TEXT PRIMARY KEY,card_id TEXT NOT NULL REFERENCES finance_credit_cards(id),statement_id TEXT REFERENCES finance_card_statements(id),amount_cents INTEGER NOT NULL,day TEXT NOT NULL,account_id INTEGER REFERENCES finance_accounts(id),bank_transaction_id INTEGER UNIQUE REFERENCES finance_bank_transactions(id),source_mail_id TEXT UNIQUE,historical INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS finance_funding_alerts (id TEXT PRIMARY KEY,kind TEXT NOT NULL,source_id TEXT NOT NULL,day TEXT NOT NULL,push_day TEXT NOT NULL DEFAULT '',resolved_at TEXT);
     CREATE TABLE IF NOT EXISTS finance_mail_oauth (id TEXT PRIMARY KEY,encrypted BLOB NOT NULL,updated_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS finance_oauth_states (hash TEXT PRIMARY KEY,member_id INTEGER NOT NULL,verifier BLOB NOT NULL,expires_at INTEGER NOT NULL);

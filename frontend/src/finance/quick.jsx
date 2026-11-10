@@ -1,3 +1,4 @@
+import { canUseFinanceAssistant } from "../../../shared/finance-workflow.mjs";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
@@ -20,7 +21,7 @@ import {
   quickMoney,
 } from "../../../shared/finance-quick.mjs";
 import { useFinance } from "./context.jsx";
-import { RetailBrand, isStoreUser } from "./operations.jsx";
+import { RetailBrand, isStoreUser, IncomingNotices } from "./operations.jsx";
 import {
   businessNames,
   categories,
@@ -33,25 +34,23 @@ import { Badge, Button, Field, Modal } from "./components.jsx";
 import { AssistantAvatar, SpaceTiles } from "./workflows.jsx";
 
 export function QuickAccess() {
-  const { open } = useFinance();
+  const { open, navigate, user } = useFinance();
   return (
-    <section className="gf-quick-access" aria-label="Registro rápido">
-      <div className="gf-quick-access-symbol">
-        <AssistantAvatar size={54} />
-      </div>
-      <div>
-        <span className="gf-eyebrow">MENOS PASOS. MÁS CLARIDAD.</span>
-        <h2>Cuéntamelo en una frase.</h2>
-        <p>«Registra un gasto personal de $80 en gasolina»</p>
-      </div>
-      <div className="gf-quick-access-actions">
-        <Button icon={Mic} onClick={() => open("quick")}>
-          Registrar rápido
-        </Button>
-        <button onClick={() => open("quick", { mode: "receipt" })}>
-          <Camera size={14} /> Subir un comprobante <ArrowRight size={13} />
+    <section className="gf-owner-actions" aria-label="Acciones rápidas">
+      <button onClick={() => open("quick")}>
+        <Mic size={22} />
+        <span>Registrar gasto</span>
+      </button>
+      <button onClick={() => open("quick", { mode: "request" })}>
+        <ArrowUpRight size={22} />
+        <span>Pedir pago</span>
+      </button>
+      {canUseFinanceAssistant(user) && (
+        <button onClick={() => navigate("asistente")}>
+          <AssistantAvatar size={27} />
+          <span>Consultar IA</span>
         </button>
-      </div>
+      )}
     </section>
   );
 }
@@ -81,6 +80,16 @@ export function CollaboratorHome() {
             : user.business_ids.map((id) => businessNames[id]).join(" · ")}
         </span>
       </div>
+      <IncomingNotices />
+      {canUseFinanceAssistant(user) && (
+        <button
+          className="gf-collaborator-assistant"
+          onClick={() => navigate("asistente")}
+        >
+          <AssistantAvatar size={32} /> Consultar a Gema{" "}
+          <ArrowRight size={18} />
+        </button>
+      )}
       <div className="gf-simple-actions">
         <button onClick={() => open("quick", { mode: "request" })}>
           <span className="gf-simple-action-icon amber">

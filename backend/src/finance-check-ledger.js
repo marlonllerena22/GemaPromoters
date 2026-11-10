@@ -10,12 +10,20 @@ export function reportedCheckDebits(
   accountId,
   throughDay = financeDay(),
   throughInstant = null,
+  afterInstant = null,
 ) {
   return db
     .prepare(
-      "SELECT COALESCE(SUM(amount_cents),0) n FROM finance_checks WHERE account_id=? AND status='cleared' AND cleared_bank_id IS NULL AND manual_cleared_day<=? AND (? IS NULL OR cleared_at<=?)",
+      "SELECT COALESCE(SUM(amount_cents),0) n FROM finance_checks WHERE account_id=? AND status='cleared' AND cleared_bank_id IS NULL AND manual_cleared_day<=? AND (? IS NULL OR cleared_at<=?) AND (? IS NULL OR cleared_at>?)",
     )
-    .get(accountId, throughDay, throughInstant, throughInstant).n;
+    .get(
+      accountId,
+      throughDay,
+      throughInstant,
+      throughInstant,
+      afterInstant,
+      afterInstant,
+    ).n;
 }
 export function recordedAccountBalance(
   db,
@@ -23,22 +31,48 @@ export function recordedAccountBalance(
   throughDay = financeDay(),
   throughInstant = null,
 ) {
-  return (
-    account.opening_cents +
-    db
-      .prepare(
-        "SELECT COALESCE(SUM(amount_cents),0) n FROM finance_bank_transactions WHERE account_id=? AND day>=? AND day<=?",
+  const checkpoints = db
+    .prepare(
+      "SELECT * FROM finance_balance_checkpoints WHERE account_id=? ORDER BY as_of_at DESC,id DESC",
+    )
+    .all(account.id);
+  const checkpoint = checkpoints.find(
+    (c) =>
+      financeDay(c.as_of_at) <= throughDay &&
+      (!throughInstant || c.as_of_at <= throughInstant),
+  );
+  const rows = db
+    .prepare(
+      "SELECT * FROM finance_bank_transactions WHERE account_id=? AND day>=? AND day<=?",
+    )
+    .all(account.id, account.opening_date, throughDay);
+  const after = checkpoint
+    ? rows.filter(
+        (r) =>
+          r.day > financeDay(checkpoint.as_of_at) ||
+          (r.day === financeDay(checkpoint.as_of_at) &&
+            r.occurred_at &&
+            Date.parse(r.occurred_at) > Date.parse(checkpoint.as_of_at)),
       )
-      .get(account.id, account.opening_date, throughDay).n -
-    reportedCheckDebits(db, account.id, throughDay, throughInstant)
+    : rows;
+  return (
+    (checkpoint?.balance_cents ?? account.opening_cents) +
+    after.reduce((n, r) => n + r.amount_cents, 0) -
+    reportedCheckDebits(
+      db,
+      account.id,
+      throughDay,
+      throughInstant,
+      checkpoint?.as_of_at || null,
+    )
   );
 }
 function used(db, id) {
   return db
     .prepare(
-      "SELECT 1 FROM finance_checks WHERE cleared_bank_id=? UNION ALL SELECT 1 FROM finance_loan_installments WHERE bank_transaction_id=? UNION ALL SELECT 1 FROM finance_card_statements WHERE paid_bank_id=?",
+      "SELECT 1 FROM finance_checks WHERE cleared_bank_id=? UNION ALL SELECT 1 FROM finance_loan_installments WHERE bank_transaction_id=? UNION ALL SELECT 1 FROM finance_card_statements WHERE paid_bank_id=? UNION ALL SELECT 1 FROM finance_card_payments WHERE bank_transaction_id=?",
     )
-    .get(id, id, id);
+    .get(id, id, id, id);
 }
 function identifiesCheck(bank, number) {
   const text = `${bank.reference || ""} ${bank.description || ""}`;

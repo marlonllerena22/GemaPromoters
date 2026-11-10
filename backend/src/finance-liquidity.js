@@ -145,7 +145,8 @@ export function liquidityView(db, user, data, registry, now = new Date()) {
         kind: "card",
         title: `Pago ${c.name}`,
         day: s.due_date,
-        amount_cents: s.total_cents,
+        amount_cents:
+          s.remaining_cents === undefined ? s.total_cents : s.remaining_cents,
       });
   for (const r of data.workflow?.queue || [])
     obligations.push({

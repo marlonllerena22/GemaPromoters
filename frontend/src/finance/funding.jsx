@@ -389,18 +389,22 @@ export function Cards() {
                   <strong>
                     {s.total_cents === null
                       ? "Indicar cuánto hay que pagar"
-                      : money(s.total_cents)}
+                      : money(s.remaining_cents ?? s.total_cents)}
                   </strong>
                   <small>
                     Corte {dateLabel(s.cut_date)} · límite{" "}
                     {dateLabel(s.due_date)}
+                    {s.paid_cents > 0 &&
+                      ` · Pago recibido ${money(s.paid_cents)}`}
                   </small>
                 </span>
                 <b>
-                  {s.state === "paid"
+                  {["paid", "paid_before_start"].includes(s.state)
                     ? "Pagada"
                     : s.total_cents === null
-                      ? "Falta total"
+                      ? s.paid_cents > 0
+                        ? "Pago recibido · falta estado"
+                        : "Falta total"
                       : "Por pagar"}
                 </b>
               </button>
@@ -471,46 +475,54 @@ export function CardStatement({ id, onClose }) {
             value={value}
             onChange={(e) => setValue(e.target.value)}
             required
-            disabled={s.state === "paid"}
+            disabled={["paid", "paid_before_start"].includes(s.state)}
           />
         </Field>
         <p className="gf-payee-hint">
           Usa el valor total para pagar, no el pago mínimo.
         </p>
         {error && <p className="gf-error">{error}</p>}
-        <Button type="submit" disabled={s.state === "paid"} loading={busy}>
+        <Button
+          type="submit"
+          disabled={["paid", "paid_before_start"].includes(s.state)}
+          loading={busy}
+        >
           Guardar total por pagar
         </Button>
       </form>
-      {s.total_cents !== null && s.state !== "paid" && (
-        <section className="gf-operation-form gf-mt">
-          <Field label="Pago realizado desde el banco">
-            <select value={bank} onChange={(e) => setBank(e.target.value)}>
-              <option value="">Elige el débito bancario real</option>
-              {rows.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {data.accounts.find((a) => a.id === b.account_id)?.name} ·{" "}
-                  {dateLabel(b.day)} · {money(-b.amount_cents)}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Button
-            variant="secondary"
-            disabled={!bank}
-            loading={busy}
-            onClick={() =>
-              run(() =>
-                financeApi(`/card-statements/${encodeURIComponent(id)}/paid`, {
-                  bank_transaction_id: Number(bank),
-                }),
-              )
-            }
-          >
-            Confirmar pago de tarjeta
-          </Button>
-        </section>
-      )}
+      {s.total_cents !== null &&
+        !["paid", "paid_before_start"].includes(s.state) && (
+          <section className="gf-operation-form gf-mt">
+            <Field label="Pago realizado desde el banco">
+              <select value={bank} onChange={(e) => setBank(e.target.value)}>
+                <option value="">Elige el débito bancario real</option>
+                {rows.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {data.accounts.find((a) => a.id === b.account_id)?.name} ·{" "}
+                    {dateLabel(b.day)} · {money(-b.amount_cents)}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Button
+              variant="secondary"
+              disabled={!bank}
+              loading={busy}
+              onClick={() =>
+                run(() =>
+                  financeApi(
+                    `/card-statements/${encodeURIComponent(id)}/paid`,
+                    {
+                      bank_transaction_id: Number(bank),
+                    },
+                  ),
+                )
+              }
+            >
+              Confirmar pago de tarjeta
+            </Button>
+          </section>
+        )}
     </Modal>
   );
 }

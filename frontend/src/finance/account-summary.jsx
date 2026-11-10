@@ -5,69 +5,84 @@ import { Button, Field, Modal } from "./components.jsx";
 import { BankLogo } from "./banks.jsx";
 import { financeApi, money, dateLabel } from "./api.js";
 export function LiquidityPlan() {
-  const { data, navigate, user } = useFinance(),
+  const { data, navigate } = useFinance(),
     p = data.liquidity;
   if (!p) return null;
+  const incomplete = p.unknown_commitments > 0;
   return (
-    <section className="gf-liquidity-panel">
+    <section
+      className="gf-money-overview"
+      aria-label="Tu dinero y próximos pagos"
+    >
       <header>
-        <div>
-          <span className="gf-eyebrow">ANTES DE USAR EL DINERO</span>
-          <h2>Disponibilidad general</h2>
-        </div>
-        <CalendarDays size={23} />
+        <span>Tu dinero</span>
+        <button onClick={() => navigate("cuentas")}>
+          Ver cuentas <ArrowRight size={16} />
+        </button>
       </header>
-      <div className="gf-liquidity-stats">
+      <div className="gf-money-balance">
+        <strong>{money(p.cash_cents)}</strong>
+        <span>Saldo registrado · sin cuenta corriente</span>
+      </div>
+      <div className="gf-money-plan">
         <div>
-          <span>Actualmente hay</span>
-          <strong>{money(p.cash_cents)}</strong>
-          <small>Fondos conocidos, sin sumar corriente</small>
+          <span>
+            Pagos próximos{" "}
+            <small>
+              Hasta el {dateLabel(p.horizon_day)} · incluye pendientes
+            </small>
+          </span>
+          <b>{money(p.commitments_cents)}</b>
         </div>
-        <div className="reserved">
-          <span>Apartado en corriente</span>
-          <strong>{money(p.checking_reserved_cents)}</strong>
-          <small>Reservado para cubrir los cheques</small>
-        </div>
-        <div>
-          <span>Pagos hasta el {dateLabel(p.horizon_day)}</span>
-          <strong>{money(p.commitments_cents)}</strong>
-          <small>Incluye lo pendiente y los próximos 3 días</small>
-        </div>
-        <div className={p.shortfall_cents ? "short" : "remaining"}>
+        <div className={p.shortfall_cents ? "needs-funds" : "after-payments"}>
           <span>
             {p.shortfall_cents
-              ? "Faltaría para esos pagos"
-              : "Quedaría tras los pagos conocidos"}
+              ? "Falta completar"
+              : incomplete
+                ? "Disponible después"
+                : "Quedaría después"}
+            {incomplete && <small>Faltan montos por confirmar</small>}
           </span>
-          <strong>
-            {money(p.shortfall_cents || p.after_known_payments_cents)}
-          </strong>
-          <small>
-            {p.unknown_commitments
-              ? "Hay pagos cuyo monto todavía falta indicar"
-              : "Según los saldos y compromisos registrados"}
-          </small>
+          <b>
+            {incomplete && !p.shortfall_cents
+              ? "Por confirmar"
+              : money(p.shortfall_cents || p.after_known_payments_cents)}
+          </b>
         </div>
       </div>
-      {p.unknown_commitments > 0 && (
+      <div className="gf-money-checking">
+        <BankLogo bank="Guayaquil" />
+        <span>
+          Corriente para cheques<small>Este dinero ya está apartado</small>
+        </span>
+        <strong>{money(p.checking_reserved_cents)}</strong>
+      </div>
+      {incomplete && (
         <button
-          className="gf-liquidity-missing"
+          className="gf-money-attention"
           onClick={() => navigate("tarjetas")}
         >
-          Falta indicar el monto de {p.unknown_commitments}{" "}
-          {p.unknown_commitments === 1 ? "pago" : "pagos"} de tarjeta{" "}
-          <ArrowRight size={17} />
+          <CalendarDays size={18} />
+          <span>
+            Revisar{" "}
+            {p.unknown_commitments === 1
+              ? "1 tarjeta"
+              : `${p.unknown_commitments} tarjetas`}
+          </span>
+          <ArrowRight size={16} />
         </button>
       )}
-      <details className="gf-liquidity-detail">
-        <summary>Ver qué hay que cubrir</summary>
+      <details className="gf-money-details">
+        <summary>
+          Ver próximos pagos <CalendarDays size={16} />
+        </summary>
         {p.obligations.map((o) => (
           <div key={o.id}>
             <span>
-              <strong>{o.title}</strong>
+              {o.title}
               <small>
                 {o.day < p.as_of
-                  ? "Pendiente de cubrir"
+                  ? "Pendiente"
                   : dateLabel(o.day, { day: "numeric", month: "long" })}
               </small>
             </span>
@@ -77,13 +92,14 @@ export function LiquidityPlan() {
           </div>
         ))}
         {!p.obligations.length && (
-          <p>No hay pagos registrados para estos próximos tres días.</p>
+          <p>No hay pagos registrados para los próximos tres días.</p>
         )}
+        <p>
+          Para cheques, los pagos próximos incluyen solo lo que falta completar
+          en corriente. El disponible depende de que los saldos y pagos estén
+          comprobados.
+        </p>
       </details>
-      <p>
-        La corriente se aparta una sola vez. Para cheques se reserva únicamente
-        lo que falta completar desde las demás cuentas.
-      </p>
     </section>
   );
 }
@@ -120,14 +136,16 @@ export function CardPaymentsPreview() {
                 <strong>{c.name}</strong>
                 <small>
                   {s
-                    ? `Fecha máxima ${dateLabel(s.due_date)}`
+                    ? ["paid", "paid_before_start"].includes(s.state)
+                      ? `Pagada · ${dateLabel(s.due_date)}`
+                      : `Fecha máxima ${dateLabel(s.due_date)}`
                     : `Corte ${c.cut_day} · pago ${c.due_day}`}
                 </small>
               </span>
               <b>
                 {!s || s.total_cents === null
                   ? "Por indicar"
-                  : money(s.total_cents)}
+                  : money(s.remaining_cents ?? s.total_cents)}
               </b>
             </button>
           );
@@ -174,10 +192,12 @@ export function AccountTiles({ custodyOnly = false }) {
             </small>
             {!a.grouped && (
               <small className="gf-account-number">
-                {a.account_number ||
-                  (a.last_four
-                    ? `··${a.last_four} · por completar`
-                    : "Número por completar")}
+                {a.manual_provider
+                  ? `Saldo manual · ${dateLabel(a.balance_as_of)}`
+                  : a.account_number ||
+                    (a.last_four
+                      ? `··${a.last_four} · por completar`
+                      : "Número por completar")}
               </small>
             )}
           </span>

@@ -1,3 +1,4 @@
+import { canUseFinanceAssistant } from "../../../shared/finance-workflow.mjs";
 import { AccountNumberEditor } from "./account-summary.jsx";
 import React, {
   useCallback,
@@ -213,6 +214,7 @@ const pages = [
   },
   {
     id: "asistente",
+    assistantOnly: true,
     label: "Asistente IA",
     icon: Sparkles,
     group: "INTELIGENCIA",
@@ -242,7 +244,12 @@ pages.unshift(
 pages.find((p) => p.id === "equipo").component = Team;
 
 function Login({ session, onLogin }) {
-  const [username, setUsername] = useState(""),
+  const [username, setUsername] = useState(
+      () => localStorage.getItem("gf_finance_username") || "",
+    ),
+    [remember, setRemember] = useState(
+      () => localStorage.getItem("gf_finance_remember") !== "false",
+    ),
     [password, setPassword] = useState(""),
     [code, setCode] = useState(""),
     [mfa, setMfa] = useState(false),
@@ -255,8 +262,11 @@ function Login({ session, onLogin }) {
     try {
       const data = await financeApi(
         demo ? "/demo" : "/login",
-        demo ? {} : { username, password, code },
+        demo ? {} : { username, password, code, remember },
       );
+      localStorage.setItem("gf_finance_remember", String(remember));
+      if (remember) localStorage.setItem("gf_finance_username", username);
+      else localStorage.removeItem("gf_finance_username");
       onLogin(data.user);
     } catch (e) {
       if (e.code === "MFA_REQUIRED") setMfa(true);
@@ -362,6 +372,17 @@ function Login({ session, onLogin }) {
                 />
               </label>
             )}
+            <label className="gf-remember-device">
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(e) => setRemember(e.target.checked)}
+              />
+              <span>
+                Recordar este dispositivo
+                <small>Mantener mi sesión durante 30 días</small>
+              </span>
+            </label>
             {error && (
               <div className="gf-error" role="alert">
                 {error}
@@ -467,6 +488,13 @@ function FinanceApp() {
       .then((s) => {
         setSession(s);
         setUser(s.user);
+        if (
+          s.user &&
+          !s.public_preview &&
+          !s.remember_device &&
+          localStorage.getItem("gf_finance_remember") !== "false"
+        )
+          financeApi("/remember-device", { remember: true }).catch(() => {});
         if (s.public_preview && s.period)
           setFilters((f) => ({ ...f, from: s.period.from, to: s.period.to }));
       })
@@ -624,6 +652,7 @@ function FinanceApp() {
   const visiblePages = pages.filter(
     (p) =>
       (!p.ownerOnly || user?.role === "owner") &&
+      (!p.assistantOnly || canUseFinanceAssistant(user)) &&
       (!p.cardsOnly ||
         user?.role === "owner" ||
         (user?.work_view && user?.username === "german")) &&
@@ -639,6 +668,7 @@ function FinanceApp() {
           "espacios",
           "confirmaciones",
           ...(user.checks_manage ? ["cheques"] : []),
+          ...(canUseFinanceAssistant(user) ? ["asistente"] : []),
         ].includes(p.id)) &&
       (!user?.work_view ||
         [
@@ -650,6 +680,7 @@ function FinanceApp() {
           "reportes",
           "cheques",
           "tarjetas",
+          ...(canUseFinanceAssistant(user) ? ["asistente"] : []),
         ].includes(p.id)) &&
       (!p.hideCollector || user?.role !== "collector"),
   );

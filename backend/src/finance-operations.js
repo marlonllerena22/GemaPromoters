@@ -1,3 +1,4 @@
+import { incomingNotices } from "./finance-bank-review.js";
 import crypto from "node:crypto";
 import { audit, cents, financeDay } from "./finance-db.js";
 import {
@@ -196,6 +197,7 @@ export function storeReceipts(db, user) {
 }
 export function attachOperations(db, user, data) {
   const scope = data.businesses.map((b) => b.id);
+  data.incoming_notices = incomingNotices(db, user);
   data.custody_funds =
     user.role !== "collector" && scope.includes("gemashow")
       ? db.prepare("SELECT * FROM finance_custody_balances").all()
@@ -217,6 +219,22 @@ export function attachOperations(db, user, data) {
     user.role === "owner" ? loanOverview(db, user) : { loans: [], alerts: [] };
   data.funding_overview = fundingOverview(db, user);
   accountPresentation(db, user, data, registry);
+  const payphoneObservation = privateSetting(
+    db,
+    "payphone_balance_observation",
+  );
+  if (payphoneObservation)
+    data.accounts = data.accounts.map((a) =>
+      a.id === payphoneObservation.account_id
+        ? {
+            ...a,
+            manual_provider: true,
+            balance_as_of: payphoneObservation.as_of_at,
+            provider_fee_policy:
+              "Solo PayPhone es un costo externo. La parte de ProTickets pertenece al propietario. El saldo informado no descuenta otra vez comisiones estimadas.",
+          }
+        : a,
+    );
   data.liquidity = liquidityView(db, user, data, registry);
   data.mail_status =
     user.role === "owner"

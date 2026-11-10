@@ -227,6 +227,10 @@ export function importBank(db, user, body) {
     if (day > financeDay()) fail("Hay movimientos con fecha futura");
     return {
       day,
+      occurred_at:
+        row.occurred_at && Number.isFinite(Date.parse(row.occurred_at))
+          ? new Date(row.occurred_at).toISOString()
+          : null,
       amount_cents: cents(row.amount_cents, { signed: true }),
       reference: text(row.reference),
       description: text(row.description, 500),
@@ -251,6 +255,8 @@ export function importBank(db, user, body) {
   return db.transaction(() => {
     const batch = crypto.randomUUID();
     let imported = 0;
+    const transactionIds = [];
+    const source = body.source_system === "bank-email" ? "bank-email" : "csv";
     rows.forEach((row, index) => {
       const fingerprint = crypto
         .createHash("sha256")
@@ -271,20 +277,42 @@ export function importBank(db, user, body) {
             "Un identificador bancario existente tiene datos diferentes. Revisa el archivo.",
             409,
           );
+        transactionIds.push(existing.id);
         return;
       }
-      db.prepare(
-        `INSERT INTO finance_bank_transactions (account_id,day,amount_cents,reference,description,fingerprint,batch_id,created_by) VALUES (?,?,?,?,?,?,?,?)`,
-      ).run(
-        account.id,
-        row.day,
-        row.amount_cents,
-        row.reference,
-        row.description,
-        fingerprint,
-        batch,
-        user.username,
-      );
+      if (row.reference) {
+        const matching = db
+          .prepare(
+            "SELECT * FROM finance_bank_transactions WHERE account_id=? AND day=? AND amount_cents=? AND reference=? AND import_source!=?",
+          )
+          .all(account.id, row.day, row.amount_cents, row.reference, source);
+        if (matching.length > 1)
+          fail(
+            "Hay varios movimientos de otra fuente con esta referencia. Revisa antes de sumar",
+            409,
+          );
+        if (matching.length === 1) {
+          transactionIds.push(matching[0].id);
+          return;
+        }
+      }
+      const inserted = db
+        .prepare(
+          `INSERT INTO finance_bank_transactions (account_id,day,amount_cents,reference,description,fingerprint,batch_id,created_by,import_source,occurred_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+        )
+        .run(
+          account.id,
+          row.day,
+          row.amount_cents,
+          row.reference,
+          row.description,
+          fingerprint,
+          batch,
+          user.username,
+          source,
+          row.occurred_at,
+        );
+      transactionIds.push(Number(inserted.lastInsertRowid));
       imported++;
     });
     matchReportedChecks(db, user.username);
@@ -292,6 +320,7 @@ export function importBank(db, user, body) {
       imported,
       duplicates: rows.length - imported,
       batch_id: batch,
+      transaction_ids: transactionIds,
     };
     audit(
       db,
@@ -628,7 +657,7 @@ export function snapshot(db, user, filters = {}) {
     .prepare(
       `SELECT m.*,COALESCE((SELECT SUM(a.amount_cents) FROM finance_allocations a WHERE a.movement_id=m.id),0) allocated_cents,
       COALESCE((SELECT SUM(p.amount_cents) FROM finance_payments p WHERE p.request_id=m.id AND p.voided_at IS NULL),0) paid_total_cents,
-    e.name evidence_name FROM finance_movements m LEFT JOIN finance_evidence e ON e.id=m.evidence_id ORDER BY m.day DESC,m.id DESC`,
+    e.name evidence_name FROM finance_movements m LEFT JOIN finance_evidence e ON e.id=m.evidence_id WHERE m.hidden_at IS NULL ORDER BY m.day DESC,m.id DESC`,
     )
     .all()
     .filter(permitted);

@@ -65,7 +65,7 @@ También se puede iniciar con `npm run finance:preview`. Mantener el proceso abi
 | AlfaBusiness              | Receptor firmado implementado y probado. El proveedor debe habilitar todas las ventas, históricos, devoluciones y recuperación. Ver `docs/finance/ALFABUSINESS.md`.                 |
 | Bancos                    | Importación y conciliación manual de archivos. No existe conexión bancaria directa ni se solicitan contraseñas de bancos.                                                           |
 | Payphone                  | Se leen pagos del módulo existente. La consulta automática de comisiones, liquidaciones y contracargos reales requiere capacidades y autorización del proveedor; no se ha simulado. |
-| Correos bancarios         | Conector permanente pendiente. El acceso a Gmail de una conversación no se convierte en credenciales de esta aplicación.                                                            |
+| Correos bancarios         | OAuth de lectura, importación periódica, deduplicación, pagos de tarjetas y lectura de estados implementados. La operación continua requiere configurar el cliente y autorizar la cuenta propietaria en Google. El acceso de esta conversación es independiente. |
 | OpenAI                    | Implementación probada con respuestas controladas. No había una clave disponible en el checkout; falta configurar y verificar el proveedor real.                                    |
 
 ## Configuración de operación
@@ -117,10 +117,22 @@ Los cierres conservan el conteo físico y su diferencia. Registrar “entregado 
 
 La interfaz tiene un acabado financiero profesional; esto no constituye certificación bancaria ni una auditoría externa de seguridad. Antes de operar públicamente con datos reales corresponden la configuración, validación de fuentes y revisión de despliegue. Los módulos antiguos comparten origen, servidor y base: su seguridad también forma parte del alcance de una revisión de producción.
 
-La lectura de documentos y el asistente usan [Responses y salidas estructuradas de OpenAI](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses), con `store: false` y sin herramientas de modificación. Los documentos se transmiten al proveedor únicamente al solicitar su análisis.
+La lectura de documentos y el asistente usan [Responses y salidas estructuradas de OpenAI](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses), con `store: false` y sin herramientas de modificación. Los documentos se transmiten al proveedor al solicitar su análisis. Al activar Gmail y el proveedor de IA, el proceso automático también analiza los PDF de estados de tarjeta procedentes de remitentes bancarios autenticados para extraer el pago mensual.
 
 El dictado usa [SpeechRecognition del navegador](https://developer.mozilla.org/en-US/docs/Web/API/SpeechRecognition), con disponibilidad variable y posible procesamiento de audio en línea por el proveedor del navegador. No empieza sin pulsar el micrófono. Siempre se puede escribir o usar el dictado del teclado; se revisa el monto antes de guardar. El proyecto no almacena grabaciones de voz.
 
 ## Actualización de espacios y perfiles
 
 56 pruebas financieras y relacionadas aprobadas, incluido aislamiento de espacios, saldos de consulta sin detalles personales, pagos parciales, sobrepago, idempotencia, reversión, más de mil solicitudes pendientes y reintentos de notificaciones. Arranque completo con base aislada y compilación aprobados. En navegador se probó crear una solicitud como Ana y resolver un pago completo como propietario, además de la vista de Germán y la disposición móvil a 320 y 390 px. La vista privada publicada permite alternar seis perfiles ficticios y simular el flujo en memoria; recargar reinicia los cambios. No activa usuarios ni servicios externos de la aplicación operativa.
+
+## Sesión, correo y revisión bancaria
+
+“Recordar este dispositivo” conserva la sesión durante 30 días mediante una cookie HttpOnly; no guarda contraseñas ni tokens en localStorage. Las sesiones ordinarias conservan el límite de inactividad. Cerrar sesión o revocar el acceso invalida la sesión recordada. El segundo factor sigue siendo obligatorio cuando está activado.
+
+Gmail requiere un cliente web con las variables `FINANCE_GMAIL_*` y consentimiento del propietario para `gmail.readonly`. La aplicación comprueba el correo autorizado y conserva cifrado el refresh token. Consulta cada dos minutos, con recuperación paginada y solapamiento para mensajes tardíos. No envía, modifica ni elimina correo.
+
+Los avisos autenticados y reconocidos actualizan el movimiento bancario; la clasificación por negocio sigue separada. Un pago de tarjeta reduce su obligación mensual sin crear de nuevo el gasto del consumo. Los pagos anteriores al inicio pueden cerrar su ciclo sin volver a descontarse del saldo inicial. Los avisos de transferencias pendientes no acreditan automáticamente la cuenta receptora. Los consumos de débito requieren una asociación explícita entre tarjeta y cuenta.
+
+Las observaciones posteriores de saldo conservan fecha, evidencia y diferencia respecto del cálculo anterior. No inventan ingresos para explicar esa diferencia ni vuelven a sumar movimientos anteriores. Los avisos de depósitos pendientes de comprobante tampoco aumentan el saldo. Una revisión privada excepcional puede aplicarse mediante `FINANCE_BANK_REVIEW_PAYLOAD`, cifrada con la clave de documentos, con vencimiento, identificador único, validaciones exactas y auditoría; no expone una ruta administrativa pública.
+
+El chat financiero está limitado al propietario, Germán, Morelia y Norma. Las respuestas de ventas se calculan desde ventas y documentos, con referencias, y conservan el tema en preguntas de seguimiento. La lectura de comprobantes y el registro rápido mantienen los permisos propios de cada colaborador.

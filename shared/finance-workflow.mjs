@@ -250,3 +250,11 @@ export function workflowView(source, user) {
     profiles: user.role === "owner" ? PROFILE_TEMPLATES : [],
   };
 }
+
+// Conversational access is separate from document OCR and quick-entry helpers.
+export const canUseFinanceAssistant = (user) =>
+  Boolean(
+    user &&
+      (user.role === "owner" ||
+        ["german", "morelia", "norma", "normita"].includes(user.username)),
+  );

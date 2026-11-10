@@ -1,3 +1,6 @@
+import { applyBankReview } from "../src/finance-bank-review.js";
+import { assistantFilters, sourcedAnswer } from "../src/finance-assistant.js";
+import { recordMailStatement } from "../src/finance-gmail.js";
 import { initFinanceOperationsDb } from "../src/finance-operations-db.js";
 import { declareCheck } from "../src/finance-check-ledger.js";
 import {
@@ -14,6 +17,7 @@ import {
   confirmStoreReceipt,
   storeReceipts,
   putPrivateSetting,
+  privateSetting,
 } from "../src/finance-operations.js";
 import { savePayee, listPayees, getPayee } from "../src/finance-payees.js";
 import {
@@ -848,5 +852,374 @@ test("existing installations grant cheque clearing only to German and keep the u
       )
       .get().checks_clear,
     0,
+  );
+});
+
+test("trusted card payment and statement close the cycle once, including CSV overlap", (t) => {
+  const { db, owner } = fixture(t);
+  const id = Number(
+    db
+      .prepare(
+        "INSERT INTO finance_accounts (name,bank,kind,opening_cents,opening_date) VALUES ('Fixture savings','Pacífico','bank',50000,'2026-11-01')",
+      )
+      .run().lastInsertRowid,
+  );
+  putPrivateSetting(db, "own_account_registry", {
+    accounts: [{ account_id: id, bank: "Pacífico", number: "1022222263" }],
+  });
+  db.prepare(
+    "INSERT INTO finance_credit_cards VALUES ('mail-card','Fixture card','Pacífico',?,23,9)",
+  ).run(id);
+  recordMailStatement(db, {
+    id: "bill-fixture",
+    trusted: true,
+    bank: "Pacífico",
+    statement: {
+      total_cents: 10000,
+      cut_date: "2026-10-23",
+      due_date: "2026-11-09",
+    },
+  });
+  const m = mail(
+    "payment-fixture",
+    "Pago de tarjeta de cr&#233;dito exitosamente. Desde la cuenta : 10XXXXXX63 Tarjeta : 542258XXXXXXX353 Valor: $100.00 N&#250;mero de comprobante : 3701999 Fecha y hora: 09-11-2026 a las 15:59.",
+  );
+  m.payload.headers = [
+    { name: "From", value: "avisos@bancopacifico.ec" },
+    { name: "Subject", value: "Pago de tarjeta de crédito" },
+    {
+      name: "Authentication-Results",
+      value: "mx.google.com; dmarc=pass header.from=bancopacifico.ec",
+    },
+  ];
+  const parsed = parseBankMail(m, {
+    accounts: [{ account_id: id, bank: "Pacífico", number: "1022222263" }],
+  });
+  assert.equal(parsed.account_id, id);
+  assert.equal(parsed.amount_cents, 10000);
+  assert.equal(parsed.event, "card_settlement");
+  ingestBankMessages(db, [m, m]);
+  assert.equal(
+    db.prepare("SELECT count(*) n FROM finance_card_payments").get().n,
+    1,
+  );
+  assert.equal(
+    db.prepare("SELECT state FROM finance_card_statements").get().state,
+    "paid",
+  );
+  assert.equal(accountCash(db, id), 40000);
+  assert.equal(
+    db.prepare("SELECT count(*) n FROM finance_movements").get().n,
+    0,
+  );
+  const imported = importBank(db, owner, {
+    account_id: id,
+    rows: [
+      {
+        day: "2026-11-09",
+        amount_cents: -10000,
+        reference: "3701999",
+        external_id: "csv-bank-id",
+      },
+    ],
+  });
+  assert.equal(imported.imported, 0);
+  assert.equal(accountCash(db, id), 40000);
+});
+
+test("a historical card payment resolves its cycle without debiting the opening balance", (t) => {
+  const { db, account } = fixture(t);
+  db.prepare(
+    "UPDATE finance_accounts SET bank='Pichincha',opening_at='2026-11-09T19:00:00Z' WHERE id=?",
+  ).run(account);
+  putPrivateSetting(db, "opening_cutoff", "2026-11-09T19:00:00Z");
+  putPrivateSetting(db, "own_account_registry", {
+    accounts: [{ account_id: account, bank: "Pichincha", number: "000009999" }],
+  });
+  db.prepare(
+    "INSERT INTO finance_credit_cards VALUES ('old-card','Fixture card','Pichincha',NULL,24,9)",
+  ).run();
+  recordMailStatement(db, {
+    id: "fixture-bill",
+    trusted: true,
+    bank: "Pichincha",
+    statement: {
+      total_cents: 10000,
+      cut_date: "2026-10-24",
+      due_date: "2026-11-09",
+    },
+  });
+  ingestBankMessages(db, [
+    mail(
+      "old-payment",
+      "Pago de la tarjeta de cr&eacute;dito No. 5189XXXX1451. Cuenta de d&eacute;bito: XXXXXX9999 Monto: &#36;100.00 Fecha: 09/11/2026 a la(s) 11:08",
+      "2026-11-09T16:08:25Z",
+    ),
+  ]);
+  assert.equal(
+    db.prepare("SELECT state FROM finance_card_statements").get().state,
+    "paid_before_start",
+  );
+  assert.equal(
+    db.prepare("SELECT count(*) n FROM finance_bank_transactions").get().n,
+    0,
+  );
+  assert.equal(accountCash(db, account), 195645);
+});
+
+test("card installments stay partial and unmatched debit cards never select an account by suffix alone", (t) => {
+  const { db, account, owner } = fixture(t);
+  db.prepare("UPDATE finance_accounts SET bank='Pichincha' WHERE id=?").run(
+    account,
+  );
+  putPrivateSetting(db, "own_account_registry", {
+    accounts: [{ account_id: account, bank: "Pichincha", number: "000009999" }],
+  });
+  db.prepare(
+    "INSERT INTO finance_credit_cards VALUES ('partial-card','Fixture card','Pichincha',NULL,24,9)",
+  ).run();
+  recordMailStatement(db, {
+    id: "partial-bill",
+    trusted: true,
+    bank: "Pichincha",
+    statement: {
+      total_cents: 10000,
+      cut_date: "2026-10-24",
+      due_date: "2026-11-09",
+    },
+  });
+  ingestBankMessages(db, [
+    mail(
+      "partial-payment",
+      "Pago de la tarjeta de crédito. Cuenta de débito: XXXXXX9999 Monto: $40.00 Fecha 09/11/2026 a la(s) 15:59 Referencia: PARTIAL01",
+    ),
+  ]);
+  const s = fundingOverview(db, owner).cards[0].statements[0];
+  assert.equal(s.state, "partial");
+  assert.equal(s.paid_cents, 4000);
+  assert.equal(s.remaining_cents, 6000);
+  const debit = parseBankMail(
+    mail(
+      "unknown-debit",
+      "Pago exitoso con tu tarjeta de débito. Monto $10.00 Número de tarjeta ********9999 Fecha 09/11/2026 a la(s) 16:00",
+    ),
+    {
+      accounts: [
+        { account_id: account, bank: "Pichincha", number: "000009999" },
+      ],
+    },
+  );
+  assert.equal(debit.account_id, null);
+});
+
+test("promised transfers remain pending even when both own accounts are recognised", (t) => {
+  const { db, account } = fixture(t);
+  putPrivateSetting(db, "own_account_registry", {
+    accounts: [{ account_id: account, bank: "Pichincha", number: "000009999" }],
+  });
+  ingestBankMessages(db, [
+    mail(
+      "promised",
+      "La transferencia solicitada será debitada de su cuenta, y acreditada en la cuenta destino en 1 hora. Cuenta de origen: XXXXXX9999 Cuenta acreditada: XXXXXX9999 Monto: USD 25.00 Número de documento: PENDING01 Fecha 09/11/2026",
+    ),
+  ]);
+  assert.equal(
+    db.prepare("SELECT state FROM finance_mail_messages").get().state,
+    "pending",
+  );
+  assert.equal(
+    db.prepare("SELECT count(*) n FROM finance_bank_transactions").get().n,
+    0,
+  );
+});
+
+test("observed balances cover late-arriving older debits and retain later activity", (t) => {
+  const { db, owner, account } = fixture(t);
+  db.prepare("UPDATE finance_accounts SET bank='Pichincha' WHERE id=?").run(
+    account,
+  );
+  putPrivateSetting(db, "own_account_registry", {
+    accounts: [{ account_id: account, bank: "Pichincha", number: "000009999" }],
+  });
+  const config = {
+    kind: "bank-review-v1",
+    id: "checkpoint-fixture",
+    expires_at: new Date(Date.now() + 60000).toISOString(),
+    messages: [],
+    balances: [
+      {
+        bank: "Pichincha",
+        account_suffix: "9999",
+        balance_cents: 90000,
+        as_of_at: "2026-11-09T18:00:00Z",
+        source_hash: "a".repeat(64),
+      },
+    ],
+  };
+  applyBankReview(db, config);
+  assert.equal(accountCash(db, account), 90000);
+  importBank(db, owner, {
+    account_id: account,
+    rows: [
+      {
+        day: "2026-11-09",
+        occurred_at: "2026-11-09T17:00:00Z",
+        amount_cents: -10000,
+        reference: "OLDNOTICE",
+        external_id: "old-notice",
+      },
+      {
+        day: "2026-11-09",
+        occurred_at: "2026-11-09T19:00:00Z",
+        amount_cents: -5000,
+        reference: "LATERNOTICE",
+        external_id: "later-notice",
+      },
+    ],
+  });
+  assert.equal(accountCash(db, account), 85000);
+  assert.equal(applyBankReview(db, config).applied, false);
+  assert.equal(accountCash(db, account), 85000);
+});
+
+test("a sales follow-up retains the sales source instead of interpreting the total as a cheque number", () => {
+  const data = {
+    period: { from: "2026-11-09", to: "2026-11-09" },
+    sales: [
+      {
+        id: 4,
+        state: "active",
+        unit_id: "event",
+        business_id: "gemashow",
+        total_cents: 16800,
+        refunded_cents: 0,
+        payments: [{ amount_cents: 16800 }],
+        document_number: "TICKET-EXAMPLE",
+      },
+    ],
+    units: [{ id: "event", name: "Evento de ejemplo" }],
+    businesses: [],
+    summary: { income_cents: 0 },
+    integrations: [],
+  };
+  const first = sourcedAnswer("¿Qué tal nos ha ido hoy en ventas?", data);
+  assert.equal(first.topic, "sales");
+  assert.equal(first.references[0].id, 4);
+  const follow = sourcedAnswer("¿De qué son esos 168?", data, [
+    { role: "assistant", text: first.answer, topic: first.topic },
+  ]);
+  assert.equal(follow.topic, "sales");
+  assert.match(follow.answer, /Evento de ejemplo/);
+  assert.doesNotMatch(follow.answer, /cheque/i);
+  assert.match(follow.answer, /0,00/);
+  assert.equal(
+    sourcedAnswer("Dime del cheque 168", data, [
+      { role: "assistant", text: first.answer, topic: "sales" },
+    ]),
+    null,
+  );
+  assert.equal(
+    assistantFilters("hoy", {}, new Date("2026-11-10T02:00:00Z")).from,
+    "2026-11-09",
+  );
+});
+
+test("authorized test-request removal is exact, auditable, idempotent and rolls back mismatches", (t) => {
+  const { db, owner } = fixture(t);
+  const m = createMovement(db, owner, {
+    business_id: "producalza",
+    kind: "expense",
+    amount_cents: 15000,
+    day: "2026-11-09",
+    category: "Otros",
+    counterparty: "Proveedor de prueba",
+    description: "Prueba",
+  });
+  db.prepare(
+    "UPDATE finance_movements SET is_payment_request=1,created_by=? WHERE id=?",
+  ).run("norma", m.id);
+  const removal = {
+      id: m.id,
+      created_by: "norma",
+      amount_cents: 15000,
+      counterparty: "Proveedor de prueba",
+      description: "Prueba",
+    },
+    config = {
+      kind: "bank-review-v1",
+      id: "remove-fixture",
+      expires_at: new Date(Date.now() + 60000).toISOString(),
+      messages: [],
+      remove_test_requests: [removal],
+    };
+  assert.throws(
+    () =>
+      applyBankReview(db, {
+        ...config,
+        remove_test_requests: [{ ...removal, amount_cents: 15001 }],
+      }),
+    /changed/,
+  );
+  assert.equal(
+    db.prepare("SELECT hidden_at FROM finance_movements WHERE id=?").get(m.id)
+      .hidden_at,
+    null,
+  );
+  assert.equal(applyBankReview(db, config).removed, 1);
+  assert.ok(
+    db.prepare("SELECT hidden_at FROM finance_movements WHERE id=?").get(m.id)
+      .hidden_at,
+  );
+  assert.equal(
+    snapshot(db, owner, {}).movements.some((x) => x.id === m.id),
+    false,
+  );
+  assert.equal(applyBankReview(db, config).applied, false);
+  assert.equal(
+    db
+      .prepare(
+        "SELECT count(*) n FROM finance_audit WHERE action='request.test_removed'",
+      )
+      .get().n,
+    1,
+  );
+});
+
+test("a reported PayPhone balance is kept whole without subtracting the owned platform fee", (t) => {
+  const { db, owner } = fixture(t),
+    config = {
+      kind: "bank-review-v1",
+      id: "wallet-fixture",
+      expires_at: new Date(Date.now() + 60000).toISOString(),
+      messages: [],
+      wallet_balances: [
+        {
+          provider: "payphone",
+          balance_cents: 120000,
+          as_of_at: new Date().toISOString(),
+          source_hash: "c".repeat(64),
+        },
+      ],
+    };
+  assert.equal(applyBankReview(db, config).wallets, 1);
+  assert.equal(applyBankReview(db, config).applied, false);
+  const a = db
+    .prepare("SELECT * FROM finance_accounts WHERE bank='PayPhone'")
+    .get();
+  assert.equal(a.business_id, "gemashow");
+  assert.equal(accountCash(db, a.id), 120000);
+  assert.equal(
+    db.prepare("SELECT count(*) n FROM finance_movements").get().n,
+    0,
+  );
+  assert.equal(
+    db
+      .prepare("SELECT count(*) n FROM finance_accounts WHERE bank='PayPhone'")
+      .get().n,
+    1,
+  );
+  assert.equal(
+    privateSetting(db, "payphone_balance_observation").platform_fee_owned,
+    true,
   );
 });

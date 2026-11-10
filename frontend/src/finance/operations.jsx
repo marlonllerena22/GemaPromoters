@@ -801,3 +801,58 @@ export function InviteActivation() {
     </div>
   );
 }
+
+export function IncomingNotices() {
+  const { data, open, selectMovement } = useFinance(),
+    notices = data.incoming_notices || [];
+  if (!notices.length) return null;
+  return (
+    <section className="gf-incoming-notices">
+      <h3>Depósitos por respaldar</h3>
+      {notices.map((n) => (
+        <article key={n.id}>
+          <div>
+            <strong>{n.counterparty}</strong>
+            <span>
+              {n.bank} ··{n.last_four} ·{" "}
+              {n.state === "receipt_received"
+                ? "Hay un comprobante para contrastar"
+                : "Esperando el comprobante"}
+            </span>
+          </div>
+          <b>{money(n.amount_cents)}</b>
+          {n.possible_movement_id &&
+          data.movements.some((m) => m.id === n.possible_movement_id) ? (
+            <Button
+              variant="secondary small"
+              onClick={() =>
+                selectMovement(
+                  data.movements.find((m) => m.id === n.possible_movement_id),
+                )
+              }
+            >
+              Comparar
+            </Button>
+          ) : (
+            <Button
+              variant="secondary small"
+              onClick={() =>
+                open("quick", {
+                  mode: "receipt",
+                  business_id: n.business_id,
+                  text: `Abono de ${n.counterparty} por $${n.amount_cents / 100}`,
+                })
+              }
+            >
+              Subir comprobante
+            </Button>
+          )}
+        </article>
+      ))}
+      <p>
+        El dinero ya está incluido en el saldo confirmado. Subir el comprobante
+        permite identificarlo y no vuelve a sumarlo.
+      </p>
+    </section>
+  );
+}
