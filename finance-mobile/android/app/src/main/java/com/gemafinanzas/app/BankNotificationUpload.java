@@ -27,7 +27,7 @@ public class BankNotificationUpload extends Worker {
             HttpsURLConnection conn=(HttpsURLConnection)new URL("https://gemapromoters.onrender.com/api/finance/android-bank-events").openConnection();
             try{
                 conn.setInstanceFollowRedirects(false);conn.setConnectTimeout(20000);conn.setReadTimeout(30000);conn.setRequestMethod("POST");conn.setDoOutput(true);
-                conn.setRequestProperty("Content-Type","application/json");conn.setRequestProperty("X-Gema-Bank-Device",state.getString("token"));
+                conn.setRequestProperty("Content-Type","application/json");conn.setRequestProperty("X-Finance-Request","1");conn.setRequestProperty("X-Gema-Bank-Device",state.getString("token"));
                 byte[] bytes=new JSONObject().put("events",batch).toString().getBytes(StandardCharsets.UTF_8);conn.setFixedLengthStreamingMode(bytes.length);
                 try(java.io.OutputStream stream=conn.getOutputStream()){stream.write(bytes);}
                 int status=conn.getResponseCode();
