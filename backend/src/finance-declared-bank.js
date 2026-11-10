@@ -8,7 +8,7 @@ export function matchUnreferencedDeclaration(db, { account_id, day, amount_cents
   const rows = db.prepare(`SELECT DISTINCT b.*,m.counterparty FROM finance_bank_transactions b
     LEFT JOIN finance_allocations a ON a.bank_transaction_id=b.id
     LEFT JOIN finance_movements m ON m.id=a.movement_id
-    WHERE b.account_id=? AND b.day=? AND b.amount_cents=? AND b.import_source='assistant' AND COALESCE(b.reference,'')=''`).all(account_id, day, amount_cents);
+    WHERE b.account_id=? AND b.day=? AND b.amount_cents=? AND b.import_source IN ('assistant','statement-image') AND COALESCE(b.reference,'')=''`).all(account_id, day, amount_cents);
   if (!rows.length) return null;
   const name = normalized(counterparty);
   const matches = rows.filter((r) => name && normalized(r.counterparty) === name);

@@ -13,6 +13,7 @@ import {
   recordMailStatement,
 } from "./finance-gmail.js";
 import { recordedAccountBalance } from "./finance-check-ledger.js";
+import { importStatementImage } from "./finance-statement-images.js";
 const normalize = (s) =>
   String(s || "")
     .normalize("NFD")
@@ -213,6 +214,7 @@ export function applyBankReview(db, config) {
       if (recordMailStatement(db, { ...draft, statement: s })) statements++;
     }
     const mail = ingestBankMessages(db, config.messages, { reprocess: true });
+    const statement_images=(config.statement_images||[]).map(image=>importStatementImage(db,findAccount(image),image));
     let balances = 0;
     for (const b of config.balances || []) {
       const a = findAccount(b);
@@ -333,6 +335,7 @@ export function applyBankReview(db, config) {
       balances,
       notices,
       removed,
+      statement_images,
     };
     putPrivateSetting(db, key, result);
     return result;

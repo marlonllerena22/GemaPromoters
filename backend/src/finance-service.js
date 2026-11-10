@@ -256,7 +256,7 @@ export function importBank(db, user, body) {
     const batch = crypto.randomUUID();
     let imported = 0;
     const transactionIds = [];
-    const source = body.source_system === "bank-email" ? "bank-email" : body.source_system === "assistant" ? "assistant" : "csv";
+    const source = ["bank-email", "assistant", "statement-image"].includes(body.source_system) ? body.source_system : "csv";
     rows.forEach((row, index) => {
       const fingerprint = crypto
         .createHash("sha256")

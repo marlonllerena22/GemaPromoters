@@ -7,6 +7,8 @@ import { recordedAccountBalance } from "../src/finance-check-ledger.js";
 import { encryptDocument } from "../src/finance-ai.js";
 import { applyMailDraft } from "../src/finance-gmail.js";
 import { financeSupportCheck } from "../src/finance-support-check.js";
+import { importStatementImage } from "../src/finance-statement-images.js";
+import { createMovement } from "../src/finance-service.js";
 process.env.FINANCE_DOCUMENT_KEY ||= "test-only-conversation-document-key-123456";
 
 function fixture(t) {
@@ -31,6 +33,26 @@ function fixture(t) {
   return { db, owner, german, norma, accountId, data, setResponse: (r) => { next = r; }, requests: () => requests };
 }
 const chat = (content) => ({ messages: [{ role: "user", content }] });
+
+test("statement image reconciles uploaded payments and actual charges atomically, with a running balance guard",(t)=>{
+  const f=fixture(t),day=financeDay();
+  const expense=createMovement(f.db,f.owner,{business_id:"producalza",account_id:f.accountId,kind:"expense",amount_cents:2000,day,category:"Materiales",counterparty:"Proveedor",description:"Pago con comprobante",reference:"IMAGE-EXPENSE"});
+  f.db.prepare("UPDATE finance_movements SET status='reported' WHERE id=?").run(expense.id);
+  const image={source_hash:"a".repeat(64),observed_at:new Date().toISOString(),expected_before_cents:10000,expected_after_cents:12959,rows:[
+    {amount_cents:5000,description:"Depósito recibido por identificar"},
+    {amount_cents:-2000,reference:"IMAGE-EXPENSE",description:"Pago proveedor",movement_id:expense.id},
+    {amount_cents:-36,reference:"IMAGE-EXPENSE-COMMISSION",description:"Comisión real en extracto",fee_business_id:"producalza"},
+    {amount_cents:-5,reference:"IMAGE-EXPENSE-VAT",description:"IVA real en extracto",fee_business_id:"producalza",tax:true}
+  ]};
+  const account=f.db.prepare("SELECT * FROM finance_accounts WHERE id=?").get(f.accountId);
+  assert.throws(()=>importStatementImage(f.db,account,{...image,expected_after_cents:99999}),/running balance/);
+  assert.equal(f.db.prepare("SELECT count(*) n FROM finance_bank_transactions").get().n,0);
+  assert.equal(f.db.prepare("SELECT status FROM finance_movements WHERE id=?").get(expense.id).status,"reported");
+  assert.equal(importStatementImage(f.db,account,image).balance_cents,12959);
+  assert.equal(f.db.prepare("SELECT status FROM finance_movements WHERE id=?").get(expense.id).status,"reconciled");
+  assert.equal(f.db.prepare("SELECT count(*) n FROM finance_bank_transactions").get().n,4);
+  assert.throws(()=>importStatementImage(f.db,account,image),/Account changed/);
+});
 
 test("a short-lived operator support check logs only ciphertext and never changes bank balances",async(t)=>{
   const f=fixture(t), logs=[];

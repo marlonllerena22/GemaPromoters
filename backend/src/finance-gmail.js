@@ -545,7 +545,7 @@ export function applyMailDraft(db, user, id, body) {
         409,
       );
     const declared = !alreadyApplied && p.reference
-      ? db.prepare("SELECT * FROM finance_bank_transactions WHERE account_id=? AND amount_cents=? AND reference=? AND import_source='assistant'").all(account.id, p.amount_cents * (direction === "outgoing" ? -1 : 1), p.reference)
+      ? db.prepare("SELECT * FROM finance_bank_transactions WHERE account_id=? AND amount_cents=? AND reference=? AND import_source IN ('assistant','statement-image')").all(account.id, p.amount_cents * (direction === "outgoing" ? -1 : 1), p.reference)
       : [];
     if (declared.length > 1) fail("Hay varios registros manuales con esa referencia. Revisa antes de aplicar el aviso", 409);
     const declaredBank = declared[0] || (!alreadyApplied ? matchUnreferencedDeclaration(db, { account_id: account.id, day, amount_cents: p.amount_cents * (direction === "outgoing" ? -1 : 1), counterparty: p.counterparty }) : null);
