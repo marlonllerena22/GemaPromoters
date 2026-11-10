@@ -194,6 +194,8 @@ export function AccountTiles({ custodyOnly = false }) {
               <small className="gf-account-number">
                 {a.kind === "cash"
                   ? "Registro manual"
+                  : a.provider_auto_receipts
+                    ? "Automático · ProTickets"
                   : a.manual_provider
                     ? `Saldo manual · ${dateLabel(a.balance_as_of)}`
                     : a.account_number ||

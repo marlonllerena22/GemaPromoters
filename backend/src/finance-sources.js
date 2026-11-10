@@ -2,6 +2,7 @@ import { audit, financeDay } from "./finance-db.js";
 import crypto from "node:crypto";
 import { importSale, tableExists } from "./finance-service.js";
 import { privateSetting } from "./finance-operations.js";
+import { syncPayphoneReceipts } from "./finance-payphone.js";
 const sourceTime = (value) => {
   const s = String(value || "").replace(" ", "T");
   return Date.parse(
@@ -231,6 +232,7 @@ export function syncInternalSources(db, user) {
           ticketingSales++;
         }
       }
+      syncPayphoneReceipts(db, rows, privateSetting(db, "payphone_balance_observation"), sourceTime, user.username);
       db.prepare(
         `INSERT INTO finance_sync_log (source,last_run,count,state,detail) VALUES ('protickets',?,?,'ready',?)
         ON CONFLICT(source) DO UPDATE SET last_run=excluded.last_run,count=excluded.count,state=excluded.state,detail=excluded.detail`,

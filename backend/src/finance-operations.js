@@ -11,6 +11,7 @@ import {
 import { encryptDocument, decryptDocument } from "./finance-ai.js";
 import { receivingBank, storeReceiptRoute } from "../../shared/finance-store-receipts.mjs";
 import { loanOverview } from "./finance-loans.js";
+import { payphoneReceiptStatus } from "./finance-payphone.js";
 import {
   accountPresentation,
   liquidityView,
@@ -260,13 +261,19 @@ export function attachOperations(db, user, data) {
       a.id === payphoneObservation.account_id
         ? {
             ...a,
-            manual_provider: true,
+            manual_provider: false,
+            provider_auto_receipts: true,
+            provider_calculation: payphoneReceiptStatus(db, a.id),
             balance_as_of: payphoneObservation.as_of_at,
             provider_fee_policy:
-              "Solo PayPhone es un costo externo. La parte de ProTickets pertenece al propietario. El saldo informado no descuenta otra vez comisiones estimadas.",
+              "Actualización automática con cobros confirmados de ProTickets, menos la tarifa PayPhone guardada en cada venta. La parte de ProTickets pertenece al propietario. El saldo inicial no descuenta otra vez comisiones. Registra los retiros; las devoluciones y cambios de cobros quedan para revisar.",
           }
         : a,
     );
+  if (data.ticketing_receipts) {
+    const wallet = data.accounts.find((a) => a.provider_auto_receipts);
+    data.ticketing_receipts.wallet_auto_updated = Boolean(wallet);
+  }
   data.liquidity = liquidityView(db, user, data, registry);
   data.mail_status =
     user.role === "owner"

@@ -620,7 +620,9 @@ export function Accounts() {
               >
                 <span>{a.name}</span>
                 <small className="gf-account-number">
-                  {a.manual_provider
+                  {a.provider_auto_receipts
+                    ? "Automático · ProTickets"
+                    : a.manual_provider
                     ? `Saldo manual · ${dateLabel(a.balance_as_of)}`
                     : a.account_number ||
                       (a.grouped
@@ -634,7 +636,9 @@ export function Accounts() {
                 {money(a.balance_cents)}
               </strong>
               <small>
-                {a.manual_provider
+                {a.provider_auto_receipts
+                  ? "Saldo calculado · cobros menos comisión PayPhone"
+                  : a.manual_provider
                   ? "Informado por Marlon · conexión pendiente"
                   : a.kind === "card"
                     ? "Saldo calculado · deuda si es negativo"
@@ -650,7 +654,11 @@ export function Accounts() {
                 ) : (
                   <Clock3 size={13} />
                 )}
-                {a.manual_provider
+                {a.provider_auto_receipts
+                  ? a.provider_calculation.review_count
+                    ? `${a.provider_calculation.review_count} cobros requieren revisión`
+                    : "Se actualiza cada minuto"
+                  : a.manual_provider
                   ? "Actualización manual"
                   : a.discrepancy_cents !== null && a.discrepancy_cents !== 0
                     ? `Diferencia: ${money(a.discrepancy_cents)}`
@@ -699,6 +707,20 @@ export function Accounts() {
                     {a.custodian && <small>Responsable: {a.custodian}</small>}
                     {a.provider_fee_policy && (
                       <small>{a.provider_fee_policy}</small>
+                    )}
+                    {a.provider_auto_receipts && a.provider_calculation.receipts.length > 0 && (
+                      <div className="gf-ticketing-receipts">
+                        <strong>Cobros desde el saldo inicial</strong>
+                        <dl>
+                          <div><dt>Total cobrado</dt><dd>{money(a.provider_calculation.gross_cents)}</dd></div>
+                          <div><dt>Comisión PayPhone calculada</dt><dd>−{money(a.provider_calculation.fee_cents)}</dd></div>
+                          <div><dt>Aumento neto</dt><dd>{money(a.provider_calculation.net_cents)}</dd></div>
+                        </dl>
+                        <small>La comisión usa la tarifa guardada al vender. No se descuenta tu parte de ProTickets.</small>
+                        {a.provider_calculation.receipts.map((r) => (
+                          <p key={r.document_number}>{r.document_number} · {r.state === "attention" ? "Requiere revisión · dinero reservado" : `${money(r.gross_cents)} − ${money(r.fee_cents)} = ${money(r.net_cents)}`}</p>
+                        ))}
+                      </div>
                     )}
                     {!a.business_id && (
                       <div className="gf-account-positions">
@@ -1946,8 +1968,8 @@ export function Integrations() {
                   </dl>
                   <small>
                     Los cobros incluyen la parte de ProTickets, que también es tuya.
-                    La comisión real de PayPhone y su saldo disponible se comprueban aparte.
-                    Estos totales no se suman otra vez a tus cuentas.
+                    El saldo PayPhone se calcula automáticamente con los cobros nuevos,
+                    descontando su tarifa una sola vez. Las liquidaciones reales se comprueban aparte.
                   </small>
                 </div>
               )}

@@ -41,6 +41,8 @@ export function initFinanceOperationsDb(db) {
     ).run();
   }
   db.exec(`
+    CREATE TABLE IF NOT EXISTS finance_provider_receipts (source_system TEXT NOT NULL,external_id TEXT NOT NULL,account_id INTEGER NOT NULL REFERENCES finance_accounts(id),document_number TEXT NOT NULL,occurred_at TEXT NOT NULL,gross_cents INTEGER NOT NULL,fee_rate REAL,fee_cents INTEGER,net_cents INTEGER,state TEXT NOT NULL CHECK(state IN ('calculated','attention')),created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(source_system,external_id));
+    CREATE INDEX IF NOT EXISTS finance_provider_receipts_account ON finance_provider_receipts(account_id,occurred_at);
     CREATE TABLE IF NOT EXISTS finance_balance_checkpoints (id INTEGER PRIMARY KEY,account_id INTEGER NOT NULL REFERENCES finance_accounts(id),as_of_at TEXT NOT NULL,balance_cents INTEGER NOT NULL,source_hash TEXT NOT NULL,created_by TEXT NOT NULL,created_at TEXT NOT NULL,UNIQUE(account_id,source_hash));
     CREATE TABLE IF NOT EXISTS finance_incoming_notices (id TEXT PRIMARY KEY,business_id TEXT NOT NULL,account_id INTEGER NOT NULL REFERENCES finance_accounts(id),amount_cents INTEGER NOT NULL,counterparty TEXT NOT NULL,day TEXT NOT NULL,source_hash TEXT NOT NULL,created_by TEXT NOT NULL,created_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS finance_runtime_settings (key TEXT PRIMARY KEY,encrypted BLOB NOT NULL);

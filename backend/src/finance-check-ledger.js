@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { providerReceiptDelta } from "./finance-payphone.js";
 import { audit, financeDay } from "./finance-db.js";
 const error = (message, status = 400) => {
   throw Object.assign(new Error(message), { status });
@@ -64,7 +65,8 @@ export function recordedAccountBalance(
       throughDay,
       throughInstant,
       checkpoint?.as_of_at || null,
-    )
+    ) +
+    providerReceiptDelta(db, account, throughDay, throughInstant, checkpoint?.as_of_at || account.opening_at || null)
   );
 }
 function used(db, id) {
