@@ -14,6 +14,7 @@ import {
 } from "./finance-gmail.js";
 import { recordedAccountBalance } from "./finance-check-ledger.js";
 import { importStatementImage } from "./finance-statement-images.js";
+import { recordOwnerDeclaration } from "./finance-owner-declarations.js";
 const normalize = (s) =>
   String(s || "")
     .normalize("NFD")
@@ -213,6 +214,7 @@ export function applyBankReview(db, config) {
         throw new Error("Invalid statement evidence");
       if (recordMailStatement(db, { ...draft, statement: s })) statements++;
     }
+    const declarations=(config.owner_declared_expenses||[]).map(entry=>recordOwnerDeclaration(db,entry,config.id));
     const mail = ingestBankMessages(db, config.messages, { reprocess: true });
     const statement_images=(config.statement_images||[]).map(image=>importStatementImage(db,findAccount(image),image));
     let balances = 0;
@@ -336,6 +338,7 @@ export function applyBankReview(db, config) {
       notices,
       removed,
       statement_images,
+      declarations,
     };
     putPrivateSetting(db, key, result);
     return result;

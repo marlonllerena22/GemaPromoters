@@ -9,6 +9,7 @@ import { applyMailDraft } from "../src/finance-gmail.js";
 import { financeSupportCheck } from "../src/finance-support-check.js";
 import { importStatementImage } from "../src/finance-statement-images.js";
 import { createMovement } from "../src/finance-service.js";
+import { applyBankReview } from "../src/finance-bank-review.js";
 process.env.FINANCE_DOCUMENT_KEY ||= "test-only-conversation-document-key-123456";
 
 function fixture(t) {
@@ -33,6 +34,16 @@ function fixture(t) {
   return { db, owner, german, norma, accountId, data, setResponse: (r) => { next = r; }, requests: () => requests };
 }
 const chat = (content) => ({ messages: [{ role: "user", content }] });
+
+test("a user-declared debit expense uses the named account and replay does not deduct twice",t=>{
+  const f=fixture(t);
+  f.db.prepare("UPDATE finance_accounts SET name='Guayaquil PAGOS Ahorros' WHERE id=?").run(f.accountId);
+  const config={kind:"bank-review-v1",id:"declared-test-only",expires_at:new Date(Date.now()+60000).toISOString(),messages:[],owner_declared_expenses:[{id:"test-receipt",confirmed:true,bank:"Guayaquil",account_name:"PAGOS",card_suffix:"2004",business_id:"personal",day:financeDay(),amount_cents:5000,category:"Internet",counterparty:"Proveedor internet",description:"Pago personal confirmado por el titular"}]};
+  const result=applyBankReview(f.db,config);
+  assert.equal(result.declarations[0].balance_cents,5000);
+  assert.equal(applyBankReview(f.db,config).applied,false);
+  assert.equal(f.db.prepare("SELECT count(*) n FROM finance_bank_transactions").get().n,1);
+});
 
 test("statement image reconciles uploaded payments and actual charges atomically, with a running balance guard",(t)=>{
   const f=fixture(t),day=financeDay();
