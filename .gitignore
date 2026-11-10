@@ -6,4 +6,11 @@ backend/data/
 work/
 tmp/
 releases/
+finance-mobile/android/.gradle/
+finance-mobile/android/local.properties
+finance-mobile/android/**/build/
+finance-mobile/android/app/google-services.json
+*.jks
+*.keystore
+*signing.properties
 *.log

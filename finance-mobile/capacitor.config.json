@@ -1,0 +1,8 @@
+{
+  "appId":"com.gemafinanzas.app",
+  "appName":"Gema Finanzas",
+  "webDir":"www",
+  "server":{"url":"https://gemapromoters.onrender.com/finanzas/","cleartext":false,"errorPath":"offline.html"},
+  "android":{"allowMixedContent":false,"backgroundColor":"#173b30"},
+  "plugins":{"PushNotifications":{"presentationOptions":["badge","sound","alert"]}}
+}

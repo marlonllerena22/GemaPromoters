@@ -1,4 +1,5 @@
 import { canUseFinanceAssistant } from "../../../shared/finance-workflow.mjs";
+import { isNativeFinance, NativeNotificationBridge, disconnectNativePush } from "./native-push.jsx";
 import { AccountNumberEditor } from "./account-summary.jsx";
 import React, {
   useCallback,
@@ -625,7 +626,7 @@ function FinanceApp() {
     robots.name = "robots";
     robots.content = "noindex,nofollow";
     document.head.appendChild(robots);
-    if ("serviceWorker" in navigator)
+    if ("serviceWorker" in navigator && !isNativeFinance())
       navigator.serviceWorker
         .register("/finanzas/sw.js", { scope: "/finanzas/" })
         .catch(() => {});
@@ -659,6 +660,7 @@ function FinanceApp() {
     }
   };
   async function logout() {
+    await disconnectNativePush();
     try {
       await financeApi("/logout", {});
     } catch {}
@@ -809,6 +811,7 @@ function FinanceApp() {
         run,
       }}
     >
+      <NativeNotificationBridge />
       <div
         className={`gf-app ${hidden ? "gf-values-hidden" : ""} ${
           user.role === "collector" ? "gf-collector" : ""

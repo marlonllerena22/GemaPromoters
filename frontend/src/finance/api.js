@@ -1,3 +1,13 @@
+import {Capacitor,registerPlugin} from "@capacitor/core";
+async function nativeFile(blob,name){
+  if(!Capacitor.isNativePlatform())return false;
+  const data=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result).split(",")[1]);r.onerror=reject;r.readAsDataURL(blob);});
+  const Filesystem=registerPlugin("Filesystem"),Share=registerPlugin("Share");
+  const safe=String(name||"comprobante").replace(/[^a-zA-Z0-9._-]/g,"_").slice(0,100);
+  const file=await Filesystem.writeFile({path:`gema/${Date.now()}-${safe}`,data,directory:"CACHE",recursive:true});
+  await Share.share({title:"Gema Finanzas",url:file.uri});
+  return true;
+}
 export async function financeApi(path, body, method, options = {}) {
   const response = await fetch(`/api/finance${path}`, {
     credentials: "same-origin",
@@ -113,7 +123,9 @@ export async function downloadEvidence(id, name) {
     credentials: "same-origin",
   });
   if (!response.ok) throw new Error("No se pudo descargar el comprobante");
-  const url = URL.createObjectURL(await response.blob());
+  const blob=await response.blob();
+  if(await nativeFile(blob,name||"comprobante"))return;
+  const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = name || "comprobante";
@@ -129,7 +141,9 @@ export async function downloadReport(filters) {
     const data = await response.json();
     throw new Error(data.message);
   }
-  const url = URL.createObjectURL(await response.blob());
+  const blob=await response.blob();
+  if(await nativeFile(blob,`finanzas-${filters.from}-${filters.to}.csv`))return;
+  const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = `finanzas-${filters.from}-${filters.to}.csv`;

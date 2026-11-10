@@ -4,6 +4,7 @@ import {
   CardPaymentsPreview,
 } from "./account-summary.jsx";
 import React, { useEffect, useRef, useState } from "react";
+import { isNativeFinance, NativePushEnrollment } from "./native-push.jsx";
 import {
   ArrowRight,
   ArrowUpRight,
@@ -1437,6 +1438,7 @@ export function NewSpace({ onClose }) {
   );
 }
 export function PushEnrollment() {
+  if(isNativeFinance()) return <NativePushEnrollment />;
   const { data, user, notify } = useFinance();
   const allowed = user.role === "owner" || user.checks_manage;
   const [busy, setBusy] = useState(false), [enabled, setEnabled] = useState(false);

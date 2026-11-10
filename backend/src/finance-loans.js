@@ -1,4 +1,4 @@
-import * as webpush from "web-push";
+import { sendFinancePush } from "./finance-native-push.js";
 import { recordedAccountBalance } from "./finance-check-ledger.js";
 import { audit, financeDay } from "./finance-db.js";
 import { fail } from "./finance-service.js";
@@ -100,7 +100,7 @@ export async function flushLoanPush(
   db,
   {
     now = new Date(),
-    send = webpush.sendNotification.bind(webpush),
+    send = sendFinancePush,
     config = pushConfiguration(),
   } = {},
 ) {

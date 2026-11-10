@@ -4,7 +4,7 @@ import {
   declareCheck,
   matchReportedChecks,
 } from "./finance-check-ledger.js";
-import * as webpush from "web-push";
+import { sendFinancePush } from "./finance-native-push.js";
 import { audit, financeDay, validDay } from "./finance-db.js";
 import { fail, text } from "./finance-service.js";
 import { decryptDocument } from "./finance-ai.js";
@@ -298,7 +298,7 @@ export async function flushFundingPush(
   db,
   {
     now = new Date(),
-    send = webpush.sendNotification.bind(webpush),
+    send = sendFinancePush,
     config = pushConfiguration(),
   } = {},
 ) {

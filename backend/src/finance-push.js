@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import * as webpush from "web-push";
+import { nativePushConfiguration, validateNativeSubscription, sendFinancePush } from "./finance-native-push.js";
 import { encryptDocument, decryptDocument } from "./finance-ai.js";
 import { fail } from "./finance-service.js";
 import { paymentProgress } from "../../shared/finance-workflow.mjs";
@@ -8,7 +8,8 @@ export function pushConfiguration() {
     privateKey = process.env.FINANCE_VAPID_PRIVATE_KEY,
     subject = process.env.FINANCE_VAPID_SUBJECT;
   return {
-    enabled: Boolean(
+    nativeEnabled: nativePushConfiguration().enabled,
+    enabled: nativePushConfiguration().enabled || Boolean(
       publicKey &&
         privateKey &&
         subject &&
@@ -21,6 +22,7 @@ export function pushConfiguration() {
   };
 }
 export function validatePushSubscription(value) {
+  if(value?.provider==="fcm") return validateNativeSubscription(value);
   if (
     !value ||
     typeof value.endpoint !== "string" ||
@@ -60,7 +62,7 @@ export function validatePushSubscription(value) {
 export async function flushPaymentPush(
   db,
   {
-    send = webpush.sendNotification.bind(webpush),
+    send = sendFinancePush,
     config = pushConfiguration(),
   } = {}
 ) {
@@ -140,9 +142,10 @@ export async function flushPaymentPush(
       );
   }
 }
-export function registerPaymentPush(app, db, { route, owner, send = webpush.sendNotification.bind(webpush) }) {
+export function registerPaymentPush(app, db, { route, owner, send = sendFinancePush }) {
   if (process.env.NODE_ENV !== "test") console.info("[finance] Push readiness", {
     configured: pushConfiguration().enabled,
+    android_configured: nativePushConfiguration().enabled,
     devices: db.prepare("SELECT COUNT(*) n FROM finance_push_subscriptions").get().n,
     pending: db.prepare("SELECT COUNT(*) n FROM finance_push_outbox WHERE state='queued'").get().n,
     failed: db.prepare("SELECT COUNT(*) n FROM finance_push_outbox WHERE state='failed'").get().n,
@@ -158,6 +161,7 @@ export function registerPaymentPush(app, db, { route, owner, send = webpush.send
       res.json({
         enabled: config.enabled,
         public_key: config.enabled ? config.publicKey : null,
+        native_enabled: config.nativeEnabled,
         registered_devices: db.prepare("SELECT COUNT(*) n FROM finance_push_subscriptions WHERE member_id=?").get(req.financeUser.id).n,
       });
     })
@@ -170,6 +174,7 @@ export function registerPaymentPush(app, db, { route, owner, send = webpush.send
         fail("Las alertas al celular están pendientes de configuración", 503);
       const value = validatePushSubscription(req.body.subscription),
         hash = crypto.createHash("sha256").update(value.endpoint).digest("hex");
+      if(value.provider==="fcm" && !nativePushConfiguration().enabled) fail("Los avisos Android están pendientes de configurar",503);
       if (
         db
           .prepare(
