@@ -741,6 +741,7 @@ export function registerGmailPublic(app, db, { route }) {
         null,
         { read_only: true },
       );
+      console.info("[finance] Gmail read-only connection authorized");
       res.redirect("/finanzas/conexiones");
     }),
   );
@@ -837,6 +838,9 @@ export function registerGmailRoutes(app, db, { route, owner }) {
       try {
         await syncGmail(db);
       } catch {
+        console.error(
+          "[finance] Gmail scheduled synchronization needs attention",
+        );
         putPrivateSetting(
           db,
           "mail_sync_error",
@@ -909,6 +913,10 @@ export async function syncGmail(db) {
   putPrivateSetting(db, "mail_last_sync", new Date().toISOString());
   if (!page) putPrivateSetting(db, "mail_poll_watermark", started);
   putPrivateSetting(db, "mail_sync_error", null);
+  console.info(
+    "[finance] Gmail synchronized " +
+      JSON.stringify({ imported, has_more: Boolean(page) }),
+  );
   return { imported, has_more: Boolean(page) };
 }
 
