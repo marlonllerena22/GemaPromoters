@@ -4853,3 +4853,22 @@ small {
 .gf-ticketing-receipts dt { font-size: 14px; }
 .gf-ticketing-receipts dd { margin: 0; font-weight: 650; white-space: nowrap; }
 .gf-ticketing-receipts > small { display: block; line-height: 1.6; }
+.gf-quick-dialogue { display: flex; flex-direction: column; gap: 16px; }
+.gf-quick-dialogue-messages { max-height: min(54vh, 530px); overflow-y: auto; padding: 4px; display: flex; flex-direction: column; gap: 16px; }
+.gf-quick-bubble { display: flex; gap: 10px; align-items: flex-start; }
+.gf-quick-bubble p { margin: 0; padding: 14px 16px; border-radius: 16px; background: #f2f5ee; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.gf-quick-bubble.user { justify-content: flex-end; }
+.gf-quick-bubble.user p { background: #e5eddd; max-width: 90%; }
+.gf-quick-confirm { padding: 20px; border: 1px solid #c8d7bc; border-radius: 20px; background: #f8faf5; }
+.gf-quick-confirm h3 { margin: 8px 0; }
+.gf-quick-confirm > strong { font-size: 30px; }
+.gf-quick-confirm dl { margin: 16px 0; }
+.gf-quick-confirm dl > div { display: flex; justify-content: space-between; gap: 16px; margin: 10px 0; }
+.gf-quick-confirm dt { flex-shrink: 0; color: #63705d; }
+.gf-quick-confirm dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
+.gf-quick-confirm > p { line-height: 1.6; font-size: 14px; }
+.gf-quick-confirm .gf-button { width: 100%; }
+.gf-quick-dialogue-composer textarea { width: 100%; padding: 14px; border-radius: 16px; border: 1px solid #ccd6c5; font: inherit; resize: vertical; min-height: 72px; box-sizing: border-box; }
+.gf-quick-dialogue-composer > div, .gf-quick-dialogue-done { display: flex; gap: 12px; justify-content: space-between; align-items: center; margin-top: 12px; }
+.gf-quick-dialogue-footer { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.gf-quick-dialogue-footer small { color: #6b7565; line-height: 1.6; flex: 1; min-width: 180px; }

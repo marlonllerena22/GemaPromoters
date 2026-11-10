@@ -13,6 +13,7 @@ import {
   reconcile,
 } from "./finance-service.js";
 import { privateSetting, putPrivateSetting } from "./finance-operations.js";
+import { applyDigitalServiceTaxes } from "./finance-digital-taxes.js";
 const ROOTS = [
   "pichincha.com",
   "pichinchamiles.com",
@@ -514,6 +515,8 @@ export function applyMailDraft(db, user, id, body) {
       (["expense", "card_payment", "card_settlement"].includes(p.event) &&
         direction !== "outgoing") ||
       (p.event === "income" && direction !== "incoming")
+      || (p.event === "internal_transfer" && p.destination_account_id === account.id && p.origin_account_id !== account.id && direction !== "incoming")
+      || (p.event === "internal_transfer" && p.origin_account_id === account.id && p.destination_account_id !== account.id && direction !== "outgoing")
     )
       fail("La dirección no coincide con el aviso");
     const key =
@@ -540,12 +543,24 @@ export function applyMailDraft(db, user, id, body) {
         "Hay varios registros con esta referencia. Revisa la asociación antes de importar",
         409,
       );
-    if (existing[0]?.status === "reconciled")
+    const declared = !alreadyApplied && p.reference
+      ? db.prepare("SELECT * FROM finance_bank_transactions WHERE account_id=? AND amount_cents=? AND reference=? AND import_source='assistant'").all(account.id, p.amount_cents * (direction === "outgoing" ? -1 : 1), p.reference)
+      : [];
+    if (declared.length > 1) fail("Hay varios registros manuales con esa referencia. Revisa antes de aplicar el aviso", 409);
+    const declaredBank = declared[0];
+    if (existing[0]?.status === "reconciled" && !declaredBank)
       fail(
         "El gasto con esta referencia ya está conciliado. Revisa el aviso para evitar duplicarlo",
         409,
       );
-    const importedBank = alreadyApplied
+    if (declaredBank) {
+      if (existing[0]?.status === "reconciled" && !db.prepare("SELECT 1 FROM finance_allocations WHERE movement_id=? AND bank_transaction_id=?").get(existing[0].id, declaredBank.id)) fail("Este registro ya se relacionó con otro movimiento bancario", 409);
+      db.prepare("UPDATE finance_bank_transactions SET day=?,occurred_at=?,import_source='bank-email' WHERE id=?").run(day, timestamp, declaredBank.id);
+      audit(db, user.username, "assistant.bank_notice_matched", "bank_transaction", declaredBank.id, { import_source: "assistant" }, { import_source: "bank-email", mail_id: id }, account.business_id);
+    }
+    const importedBank = declaredBank
+      ? { transaction_ids: [declaredBank.id] }
+      : alreadyApplied
       ? { transaction_ids: [row.bank_transaction_id] }
       : importBank(db, user, {
           source_system: "bank-email",
@@ -563,7 +578,7 @@ export function applyMailDraft(db, user, id, body) {
           ],
         });
     const bank = { id: importedBank.transaction_ids[0] };
-    let movement = existing[0] || null;
+    let movement = existing[0] || (declaredBank ? db.prepare("SELECT m.* FROM finance_allocations a JOIN finance_movements m ON m.id=a.movement_id WHERE a.bank_transaction_id=?").get(declaredBank.id) : null) || null;
     if (
       !movement &&
       !["internal_transfer", "card_settlement"].includes(p.event) &&
@@ -589,7 +604,7 @@ export function applyMailDraft(db, user, id, body) {
         "UPDATE finance_movements SET status='reported',source_system='bank-email' WHERE id=?",
       ).run(movement.id);
     }
-    if (movement) {
+    if (movement && movement.status !== "reconciled") {
       if (movement.status === "pending")
         db.prepare(
           "UPDATE finance_movements SET status='reported',reviewed_by=? WHERE id=?",
@@ -652,7 +667,8 @@ export function applyMailDraft(db, user, id, body) {
       bank_transaction_id: bank.id,
       movement_id: movement?.id || null,
     });
-    return { ok: true };
+    const taxes = applyDigitalServiceTaxes(db, p, account, bank.id, user.username);
+    return { ok: true, taxes };
   })();
 }
 const config = () => ({
@@ -932,15 +948,8 @@ async function performGmailSync(db) {
         (privateSetting(db, "mail_poll_watermark") ? 3 : 45) * 86400;
   let page = cursor?.page,
     imported = 0;
-  // One bounded page stays below Gmail's per-user quota even when rebuilding history.
-  for (let i = 0; i < 1; i++) {
-    const params = new URLSearchParams({
-      q: `${MAIL_QUERY} after:${since}`,
-      maxResults: "40",
-    });
-    if (page) params.set("pageToken", page);
-    const result = await gmail(token.access_token, "messages?" + params);
-    for (const m of result.messages || []) {
+  const importMessages = async (messages) => {
+    for (const m of messages || []) {
       if (
         db.prepare("SELECT id FROM finance_mail_messages WHERE id=?").get(m.id)
       )
@@ -961,14 +970,19 @@ async function performGmailSync(db) {
         await importStatementAttachment(db, token.access_token, full, parsed);
       imported += ingestBankMessages(db, [full]).imported;
     }
-    page = result.nextPageToken;
-    putPrivateSetting(
-      db,
-      "mail_poll_cursor",
-      page ? { page, since, started } : null,
-    );
-    if (!page) break;
+  };
+  // New payments take priority while older pages continue in the background.
+  if (page) {
+    const recent = new URLSearchParams({ q: `${MAIL_QUERY} after:${Math.floor(Date.now() / 1000) - 15 * 60}`, maxResults: "20" });
+    const newest = await gmail(token.access_token, "messages?" + recent);
+    await importMessages(newest.messages);
   }
+  const params = new URLSearchParams({ q: `${MAIL_QUERY} after:${since}`, maxResults: page ? "20" : "40" });
+  if (page) params.set("pageToken", page);
+  const result = await gmail(token.access_token, "messages?" + params);
+  await importMessages(result.messages);
+  page = result.nextPageToken;
+  putPrivateSetting(db, "mail_poll_cursor", page ? { page, since, started } : null);
   putPrivateSetting(db, "mail_last_sync", new Date().toISOString());
   if (!page) putPrivateSetting(db, "mail_poll_watermark", started);
   const autoPosted = replayAutomaticBankMail(db);
@@ -987,20 +1001,20 @@ export function replayAutomaticBankMail(db) {
   const after = new Date(configured).toISOString();
   const saved = privateSetting(db, "mail_auto_replay_cursor");
   const cursor = saved?.after === after ? saved : null;
-  const rows = db.prepare(`SELECT id,received_at FROM finance_mail_messages
-    WHERE state='draft' AND received_at>=? AND
+  const rows = db.prepare(`SELECT id,received_at,state FROM finance_mail_messages
+    WHERE state IN ('draft','applied') AND received_at>=? AND
       (? IS NULL OR received_at>? OR (received_at=? AND id>?))
     ORDER BY received_at,id LIMIT 40`).all(after, cursor?.received_at || null, cursor?.received_at || null, cursor?.received_at || null, cursor?.id || "");
-  let applied = 0;
+  let applied = 0, taxes = 0;
   for (const row of rows) {
-    autoApplyBankMail(db, row.id);
-    if (db.prepare("SELECT state FROM finance_mail_messages WHERE id=?").get(row.id)?.state === "applied") applied++;
+    taxes += autoApplyBankMail(db, row.id)?.taxes || 0;
+    if (row.state === "draft" && db.prepare("SELECT state FROM finance_mail_messages WHERE id=?").get(row.id)?.state === "applied") applied++;
   }
   const last = rows.at(-1);
   putPrivateSetting(db, "mail_auto_replay_cursor", rows.length === 40 ? { after, received_at: last.received_at, id: last.id } : null);
   putPrivateSetting(db, "mail_auto_posting_last_run", new Date().toISOString());
-  if (applied) console.info("[finance] Bank mail automatically posted " + JSON.stringify({ applied }));
-  return { applied, scanned: rows.length };
+  if (applied || taxes) console.info("[finance] Bank mail automatically posted " + JSON.stringify({ applied, taxes }));
+  return { applied, taxes, scanned: rows.length };
 }
 
 export function recordMailStatement(db, draft) {
@@ -1183,7 +1197,7 @@ export function autoApplyBankMail(db, id) {
     return;
   }
   if (
-    row.state !== "draft" ||
+    !["draft", "applied"].includes(row.state) ||
     !p.account_id ||
     !p.amount_cents ||
     ![
@@ -1199,6 +1213,8 @@ export function autoApplyBankMail(db, id) {
     .prepare("SELECT * FROM finance_accounts WHERE id=? AND active=1")
     .get(p.account_id);
   if (!account) return;
+  if (row.state === "applied" && row.bank_transaction_id)
+    return { taxes: applyDigitalServiceTaxes(db, p, account, row.bank_transaction_id) };
   if (
     !p.occurred_at &&
     account.opening_at &&
@@ -1206,9 +1222,9 @@ export function autoApplyBankMail(db, id) {
   )
     return;
   if (p.event === "card_payment" && p.card_kind === "credit") return;
-  const direction = p.event === "income" ? "incoming" : "outgoing";
+  const direction = p.event === "income" || (p.event === "internal_transfer" && p.destination_account_id === account.id && p.origin_account_id !== account.id) ? "incoming" : "outgoing";
   try {
-    db.transaction(() =>
+    return db.transaction(() =>
       applyMailDraft(
         db,
         {

@@ -21,6 +21,7 @@ import {
   quickMoney,
 } from "../../../shared/finance-quick.mjs";
 import { useFinance } from "./context.jsx";
+import { QuickConversation } from "./conversation.jsx";
 import { RetailBrand, isStoreUser, IncomingNotices } from "./operations.jsx";
 import {
   businessNames,
@@ -165,6 +166,14 @@ export function CollaboratorHome() {
 }
 
 export function QuickCapture({ initial = {}, onClose }) {
+  const { user, data } = useFinance();
+  const [form, setForm] = useState(false);
+  return !form && (!initial.mode || initial.mode === "message") && canUseFinanceAssistant(user) && !data.capabilities.public_preview
+    ? <QuickConversation initial={initial} onClose={onClose} onForm={() => setForm(true)} />
+    : <QuickCaptureForm initial={initial} onClose={onClose} />;
+}
+
+function QuickCaptureForm({ initial = {}, onClose }) {
   const { user, data, filters, refresh, notify, navigate, open } = useFinance();
   const [mode, setMode] = useState(initial.mode || "message"),
     [text, setText] = useState(initial.text || "");

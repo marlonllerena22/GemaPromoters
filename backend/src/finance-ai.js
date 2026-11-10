@@ -72,7 +72,7 @@ export function validateDocument(body) {
   return buffer;
 }
 
-async function response(input, instructions, format) {
+export async function response(input, instructions, format) {
   if (!process.env.OPENAI_API_KEY)
     fail(
       "La lectura con IA está pendiente de configurar. Puedes registrar los datos y conservar el comprobante.",

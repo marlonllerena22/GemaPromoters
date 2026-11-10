@@ -1442,3 +1442,65 @@ test("Gmail polling uses bounded pages and shares simultaneous sync requests", a
   assert.equal(privateSetting(db, "mail_poll_cursor").page, "fixture-next-page");
   assert.deepEqual(results[0], results[1]);
 });
+
+test("confirmed digital-service tax rules add separately rounded IVA and ISD once and reconcile later statement rows", (t) => {
+  const { db, account, owner } = fixture(t);
+  const old = [process.env.FINANCE_GMAIL_AUTO_APPLY, process.env.FINANCE_GMAIL_AUTO_APPLY_AFTER];
+  t.after(() => ["FINANCE_GMAIL_AUTO_APPLY", "FINANCE_GMAIL_AUTO_APPLY_AFTER"].forEach((k, i) => { if (old[i] === undefined) delete process.env[k]; else process.env[k] = old[i]; }));
+  process.env.FINANCE_GMAIL_AUTO_APPLY = "0";
+  process.env.FINANCE_GMAIL_AUTO_APPLY_AFTER = "2026-11-10T03:00:00-05:00";
+  db.prepare("UPDATE finance_accounts SET business_id='gemashow',bank='Pichincha',opening_cents=100000 WHERE id=?").run(account);
+  putPrivateSetting(db, "own_account_registry", { accounts: [], debit_cards: [{ bank: "Pichincha", suffix: "5621", account_id: account }] });
+  const digital = (id, merchant, amount) => mail(id, `Pago exitoso. Tarjeta de débito. Número de tarjeta ****5621 Comercio ${merchant} Fecha 10/11/2026 a la(s) 06:16 Monto $${amount} Referencia ${id}`, "2026-11-10T11:17:00Z");
+  ingestBankMessages(db, [digital("DIGITALFB1", "FACEBK *TEST", "7.47"), digital("DIGITALGOOGLE1", "GOOGLE *CHATGPT", "19.99")]);
+  process.env.FINANCE_GMAIL_AUTO_APPLY = "1";
+  const replay = replayAutomaticBankMail(db);
+  assert.equal(replay.applied, 2); assert.equal(replay.taxes, 4);
+  assert.equal(db.prepare("SELECT sum(amount_cents) n FROM finance_bank_transactions").get().n, -3295);
+  assert.deepEqual(db.prepare("SELECT amount_cents FROM finance_digital_taxes ORDER BY amount_cents").all().map((r) => r.amount_cents), [37, 100, 112, 300]);
+  assert.equal(replayAutomaticBankMail(db).taxes, 0);
+  const actual = { account_id: account, rows: [{ day: "2026-11-10", amount_cents: -112, description: "Retención IVASD FACEBK *TEST", reference: "ACTUAL-TAX-ONE", external_id: "actual-tax-one" }] };
+  importBank(db, owner, actual); importBank(db, owner, actual);
+  assert.equal(db.prepare("SELECT count(*) n FROM finance_bank_transactions").get().n, 6);
+  assert.equal(db.prepare("SELECT count(*) n FROM finance_digital_taxes WHERE state='verified'").get().n, 1);
+});
+
+test("new bank mail is read before unfinished history so live payments are not held behind backfill", async (t) => {
+  const { db } = fixture(t);
+  const keys = ["FINANCE_GMAIL_CLIENT_ID", "FINANCE_GMAIL_CLIENT_SECRET", "FINANCE_GMAIL_AUTO_APPLY"];
+  const old = keys.map((k) => process.env[k]);
+  t.after(() => keys.forEach((k, i) => { if (old[i] === undefined) delete process.env[k]; else process.env[k] = old[i]; }));
+  process.env.FINANCE_GMAIL_CLIENT_ID = "fixture-client"; process.env.FINANCE_GMAIL_CLIENT_SECRET = "fixture-secret"; process.env.FINANCE_GMAIL_AUTO_APPLY = "0";
+  db.prepare("INSERT INTO finance_mail_oauth VALUES ('gmail',?,?)").run(encryptDocument(Buffer.from(JSON.stringify({ refresh_token: "fixture-refresh" }))), new Date().toISOString());
+  putPrivateSetting(db, "mail_poll_cursor", { page: "older-page", since: 1, started: "2026-11-09T20:00:00Z" });
+  const order = [];
+  t.mock.method(globalThis, "fetch", async (url) => {
+    if (String(url).includes("oauth2.googleapis.com")) return Response.json({ access_token: "fixture" });
+    const uri = new URL(url);
+    if (uri.pathname.endsWith("/messages")) {
+      assert.equal(uri.searchParams.get("maxResults"), "20");
+      const which = uri.searchParams.has("pageToken") ? "history" : "fresh"; order.push(which);
+      return Response.json({ messages: [{ id: which }] });
+    }
+    const id = uri.pathname.split("/").at(-1); order.push(`read-${id}`);
+    return Response.json(mail(id, "Transferencia enviada. Monto $1.00"));
+  });
+  await syncGmail(db);
+  assert.deepEqual(order, ["fresh", "read-fresh", "history", "read-history"]);
+});
+
+test("own-account transfer notices debit the sender and credit the receiver without creating sales", (t) => {
+  const { db, account } = fixture(t);
+  const old = [process.env.FINANCE_GMAIL_AUTO_APPLY, process.env.FINANCE_GMAIL_AUTO_APPLY_AFTER];
+  t.after(() => ["FINANCE_GMAIL_AUTO_APPLY", "FINANCE_GMAIL_AUTO_APPLY_AFTER"].forEach((k, i) => { if (old[i] === undefined) delete process.env[k]; else process.env[k] = old[i]; }));
+  process.env.FINANCE_GMAIL_AUTO_APPLY = "1"; process.env.FINANCE_GMAIL_AUTO_APPLY_AFTER = "2026-11-10T03:00:00-05:00";
+  db.prepare("UPDATE finance_accounts SET bank='Pichincha' WHERE id=?").run(account);
+  const sender = Number(db.prepare("INSERT INTO finance_accounts(name,bank,kind,opening_cents,opening_date) VALUES ('Sender fixture','Pichincha','bank',10000,'2026-11-09')").run().lastInsertRowid);
+  putPrivateSetting(db, "own_account_registry", { owner_name: "Fixture Owner Name", accounts: [{ number: "0019999", account_id: account, bank: "Pichincha" }, { number: "0038888", account_id: sender, bank: "Pichincha" }] });
+  const incoming = mail("OWNIN", "Te confirmamos que Fixture Owner Name ha realizado una transferencia recibida. Cuenta destino: 0019999 Monto $10.00 Referencia OWNTRANSFER123 El día 10/11/2026 a la(s) 06:15", "2026-11-10T11:16:00Z");
+  const outgoing = mail("OWNOUT", "Realizaste una transferencia. Cuenta de origen 0038888 Cuenta destino: 0019999 Monto $10.00 Referencia OWNTRANSFER123 El día 10/11/2026 a la(s) 06:15", "2026-11-10T11:16:00Z");
+  ingestBankMessages(db, [incoming, outgoing]);
+  assert.equal(db.prepare("SELECT sum(amount_cents) n FROM finance_bank_transactions WHERE account_id=?").get(account).n, 1000);
+  assert.equal(db.prepare("SELECT sum(amount_cents) n FROM finance_bank_transactions WHERE account_id=?").get(sender).n, -1000);
+  assert.equal(db.prepare("SELECT count(*) n FROM finance_movements WHERE kind='income'").get().n, 0);
+});

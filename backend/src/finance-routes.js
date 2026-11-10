@@ -15,6 +15,7 @@ import {
   registerOperationsRoutes,
 } from "./finance-operations.js";
 import { registerQuickEntry } from "./finance-quick.js";
+import { prepareConversation, confirmConversation, cancelConversation } from "./finance-conversation.js";
 import { attachWorkflow } from "./finance-workflow.js";
 import {
   registerWorkflowRoutes,
@@ -990,6 +991,18 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
     recent.push(Date.now());
     aiAttempts.set(key, recent);
   };
+  app.post("/api/finance/quick/conversation", route(async (req, res) => {
+    if (!canUseFinanceAssistant(req.financeUser)) fail("El asistente está habilitado para Marlon, Germán, Morelia y Norma", 403);
+    aiLimit(req);
+    res.json(await prepareConversation(db, req.financeUser, req.body));
+  }));
+  app.post("/api/finance/quick/conversation/confirm", route((req, res) => {
+    if (!canUseFinanceAssistant(req.financeUser)) fail("No tienes acceso al asistente", 403);
+    res.json(confirmConversation(db, req.financeUser, req.body));
+  }));
+  app.delete("/api/finance/quick/conversation/:id", route((req, res) => {
+    res.json(cancelConversation(db, req.financeUser, req.params.id));
+  }));
   app.post(
     "/api/finance/evidence/:id/analyze",
     route(async (req, res) => {

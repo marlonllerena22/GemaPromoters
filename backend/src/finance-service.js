@@ -256,7 +256,7 @@ export function importBank(db, user, body) {
     const batch = crypto.randomUUID();
     let imported = 0;
     const transactionIds = [];
-    const source = body.source_system === "bank-email" ? "bank-email" : "csv";
+    const source = body.source_system === "bank-email" ? "bank-email" : body.source_system === "assistant" ? "assistant" : "csv";
     rows.forEach((row, index) => {
       const fingerprint = crypto
         .createHash("sha256")
@@ -293,6 +293,19 @@ export function importBank(db, user, body) {
           );
         if (matching.length === 1) {
           transactionIds.push(matching[0].id);
+          return;
+        }
+      }
+      const taxCode = /\bisd\b/i.test(row.description) ? "ISD" : /\biva(?:sd)?\b|retencion\s+iva/i.test(row.description) ? "IVA" : null;
+      const merchant = /facebk|facebook/i.test(row.description) ? "Facebook" : /google.*chatgpt|google\s*\*?c\b|g\.co\/helppay/i.test(row.description) ? "Google ChatGPT" : null;
+      if (taxCode && merchant && row.amount_cents < 0) {
+        const taxes = db.prepare("SELECT t.bank_transaction_id FROM finance_digital_taxes t JOIN finance_bank_transactions b ON b.id=t.bank_transaction_id WHERE b.account_id=? AND b.day=? AND b.amount_cents=? AND t.tax_code=? AND t.merchant=? AND t.state='calculated'").all(account.id, row.day, row.amount_cents, taxCode, merchant);
+        if (taxes.length > 1) fail("Hay varios impuestos calculados iguales. Relaciona el consumo antes de importar para no duplicarlos", 409);
+        if (taxes.length === 1) {
+          const taxId = taxes[0].bank_transaction_id;
+          db.prepare("UPDATE finance_bank_transactions SET import_source=?,reference=?,description=?,fingerprint=?,occurred_at=COALESCE(?,occurred_at) WHERE id=?").run(source, row.reference, row.description, fingerprint, row.occurred_at, taxId);
+          db.prepare("UPDATE finance_digital_taxes SET state='verified' WHERE bank_transaction_id=?").run(taxId);
+          transactionIds.push(taxId);
           return;
         }
       }
