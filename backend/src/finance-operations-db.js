@@ -41,6 +41,7 @@ export function initFinanceOperationsDb(db) {
     ).run();
   }
   db.exec(`
+    CREATE TABLE IF NOT EXISTS finance_push_tests (id TEXT PRIMARY KEY,member_id INTEGER NOT NULL REFERENCES finance_members(id),endpoint_hash TEXT NOT NULL,created_at TEXT NOT NULL,accepted_at TEXT,displayed_at TEXT,status_code INTEGER);
     CREATE TABLE IF NOT EXISTS finance_digital_taxes (principal_bank_id INTEGER NOT NULL REFERENCES finance_bank_transactions(id),tax_code TEXT NOT NULL,merchant TEXT NOT NULL,rate REAL NOT NULL,amount_cents INTEGER NOT NULL,bank_transaction_id INTEGER NOT NULL UNIQUE REFERENCES finance_bank_transactions(id),created_at TEXT NOT NULL,state TEXT NOT NULL,PRIMARY KEY(principal_bank_id,tax_code));
     CREATE TABLE IF NOT EXISTS finance_assistant_drafts (id TEXT PRIMARY KEY,member_id INTEGER NOT NULL REFERENCES finance_members(id),encrypted BLOB NOT NULL,expires_at INTEGER NOT NULL,result_json TEXT,created_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS finance_provider_receipts (source_system TEXT NOT NULL,external_id TEXT NOT NULL,account_id INTEGER NOT NULL REFERENCES finance_accounts(id),document_number TEXT NOT NULL,occurred_at TEXT NOT NULL,gross_cents INTEGER NOT NULL,fee_rate REAL,fee_cents INTEGER,net_cents INTEGER,state TEXT NOT NULL CHECK(state IN ('calculated','attention')),created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(source_system,external_id));

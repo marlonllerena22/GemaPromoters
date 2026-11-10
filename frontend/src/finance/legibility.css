@@ -1023,3 +1023,10 @@
     font-size: 9px;
   }
 }
+.gf-quick-batch { display: grid; gap: 10px; margin: 16px 0; }
+.gf-quick-batch article { border: 1px solid #dce5dc; border-radius: 12px; padding: 12px; background: #fff; }
+.gf-quick-batch article > strong { display: block; font-size: 1.3rem; margin: 6px 0; }
+.gf-quick-batch p { margin: 4px 0; }
+.gf-push-enrollment { flex-wrap: wrap; margin-bottom: 18px; }
+.gf-push-enrollment > div { flex: 1 1 190px; min-width: 0; }
+.gf-push-enrollment p { font-size: 14px; line-height: 1.5; }

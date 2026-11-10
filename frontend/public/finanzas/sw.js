@@ -16,6 +16,7 @@ function notificationUrl(value) {
     : "/finanzas/pagos";
 }
 self.addEventListener("install", (event) => {
+  self.skipWaiting();
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));
 });
 self.addEventListener("activate", (event) => {
@@ -73,7 +74,11 @@ self.addEventListener("push", (event) => {
         data: { url: notificationUrl(value.url) },
         requireInteraction: notificationUrl(value.url) === "/finanzas/pagos",
       },
-    ),
+    ).then(async () => {
+      if (typeof value.test_id === "string" && /^[a-f0-9-]{36}$/.test(value.test_id)) {
+        try { await fetch("/api/finance/push/receipt", { method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json","x-finance-request":"1"},body:JSON.stringify({id:value.test_id}) }); } catch {}
+      }
+    }),
   );
 });
 self.addEventListener("notificationclick", (event) => {

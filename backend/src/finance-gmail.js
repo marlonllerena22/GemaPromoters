@@ -1,3 +1,4 @@
+import { matchUnreferencedDeclaration } from "./finance-declared-bank.js";
 import { ensureCardCycles } from "./finance-funding.js";
 import crypto from "node:crypto";
 import {
@@ -547,7 +548,7 @@ export function applyMailDraft(db, user, id, body) {
       ? db.prepare("SELECT * FROM finance_bank_transactions WHERE account_id=? AND amount_cents=? AND reference=? AND import_source='assistant'").all(account.id, p.amount_cents * (direction === "outgoing" ? -1 : 1), p.reference)
       : [];
     if (declared.length > 1) fail("Hay varios registros manuales con esa referencia. Revisa antes de aplicar el aviso", 409);
-    const declaredBank = declared[0];
+    const declaredBank = declared[0] || (!alreadyApplied ? matchUnreferencedDeclaration(db, { account_id: account.id, day, amount_cents: p.amount_cents * (direction === "outgoing" ? -1 : 1), counterparty: p.counterparty }) : null);
     if (existing[0]?.status === "reconciled" && !declaredBank)
       fail(
         "El gasto con esta referencia ya está conciliado. Revisa el aviso para evitar duplicarlo",
@@ -555,7 +556,7 @@ export function applyMailDraft(db, user, id, body) {
       );
     if (declaredBank) {
       if (existing[0]?.status === "reconciled" && !db.prepare("SELECT 1 FROM finance_allocations WHERE movement_id=? AND bank_transaction_id=?").get(existing[0].id, declaredBank.id)) fail("Este registro ya se relacionó con otro movimiento bancario", 409);
-      db.prepare("UPDATE finance_bank_transactions SET day=?,occurred_at=?,import_source='bank-email' WHERE id=?").run(day, timestamp, declaredBank.id);
+      db.prepare("UPDATE finance_bank_transactions SET day=?,occurred_at=?,reference=?,import_source='bank-email' WHERE id=?").run(day, timestamp, p.reference || declaredBank.reference, declaredBank.id);
       audit(db, user.username, "assistant.bank_notice_matched", "bank_transaction", declaredBank.id, { import_source: "assistant" }, { import_source: "bank-email", mail_id: id }, account.business_id);
     }
     const importedBank = declaredBank

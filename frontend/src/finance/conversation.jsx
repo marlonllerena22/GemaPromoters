@@ -72,13 +72,21 @@ export function QuickConversation({ initial = {}, onClose, onForm }) {
           {draft && <section className="gf-quick-confirm" aria-label="Resumen por confirmar">
             <small>REVISA ANTES DE GUARDAR</small>
             <h3>{draft.type}</h3><strong>{money(draft.amount_cents)}</strong>
-            <dl>
+            {draft.items ? <>
+              <div className="gf-quick-batch">{draft.items.map((item, i) => <article key={i}>
+                <b>{i + 1}. {item.counterparty || item.type}</b><strong>{money(item.amount_cents)}</strong>
+                <p>{item.account} · {item.description}</p>
+                <small>{item.already_in_bank ? "Ya registrado: no se vuelve a sumar" : item.changes_bank_balance ? "Se actualizará esta cuenta" : "No cambia el banco"}</small>
+              </article>)}</div>
+              <dl>{draft.accounts.map((a) => <div key={a.account_id}><dt>Saldo final · {a.account}</dt><dd>{money(a.after_cents)}</dd></div>)}</dl>
+            </> : <dl>
               {draft.business_id && <div><dt>Corresponde a</dt><dd>{businessNames[draft.business_id]}</dd></div>}
               <div><dt>Cuenta o fondo</dt><dd>{draft.account}</dd></div>
               <div><dt>Descripción</dt><dd>{draft.description}</dd></div>
               {draft.reference && <div><dt>Referencia</dt><dd>{draft.reference}</dd></div>}
               {draft.after_cents != null && <div><dt>Saldo después</dt><dd>{money(draft.after_cents)}</dd></div>}
-            </dl>
+            </dl>}
+            {draft.declared_without_reference && <p>Actualizaré el saldo con tu declaración. Quedará pendiente de contrastar con el aviso bancario, sin sumarlo dos veces.</p>}
             {draft.already_in_bank && <p>Ya aparece en el banco. Lo relacionaré sin sumarlo ni restarlo otra vez.</p>}
             {draft.source_balance_unknown && <p>El saldo de {draft.source_fund} sigue por indicar. No inventaré cuánto le queda.</p>}
             {draft.changes_cash_balance && <p>Se registra el gasto y se descuenta de tu efectivo.</p>}

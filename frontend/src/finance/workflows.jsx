@@ -534,6 +534,7 @@ export function WorkSummary() {
           Pedir pago
         </Button>
       )}
+      <PushEnrollment />
       <LiquidityPlan />
       <AccountTiles />
       <CardPaymentsPreview />
@@ -1436,71 +1437,97 @@ export function NewSpace({ onClose }) {
   );
 }
 export function PushEnrollment() {
-  const { data, notify } = useFinance();
-  const [busy, setBusy] = useState(false),
-    [enabled, setEnabled] = useState(false);
+  const { data, user, notify } = useFinance();
+  const allowed = user.role === "owner" || user.checks_manage;
+  const [busy, setBusy] = useState(false), [enabled, setEnabled] = useState(false);
+  const [config, setConfig] = useState(null), [detail, setDetail] = useState("Comprobando los avisos de este dispositivo…");
+  const mounted = useRef(true), timers = useRef([]);
+  const supported = typeof window !== "undefined" && "PushManager" in window && "serviceWorker" in navigator && "Notification" in window;
+  async function registration() {
+    const reg = await navigator.serviceWorker.register("/finanzas/sw.js", { scope: "/finanzas/", updateViaCache: "none" });
+    if (!reg.active) await new Promise((resolve,reject) => {
+      const worker = reg.installing || reg.waiting;
+      const id = setTimeout(() => { worker?.removeEventListener("statechange", changed); reject(new Error("La app sigue preparando los avisos. Reabre Gema e inténtalo de nuevo.")); }, 15000);
+      timers.current.push(id);
+      const changed = () => { if (reg.active || worker?.state === "activated") { clearTimeout(id); worker?.removeEventListener("statechange", changed); resolve(); } };
+      worker?.addEventListener("statechange", changed); changed();
+    });
+    return reg;
+  }
+  async function inspect() {
+    if (!supported || !allowed || data.capabilities.public_preview) return;
+    try {
+      const cfg = await financeApi("/push/config");
+      if (!mounted.current) return;
+      setConfig(cfg);
+      if (!cfg.enabled) { setDetail("Los avisos están pendientes de configurar en el servidor."); return; }
+      if (Notification.permission === "denied") { setDetail("Los avisos están bloqueados. En Chrome: configuración de este sitio → Notificaciones → Permitir. Revisa también Ajustes de Android → Notificaciones → Chrome o Gema."); return; }
+      if (Notification.permission !== "granted") { setDetail("Actívalos aquí para recibir pendientes aunque Gema esté cerrada."); return; }
+      const reg = await registration(), sub = await reg.pushManager.getSubscription();
+      if (!sub) { setEnabled(false); setDetail("El permiso está concedido; falta activar este dispositivo."); return; }
+      await financeApi("/push/subscribe", { subscription: sub.toJSON() });
+      const status = await financeApi("/push/status", { endpoint: sub.endpoint });
+      if (!mounted.current) return;
+      setEnabled(status.registered);
+      setDetail(status.latest_test?.displayed_at ? "La última prueba llegó al navegador de este dispositivo." : "Dispositivo conectado. Envía una prueba para comprobar que aparece en tu celular.");
+    } catch (e) { if (mounted.current) setDetail(e.message); }
+  }
+  useEffect(() => {
+    mounted.current = true;
+    void inspect();
+    const visible = () => { if (document.visibilityState === "visible") void inspect(); };
+    document.addEventListener("visibilitychange", visible);
+    return () => { mounted.current = false; timers.current.forEach(clearTimeout); document.removeEventListener("visibilitychange", visible); };
+  }, [user.id]);
+  async function test(sub) {
+    await financeApi("/push/test", { endpoint: sub.endpoint });
+    if (!mounted.current) return;
+    setDetail("Prueba enviada. Comprobando si este dispositivo la recibe…");
+    const poll = async (attempt) => {
+      if (!mounted.current) return;
+      try {
+        const status = await financeApi("/push/status", { endpoint: sub.endpoint });
+        if (!mounted.current) return;
+        if (status.latest_test?.displayed_at) { setDetail("Prueba recibida por este dispositivo. Revisa la barra de notificaciones del celular."); return; }
+        if (attempt < 7) { timers.current.push(setTimeout(() => void poll(attempt + 1), 2000)); return; }
+        setDetail("El servicio aceptó la prueba, pero el celular no confirmó recepción. Revisa los avisos de Chrome/Gema en Ajustes de Android, la conexión y el ahorro de batería.");
+      } catch (e) { if (mounted.current) setDetail(e.message); }
+    };
+    void poll(0);
+  }
   async function enable() {
+    if (!supported || !config?.enabled) return;
+    // Ask synchronously in the tap handler: awaiting an API first can lose the gesture.
+    const permission = Notification.permission === "granted" ? Promise.resolve("granted") : Notification.requestPermission();
     setBusy(true);
     try {
-      if (
-        !("PushManager" in window) ||
-        !("serviceWorker" in navigator) ||
-        !("Notification" in window)
-      )
-        throw new Error(
-          "Este navegador no permite activar estos avisos. Los pendientes seguirán visibles dentro de la app.",
-        );
-      const config = await financeApi("/push/config");
-      if (!config.enabled)
-        throw new Error(
-          "Los avisos al celular están pendientes de configurar en el servidor.",
-        );
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted")
-        throw new Error(
-          "No se activaron los avisos. La bandeja de transferencias seguirá funcionando.",
-        );
-      const registration = await navigator.serviceWorker.ready;
+      if (await permission !== "granted") throw new Error("Permite las notificaciones de Gema en Chrome y en los ajustes de tu celular. Tus pendientes seguirán visibles dentro de la app.");
+      const reg = await registration();
       const key = config.public_key.replace(/-/g, "+").replace(/_/g, "/");
-      const bytes = Uint8Array.from(
-        atob(key + "=".repeat((4 - (key.length % 4)) % 4)),
-        (c) => c.charCodeAt(0),
-      );
-      const subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: bytes,
-      });
-      await financeApi("/push/subscribe", {
-        subscription: subscription.toJSON(),
-      });
-      setEnabled(true);
-      notify("Avisos activados para este dispositivo");
-    } catch (e) {
-      notify(e.message, true);
-    } finally {
-      setBusy(false);
-    }
+      const bytes = Uint8Array.from(atob(key + "=".repeat((4 - key.length % 4) % 4)), (c) => c.charCodeAt(0));
+      let sub = await reg.pushManager.getSubscription();
+      if (sub?.options.applicationServerKey && String(new Uint8Array(sub.options.applicationServerKey)) !== String(bytes)) { await sub.unsubscribe(); sub = null; }
+      sub ||= await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes });
+      await financeApi("/push/subscribe", { subscription: sub.toJSON() });
+      if (!mounted.current) return;
+      setEnabled(true); notify("Avisos activados para este dispositivo");
+      await test(sub);
+    } catch (e) { if (mounted.current) { setDetail(e.message); notify(e.message, true); } }
+    finally { if (mounted.current) setBusy(false); }
   }
-  return (
-    <div className="gf-push-enrollment">
-      <Bell size={22} />
-      <div>
-        <strong>
-          {enabled
-            ? "Avisos activados en este dispositivo"
-            : "Tus pendientes siempre visibles"}
-        </strong>
-        <p>
-          {data.capabilities.push
-            ? "Activa también el aviso en este celular cuando la aplicación esté cerrada."
-            : "Los avisos fuera de la app requieren configurar el servicio de notificaciones. La bandeja de pagos ya es independiente de los avisos."}
-        </p>
-      </div>
-      {data.capabilities.push && !enabled && (
-        <Button variant="secondary" loading={busy} onClick={enable}>
-          Activar avisos
-        </Button>
-      )}
-    </div>
-  );
+  async function sendTest() {
+    setBusy(true);
+    try {
+      const reg = await registration(), sub = await reg.pushManager.getSubscription();
+      if (!sub) { setEnabled(false); throw new Error("Vuelve a activar los avisos de este dispositivo."); }
+      await test(sub);
+    } catch(e) { if (mounted.current) { setDetail(e.message); notify(e.message,true); } }
+    finally { if (mounted.current) setBusy(false); }
+  }
+  if (!allowed || data.capabilities.public_preview) return null;
+  return <section className="gf-push-enrollment" aria-label="Notificaciones de este dispositivo">
+    <Bell size={22} />
+    <div><strong>{enabled ? "Avisos conectados" : "Activa tus avisos al celular"}</strong><p>{supported ? detail : "Este navegador no permite avisos. Abre Gema en Chrome de Android, o añádela a Inicio en Safari de iPhone. Los pendientes siempre quedan en la app."}</p></div>
+    {supported && config?.enabled && <Button variant="secondary" loading={busy} onClick={enabled ? sendTest : enable}>{enabled ? "Probar aviso" : "Activar avisos"}</Button>}
+  </section>;
 }

@@ -6,6 +6,7 @@ import { prepareConversation, confirmConversation } from "../src/finance-convers
 import { recordedAccountBalance } from "../src/finance-check-ledger.js";
 import { encryptDocument } from "../src/finance-ai.js";
 import { applyMailDraft } from "../src/finance-gmail.js";
+import { financeSupportCheck } from "../src/finance-support-check.js";
 process.env.FINANCE_DOCUMENT_KEY ||= "test-only-conversation-document-key-123456";
 
 function fixture(t) {
@@ -30,6 +31,16 @@ function fixture(t) {
   return { db, owner, german, norma, accountId, data, setResponse: (r) => { next = r; }, requests: () => requests };
 }
 const chat = (content) => ({ messages: [{ role: "user", content }] });
+
+test("a short-lived operator support check logs only ciphertext and never changes bank balances",async(t)=>{
+  const f=fixture(t), logs=[];
+  t.mock.method(console,"info",(value)=>logs.push(value));
+  const job=encryptDocument(Buffer.from(JSON.stringify({kind:"conversation-and-push-v1",id:"eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",expires_at:new Date(Date.now()+60000).toISOString()}))).toString("base64");
+  assert.equal(financeSupportCheck(f.db,job).completed,true);
+  assert.equal(financeSupportCheck(f.db,job),null);
+  assert.equal(logs.length,1);assert.equal(logs[0].includes("Guayaquil"),false);
+  assert.equal(f.db.prepare("SELECT count(*) n FROM finance_bank_transactions").get().n,0);
+});
 
 test("conversation asks missing details, then prepares an immutable preview without changing money", async (t) => {
   const f = fixture(t);
@@ -69,17 +80,82 @@ test("a later bank email matches the manually confirmed record without adding mo
   assert.equal(f.db.prepare("SELECT balance_cents FROM finance_custody_balances WHERE id='henry'").get().balance_cents, 7500);
 });
 
-test("cash expenses update EFECTIVO only after confirmation and missing references stay conversational", async (t) => {
+test("cash expenses update EFECTIVO only after confirmation and unreferenced deposits are declared explicitly", async (t) => {
   const f = fixture(t);
   f.setResponse({ action: "bank_entry", message: "Preparando", data: { ...f.data, reference: null } });
   const pending = await prepareConversation(f.db, f.owner, chat("Registra el depósito, no sé la referencia"));
-  assert.equal(pending.draft, null); assert.match(pending.message, /referencia/i);
+  assert.equal(pending.draft.declared_without_reference, true);
+  assert.equal(pending.draft.after_cents, 12500);
   f.setResponse({ action: "movement", message: "Registraré gasolina personal en efectivo.", data: { ...f.data, business_id: "personal", account_id: null, amount_cents: 8000, category: "Gasolina", counterparty: "Gasolinera", description: "Gasolina personal pagada en efectivo", reference: null, custody_id: "efectivo", kind: "expense", direction: "outgoing", payment_method: "cash" } });
   const prepared = await prepareConversation(f.db, f.owner, chat("Gasolina personal, 80 en efectivo"));
   assert.equal(prepared.draft.after_cents, 42000);
   assert.equal(f.db.prepare("SELECT balance_cents FROM finance_custody_balances WHERE id='efectivo'").get().balance_cents, 50000);
   confirmConversation(f.db, f.owner, { draft_id: prepared.draft.id, confirmed: true });
   assert.equal(f.db.prepare("SELECT balance_cents FROM finance_custody_balances WHERE id='efectivo'").get().balance_cents, 42000);
+});
+
+test("multiple deposits keep their separate references and atomically change the requested account once", async (t) => {
+  const f = fixture(t);
+  const first = { action: "bank_entry", data: { ...f.data, kind:"income", custody_id:null, counterparty:"Cliente Uno", reference:"BATCH-1", amount_cents: 2000 } };
+  const second = { action: "bank_entry", data: { ...first.data, counterparty:"Cliente Dos", reference:"BATCH-2", amount_cents:3000 } };
+  f.setResponse({action:"batch",message:"Dos depósitos separados",data:first.data,items:[first,second]});
+  const prepared = await prepareConversation(f.db,f.owner,chat("Cliente Uno depositó 20 y Cliente Dos 30, ambos a corriente Guayaquil"));
+  assert.equal(prepared.draft.items.length,2);
+  assert.equal(prepared.draft.accounts[0].after_cents,15000);
+  assert.equal(f.db.prepare("SELECT count(*) n FROM finance_bank_transactions").get().n,0);
+  const result=confirmConversation(f.db,f.owner,{draft_id:prepared.draft.id,confirmed:true});
+  assert.equal(result.results.length,2);
+  assert.equal(recordedAccountBalance(f.db,f.db.prepare("SELECT * FROM finance_accounts WHERE id=?").get(f.accountId)),15000);
+  assert.equal(confirmConversation(f.db,f.owner,{draft_id:prepared.draft.id,confirmed:true}).duplicate,true);
+  assert.equal(f.db.prepare("SELECT count(*) n FROM finance_bank_transactions").get().n,2);
+  // A later unrelated balance change must roll back the whole batch, never post a subset.
+  f.setResponse({action:"batch",message:"Dos depósitos más",data:first.data,items:[{...first,data:{...first.data,reference:"NEXT-1"}},{...second,data:{...second.data,reference:"NEXT-2"}}]});
+  const stale=await prepareConversation(f.db,f.owner,chat("Otros dos depósitos: 20 y 30"));
+  f.db.prepare("UPDATE finance_accounts SET opening_cents=opening_cents+1 WHERE id=?").run(f.accountId);
+  assert.throws(()=>confirmConversation(f.db,f.owner,{draft_id:stale.draft.id,confirmed:true}),(e)=>e.status===409);
+  assert.equal(f.db.prepare("SELECT count(*) n FROM finance_bank_transactions").get().n,2);
+});
+
+test("a bank deposit cannot silently become a balance-neutral movement; later mail matches a declaration without its reference",async(t)=>{
+  const f=fixture(t);
+  const data={...f.data,kind:"income",custody_id:null,reference:null,counterparty:"Cliente Real"};
+  f.setResponse({action:"movement",message:"Depósito recibido",data});
+  const prepared=await prepareConversation(f.db,f.owner,chat("Cliente Real depositó 25 a Guayaquil, ya está recibido"));
+  assert.equal(prepared.draft.changes_bank_balance,true);
+  const committed=confirmConversation(f.db,f.owner,{draft_id:prepared.draft.id,confirmed:true});
+  const instant=new Date(Date.now()-1000).toISOString();
+  const notice={id:"WITHOUT-REF-MAIL",trusted:true,event:"income",amount_cents:2500,account_id:f.accountId,reference:"REAL-BANK-REF",occurred_at:instant,received_at:instant,bank:"Guayaquil",counterparty:"Cliente Real"};
+  f.db.prepare("INSERT INTO finance_mail_messages(id,received_at,encrypted,state,account_id,created_at) VALUES (?,?,?,'draft',?,?)").run(notice.id,instant,encryptDocument(Buffer.from(JSON.stringify(notice))),f.accountId,instant);
+  applyMailDraft(f.db,f.owner,notice.id,{account_id:f.accountId,direction:"incoming"});
+  assert.equal(f.db.prepare("SELECT count(*) n FROM finance_bank_transactions").get().n,1);
+  assert.equal(f.db.prepare("SELECT reference FROM finance_bank_transactions WHERE id=?").get(committed.bank_transaction_id).reference,"REAL-BANK-REF");
+  assert.equal(recordedAccountBalance(f.db,f.db.prepare("SELECT * FROM finance_accounts WHERE id=?").get(f.accountId)),12500);
+});
+
+test("a similar bank email with a different sender stays for review instead of adding a possible duplicate",async(t)=>{
+  const f=fixture(t);
+  f.setResponse({action:"bank_entry",message:"Registrar",data:{...f.data,kind:"income",custody_id:null,reference:null,counterparty:"Una Persona"}});
+  const prepared=await prepareConversation(f.db,f.owner,chat("Una Persona depositó 25 a Guayaquil"));
+  confirmConversation(f.db,f.owner,{draft_id:prepared.draft.id,confirmed:true});
+  const instant=new Date(Date.now()-1000).toISOString();
+  const notice={id:"AMBIGUOUS-REF",trusted:true,event:"income",amount_cents:2500,account_id:f.accountId,reference:"BANK-NEW",occurred_at:instant,received_at:instant,bank:"Guayaquil",counterparty:"Otro nombre bancario"};
+  f.db.prepare("INSERT INTO finance_mail_messages(id,received_at,encrypted,state,account_id,created_at) VALUES (?,?,?,'draft',?,?)").run(notice.id,instant,encryptDocument(Buffer.from(JSON.stringify(notice))),f.accountId,instant);
+  assert.throws(()=>applyMailDraft(f.db,f.owner,notice.id,{account_id:f.accountId,direction:"incoming"}),(e)=>e.status===409);
+  assert.equal(f.db.prepare("SELECT count(*) n FROM finance_bank_transactions").get().n,1);
+  assert.equal(f.db.prepare("SELECT state FROM finance_mail_messages WHERE id=?").get(notice.id).state,"draft");
+});
+
+test("a deposit already imported from email is reused even when the user does not dictate its reference",async(t)=>{
+  const f=fixture(t), instant=new Date(Date.now()-1000).toISOString();
+  const notice={id:"ALREADY-IMPORTED",trusted:true,event:"income",amount_cents:2500,account_id:f.accountId,reference:"KNOWN-REF",occurred_at:instant,received_at:instant,bank:"Guayaquil",counterparty:"Cliente Uno"};
+  f.db.prepare("INSERT INTO finance_mail_messages(id,received_at,encrypted,state,account_id,created_at) VALUES (?,?,?,'draft',?,?)").run(notice.id,instant,encryptDocument(Buffer.from(JSON.stringify(notice))),f.accountId,instant);
+  applyMailDraft(f.db,f.owner,notice.id,{account_id:f.accountId,direction:"incoming"});
+  f.setResponse({action:"movement",message:"Depósito recibido",data:{...f.data,kind:"income",custody_id:null,reference:null,counterparty:"Cliente Uno"}});
+  const prepared=await prepareConversation(f.db,f.owner,chat("Cliente Uno depositó 25 a Guayaquil"));
+  assert.equal(prepared.draft.already_in_bank,true);
+  confirmConversation(f.db,f.owner,{draft_id:prepared.draft.id,confirmed:true});
+  assert.equal(f.db.prepare("SELECT count(*) n FROM finance_bank_transactions").get().n,1);
+  assert.equal(recordedAccountBalance(f.db,f.db.prepare("SELECT * FROM finance_accounts WHERE id=?").get(f.accountId)),12500);
 });
 
 test("an existing reference cannot be registered again using a total that includes taxes", async (t) => {

@@ -82,7 +82,7 @@ import {
 import { SecurityPanel } from "./security.jsx";
 import { CollaboratorHome, QuickAccess } from "./quick.jsx";
 import { BankLogo } from "./banks.jsx";
-import { WorkSummary, AssistantAvatar } from "./workflows.jsx";
+import { WorkSummary, AssistantAvatar, PushEnrollment } from "./workflows.jsx";
 
 export function Overview() {
   const { data, user, open, navigate, selectMovement, filters } = useFinance();
@@ -110,6 +110,7 @@ export function Overview() {
           </span>
         </div>
       </div>
+      <PushEnrollment />
       <LiquidityPlan />
       {user.role !== "viewer" && <QuickAccess />}
       <IncomingNotices />

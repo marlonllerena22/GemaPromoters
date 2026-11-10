@@ -72,7 +72,7 @@ export function validateDocument(body) {
   return buffer;
 }
 
-export async function response(input, instructions, format) {
+export async function response(input, instructions, format, { maxOutputTokens = 2400 } = {}) {
   if (!process.env.OPENAI_API_KEY)
     fail(
       "La lectura con IA está pendiente de configurar. Puedes registrar los datos y conservar el comprobante.",
@@ -92,7 +92,7 @@ export async function response(input, instructions, format) {
         store: false,
         instructions,
         input,
-        max_output_tokens: 2400,
+        max_output_tokens: maxOutputTokens,
         text: {
           format: {
             type: "json_schema",
