@@ -38,6 +38,7 @@ import {
 import { evaluateLoanAlerts } from "../src/finance-loans.js";
 import {
   parseBankMail,
+  mailAutoPostingAllowed,
   ingestBankMessages,
   mailDrafts,
   applyMailDraft,
@@ -1336,5 +1337,54 @@ test("private custody opening observations are guarded and never create sales or
   assert.equal(
     db.prepare("SELECT count(*) n FROM finance_custody_adjustments").get().n,
     3,
+  );
+});
+
+test("bank posting starts at 03:00 Ecuador and excludes older or uncertain first-day notices", (t) => {
+  const previous = [
+    process.env.FINANCE_GMAIL_AUTO_APPLY,
+    process.env.FINANCE_GMAIL_AUTO_APPLY_AFTER,
+  ];
+  t.after(() => {
+    for (const [i, key] of [
+      "FINANCE_GMAIL_AUTO_APPLY",
+      "FINANCE_GMAIL_AUTO_APPLY_AFTER",
+    ].entries()) {
+      if (previous[i] === undefined) delete process.env[key];
+      else process.env[key] = previous[i];
+    }
+  });
+  process.env.FINANCE_GMAIL_AUTO_APPLY = "1";
+  process.env.FINANCE_GMAIL_AUTO_APPLY_AFTER = "2026-11-10T03:00:00-05:00";
+  const notice = {
+    occurred_at: "2026-11-10T08:00:00Z",
+    received_at: "2026-11-10T08:00:05Z",
+  };
+  assert.equal(
+    mailAutoPostingAllowed(notice, Date.parse("2026-11-10T07:59:59Z")),
+    false,
+  );
+  assert.equal(
+    mailAutoPostingAllowed(notice, Date.parse("2026-11-10T08:00:00Z")),
+    true,
+  );
+  assert.equal(
+    mailAutoPostingAllowed(
+      { ...notice, occurred_at: "2026-11-10T07:59:00Z" },
+      Date.parse("2026-11-10T08:10:00Z"),
+    ),
+    false,
+  );
+  assert.equal(
+    mailAutoPostingAllowed(
+      { received_at: notice.received_at, operation_day: "2026-11-10" },
+      Date.parse("2026-11-10T08:10:00Z"),
+    ),
+    false,
+  );
+  process.env.FINANCE_GMAIL_AUTO_APPLY = "0";
+  assert.equal(
+    mailAutoPostingAllowed(notice, Date.parse("2026-11-10T08:10:00Z")),
+    false,
   );
 });

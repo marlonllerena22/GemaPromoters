@@ -277,6 +277,13 @@ export function attachOperations(db, user, data) {
               "SELECT COUNT(*) n FROM finance_mail_messages WHERE state='draft'",
             )
             .get().n,
+          auto_posting_after:
+            process.env.FINANCE_GMAIL_AUTO_APPLY_AFTER || null,
+          auto_posting_enabled:
+            process.env.FINANCE_GMAIL_AUTO_APPLY !== "0" &&
+            (!process.env.FINANCE_GMAIL_AUTO_APPLY_AFTER ||
+              Date.now() >=
+                Date.parse(process.env.FINANCE_GMAIL_AUTO_APPLY_AFTER)),
           cutoff: privateSetting(db, "opening_cutoff"),
           last_sync: privateSetting(db, "mail_last_sync"),
           last_error: privateSetting(db, "mail_sync_error"),

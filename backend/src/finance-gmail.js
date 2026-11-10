@@ -261,7 +261,7 @@ export function parseBankMail(m, registry = { accounts: [] }) {
   if (!Number.isFinite(receivedDate.getTime())) return null;
   const received = receivedDate.toISOString();
   const date = body.match(/(\d{2})[/-](\d{2})[/-](\d{4})/),
-    time = body.match(/(?:a la\(s\)|a las)\s*(\d{1,2}:\d{2})/i);
+    time = body.match(/(?:a la\(s\)|a las|Hora\s*:?)\s*(\d{1,2}:\d{2})/i);
   let occurred = null;
   if (date && time) {
     const value = new Date(
@@ -269,7 +269,9 @@ export function parseBankMail(m, registry = { accounts: [] }) {
     );
     if (Number.isFinite(value.getTime())) occurred = value.toISOString();
   }
-  const twelve = body.match(/Hora\s+(\d{1,2}):(\d{2})\s*([ap])\.?\s*m\.?/i);
+  const twelve = body.match(
+    /Hora\s*:?\s*(\d{1,2}):(\d{2})\s*([ap])\.?\s*m\.?/i,
+  );
   if (date && twelve) {
     const hour =
       (Number(twelve[1]) % 12) + (twelve[3].toLowerCase() === "p" ? 12 : 0);
@@ -307,6 +309,7 @@ export function parseBankMail(m, registry = { accounts: [] }) {
     subject,
     received_at: received,
     occurred_at: occurred,
+    operation_day: date ? `${date[3]}-${date[2]}-${date[1]}` : null,
     body,
     bank,
     trusted,
@@ -349,11 +352,13 @@ export function parseBankMail(m, registry = { accounts: [] }) {
                     ? "income"
                     : "unrecognized",
     counterparty:
-      body.match(/Comercio\s+(.+?)\s+Fecha\s/i)?.[1] ||
-      body.match(
-        /Nombre del beneficiario:\s*(.+?)\s*Identificaci[oó]n/i,
-      )?.[1] ||
-      "Movimiento por correo",
+      incoming && sender
+        ? sender
+        : body.match(/Comercio\s+(.+?)\s+Fecha\s/i)?.[1] ||
+          body.match(
+            /Nombre del beneficiario:\s*(.+?)\s*Identificaci[oó]n/i,
+          )?.[1] ||
+          "Movimiento por correo",
   };
 }
 export function ingestBankMessages(db, messages, { reprocess = false } = {}) {
@@ -702,6 +707,22 @@ async function gmail(access, path) {
         String(detail.error?.status || "")
           .replace(/[^A-Z_]/g, "")
           .slice(0, 80),
+    );
+    console.error(
+      "[finance] Gmail reason " +
+        String(
+          detail.error?.errors?.[0]?.reason ||
+            detail.error?.details?.find((x) => x.reason)?.reason ||
+            "",
+        )
+          .replace(/[^A-Za-z0-9_]/g, "")
+          .slice(0, 80) +
+        " " +
+        (path.startsWith("messages?")
+          ? "list"
+          : path.startsWith("messages/")
+            ? "message"
+            : "profile"),
     );
     fail("No se pudo leer Gmail; revisa la conexión", 502);
   }
@@ -1103,6 +1124,19 @@ export function recordCardPayment(
   });
   return true;
 }
+export function mailAutoPostingAllowed(draft, now = Date.now()) {
+  if (process.env.FINANCE_GMAIL_AUTO_APPLY === "0") return false;
+  const configured = process.env.FINANCE_GMAIL_AUTO_APPLY_AFTER;
+  if (!configured) return true;
+  const after = Date.parse(configured);
+  if (!Number.isFinite(after) || now < after) return false;
+  if (draft.occurred_at) return Date.parse(draft.occurred_at) >= after;
+  const day = financeDay(draft.received_at);
+  return (
+    day > financeDay(after) &&
+    (!draft.operation_day || draft.operation_day === day)
+  );
+}
 export function autoApplyBankMail(db, id) {
   if (process.env.FINANCE_GMAIL_AUTO_APPLY === "0") return;
   const row = db
@@ -1110,6 +1144,7 @@ export function autoApplyBankMail(db, id) {
     .get(id);
   if (!row) return;
   const p = JSON.parse(decryptDocument(row.encrypted).toString());
+  if (!mailAutoPostingAllowed(p)) return;
   if (!p.trusted || p.pending || p.rejected) return;
   if (row.state === "historical") {
     recordCardPayment(db, p, { historical: true });

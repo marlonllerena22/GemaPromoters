@@ -517,8 +517,11 @@ export function GmailPanel() {
         </span>
       </div>
       <p>
-        Los avisos bancarios reconocidos actualizan tus movimientos. Los dudosos
-        quedan para revisar; los intentos fallidos no cambian saldos.
+        {state.auto_posting_enabled === false
+          ? state.auto_posting_after
+            ? `Por ahora se revisan los avisos sin cambiar saldos. La aplicación automática empieza el ${new Date(state.auto_posting_after).toLocaleString("es-EC", { timeZone: "America/Guayaquil", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}.`
+            : "Por ahora se revisan los avisos sin cambiar saldos."
+          : "Los avisos bancarios reconocidos actualizan tus movimientos. Los dudosos quedan para revisar; los intentos fallidos no cambian saldos."}
       </p>
       <p className="gf-payee-hint">
         Conexión de solo lectura. La IA puede leer los estados de tarjeta
