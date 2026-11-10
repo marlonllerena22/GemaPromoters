@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Privacidad · Gema Finanzas</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #f5f8f3;
+        color: #263b2c;
+        font:
+          16px/1.65 system-ui,
+          sans-serif;
+      }
+      main {
+        max-width: 800px;
+        margin: 48px auto;
+        padding: 36px;
+        background: white;
+        border: 1px solid #dce7d8;
+        border-radius: 20px;
+      }
+      a {
+        color: #426a35;
+      }
+      h1 {
+        font-size: 32px;
+        line-height: 1.2;
+      }
+      h2 {
+        font-size: 20px;
+        margin-top: 30px;
+      }
+      header {
+        border-bottom: 1px solid #e4ebe0;
+        padding-bottom: 22px;
+      }
+      small {
+        color: #6c7d66;
+      }
+      ul {
+        padding-left: 22px;
+      }
+      @media (max-width: 600px) {
+        main {
+          margin: 16px;
+          padding: 24px;
+        }
+        h1 {
+          font-size: 28px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <a href="/finanzas/">Gema Finanzas</a>
+        <h1>Privacidad y uso de datos</h1>
+        <small
+          >Aplicación privada de gestión financiera · Actualización: 9 de
+          noviembre de 2026</small
+        >
+      </header>
+      <p>
+        Gema Finanzas reúne la información de Producalza, Marjorie Botas,
+        Gemashow y las finanzas personales de su propietario. El acceso se
+        limita al propietario y a los colaboradores que este autoriza, según sus
+        permisos.
+      </p>
+      <h2>Información que se utiliza</h2>
+      <p>
+        Se conservan los registros financieros que ingresan los usuarios o las
+        integraciones autorizadas: ventas, cobros, gastos, cuentas,
+        obligaciones, solicitudes y comprobantes. También se registran los
+        accesos y cambios necesarios para mantener el historial de la operación.
+      </p>
+      <h2>Conexión de Gmail</h2>
+      <p>
+        Solo el propietario puede conectar el correo bancario configurado.
+        Google solicita el permiso <strong>gmail.readonly</strong>, que permite
+        leer mensajes y sus adjuntos. Aunque este permiso de Google abarca el
+        correo, la aplicación consulta remitentes bancarios configurados para
+        identificar avisos financieros y estados de tarjeta. No solicita permiso
+        para enviar, modificar ni eliminar correos.
+      </p>
+      <p>
+        Se guardan los avisos financieros reconocidos para contrastar
+        movimientos, evitar duplicados, actualizar saldos y controlar pagos. No
+        se utilizan los correos para publicidad. El uso de los datos de Google
+        respeta la
+        <a
+          href="https://developers.google.com/terms/api-services-user-data-policy"
+          >Política de Datos del Usuario de los Servicios de API de Google</a
+        >, incluidos los requisitos de Uso Limitado.
+      </p>
+      <h2>Procesamiento y proveedores</h2>
+      <ul>
+        <li><strong>Render</strong> aloja la aplicación y sus registros.</li>
+        <li>
+          <strong>Google</strong> autoriza y proporciona la lectura del correo
+          conectado.
+        </li>
+        <li>
+          <strong>OpenAI</strong>, cuando está configurado, procesa los
+          documentos y consultas enviados a la IA. La conexión automática de
+          Gmail puede enviar los PDF de estados bancarios reconocidos para
+          extraer el importe mensual y sus fechas. Las consultas al asistente
+          incluyen los registros permitidos para ese usuario. Las solicitudes de
+          la API se realizan con <code>store: false</code>.
+        </li>
+      </ul>
+      <p>
+        Compartir comprobantes por WhatsApp o mediante el selector del
+        dispositivo requiere la acción del usuario. La conexión bancaria de este
+        módulo no solicita contraseñas de bancos ni ejecuta transferencias.
+      </p>
+      <h2>Acceso y conservación</h2>
+      <p>
+        Los documentos, datos privados de destinatarios y credenciales de
+        conexión se cifran en la aplicación. Los permisos limitan los negocios,
+        locales y detalles disponibles para cada colaborador. Los registros y su
+        auditoría se conservan para el control financiero; no se eliminan
+        automáticamente al cerrar sesión.
+      </p>
+      <p>
+        El propietario puede desconectar Gmail desde Fuentes y conexiones o
+        revocar el acceso desde su cuenta de Google. Esto detiene nuevas
+        lecturas; no borra los registros que ya se importaron. Las solicitudes
+        de revisión, corrección o eliminación de información deben dirigirse al
+        propietario o administrador de Gema Finanzas para su gestión.
+      </p>
+      <h2>Sesión recordada</h2>
+      <p>
+        La opción Recordar este dispositivo utiliza una cookie de sesión
+        HttpOnly durante 30 días. No guarda la contraseña en el navegador.
+        Cerrar sesión o revocar el acceso invalida la sesión. El segundo factor
+        se mantiene cuando está activado.
+      </p>
+    </main>
+  </body>
+</html>

@@ -518,8 +518,15 @@ export function GmailPanel() {
         </span>
       </div>
       <p>
-        Los avisos se convierten en borradores. Los intentos fallidos y mensajes
-        anteriores al inicio no cambian tus saldos.
+        Los avisos bancarios reconocidos actualizan tus movimientos. Los dudosos
+        quedan para revisar; los intentos fallidos no cambian saldos.
+      </p>
+      <p className="gf-payee-hint">
+        Conexión de solo lectura. La IA puede leer los estados de tarjeta
+        adjuntos para completar sus pagos.{" "}
+        <a href="/finanzas/privacidad.html" target="_blank" rel="noreferrer">
+          Ver uso de datos
+        </a>
       </p>
       <div className="gf-inline">
         <Button
