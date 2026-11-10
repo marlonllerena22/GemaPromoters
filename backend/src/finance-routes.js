@@ -2,6 +2,7 @@ import { applyPrivateBankReview } from "./finance-bank-review.js";
 import { financeSupportCheck } from "./finance-support-check.js";
 import {uploadConversationPhoto} from "./finance-conversation-photos.js";
 import {suggestOriginAccount} from "./finance-origin-account.js";
+import {marjorieIntegrationHealth} from "./finance-integration-health.js";
 import { assistantFilters, sourcedAnswer } from "./finance-assistant.js";
 import { canUseFinanceAssistant } from "../../shared/finance-workflow.mjs";
 import crypto from "node:crypto";
@@ -81,6 +82,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
   applyFinanceBootstrap(db);
   applyPrivateBankReview(db);
   financeSupportCheck(db);
+  if(process.env.NODE_ENV!=="test")console.info("[finance] Marjorie integration health "+JSON.stringify(marjorieIntegrationHealth(db)));
   startFinanceSyncWorker(db);
   const loginAttempts = new Map();
   const aiAttempts = new Map();
@@ -1433,6 +1435,10 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
       res.json(result);
     }),
   );
+  app.get("/api/finance/integrations/alfabusiness/status",route((req,res)=>{
+    owner(req);
+    res.json(marjorieIntegrationHealth(db));
+  }));
   app.get(
     "/api/finance/members",
     route((req, res) => {

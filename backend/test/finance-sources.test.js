@@ -8,10 +8,22 @@ import { syncInternalSources } from "../src/finance-sources.js";
 import { snapshot } from "../src/finance-service.js";
 import { recordedAccountBalance } from "../src/finance-check-ledger.js";
 import { payphoneReceiptStatus } from "../src/finance-payphone.js";
+import {marjorieIntegrationHealth} from "../src/finance-integration-health.js";
 
 process.env.FINANCE_DOCUMENT_KEY ||= "test-only-document-key-at-least-32-characters";
 const owner = { username: "test-owner", role: "owner", business_ids: ["gemashow"], unit_ids: [] };
 const period = { from: "2026-11-10", to: "2026-11-10" };
+
+test("integration health distinguishes legacy promoter traffic from the financial channel without changing records",t=>{
+  const db=new Database(":memory:");initFinanceDb(db);t.after(()=>db.close());
+  db.exec("CREATE TABLE marjorie_promoter_sales(id INTEGER PRIMARY KEY,external_source TEXT,sale_date TEXT,updated_at TEXT); INSERT INTO marjorie_promoter_sales VALUES (1,'marjorie-alfabusiness','2026-11-10','2026-11-10 12:00:00');");
+  const before=db.totalChanges;
+  const health=marjorieIntegrationHealth(db);
+  assert.equal(health.financial.total_sales,0);assert.equal(health.financial.state,"awaiting_first_sale");
+  assert.equal(health.legacy_promoters.total,1);assert.equal(health.coverage_verified,false);
+  assert.equal(JSON.stringify(health).includes("total_cents"),false);
+  assert.equal(db.totalChanges,before);
+});
 
 function fixture(t) {
   const db = new Database(":memory:");
