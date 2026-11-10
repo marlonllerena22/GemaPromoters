@@ -5,6 +5,7 @@ import {
   ArrowRight,
   ArrowUpRight,
   Bell,
+  Banknote,
   Camera,
   Check,
   CheckCircle2,
@@ -55,7 +56,7 @@ export function CustodyFunds() {
         {data.custody_funds.map((f) => (
           <div className="gf-custody-card" key={f.id}>
             <span>
-              <Wallet size={21} />
+              {f.kind === "cash" ? <Banknote size={21} /> : <Wallet size={21} />}
               {f.name}
             </span>
             <strong>

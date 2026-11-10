@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Landmark, Users, Wallet } from "lucide-react";
+import { Banknote, Landmark, Users } from "lucide-react";
 const brands = [
   [/pichincha/, "pichincha.ico"],
   [/produbanco|promerica/, "produbanco.png"],
@@ -15,7 +15,7 @@ export function BankLogo({ bank = "", kind = "bank" }) {
   const file = brands.find(([pattern]) =>
     pattern.test(bank.toLowerCase()),
   )?.[1];
-  const Icon = kind === "cash" ? Wallet : kind === "custody" ? Users : Landmark;
+  const Icon = kind === "cash" ? Banknote : kind === "custody" ? Users : Landmark;
   return (
     <span className="gf-bank-logo gf-bank-official" aria-hidden="true">
       {file && !failed ? (
