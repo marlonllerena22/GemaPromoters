@@ -10,6 +10,10 @@ import { financeSupportCheck } from "../src/finance-support-check.js";
 import { importStatementImage } from "../src/finance-statement-images.js";
 import { createMovement } from "../src/finance-service.js";
 import { applyBankReview } from "../src/finance-bank-review.js";
+import sharp from "sharp";
+import {uploadConversationPhoto} from "../src/finance-conversation-photos.js";
+import {suggestOriginAccount} from "../src/finance-origin-account.js";
+import {putPrivateSetting} from "../src/finance-operations.js";
 process.env.FINANCE_DOCUMENT_KEY ||= "test-only-conversation-document-key-123456";
 
 function fixture(t) {
@@ -29,11 +33,73 @@ function fixture(t) {
   db.prepare("UPDATE finance_custody_balances SET balance_cents=50000 WHERE id='efectivo'").run();
   const data = { business_id: "gemashow", unit_id: null, account_id: accountId, amount_cents: 2500, day: financeDay(), category: "Traslado interno", counterparty: "Henry", description: "Entrega de fondos custodiados para cheques", reference: "AI-BANK-ONE", custody_id: "henry", space_id: null, kind: "transfer", direction: "incoming", payment_method: "transfer" };
   let next = { action: "bank_entry", message: "Preparé el traslado. ¿Confirmas este resumen?", data };
-  let requests = 0;
-  t.mock.method(globalThis, "fetch", async (_url, options) => { requests++; const body = JSON.parse(options.body); assert.equal(body.store, false); return Response.json({ status: "completed", output: [{ content: [{ type: "output_text", text: JSON.stringify(next) }] }] }); });
-  return { db, owner, german, norma, accountId, data, setResponse: (r) => { next = r; }, requests: () => requests };
+  let requests = 0,lastRequest;
+  t.mock.method(globalThis, "fetch", async (_url, options) => { requests++; const body = JSON.parse(options.body);lastRequest=body; assert.equal(body.store, false); return Response.json({ status: "completed", output: [{ content: [{ type: "output_text", text: JSON.stringify(next) }] }] }); });
+  return { db, owner, german, norma, accountId, data, setResponse: (r) => { next = r; }, requests: () => requests,lastRequest:()=>lastRequest };
 }
 const chat = (content) => ({ messages: [{ role: "user", content }] });
+
+async function uploadPhoto(f,user=f.owner){
+  const bytes=await sharp({create:{width:10,height:10,channels:3,background:"white"}}).png().toBuffer();
+  return uploadConversationPhoto(f.db,user,{name:"saldo-test.png",mime:"image/png",data:bytes.toString("base64")});
+}
+
+test("photos are private and encrypted, bank balance snapshots replace the balance only on confirmation",async(t)=>{
+  const f=fixture(t),photo=await uploadPhoto(f);
+  assert.equal((await uploadPhoto(f)).id,photo.id);
+  const stored=f.db.prepare("SELECT * FROM finance_assistant_photos WHERE id=?").get(photo.id);
+  assert.equal(stored.encrypted.includes(Buffer.from("JFIF")),false);
+  await assert.rejects(prepareConversation(f.db,f.norma,{...chat("Lee la foto"),photo_ids:[photo.id]}),e=>e.status===404);
+  f.setResponse({action:"account_balance",message:"Ajustar saldo actual",data:{...f.data,photo_id:photo.id,amount_cents:25000,custody_id:null}});
+  const prepared=await prepareConversation(f.db,f.owner,{...chat("Actualiza esta cuenta al saldo de la foto"),photo_ids:[photo.id]});
+  assert.equal(f.lastRequest().input.at(-1).content.at(-1).type,"input_image");
+  assert.ok(f.lastRequest().input.at(-1).content.at(-1).image_url.startsWith("data:image/jpeg;base64,"));
+  assert.equal(prepared.draft.snapshot,true);assert.equal(prepared.draft.after_cents,25000);assert.equal(prepared.draft.before_cents,10000);
+  assert.equal(recordedAccountBalance(f.db,f.db.prepare("SELECT * FROM finance_accounts WHERE id=?").get(f.accountId)),10000);
+  confirmConversation(f.db,f.owner,{draft_id:prepared.draft.id,confirmed:true});
+  assert.equal(recordedAccountBalance(f.db,f.db.prepare("SELECT * FROM finance_accounts WHERE id=?").get(f.accountId)),25000);
+  assert.equal(f.db.prepare("SELECT count(*) n FROM finance_bank_transactions").get().n,0);
+  assert.equal(f.db.prepare("SELECT count(*) n FROM finance_movements").get().n,0);
+  assert.equal(confirmConversation(f.db,f.owner,{draft_id:prepared.draft.id,confirmed:true}).duplicate,true);
+  const repeat=await prepareConversation(f.db,f.owner,{...chat("Usa de nuevo la misma foto"),photo_ids:[photo.id]});
+  assert.equal(repeat.draft,null);assert.match(repeat.message,/ya actualizó/);
+});
+
+test("bank snapshots refuse stale pictures and cannot be prepared by staff",async(t)=>{
+  const f=fixture(t),photo=await uploadPhoto(f),staffPhoto=await uploadPhoto(f,f.german);
+  f.setResponse({action:"account_balance",message:"Ajustar",data:{...f.data,custody_id:null,photo_id:staffPhoto.id}});
+  await assert.rejects(prepareConversation(f.db,f.german,{...chat("Cambia saldo bancario"),photo_ids:[staffPhoto.id]}),e=>e.status===403);
+  f.db.prepare("UPDATE finance_assistant_photos SET uploaded_at=? WHERE id=?").run(new Date(Date.now()-10000).toISOString(),photo.id);
+  f.db.prepare("INSERT INTO finance_bank_transactions(account_id,day,amount_cents,reference,description,fingerprint,batch_id,created_by,occurred_at) VALUES (?,?,-100,'NEW','Nuevo pago','fresh-row','test','owner',?)").run(f.accountId,financeDay(),new Date(Date.now()-5000).toISOString());
+  f.setResponse({action:"account_balance",message:"Ajustar",data:{...f.data,custody_id:null,photo_id:photo.id}});
+  const stale=await prepareConversation(f.db,f.owner,{...chat("Actualiza con esta foto"),photo_ids:[photo.id]});
+  assert.equal(stale.draft,null);assert.match(stale.message,/después de subir la foto/);
+});
+
+test("one photo can update two different accounts without creating deposits and cannot mix a balance with its deposits",async(t)=>{
+  const f=fixture(t),photo=await uploadPhoto(f);
+  const second=Number(f.db.prepare("INSERT INTO finance_accounts(name,bank,kind,opening_cents,opening_date) VALUES ('Segunda','Pichincha','bank',100,?)").run(financeDay()).lastInsertRowid);
+  const first={action:"account_balance",data:{...f.data,custody_id:null,photo_id:photo.id,amount_cents:20000}};
+  const other={action:"account_balance",data:{...first.data,account_id:second,amount_cents:0}};
+  f.setResponse({action:"batch",message:"Dos saldos",data:first.data,items:[first,other]});
+  const prepared=await prepareConversation(f.db,f.owner,{...chat("Actualiza estos dos saldos actuales"),photo_ids:[photo.id]});
+  assert.deepEqual(prepared.draft.accounts.map(a=>a.after_cents),[20000,0]);
+  confirmConversation(f.db,f.owner,{draft_id:prepared.draft.id,confirmed:true});
+  assert.equal(recordedAccountBalance(f.db,f.db.prepare("SELECT * FROM finance_accounts WHERE id=?").get(second)),0);
+  assert.equal(f.db.prepare("SELECT count(*) n FROM finance_bank_transactions").get().n,0);
+});
+
+test("origin account selection uses origin digits, preserves zeros, refuses collisions and hides owner accounts from staff",t=>{
+  const f=fixture(t);
+  f.db.prepare("UPDATE finance_accounts SET bank='Pichincha',last_four='6432' WHERE id=?").run(f.accountId);
+  putPrivateSetting(f.db,"own_account_registry",{accounts:[{account_id:f.accountId,number:"002205576432",bank:"Pichincha"}]});
+  assert.equal(suggestOriginAccount(f.db,f.owner,{origin_account_suffix:"6432",origin_bank:"Banco Pichincha",receiving_bank:"Produbanco"}).account_id,f.accountId);
+  assert.equal(suggestOriginAccount(f.db,f.owner,{origin_account_suffix:"002205576432",origin_bank:"Pichincha"}).account_id,f.accountId);
+  assert.equal(suggestOriginAccount(f.db,f.owner,{receiving_bank:"Pichincha",description:"Cuenta destino 6432"}).account_id,null);
+  assert.equal(suggestOriginAccount(f.db,f.norma,{origin_account_suffix:"6432",origin_bank:"Pichincha"}).state,"restricted");
+  f.db.prepare("INSERT INTO finance_accounts(name,bank,kind,last_four,opening_date) VALUES ('Colisión','Pichincha','bank','6432',?)").run(financeDay());
+  assert.equal(suggestOriginAccount(f.db,f.owner,{origin_account_suffix:"6432",origin_bank:"Pichincha"}).state,"ambiguous");
+});
 
 test("a user-declared debit expense uses the named account and replay does not deduct twice",t=>{
   const f=fixture(t);

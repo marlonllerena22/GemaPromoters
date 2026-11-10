@@ -1,5 +1,7 @@
 import { applyPrivateBankReview } from "./finance-bank-review.js";
 import { financeSupportCheck } from "./finance-support-check.js";
+import {uploadConversationPhoto} from "./finance-conversation-photos.js";
+import {suggestOriginAccount} from "./finance-origin-account.js";
 import { assistantFilters, sourcedAnswer } from "./finance-assistant.js";
 import { canUseFinanceAssistant } from "../../shared/finance-workflow.mjs";
 import crypto from "node:crypto";
@@ -916,7 +918,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         return res.json({ id: old.id, duplicate: true });
       }
       const stored = db
-        .prepare("SELECT COALESCE(SUM(bytes),0) n FROM finance_evidence")
+        .prepare("SELECT (SELECT COALESCE(SUM(bytes),0) FROM finance_evidence)+(SELECT COALESCE(SUM(bytes),0) FROM finance_assistant_photos) n")
         .get().n;
       const limit = Number(
         process.env.FINANCE_MAX_DOCUMENT_BYTES || 256 * 1024 * 1024,
@@ -998,6 +1000,9 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
     aiLimit(req);
     res.json(await prepareConversation(db, req.financeUser, req.body));
   }));
+  app.post("/api/finance/quick/conversation/photos",route(async(req,res)=>{
+    res.json(await uploadConversationPhoto(db,req.financeUser,req.body));
+  }));
   app.post("/api/finance/quick/conversation/confirm", route((req, res) => {
     if (!canUseFinanceAssistant(req.financeUser)) fail("No tienes acceso al asistente", 403);
     res.json(confirmConversation(db, req.financeUser, req.body));
@@ -1028,7 +1033,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
           e.business_id,
         );
       })();
-      res.json({ analysis, draft: true });
+      res.json({ analysis, origin_account:suggestOriginAccount(db,req.financeUser,analysis), draft: true });
     }),
   );
   app.post(

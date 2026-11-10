@@ -3,10 +3,11 @@ import {
   LiquidityPlan,
   CardPaymentsPreview,
 } from "./account-summary.jsx";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { TransferFees } from "./fees.jsx";
 import {
   Activity,
+  Camera,
   ArrowDownLeft,
   ArrowDownToLine,
   ArrowLeftRight,
@@ -1659,7 +1660,8 @@ export function Reports() {
 }
 
 export function Assistant() {
-  const { data, filters, selectMovement } = useFinance();
+  const { data, filters, selectMovement, open } = useFinance();
+  const photoPicker=useRef(null);
   const [messages, setMessages] = useState([]),
     [question, setQuestion] = useState(""),
     [busy, setBusy] = useState(false),
@@ -1803,6 +1805,7 @@ export function Assistant() {
             </div>
           )}
           {error && <div className="gf-error">{error}</div>}
+          <div className="gf-assistant-photo-action"><input type="file" accept="image/jpeg,image/png,image/webp" hidden ref={photoPicker} aria-label="Foto para registrar con Gema" onChange={e=>{const photo=e.target.files?.[0];if(photo){open("quick",{photo,text:question.trim()||"Ayúdame a actualizar los fondos o registrar la operación de esta foto."});setQuestion("");}e.target.value="";}}/><Button variant="secondary" icon={Camera} onClick={()=>photoPicker.current?.click()} disabled={busy}>Foto · registrar o actualizar fondos</Button></div>
           <form
             className="gf-chat-composer"
             onSubmit={(e) => {

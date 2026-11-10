@@ -150,7 +150,7 @@ export async function analyzeDocument(evidence) {
         content: [
           {
             type: "input_text",
-            text: "Extrae los datos legibles de este documento. receiving_bank es únicamente el banco de la cuenta de DESTINO o receptora de la transferencia, nunca el banco de origen ni el logo del banco emisor. Si el destino no es legible o es ambiguo, devuelve null. No confirma una acreditación bancaria.",
+            text: "Extrae los datos legibles de este documento. receiving_bank es únicamente el banco de DESTINO, nunca el banco de origen ni el logo emisor. origin_bank es el banco desde el que salió el dinero y origin_account_suffix son SOLO los últimos dígitos contiguos legibles del campo explícito Cuenta origen; conserva ceros. Nunca uses Cuenta destino para origin_account_suffix. No completes dígitos ocultos ni deduzcas una cuenta de una tarjeta. Si no se lee el campo origen, devuelve null. No confirma una acreditación bancaria.",
           },
           content,
         ],
@@ -165,6 +165,8 @@ export async function analyzeDocument(evidence) {
         day: nullableString,
         bank: nullableString,
         receiving_bank: nullableString,
+        origin_bank: nullableString,
+        origin_account_suffix: nullableString,
         reference: nullableString,
         counterparty: nullableString,
         description: nullableString,
@@ -175,6 +177,8 @@ export async function analyzeDocument(evidence) {
         "day",
         "bank",
         "receiving_bank",
+        "origin_bank",
+        "origin_account_suffix",
         "reference",
         "counterparty",
         "description",

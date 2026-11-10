@@ -768,6 +768,7 @@ export function RecordPayment({ id, initialDestination, onClose }) {
     ),
     [reference, setReference] = useState(""),
     [evidence, setEvidence] = useState(null),
+    [origin, setOrigin] = useState(null),
     [confirmed, setConfirmed] = useState(false),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
@@ -785,6 +786,8 @@ export function RecordPayment({ id, initialDestination, onClose }) {
     );
   async function upload(selected) {
     if (!selected || preview) return;
+    if(origin?.account_id===Number(account))setAccount("");
+    setOrigin(null);
     setUploading(true);
     setError("");
     try {
@@ -806,10 +809,12 @@ export function RecordPayment({ id, initialDestination, onClose }) {
       setEvidence({ id: result.id, name: selected.name });
       if (data.capabilities.ai) {
         try {
-          const { analysis } = await financeApi(
+          const { analysis, origin_account } = await financeApi(
             `/evidence/${result.id}/analyze`,
             {},
           );
+          setOrigin(origin_account);
+          if(origin_account?.state==="matched" && accounts.some(a=>a.id===origin_account.account_id))setAccount(String(origin_account.account_id));
           if (analysis.reference) setReference(analysis.reference);
           if (analysis.day) setDay(analysis.day);
           if (
@@ -937,6 +942,7 @@ export function RecordPayment({ id, initialDestination, onClose }) {
             <select
               value={account}
               onChange={(e) => setAccount(e.target.value)}
+              disabled={uploading || busy}
               required
             >
               <option value="">Selecciona la cuenta de salida</option>
@@ -947,6 +953,7 @@ export function RecordPayment({ id, initialDestination, onClose }) {
               ))}
             </select>
           </Field>
+          {origin && <p className="gf-note" role="status">{origin.state==="matched" ? `Detecté la cuenta de origen terminada en ${origin.suffix} y la seleccioné. Revísala antes de guardar.` : origin.state==="ambiguous" ? "Los dígitos de origen coinciden con varias cuentas. Elige desde cuál pagaste." : "No pude identificar una cuenta de origen única en la foto. Selecciónala para registrar el pago."}</p>}
           <Field label="Referencia de la transferencia">
             <input
               value={reference}

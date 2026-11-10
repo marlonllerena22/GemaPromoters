@@ -1030,3 +1030,10 @@
 .gf-push-enrollment { flex-wrap: wrap; margin-bottom: 18px; }
 .gf-push-enrollment > div { flex: 1 1 190px; min-width: 0; }
 .gf-push-enrollment p { font-size: 14px; line-height: 1.5; }
+.gf-conversation-photos { display: grid; gap: 8px; padding: 12px 0; }
+.gf-conversation-photos article { display:flex; align-items:center; gap:10px; border:1px solid #dce5dc; border-radius:12px; padding:8px; min-width:0; }
+.gf-conversation-photos img { width:56px; height:64px; object-fit:contain; border-radius:6px; background:#eef2ed; }
+.gf-conversation-photos span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; }
+.gf-conversation-photos button { border:0; background:transparent; color:#345243; padding:10px; }
+.gf-quick-dialogue-composer > div { flex-wrap:wrap; }
+.gf-assistant-photo-action { padding:12px 20px 0; }
