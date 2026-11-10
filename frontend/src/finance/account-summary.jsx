@@ -166,8 +166,8 @@ export function AccountTiles({ custodyOnly = false }) {
       ...f,
       id: `custody:${f.id}`,
       custody_id: f.id,
-      bank: "Pichincha",
-      kind: "custody",
+      bank: f.bank || "Pichincha",
+      kind: f.kind || "custody",
       account_name: f.name,
     })),
   ];
@@ -192,12 +192,14 @@ export function AccountTiles({ custodyOnly = false }) {
             </small>
             {!a.grouped && (
               <small className="gf-account-number">
-                {a.manual_provider
-                  ? `Saldo manual · ${dateLabel(a.balance_as_of)}`
-                  : a.account_number ||
-                    (a.last_four
-                      ? `··${a.last_four} · por completar`
-                      : "Número por completar")}
+                {a.kind === "cash"
+                  ? "Registro manual"
+                  : a.manual_provider
+                    ? `Saldo manual · ${dateLabel(a.balance_as_of)}`
+                    : a.account_number ||
+                      (a.last_four
+                        ? `··${a.last_four} · por completar`
+                        : "Número por completar")}
               </small>
             )}
           </span>

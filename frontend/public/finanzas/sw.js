@@ -5,6 +5,16 @@ const SHELL = [
   "/finanzas/icon-192.png",
   "/finanzas/icon-512.png",
 ];
+function notificationUrl(value) {
+  return [
+    "/finanzas/pagos",
+    "/finanzas/cheques",
+    "/finanzas/tarjetas",
+    "/finanzas/prestamos",
+  ].includes(value)
+    ? value
+    : "/finanzas/pagos";
+}
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));
 });
@@ -46,18 +56,29 @@ self.addEventListener("push", (event) => {
     value = event.data?.json() || {};
   } catch {}
   event.waitUntil(
-    self.registration.showNotification("Tienes una transferencia pendiente", {
-      body: "Abre Gema Finanzas para revisar la solicitud.",
-      icon: "/finanzas/icon-192.png",
-      badge: "/finanzas/icon-192.png",
-      tag: "gema-payment-requests",
-      data: { url: "/finanzas/pagos" },
-      requireInteraction: true,
-    }),
+    self.registration.showNotification(
+      typeof value.title === "string"
+        ? value.title.slice(0, 120)
+        : "Tienes una transferencia pendiente",
+      {
+        body:
+          typeof value.body === "string"
+            ? value.body.slice(0, 250)
+            : "Abre Gema Finanzas para revisar la solicitud.",
+        icon: "/finanzas/icon-192.png",
+        badge: "/finanzas/icon-192.png",
+        tag: /^gema-[a-z0-9_-]{1,64}$/.test(value.tag || "")
+          ? value.tag
+          : "gema-payment-requests",
+        data: { url: notificationUrl(value.url) },
+        requireInteraction: notificationUrl(value.url) === "/finanzas/pagos",
+      },
+    ),
   );
 });
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
+  const target = notificationUrl(event.notification.data?.url);
   event.waitUntil(
     self.clients
       .matchAll({ type: "window", includeUncontrolled: true })
@@ -66,10 +87,10 @@ self.addEventListener("notificationclick", (event) => {
           (c) => new URL(c.url).origin === self.location.origin,
         );
         if (client) {
-          await client.navigate("/finanzas/pagos");
+          await client.navigate(target);
           return client.focus();
         }
-        return self.clients.openWindow("/finanzas/pagos");
+        return self.clients.openWindow(target);
       }),
   );
 });

@@ -1,8 +1,15 @@
 import crypto from "node:crypto";
 import QRCode from "qrcode";
-import { audit, passwordHash, passwordMatches, validateFinancePassword } from "./finance-db.js";
+import {
+  audit,
+  passwordHash,
+  passwordMatches,
+  validateFinancePassword,
+} from "./finance-db.js";
 import { decryptDocument, encryptDocument } from "./finance-ai.js";
 import { fail, text } from "./finance-service.js";
+import { teamPasswordDeadline } from "./finance-password-policy.js";
+import { safeMember } from "./finance-db.js";
 
 const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 export function encodeBase32(buffer) {
@@ -213,6 +220,9 @@ export function registerFinanceSecurity(app, db, { route, sessionToken }) {
   app.post(
     "/api/finance/security/password",
     route((req, res) => {
+      validateFinancePassword(req.body.new_password);
+      if (req.body.new_password === req.body.password)
+        fail("Elige una contraseña diferente de la actual");
       const member = reauthenticate(req);
       const hash = passwordHash(validateFinancePassword(req.body.new_password));
       const current = crypto
@@ -220,8 +230,12 @@ export function registerFinanceSecurity(app, db, { route, sessionToken }) {
         .update(sessionToken(req))
         .digest("hex");
       db.transaction(() => {
-        db.prepare("UPDATE finance_members SET password_hash=? WHERE id=?").run(
+        db.prepare(
+          "UPDATE finance_members SET password_hash=?,password_policy_completed=?,password_changed_at=? WHERE id=?",
+        ).run(
           hash,
+          teamPasswordDeadline(),
+          new Date().toISOString(),
           member.id,
         );
         db.prepare(
@@ -235,7 +249,12 @@ export function registerFinanceSecurity(app, db, { route, sessionToken }) {
           member.id,
         );
       })();
-      res.json({ ok: true });
+      res.json({
+        ok: true,
+        user: safeMember(
+          db.prepare("SELECT * FROM finance_members WHERE id=?").get(member.id),
+        ),
+      });
     }),
   );
   app.post(

@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { teamPasswordDeadline } from "./finance-password-policy.js";
 import { gunzipSync } from "node:zlib";
 import {
   audit,
@@ -286,8 +287,13 @@ export function registerPublicFinanceAccess(app, db, { route, startSession }) {
       validateFinancePassword(req.body.password);
       db.transaction(() => {
         db.prepare(
-          "UPDATE finance_members SET password_hash=?,active=1 WHERE id=?",
-        ).run(passwordHash(req.body.password), i.member_id);
+          "UPDATE finance_members SET password_hash=?,active=1,password_policy_completed=?,password_changed_at=? WHERE id=?",
+        ).run(
+          passwordHash(req.body.password),
+          teamPasswordDeadline(),
+          new Date().toISOString(),
+          i.member_id,
+        );
         db.prepare(
           "UPDATE finance_member_invites SET used_at=? WHERE member_id=? AND used_at IS NULL",
         ).run(new Date().toISOString(), i.member_id);

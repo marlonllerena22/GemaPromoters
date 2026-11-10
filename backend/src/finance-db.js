@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { passwordChangePolicy } from "./finance-password-policy.js";
 import { initFinanceWorkflowDb } from "./finance-workflow-db.js";
 
 export const FINANCE_BUSINESSES = [
@@ -316,6 +317,7 @@ export function safeMember(member) {
     name: member.name,
     username: member.username,
     role: member.role,
+    ...passwordChangePolicy(member),
     business_ids: JSON.parse(member.business_ids),
     unit_ids: JSON.parse(member.unit_ids || "[]"),
     active: Boolean(member.active),

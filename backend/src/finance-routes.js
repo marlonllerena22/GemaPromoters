@@ -222,9 +222,22 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         for (const [k, v] of loginAttempts)
           if (v.every((t) => Date.now() - t > 15 * 60 * 1000))
             loginAttempts.delete(k);
-      const member = db
-        .prepare("SELECT * FROM finance_members WHERE username=? AND active=1")
-        .get(text(req.body.username, 100));
+      const username = text(req.body.username, 100);
+      const canonicalUsername = username
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+      const member =
+        db
+          .prepare(
+            "SELECT * FROM finance_members WHERE username=? AND active=1",
+          )
+          .get(username) ||
+        db
+          .prepare(
+            "SELECT * FROM finance_members WHERE username=? AND active=1",
+          )
+          .get(canonicalUsername);
       const dummy = "00000000000000000000000000000000:" + "00".repeat(64);
       const valid = passwordMatches(
         req.body.password,
@@ -300,6 +313,18 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
           "UPDATE finance_sessions SET last_seen=? WHERE token_hash=?",
         ).run(Date.now(), hashToken(token));
       req.financeUser = safeMember(member);
+      if (
+        req.financeUser.password_change_required &&
+        !["/security/password", "/logout", "/remember-device"].includes(
+          req.path,
+        ) &&
+        !(req.method === "GET" && req.path === "/security")
+      )
+        return res.status(403).json({
+          code: "PASSWORD_CHANGE_REQUIRED",
+          message: "Cambia tu contraseña personal para continuar",
+          user: req.financeUser,
+        });
       next();
     }),
   );

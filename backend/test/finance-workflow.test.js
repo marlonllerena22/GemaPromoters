@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
+import { readFile } from "node:fs/promises";
+import vm from "node:vm";
 import Database from "better-sqlite3";
 import { generateVAPIDKeys } from "web-push";
 import { initFinanceDb, safeMember, financeDay } from "../src/finance-db.js";
@@ -65,7 +67,7 @@ test("bank photo extraction keeps all alternatives and never fills masked accoun
           },
         ],
       }),
-      { status: 200 }
+      { status: 200 },
     );
   };
   const analysis = await analyzeBankDetails({
@@ -81,7 +83,7 @@ test("bank photo extraction keeps all alternatives and never fills masked accoun
     bankDraft({
       accounts: [{ number: "0012-3456", bank: "Test", type: "savings" }],
     }).accounts[0].number,
-    "00123456"
+    "00123456",
   );
 });
 process.env.FINANCE_DOCUMENT_KEY ||=
@@ -97,10 +99,12 @@ function fixture(t) {
   const db = new Database(":memory:");
   initFinanceDb(db);
   db.prepare(
-    "INSERT INTO finance_members (name,username,password_hash,role,business_ids) VALUES ('Push test','push-test','unused','owner','[\"producalza\",\"marjorie\",\"gemashow\",\"personal\"]')"
+    "INSERT INTO finance_members (name,username,password_hash,role,business_ids) VALUES ('Push test','push-test','unused','owner','[\"producalza\",\"marjorie\",\"gemashow\",\"personal\"]')",
   ).run();
   const user = safeMember(
-    db.prepare("SELECT * FROM finance_members WHERE username='push-test'").get()
+    db
+      .prepare("SELECT * FROM finance_members WHERE username='push-test'")
+      .get(),
   );
   const request = createMovement(db, user, {
     business_id: "personal",
@@ -112,16 +116,16 @@ function fixture(t) {
     description: "SECRET-PERSONAL-DESCRIPTION",
   });
   db.prepare(
-    "UPDATE finance_movements SET is_payment_request=1 WHERE id=?"
+    "UPDATE finance_movements SET is_payment_request=1 WHERE id=?",
   ).run(request.id);
   queuePaymentNotice(db, request.id);
   const value = subscription();
   db.prepare(
-    "INSERT INTO finance_push_subscriptions (endpoint_hash,member_id,encrypted) VALUES (?,?,?)"
+    "INSERT INTO finance_push_subscriptions (endpoint_hash,member_id,encrypted) VALUES (?,?,?)",
   ).run(
     crypto.createHash("sha256").update(value.endpoint).digest("hex"),
     user.id,
-    encryptDocument(Buffer.from(JSON.stringify(value)))
+    encryptDocument(Buffer.from(JSON.stringify(value))),
   );
   t.after(() => db.close());
   return { db, user, request };
@@ -142,7 +146,7 @@ test("push subscriptions accept browser providers and reject arbitrary or insecu
     validatePushSubscription({
       ...s,
       keys: { auth: "short", p256dh: "invalid" },
-    })
+    }),
   );
 });
 test("queued push is encrypted at rest, delivered without financial details and never clears its payable", async (t) => {
@@ -167,13 +171,13 @@ test("queued push is encrypted at rest, delivered without financial details and 
   assert.equal(sent, 1);
   assert.equal(
     f.db.prepare("SELECT state FROM finance_push_outbox").get().state,
-    "sent"
+    "sent",
   );
   assert.equal(
     f.db
       .prepare("SELECT status FROM finance_movements WHERE id=?")
       .get(f.request.id).status,
-    "pending"
+    "pending",
   );
   const encrypted = f.db
     .prepare("SELECT encrypted FROM finance_push_subscriptions")
@@ -197,13 +201,13 @@ test("resolved requests skip stale push and failed providers preserve pending re
   });
   assert.equal(
     f.db.prepare("SELECT state FROM finance_push_outbox").get().state,
-    "queued"
+    "queued",
   );
   assert.equal(
     f.db
       .prepare("SELECT status FROM finance_movements WHERE id=?")
       .get(f.request.id).status,
-    "pending"
+    "pending",
   );
   f.db
     .prepare("UPDATE finance_movements SET status='rejected' WHERE id=?")
@@ -218,7 +222,7 @@ test("resolved requests skip stale push and failed providers preserve pending re
   assert.equal(sent, 0);
   assert.equal(
     f.db.prepare("SELECT state FROM finance_push_outbox").get().state,
-    "skipped"
+    "skipped",
   );
 });
 test("all unpaid requests remain in the payment queue even beyond recent-history sizes", () => {
@@ -241,9 +245,73 @@ test("all unpaid requests remain in the payment queue even beyond recent-history
   };
   const view = workflowView(
     { spaces: [], members: [], requests, payments: [] },
-    user
+    user,
   );
   assert.equal(view.queue.length, 1205);
   assert.equal(view.requests.length, 1205);
   assert.equal(view.summary.pending_cents, 1205000);
+});
+
+test("phone alerts keep the right title and open loans or cards instead of payment requests", async () => {
+  const handlers = new Map(),
+    shown = [],
+    visited = [];
+  const self = {
+    location: { origin: "https://example.test" },
+    addEventListener: (type, fn) => handlers.set(type, fn),
+    registration: {
+      showNotification: async (title, options) =>
+        shown.push({ title, ...options }),
+    },
+    clients: {
+      matchAll: async () => [
+        {
+          url: "https://example.test/finanzas/",
+          navigate: async (url) => visited.push(url),
+          focus: async () => {},
+        },
+      ],
+      openWindow: async (url) => visited.push(url),
+    },
+  };
+  vm.runInNewContext(
+    await readFile(
+      new URL("../../frontend/public/finanzas/sw.js", import.meta.url),
+      "utf8",
+    ),
+    { self, URL },
+  );
+  let done;
+  handlers.get("push")({
+    data: {
+      json: () => ({
+        title: "Aviso de préstamo",
+        body: "Revisa su cuenta",
+        url: "/finanzas/prestamos",
+        tag: "gema-loan-alerts",
+      }),
+    },
+    waitUntil: (p) => {
+      done = p;
+    },
+  });
+  await done;
+  assert.equal(shown[0].title, "Aviso de préstamo");
+  assert.equal(shown[0].tag, "gema-loan-alerts");
+  handlers.get("notificationclick")({
+    notification: { data: shown[0].data, close() {} },
+    waitUntil: (p) => {
+      done = p;
+    },
+  });
+  await done;
+  assert.equal(visited[0], "/finanzas/prestamos");
+  handlers.get("push")({
+    data: { json: () => ({ url: "https://attacker.invalid/" }) },
+    waitUntil: (p) => {
+      done = p;
+    },
+  });
+  await done;
+  assert.equal(shown[1].data.url, "/finanzas/pagos");
 });

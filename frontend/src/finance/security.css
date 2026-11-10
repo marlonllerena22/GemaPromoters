@@ -217,16 +217,38 @@
 .gf-main:focus {
   outline: none;
 }
-@media(max-width:360px){
-  .gf-stats:not(.three)>.gf-stat{min-height:132px}
-  .gf-stats:not(.three)>.gf-stat.primary,.gf-stats:not(.three)>.gf-stat:last-child{grid-column:1/-1}
-  .gf-stats:not(.three)>.gf-stat>strong{font-size:21px}
-  .gf-stats:not(.three)>.gf-stat.primary>strong{font-size:29px}
-  .gf-stats:not(.three)>.gf-stat:last-child>strong{font-size:26px}
-  .gf-form-grid{grid-template-columns:1fr}
-  .gf-distribution{grid-template-columns:1fr;justify-items:center;gap:15px}
-  .gf-donut{width:155px;height:155px}
-  .gf-donut-legend{padding:0 12px}
+@media (max-width: 360px) {
+  .gf-stats:not(.three) > .gf-stat {
+    min-height: 132px;
+  }
+  .gf-stats:not(.three) > .gf-stat.primary,
+  .gf-stats:not(.three) > .gf-stat:last-child {
+    grid-column: 1/-1;
+  }
+  .gf-stats:not(.three) > .gf-stat > strong {
+    font-size: 21px;
+  }
+  .gf-stats:not(.three) > .gf-stat.primary > strong {
+    font-size: 29px;
+  }
+  .gf-stats:not(.three) > .gf-stat:last-child > strong {
+    font-size: 26px;
+  }
+  .gf-form-grid {
+    grid-template-columns: 1fr;
+  }
+  .gf-distribution {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    gap: 15px;
+  }
+  .gf-donut {
+    width: 155px;
+    height: 155px;
+  }
+  .gf-donut-legend {
+    padding: 0 12px;
+  }
 }
 @media (max-width: 800px) {
   .gf-sidebar:not(.open) {
@@ -259,5 +281,68 @@
   }
   .gf-account-positions .gf-button {
     font-size: 11px;
+  }
+}
+.gf-password-change-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: #f4f7f0;
+}
+.gf-password-change-card {
+  width: 100%;
+  max-width: 460px;
+  padding: 32px;
+  border: 1px solid #dce7d8;
+  border-radius: 22px;
+  background: #fff;
+  color: #2d4433;
+  box-shadow: 0 12px 50px #23432908;
+}
+.gf-password-change-card h1 {
+  font-size: 27px;
+  line-height: 1.2;
+  margin: 18px 0 12px;
+}
+.gf-password-change-card > p {
+  font-size: 16px;
+  line-height: 1.55;
+  color: #6f7e68;
+  margin-bottom: 24px;
+}
+.gf-password-change-card form {
+  display: grid;
+  gap: 16px;
+}
+.gf-password-change-card form > .gf-btn {
+  width: 100%;
+  margin-top: 8px;
+}
+.gf-password-change-card > small {
+  display: block;
+  color: #7b8874;
+  font-size: 12px;
+  line-height: 1.55;
+  margin: 18px 0 10px;
+}
+.gf-password-change-card > .gf-btn {
+  width: 100%;
+}
+.gf-personal-access {
+  display: flex;
+  justify-content: center;
+  padding: 24px 0;
+}
+@media (max-width: 600px) {
+  .gf-password-change-screen {
+    padding: 18px;
+  }
+  .gf-password-change-card {
+    padding: 24px;
+  }
+  .gf-password-change-card h1 {
+    font-size: 25px;
   }
 }

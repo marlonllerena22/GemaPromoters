@@ -12,6 +12,7 @@ import {
   validDay,
 } from "../src/finance-db.js";
 import { registerFinanceRoutes } from "../src/finance-routes.js";
+import {passwordChangePolicy} from '../src/finance-password-policy.js';
 import { importSale, csvExport } from "../src/finance-service.js";
 import { encryptDocument, decryptDocument } from "../src/finance-ai.js";
 import { encodeBase32, totp, validTotpStep } from "../src/finance-security.js";
@@ -1887,4 +1888,29 @@ test('remembered devices survive inactivity while ordinary sessions still expire
  f.db.prepare('UPDATE finance_sessions SET last_seen=?').run(Date.now()-3600000);assert.equal((await f.req('/snapshot')).status,200);
  assert.equal((await f.req('/session')).body.remember_device,true);
  await f.req('/remember-device','owner',{remember:false});f.db.prepare('UPDATE finance_sessions SET last_seen=?').run(Date.now()-3600000);assert.equal((await f.req('/snapshot')).status,401);
+});
+
+test('team password requirement begins exactly at 09:00 Ecuador and exempts the owner',t=>{
+ const previous=process.env.FINANCE_TEAM_PASSWORD_CHANGE_AT;process.env.FINANCE_TEAM_PASSWORD_CHANGE_AT='2026-11-10T09:00:00-05:00';t.after(()=>{if(previous===undefined)delete process.env.FINANCE_TEAM_PASSWORD_CHANGE_AT;else process.env.FINANCE_TEAM_PASSWORD_CHANGE_AT=previous;});
+ const m={role:'collector'};assert.equal(passwordChangePolicy(m,Date.parse('2026-11-10T13:59:59.999Z')).password_change_required,false);assert.equal(passwordChangePolicy(m,Date.parse('2026-11-10T14:00:00Z')).password_change_required,true);
+ assert.equal(passwordChangePolicy({role:'owner'},Date.parse('2026-11-11T14:00:00Z')).password_change_required,false);
+ assert.equal(passwordChangePolicy({...m,password_policy_completed:'2026-11-10T14:00:00.000Z'},Date.parse('2026-11-11T14:00:00Z')).password_change_required,false);
+});
+
+test('a due password change blocks existing sessions until a personal change and revokes other sessions',async t=>{
+ const previous=process.env.FINANCE_TEAM_PASSWORD_CHANGE_AT;t.after(()=>{if(previous===undefined)delete process.env.FINANCE_TEAM_PASSWORD_CHANGE_AT;else process.env.FINANCE_TEAM_PASSWORD_CHANGE_AT=previous;});
+ process.env.FINANCE_TEAM_PASSWORD_CHANGE_AT=new Date(Date.now()+60000).toISOString();const f=await fixture(t);await f.login();await f.login('reader');assert.equal((await f.req('/snapshot','reader')).status,200);
+ const other=await f.raw('/login','reader',{username:'reader',password}),otherCookie=other.headers.get('set-cookie').split(';')[0];
+ process.env.FINANCE_TEAM_PASSWORD_CHANGE_AT=new Date(Date.now()-1000).toISOString();
+ const blocked=await f.req('/snapshot','reader');assert.equal(blocked.status,403);assert.equal(blocked.body.code,'PASSWORD_CHANGE_REQUIRED');assert.equal(blocked.body.user.username,'reader');assert.equal((await f.req('/snapshot')).status,200);
+ assert.equal((await f.req('/session','reader')).body.user.password_change_required,true);assert.equal((await f.req('/security','reader')).status,200);
+ assert.equal((await f.req('/security/password','reader',{password,new_password:password})).status,400);
+ const changed=await f.req('/security/password','reader',{password,new_password:'TeamNew8'});assert.equal(changed.status,200);assert.equal(changed.body.user.password_change_required,false);assert.equal((await f.req('/snapshot','reader')).status,200);
+ assert.equal((await f.raw('/snapshot','reader',undefined,'GET',{Cookie:otherCookie})).status,401);
+ assert.equal((await f.req('/login','reader',{username:'reader',password})).status,401);assert.equal((await f.req('/login','reader',{username:'reader',password:'TeamNew8'})).status,200);
+});
+
+test('German can sign in using an accented name without altering password matching',async t=>{
+ const f=await fixture(t);f.db.prepare("INSERT INTO finance_members(name,username,password_hash,role,business_ids,unit_ids) VALUES ('Germán','german',?,'viewer','[\"gemashow\"]','[]')").run(passwordHash(password));
+ const r=await f.req('/login','german',{username:' Germán ',password});assert.equal(r.status,200);assert.equal(r.body.user.username,'german');assert.equal((await f.req('/login','german',{username:'german',password:password.toLowerCase()})).status,401);
 });

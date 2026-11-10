@@ -28,10 +28,41 @@ export function privateSetting(db, key) {
     .get(key);
   return r ? JSON.parse(decryptDocument(r.encrypted).toString()) : null;
 }
+export const canAdjustPhysicalCash = (user) =>
+  user.role === "owner" || (user.username === "german" && user.work_view);
+export function custodyFunds(db, user, scope = null) {
+  if (user.role === "collector") return [];
+  const numbers = privateSetting(db, "custody_account_numbers") || {};
+  return db
+    .prepare("SELECT * FROM finance_custody_balances")
+    .all()
+    .filter((f) =>
+      f.id === "efectivo"
+        ? canAdjustPhysicalCash(user) && (!scope || scope.length > 1)
+        : user.business_ids.includes(f.business_id) &&
+          (!scope || scope.includes(f.business_id)),
+    )
+    .map((f) => ({
+      ...f,
+      kind: f.id === "efectivo" ? "cash" : "custody",
+      can_adjust:
+        f.id === "efectivo"
+          ? canAdjustPhysicalCash(user)
+          : user.role === "owner" || Boolean(user.custody_adjust),
+      account_number:
+        f.id === "efectivo"
+          ? null
+          : user.role === "owner" || isFamilyView(user)
+            ? numbers[f.id] || null
+            : null,
+    }));
+}
 export function adjustCustody(db, user, id, body) {
+  if (id === "efectivo" && !canAdjustPhysicalCash(user))
+    fail("Solo Marlon y Germán pueden actualizar EFECTIVO", 403);
   if (user.role !== "owner" && !user.custody_adjust)
     fail("No puedes modificar estos fondos", 403);
-  businessAccess(user, "gemashow");
+  if (id !== "efectivo") businessAccess(user, "gemashow");
   if (
     !Number.isSafeInteger(body.balance_cents) ||
     body.balance_cents < 0 ||
@@ -103,7 +134,7 @@ export function adjustCustody(db, user, id, body) {
         delta_cents: delta,
         reason: text(body.reason, 500),
       },
-      "gemashow",
+      id === "efectivo" ? null : "gemashow",
     );
     return {
       adjustment: db
@@ -198,20 +229,8 @@ export function storeReceipts(db, user) {
 export function attachOperations(db, user, data) {
   const scope = data.businesses.map((b) => b.id);
   data.incoming_notices = incomingNotices(db, user);
-  data.custody_funds =
-    user.role !== "collector" && scope.includes("gemashow")
-      ? db.prepare("SELECT * FROM finance_custody_balances").all()
-      : [];
+  data.custody_funds = custodyFunds(db, user, scope);
   const registry = privateSetting(db, "own_account_registry");
-  const custodyNumbers = privateSetting(db, "custody_account_numbers") || {};
-  data.custody_funds = data.custody_funds.map((f) => ({
-    ...f,
-    bank: "Pichincha",
-    account_number:
-      user.role === "owner" || isFamilyView(user)
-        ? custodyNumbers[f.id] || null
-        : null,
-  }));
   data.store_receipts = scope.includes("marjorie")
     ? storeReceipts(db, user)
     : [];
@@ -324,6 +343,7 @@ export function registerOperationsRoutes(app, db, { route, owner }) {
         .prepare("SELECT id FROM finance_custody_balances WHERE id=?")
         .get(req.params.id);
       if (!f) fail("Responsable no encontrado", 404);
+      if (f.id === "efectivo") fail("EFECTIVO no utiliza un número de cuenta");
       const number = normalizeNumber(req.body.number);
       db.transaction(() => {
         const all = privateSetting(db, "custody_account_numbers") || {};
@@ -349,13 +369,16 @@ export function registerOperationsRoutes(app, db, { route, owner }) {
       businessAccess(req.financeUser, "gemashow");
       if (req.financeUser.role === "collector")
         fail("Acceso de consulta restringido", 403);
+      const funds = custodyFunds(db, req.financeUser),
+        visible = new Set(funds.map((f) => f.id));
       res.json({
-        funds: db.prepare("SELECT * FROM finance_custody_balances").all(),
+        funds,
         adjustments: db
           .prepare(
             "SELECT a.*,m.name actor_name FROM finance_custody_adjustments a LEFT JOIN finance_members m ON m.username=a.actor ORDER BY a.id DESC LIMIT 500",
           )
-          .all(),
+          .all()
+          .filter((a) => visible.has(a.custody_id)),
       });
     }),
   );

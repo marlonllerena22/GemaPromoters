@@ -2,7 +2,11 @@ import crypto from "node:crypto";
 import { gunzipSync } from "node:zlib";
 import { audit, financeDay, validDay } from "./finance-db.js";
 import { decryptDocument } from "./finance-ai.js";
-import { privateSetting, putPrivateSetting } from "./finance-operations.js";
+import {
+  privateSetting,
+  putPrivateSetting,
+  adjustCustody,
+} from "./finance-operations.js";
 import {
   parseBankMail,
   ingestBankMessages,
@@ -45,6 +49,53 @@ export function applyBankReview(db, config) {
       .get(rows[0].account_id);
   };
   return db.transaction(() => {
+    let custodies = 0;
+    for (const c of config.custody_balances || []) {
+      if (
+        !["morelia", "efectivo", "xavi-ahorros"].includes(c.id) ||
+        !Number.isSafeInteger(c.expected_version) ||
+        !/^[a-f0-9]{64}$/.test(c.source_hash || "")
+      )
+        throw new Error("Invalid custody observation");
+      const current = db
+        .prepare("SELECT * FROM finance_custody_balances WHERE id=?")
+        .get(c.id);
+      if (!current || current.version !== c.expected_version)
+        throw new Error("Custody balance changed; review before applying");
+      adjustCustody(
+        db,
+        {
+          role: "owner",
+          username: "marlon",
+          business_ids: ["gemashow", "producalza", "marjorie", "personal"],
+          unit_ids: [],
+        },
+        c.id,
+        {
+          balance_cents: c.balance_cents,
+          version: c.expected_version,
+          reason: "Saldo actual indicado por Marlon",
+          request_key: crypto
+            .createHash("sha256")
+            .update(config.id + ":" + c.id)
+            .digest("hex"),
+        },
+      );
+      audit(
+        db,
+        "system:authorized-bank-review",
+        "custody.balance_observed",
+        "custodian",
+        c.id,
+        null,
+        {
+          requested_by: "marlon",
+          balance_cents: c.balance_cents,
+          source_hash: c.source_hash,
+        },
+      );
+      custodies++;
+    }
     let wallets = 0;
     for (const w of config.wallet_balances || []) {
       if (
@@ -275,6 +326,7 @@ export function applyBankReview(db, config) {
     }
     const result = {
       applied: true,
+      custodies,
       wallets,
       messages: mail.imported,
       statements,

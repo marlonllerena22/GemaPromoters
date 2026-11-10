@@ -46,7 +46,7 @@ export function CustodyFunds() {
   return (
     <section className="gf-custody-section">
       <SectionHead
-        title="Fondos de Gemashow"
+        title="Fondos y efectivo"
         description="Dinero bajo responsabilidad de cada persona."
       />
       <div className="gf-custody-grid">
@@ -73,9 +73,7 @@ export function CustodyFunds() {
               variant="secondary"
               onClick={() => open("custody", { id: f.id })}
             >
-              {user.role === "owner" || user.custody_adjust
-                ? "Actualizar / historial"
-                : "Ver historial"}
+              {f.can_adjust ? "Actualizar / historial" : "Ver historial"}
             </Button>
           </div>
         ))}
@@ -96,7 +94,7 @@ export function CustodyEditor({ id, onClose }) {
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const key = useRef(crypto.randomUUID()),
-    can = user.role === "owner" || user.custody_adjust;
+    can = fund.can_adjust ?? (user.role === "owner" || user.custody_adjust);
   useEffect(() => {
     financeApi("/custody")
       .then((r) => setHistory(r.adjustments.filter((a) => a.custody_id === id)))
@@ -135,10 +133,11 @@ export function CustodyEditor({ id, onClose }) {
         </strong>
       </div>
       <p>
-        Banco Pichincha ·{" "}
-        {fund.account_number || "Número de cuenta por completar"}
+        {fund.kind === "cash"
+          ? "Dinero físico · actualización manual por Marlon o Germán"
+          : `${fund.bank} · ${fund.account_number || "Número de cuenta por completar"}`}
       </p>
-      {user.role === "owner" && (
+      {user.role === "owner" && fund.kind !== "cash" && (
         <Button
           variant="secondary"
           onClick={() => open("account-number", { custody_id: id })}

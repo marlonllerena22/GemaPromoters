@@ -127,6 +127,10 @@ El dictado usa [SpeechRecognition del navegador](https://developer.mozilla.org/e
 
 ## Sesión, correo y revisión bancaria
 
+Los colaboradores disponen de **Mi contraseña**. `FINANCE_TEAM_PASSWORD_CHANGE_AT` programa el cambio obligatorio mediante un instante ISO con zona horaria; el propietario está exento. Desde ese instante se bloquean también las operaciones de las sesiones que ya estaban abiertas hasta completar el cambio personal. Cambiarla conserva la sesión actual, cierra las demás y mantiene la verificación en dos pasos. Un cambio personal realizado antes del plazo satisface esa campaña.
+
+Los fondos manuales incluyen More (Pichincha), Xavi Ahorros (Guayaquil) y EFECTIVO. EFECTIVO no utiliza número bancario y solo lo modifican Marlon y Germán; sus ajustes conservan responsable, valor anterior, valor nuevo y diferencia. El efectivo general no se atribuye automáticamente a un negocio. Los saldos se cargan como observaciones privadas, sin crear ventas o ingresos.
+
 “Recordar este dispositivo” conserva la sesión durante 30 días mediante una cookie HttpOnly; no guarda contraseñas ni tokens en localStorage. Las sesiones ordinarias conservan el límite de inactividad. Cerrar sesión o revocar el acceso invalida la sesión recordada. El segundo factor sigue siendo obligatorio cuando está activado.
 
 Gmail requiere un cliente web con las variables `FINANCE_GMAIL_*` y consentimiento del propietario para `gmail.readonly`. La aplicación comprueba el correo autorizado y conserva cifrado el refresh token. Consulta cada dos minutos, con recuperación paginada y solapamiento para mensajes tardíos. No envía, modifica ni elimina correo.

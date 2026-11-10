@@ -18,6 +18,7 @@ import {
   storeReceipts,
   putPrivateSetting,
   privateSetting,
+  custodyFunds,
 } from "../src/finance-operations.js";
 import { savePayee, listPayees, getPayee } from "../src/finance-payees.js";
 import {
@@ -1251,5 +1252,89 @@ test("a forged foreign authentication result cannot authorize a banking debit", 
   assert.equal(
     db.prepare("SELECT count(*) n FROM finance_bank_transactions").get().n,
     0,
+  );
+});
+
+test("physical cash is adjustable only by the owner and German and has no bank account number", (t) => {
+  const { db, owner, german, morelia, add } = fixture(t),
+    other = add("another-custodian", "viewer", ["gemashow"], [], {
+      custody: true,
+    });
+  assert.equal(
+    custodyFunds(db, owner).find((f) => f.id === "morelia").balance_cents,
+    null,
+  );
+  assert.equal(
+    custodyFunds(db, owner).find((f) => f.id === "xavi-ahorros").bank,
+    "Guayaquil",
+  );
+  assert.equal(
+    custodyFunds(db, other).some((f) => f.id === "efectivo"),
+    false,
+  );
+  assert.equal(
+    custodyFunds(db, owner, ["gemashow"]).some((f) => f.id === "efectivo"),
+    false,
+  );
+  const body = {
+    balance_cents: 5000,
+    version: 0,
+    reason: "Saldo de prueba",
+    request_key: "cash-fixture-key-0001",
+  };
+  for (const u of [morelia, other])
+    assert.throws(
+      () => adjustCustody(db, u, "efectivo", body),
+      (e) => e.status === 403,
+    );
+  adjustCustody(db, owner, "efectivo", body);
+  adjustCustody(db, german, "efectivo", {
+    ...body,
+    balance_cents: 3000,
+    version: 1,
+    request_key: "cash-fixture-key-0002",
+  });
+  const cash = custodyFunds(db, owner).find((f) => f.id === "efectivo");
+  assert.equal(cash.balance_cents, 3000);
+  assert.equal(cash.kind, "cash");
+  assert.equal(cash.account_number, null);
+  assert.equal(
+    db
+      .prepare(
+        "SELECT delta_cents FROM finance_custody_adjustments WHERE custody_id='efectivo' ORDER BY id DESC",
+      )
+      .get().delta_cents,
+    -2000,
+  );
+});
+
+test("private custody opening observations are guarded and never create sales or income", (t) => {
+  const { db } = fixture(t),
+    config = {
+      kind: "bank-review-v1",
+      id: "custody-start-fixture",
+      expires_at: new Date(Date.now() + 60000).toISOString(),
+      messages: [],
+      custody_balances: ["morelia", "efectivo", "xavi-ahorros"].map((id) => ({
+        id,
+        balance_cents: 1000,
+        expected_version: 0,
+        source_hash: "d".repeat(64),
+      })),
+    };
+  assert.equal(applyBankReview(db, config).custodies, 3);
+  assert.equal(applyBankReview(db, config).applied, false);
+  assert.equal(
+    db.prepare("SELECT count(*) n FROM finance_movements").get().n,
+    0,
+  );
+  assert.equal(db.prepare("SELECT count(*) n FROM finance_sales").get().n, 0);
+  assert.throws(
+    () => applyBankReview(db, { ...config, id: "changed-fixture" }),
+    /changed/,
+  );
+  assert.equal(
+    db.prepare("SELECT count(*) n FROM finance_custody_adjustments").get().n,
+    3,
   );
 });

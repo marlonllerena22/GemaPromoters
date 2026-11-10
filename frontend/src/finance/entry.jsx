@@ -84,6 +84,7 @@ import {
 import "./finance.css";
 import "./legibility.css";
 import "./security.css";
+import { MandatoryPasswordChange, PersonalAccess } from "./security.jsx";
 import { QuickCapture } from "./quick.jsx";
 import {
   CustodyFunds,
@@ -229,6 +230,12 @@ const pages = [
   },
   { id: "equipo", label: "Equipo y permisos", icon: Users, ownerOnly: true },
   {
+    id: "mi-acceso",
+    label: "Mi contraseña",
+    icon: LockKeyhole,
+    component: PersonalAccess,
+  },
+  {
     id: "configuracion",
     label: "Configuración",
     icon: Settings2,
@@ -344,6 +351,9 @@ function Login({ session, onLogin }) {
               <input
                 required
                 autoComplete="username"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="Tu usuario"
@@ -501,12 +511,33 @@ function FinanceApp() {
       .catch((e) => setFatal(e.message));
   }, []);
   useEffect(() => {
-    if (user) {
+    if (user && !user.password_change_required) {
       refresh();
       const timer = setInterval(() => refresh(true), 60_000);
       return () => clearInterval(timer);
     }
   }, [user, refresh, page]);
+  useEffect(() => {
+    if (!user?.password_change_at || user.password_change_required) return;
+    const deadline = Date.parse(user.password_change_at),
+      check = () => {
+        if (Date.now() >= deadline)
+          setUser((current) =>
+            current ? { ...current, password_change_required: true } : current,
+          );
+      };
+    const timer = setTimeout(
+      check,
+      Math.min(Math.max(0, deadline - Date.now()), 2147483647),
+    );
+    window.addEventListener("focus", check);
+    document.addEventListener("visibilitychange", check);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("focus", check);
+      document.removeEventListener("visibilitychange", check);
+    };
+  }, [user?.id, user?.password_change_at, user?.password_change_required]);
   useEffect(() => {
     if (user?.role !== "owner") {
       knownPayables.current = null;
@@ -533,6 +564,14 @@ function FinanceApp() {
       setData(null);
       setModal(null);
     };
+    const passwordRequired = (event) => {
+      if (event.detail) {
+        setUser(event.detail);
+        setData(null);
+        setModal(null);
+        setFatal("");
+      }
+    };
     const connect = () => setOnline(navigator.onLine);
     const install = (e) => {
       e.preventDefault();
@@ -547,6 +586,10 @@ function FinanceApp() {
       }
     };
     window.addEventListener("finance-session-ended", ended);
+    window.addEventListener(
+      "finance-password-change-required",
+      passwordRequired,
+    );
     window.addEventListener("online", connect);
     window.addEventListener("offline", connect);
     window.addEventListener("beforeinstallprompt", install);
@@ -554,6 +597,10 @@ function FinanceApp() {
     window.addEventListener("keydown", shortcut);
     return () => {
       window.removeEventListener("finance-session-ended", ended);
+      window.removeEventListener(
+        "finance-password-change-required",
+        passwordRequired,
+      );
       window.removeEventListener("online", connect);
       window.removeEventListener("offline", connect);
       window.removeEventListener("beforeinstallprompt", install);
@@ -666,6 +713,7 @@ function FinanceApp() {
         [
           "inicio",
           "espacios",
+          "mi-acceso",
           "confirmaciones",
           ...(user.checks_manage ? ["cheques"] : []),
           ...(canUseFinanceAssistant(user) ? ["asistente"] : []),
@@ -674,6 +722,7 @@ function FinanceApp() {
         [
           "inicio",
           "movimientos",
+          "mi-acceso",
           "cuentas",
           "espacios",
           "pagos",
@@ -714,6 +763,19 @@ function FinanceApp() {
         }}
       />
     );
+  if (user.password_change_required)
+    return (
+      <MandatoryPasswordChange
+        user={user}
+        onLogout={logout}
+        onChanged={(member) => {
+          setUser(member);
+          setData(null);
+          setFatal("");
+          setPage("inicio");
+        }}
+      />
+    );
   if (!data)
     return (
       <div className="gf-loading-screen">
@@ -737,6 +799,7 @@ function FinanceApp() {
       value={{
         data,
         user,
+        updateUser: setUser,
         filters,
         notify,
         refresh,

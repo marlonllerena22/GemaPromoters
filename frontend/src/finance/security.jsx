@@ -11,7 +11,7 @@ import { financeApi } from "./api.js";
 import { Badge, Button, Field, Modal, SectionHead } from "./components.jsx";
 
 export function SecurityPanel() {
-  const { data, notify } = useFinance();
+  const { data, notify, updateUser } = useFinance();
   const [security, setSecurity] = useState(null),
     [dialog, setDialog] = useState(""),
     [password, setPassword] = useState(""),
@@ -51,11 +51,12 @@ export function SecurityPanel() {
     setError("");
     try {
       if (dialog === "password") {
-        await financeApi("/security/password", {
+        const result = await financeApi("/security/password", {
           password,
           new_password: newPassword,
           code,
         });
+        if (result.user) updateUser(result.user);
         notify("Contraseña actualizada y otras sesiones cerradas");
         close();
         load();
@@ -306,5 +307,147 @@ export function SecurityPanel() {
         </Modal>
       )}
     </>
+  );
+}
+
+export function PasswordChangeForm({
+  user,
+  onChanged,
+  onLogout,
+  required = false,
+}) {
+  const [password, setPassword] = useState(""),
+    [next, setNext] = useState(""),
+    [confirm, setConfirm] = useState(""),
+    [code, setCode] = useState(""),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState("");
+  async function submit(event) {
+    event.preventDefault();
+    setError("");
+    if (next !== confirm) {
+      setError("Las dos contraseñas nuevas deben coincidir");
+      return;
+    }
+    if (next.length !== 8) {
+      setError("Tu contraseña debe tener 8 caracteres");
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await financeApi("/security/password", {
+        password,
+        new_password: next,
+        code,
+      });
+      setPassword("");
+      setNext("");
+      setConfirm("");
+      setCode("");
+      onChanged(result.user);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section
+      className="gf-password-change-card"
+      aria-labelledby="gf-password-title"
+    >
+      <span className="gf-soft-icon">
+        <KeyRound size={27} />
+      </span>
+      <h1 id="gf-password-title">
+        {required ? "Crea tu contraseña personal" : "Mi contraseña"}
+      </h1>
+      <p>
+        {required
+          ? `${user.name.split(" ")[0]}, cambia la contraseña de acceso que recibiste para continuar.`
+          : "Puedes cambiar tu contraseña cuando lo necesites."}
+      </p>
+      <form onSubmit={submit}>
+        <Field label="Contraseña actual">
+          <input
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+        </Field>
+        <Field label="Nueva contraseña · 8 caracteres">
+          <input
+            type="password"
+            autoComplete="new-password"
+            minLength={8}
+            maxLength={8}
+            value={next}
+            onChange={(e) => setNext(e.target.value)}
+            required
+          />
+        </Field>
+        <Field label="Repite tu nueva contraseña">
+          <input
+            type="password"
+            autoComplete="new-password"
+            minLength={8}
+            maxLength={8}
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            required
+          />
+        </Field>
+        {user.mfa_enabled && (
+          <Field label="Código de autenticación">
+            <input
+              autoComplete="one-time-code"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              required
+            />
+          </Field>
+        )}
+        {error && (
+          <p className="gf-error" role="alert">
+            {error}
+          </p>
+        )}
+        <Button type="submit" loading={busy} icon={Check}>
+          Guardar mi contraseña
+        </Button>
+      </form>
+      <small>
+        Usa una contraseña distinta de la actual. Al guardarla se cerrarán tus
+        otras sesiones.
+      </small>
+      {onLogout && (
+        <Button variant="ghost" onClick={onLogout}>
+          Cerrar sesión
+        </Button>
+      )}
+    </section>
+  );
+}
+export function MandatoryPasswordChange(props) {
+  return (
+    <main className="gf-password-change-screen">
+      <PasswordChangeForm {...props} required />
+    </main>
+  );
+}
+export function PersonalAccess() {
+  const { user, updateUser, notify } = useFinance();
+  return (
+    <div className="gf-personal-access">
+      <PasswordChangeForm
+        user={user}
+        onChanged={(member) => {
+          updateUser(member);
+          notify("Contraseña actualizada; tus otras sesiones se cerraron");
+        }}
+      />
+    </div>
   );
 }

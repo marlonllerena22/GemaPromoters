@@ -14,6 +14,12 @@ export async function financeApi(path, body, method, options = {}) {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (data.code === "PASSWORD_CHANGE_REQUIRED")
+      window.dispatchEvent(
+        new CustomEvent("finance-password-change-required", {
+          detail: data.user,
+        }),
+      );
     if (
       response.status === 401 &&
       !["/session", "/login"].includes(path) &&

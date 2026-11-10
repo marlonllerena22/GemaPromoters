@@ -1,6 +1,8 @@
 export function initFinanceOperationsDb(db) {
   for (const [table, column, type] of [
     ["finance_members", "request_payments", "INTEGER NOT NULL DEFAULT 0"],
+    ["finance_members", "password_policy_completed", "TEXT"],
+    ["finance_members", "password_changed_at", "TEXT"],
     ["finance_sessions", "remembered", "INTEGER NOT NULL DEFAULT 0"],
     ["finance_members", "review_unit_ids", "TEXT NOT NULL DEFAULT '[]'"],
     ["finance_members", "auto_confirm_unit_ids", "TEXT NOT NULL DEFAULT '[]'"],
@@ -77,10 +79,29 @@ export function initFinanceOperationsDb(db) {
     ["henry", "Henry"],
     ["paty", "Ñaña Paty"],
     ["anita", "Anita"],
+    ["morelia", "More"],
   ])
     db.prepare(
       "INSERT OR IGNORE INTO finance_custody_balances (id,name,business_id) VALUES (?,?,'gemashow')",
     ).run(id, name);
+  db.prepare(
+    "INSERT OR IGNORE INTO finance_custody_balances (id,name,business_id) VALUES ('efectivo','EFECTIVO','shared')",
+  ).run();
+  if (
+    !db
+      .prepare("PRAGMA table_info(finance_custody_balances)")
+      .all()
+      .some((c) => c.name === "bank")
+  )
+    db.exec(
+      "ALTER TABLE finance_custody_balances ADD COLUMN bank TEXT NOT NULL DEFAULT 'Pichincha'",
+    );
+  db.prepare(
+    "UPDATE finance_custody_balances SET bank='Efectivo' WHERE id='efectivo'",
+  ).run();
+  db.prepare(
+    "INSERT OR IGNORE INTO finance_custody_balances (id,name,business_id,bank) VALUES ('xavi-ahorros','Xavi Ahorros','gemashow','Guayaquil')",
+  ).run();
   // Upgrade old shared contact fingerprints to each original submitter's address book.
   db.prepare(
     "UPDATE finance_payee_accounts SET scope=scope||'|user:'||(SELECT created_by FROM finance_payees WHERE id=payee_id) WHERE instr(scope,'|user:')=0",
