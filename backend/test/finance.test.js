@@ -1944,3 +1944,13 @@ test('German can sign in using an accented name without altering password matchi
  const f=await fixture(t);f.db.prepare("INSERT INTO finance_members(name,username,password_hash,role,business_ids,unit_ids) VALUES ('Germán','german',?,'viewer','[\"gemashow\"]','[]')").run(passwordHash(password));
  const r=await f.req('/login','german',{username:' Germán ',password});assert.equal(r.status,200);assert.equal(r.body.user.username,'german');assert.equal((await f.req('/login','german',{username:'german',password:password.toLowerCase()})).status,401);
 });
+
+
+test("AlfaBusiness diagnostic status is read-only and restricted to the owner",async t=>{
+  const f=await fixture(t);await f.login();await f.login("reader");
+  assert.equal((await f.req("/integrations/alfabusiness/status","none")).status,401);
+  assert.equal((await f.req("/integrations/alfabusiness/status","reader")).status,403);
+  const status=await f.req("/integrations/alfabusiness/status");
+  assert.equal(status.status,200);assert.equal(status.body.financial.total_sales,0);assert.equal(status.body.coverage_verified,false);
+  assert.equal(f.db.prepare("SELECT count(*) n FROM finance_sales").get().n,0);
+});
