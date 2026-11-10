@@ -141,13 +141,21 @@ export function parseBankMail(m, registry = { accounts: [] }) {
       !/(transfer|pago|consumo|deposit|debito|credito|cheque)/.test(plain))
   )
     return null;
+  // Only Gmail's authentication result can authorize automatic bank entries.
   const auth = headers(m)
       .filter((h) => h.name.toLowerCase() === "authentication-results")
       .map((h) => h.value)
-      .join(" "),
-    trusted =
-      /dmarc=pass/i.test(auth) &&
-      auth.toLowerCase().includes("header.from=" + domain);
+      .find((value) => /^mx\.google\.com\s*;/i.test(value.trim())),
+    dmarc = auth?.match(/(?:^|;)\s*dmarc=pass\b([^;]*)/i),
+    trusted = Boolean(
+      dmarc &&
+        new RegExp(
+          "(?:^|\\s)header\\.from=" +
+            domain.replace(/\./g, "\\.") +
+            "(?=\\s|$)",
+          "i",
+        ).test(dmarc[1]),
+    );
   const rejected =
       /fondos insuficientes|no se pudo procesar|rechazad|fallid|no fue realizad/.test(
         plain,

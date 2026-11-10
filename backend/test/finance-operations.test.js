@@ -1223,3 +1223,33 @@ test("a reported PayPhone balance is kept whole without subtracting the owned pl
     true,
   );
 });
+
+test("a forged foreign authentication result cannot authorize a banking debit", (t) => {
+  const { db, account } = fixture(t);
+  putPrivateSetting(db, "own_account_registry", {
+    accounts: [{ account_id: account, bank: "Pichincha", number: "000009999" }],
+  });
+  const m = mail(
+    "forged-auth",
+    "Realizaste una transferencia. Cuenta de origen: XXXXXX9999 Monto: $25.00 Referencia: FORGED99 Fecha 09/11/2026 a la(s) 16:00",
+  );
+  m.payload.headers = m.payload.headers.filter(
+    (h) => h.name !== "Authentication-Results",
+  );
+  m.payload.headers.push(
+    {
+      name: "Authentication-Results",
+      value: "mx.google.com; dmarc=fail header.from=pichincha.com",
+    },
+    {
+      name: "Authentication-Results",
+      value: "attacker.invalid; dmarc=pass header.from=pichincha.com",
+    },
+  );
+  assert.equal(parseBankMail(m).trusted, false);
+  ingestBankMessages(db, [m]);
+  assert.equal(
+    db.prepare("SELECT count(*) n FROM finance_bank_transactions").get().n,
+    0,
+  );
+});
