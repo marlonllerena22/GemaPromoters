@@ -70,7 +70,11 @@ export function CollaboratorHome() {
       <div className="gf-collaborator-heading">
         <span className="gf-eyebrow">TU ESPACIO, SIN COMPLICACIONES</span>
         <h1>Hola, {user.name.split(" ")[0]}.</h1>
-        <p>Pide una transferencia en pocos pasos.</p>
+        <p>
+          {store || user.username === "norma"
+            ? "Sube los depósitos de tus clientes en pocos pasos."
+            : "Pide una transferencia en pocos pasos."}
+        </p>
         <span className="gf-assigned-business">
           {user.unit_ids.length
             ? user.unit_ids
@@ -81,33 +85,14 @@ export function CollaboratorHome() {
         </span>
       </div>
       <IncomingNotices />
-      {canUseFinanceAssistant(user) && (
-        <button
-          className="gf-collaborator-assistant"
-          onClick={() => navigate("asistente")}
-        >
-          <AssistantAvatar size={32} /> Consultar a Gema{" "}
-          <ArrowRight size={18} />
-        </button>
-      )}
       <div className="gf-simple-actions">
-        <button onClick={() => open("quick", { mode: "request" })}>
-          <span className="gf-simple-action-icon amber">
-            <ArrowUpRight size={27} />
-          </span>
-          <div>
-            <strong>Pedir pago</strong>
-            <p>Contacto, valor y motivo.</p>
-          </div>
-          <ArrowRight size={20} />
-        </button>
         {user.username === "norma" && (
           <button onClick={() => open("quick", { mode: "receipt" })}>
             <span className="gf-simple-action-icon">
               <Camera size={27} />
             </span>
             <div>
-              <strong>Abono de un cliente</strong>
+              <strong>Subir depósito de cliente</strong>
               <p>Producalza · sube el comprobante recibido.</p>
             </div>
             <ArrowRight size={20} />
@@ -119,7 +104,7 @@ export function CollaboratorHome() {
               <Camera size={27} />
             </span>
             <div>
-              <strong>Transferencia de un cliente</strong>
+              <strong>Subir transferencia de cliente</strong>
               <p>
                 {user.auto_confirm_unit_ids?.length
                   ? "Súbela y quedará confirmada por ti."
@@ -129,6 +114,16 @@ export function CollaboratorHome() {
             <ArrowRight size={20} />
           </button>
         )}
+        <button onClick={() => open("quick", { mode: "request" })}>
+          <span className="gf-simple-action-icon amber">
+            <ArrowUpRight size={27} />
+          </span>
+          <div>
+            <strong>Pedir pago</strong>
+            <p>Contacto, valor y motivo.</p>
+          </div>
+          <ArrowRight size={20} />
+        </button>
         {Boolean(user.review_unit_ids?.length) && (
           <button onClick={() => navigate("confirmaciones")}>
             <span className="gf-simple-action-icon lilac">
@@ -146,6 +141,15 @@ export function CollaboratorHome() {
           </button>
         )}
       </div>
+      {canUseFinanceAssistant(user) && (
+        <button
+          className="gf-collaborator-assistant"
+          onClick={() => navigate("asistente")}
+        >
+          <AssistantAvatar size={32} /> Consultar a Gema{" "}
+          <ArrowRight size={18} />
+        </button>
+      )}
       <section className="gf-collaborator-spaces">
         <h2>Mis espacios</h2>
         <p>Solicitudes, pagos y comprobantes de tus grupos.</p>
