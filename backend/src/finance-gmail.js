@@ -94,7 +94,7 @@ const normalize = (s) =>
     .toLowerCase();
 function dollars(s) {
   if (!s) return null;
-  let v = s.replace(/[^\d.,-]/g, "");
+  let v = s.replace(/[^\d.,-]/g, "").replace(/[.,]+$/, "");
   if (v.includes(",") && v.includes(".")) {
     v =
       v.lastIndexOf(",") > v.lastIndexOf(".")
@@ -904,7 +904,14 @@ export function registerGmailRoutes(app, db, { route, owner }) {
     timer.unref();
   }
 }
-export async function syncGmail(db) {
+const gmailSyncJobs = new WeakMap();
+export function syncGmail(db) {
+  if (gmailSyncJobs.has(db)) return gmailSyncJobs.get(db);
+  const pending = performGmailSync(db).finally(() => gmailSyncJobs.delete(db));
+  gmailSyncJobs.set(db, pending);
+  return pending;
+}
+async function performGmailSync(db) {
   const row = db
     .prepare("SELECT encrypted FROM finance_mail_oauth WHERE id='gmail'")
     .get();
@@ -925,10 +932,11 @@ export async function syncGmail(db) {
         (privateSetting(db, "mail_poll_watermark") ? 3 : 45) * 86400;
   let page = cursor?.page,
     imported = 0;
-  for (let i = 0; i < 10; i++) {
+  // One bounded page stays below Gmail's per-user quota even when rebuilding history.
+  for (let i = 0; i < 1; i++) {
     const params = new URLSearchParams({
       q: `${MAIL_QUERY} after:${since}`,
-      maxResults: "100",
+      maxResults: "40",
     });
     if (page) params.set("pageToken", page);
     const result = await gmail(token.access_token, "messages?" + params);
@@ -963,12 +971,36 @@ export async function syncGmail(db) {
   }
   putPrivateSetting(db, "mail_last_sync", new Date().toISOString());
   if (!page) putPrivateSetting(db, "mail_poll_watermark", started);
+  const autoPosted = replayAutomaticBankMail(db);
   putPrivateSetting(db, "mail_sync_error", null);
   console.info(
     "[finance] Gmail synchronized " +
-      JSON.stringify({ imported, has_more: Boolean(page) }),
+      JSON.stringify({ imported, auto_posted: autoPosted.applied, has_more: Boolean(page) }),
   );
-  return { imported, has_more: Boolean(page) };
+  return { imported, auto_posted: autoPosted.applied, has_more: Boolean(page) };
+}
+
+export function replayAutomaticBankMail(db) {
+  const configured = process.env.FINANCE_GMAIL_AUTO_APPLY_AFTER;
+  if (process.env.FINANCE_GMAIL_AUTO_APPLY === "0" || !configured || !Number.isFinite(Date.parse(configured)) || Date.now() < Date.parse(configured))
+    return { applied: 0, scanned: 0 };
+  const after = new Date(configured).toISOString();
+  const saved = privateSetting(db, "mail_auto_replay_cursor");
+  const cursor = saved?.after === after ? saved : null;
+  const rows = db.prepare(`SELECT id,received_at FROM finance_mail_messages
+    WHERE state='draft' AND received_at>=? AND
+      (? IS NULL OR received_at>? OR (received_at=? AND id>?))
+    ORDER BY received_at,id LIMIT 40`).all(after, cursor?.received_at || null, cursor?.received_at || null, cursor?.received_at || null, cursor?.id || "");
+  let applied = 0;
+  for (const row of rows) {
+    autoApplyBankMail(db, row.id);
+    if (db.prepare("SELECT state FROM finance_mail_messages WHERE id=?").get(row.id)?.state === "applied") applied++;
+  }
+  const last = rows.at(-1);
+  putPrivateSetting(db, "mail_auto_replay_cursor", rows.length === 40 ? { after, received_at: last.received_at, id: last.id } : null);
+  putPrivateSetting(db, "mail_auto_posting_last_run", new Date().toISOString());
+  if (applied) console.info("[finance] Bank mail automatically posted " + JSON.stringify({ applied }));
+  return { applied, scanned: rows.length };
 }
 
 export function recordMailStatement(db, draft) {

@@ -304,6 +304,7 @@ export function attachOperations(db, user, data) {
             (!process.env.FINANCE_GMAIL_AUTO_APPLY_AFTER ||
               Date.now() >=
                 Date.parse(process.env.FINANCE_GMAIL_AUTO_APPLY_AFTER)),
+          auto_posting_last_run: privateSetting(db, "mail_auto_posting_last_run"),
           cutoff: privateSetting(db, "opening_cutoff"),
           last_sync: privateSetting(db, "mail_last_sync"),
           last_error: privateSetting(db, "mail_sync_error"),

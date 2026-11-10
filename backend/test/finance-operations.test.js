@@ -39,6 +39,8 @@ import { evaluateLoanAlerts } from "../src/finance-loans.js";
 import {
   parseBankMail,
   mailAutoPostingAllowed,
+  replayAutomaticBankMail,
+  syncGmail,
   ingestBankMessages,
   mailDrafts,
   applyMailDraft,
@@ -1387,4 +1389,56 @@ test("bank posting starts at 03:00 Ecuador and excludes older or uncertain first
     mailAutoPostingAllowed(notice, Date.parse("2026-11-10T08:10:00Z")),
     false,
   );
+});
+
+test("automatic bank mail catches up after the agreed start, applies fees once and ignores uncertain notices", (t) => {
+  const { db, account } = fixture(t);
+  const previous = [process.env.FINANCE_GMAIL_AUTO_APPLY, process.env.FINANCE_GMAIL_AUTO_APPLY_AFTER];
+  t.after(() => { for (const [i, key] of ["FINANCE_GMAIL_AUTO_APPLY", "FINANCE_GMAIL_AUTO_APPLY_AFTER"].entries()) { if (previous[i] === undefined) delete process.env[key]; else process.env[key] = previous[i]; } });
+  db.prepare("UPDATE finance_accounts SET bank='Pichincha',opening_cents=100000 WHERE id=?").run(account);
+  putPrivateSetting(db, "opening_cutoff", "2026-11-09T19:50:10Z");
+  putPrivateSetting(db, "own_account_registry", { accounts: [{ number: "0019999", account_id: account, bank: "Pichincha" }] });
+  process.env.FINANCE_GMAIL_AUTO_APPLY = "0";
+  process.env.FINANCE_GMAIL_AUTO_APPLY_AFTER = "2026-11-10T03:00:00-05:00";
+  const make = (id, hour, amount, extra = "") => mail(id, `Realizaste una transferencia. Cuenta de origen 0019999. Monto $${amount}. Referencia: ${id}. El día 10/11/2026 a la(s) ${hour} ${extra}`, "2026-11-10T13:00:00Z");
+  const untrusted = make("UNTRUSTED1", "06:20", "80.00");
+  untrusted.payload.headers = untrusted.payload.headers.filter((h) => h.name !== "Authentication-Results");
+  ingestBankMessages(db, [make("BEFORESTART1", "02:59", "35.00"), make("NEWREF12345", "06:15", "10.00", "La transacción tiene un costo de $0.41"), make("NEWREF67890", "06:16", "5.00"), make("PENDING1", "06:18", "70.00", "En proceso"), untrusted]);
+  assert.equal(db.prepare("SELECT count(*) n FROM finance_bank_transactions").get().n, 0);
+  process.env.FINANCE_GMAIL_AUTO_APPLY = "1";
+  const replay = replayAutomaticBankMail(db);
+  assert.equal(replay.applied, 2, JSON.stringify({ replay, drafts: mailDrafts(db).map(({id,state,account_id,trusted,event,occurred_at}) => ({id,state,account_id,trusted,event,occurred_at})) }));
+  assert.equal(db.prepare("SELECT sum(amount_cents) n FROM finance_bank_transactions").get().n, -1541);
+  assert.equal(replayAutomaticBankMail(db).applied, 0);
+  assert.equal(db.prepare("SELECT count(*) n FROM finance_bank_transactions").get().n, 3);
+  assert.equal(mailDrafts(db).find((m) => m.id === "BEFORESTART1").state, "draft");
+  assert.equal(mailDrafts(db).find((m) => m.id === "UNTRUSTED1").state, "draft");
+});
+
+test("Gmail polling uses bounded pages and shares simultaneous sync requests", async (t) => {
+  const { db } = fixture(t);
+  const keys = ["FINANCE_GMAIL_CLIENT_ID", "FINANCE_GMAIL_CLIENT_SECRET", "FINANCE_GMAIL_AUTO_APPLY"];
+  const previous = keys.map((k) => process.env[k]);
+  t.after(() => keys.forEach((k, i) => { if (previous[i] === undefined) delete process.env[k]; else process.env[k] = previous[i]; }));
+  process.env.FINANCE_GMAIL_CLIENT_ID = "fixture.apps.example.invalid";
+  process.env.FINANCE_GMAIL_CLIENT_SECRET = "fixture-not-a-real-secret";
+  process.env.FINANCE_GMAIL_AUTO_APPLY = "0";
+  db.prepare("INSERT INTO finance_mail_oauth(id,encrypted,updated_at) VALUES ('gmail',?,?)").run(encryptDocument(Buffer.from(JSON.stringify({ refresh_token: "fixture-refresh" }))), new Date().toISOString());
+  let lists = 0, reads = 0, tokens = 0;
+  t.mock.method(globalThis, "fetch", async (url) => {
+    const uri = String(url);
+    if (uri === "https://oauth2.googleapis.com/token") { tokens++; return Response.json({ access_token: "fixture-access" }); }
+    const path = new URL(uri);
+    if (path.pathname.endsWith("/messages")) {
+      lists++; assert.equal(path.searchParams.get("maxResults"), "40");
+      return Response.json({ messages: Array.from({ length: 40 }, (_, i) => ({ id: `MOCK${i}` })), nextPageToken: "fixture-next-page" });
+    }
+    reads++;
+    return Response.json(mail(path.pathname.split("/").at(-1), "Transferencia enviada. Monto $1.00"));
+  });
+  const results = await Promise.all([syncGmail(db), syncGmail(db)]);
+  assert.equal(tokens, 1); assert.equal(lists, 1); assert.equal(reads, 40);
+  assert.equal(results[0].has_more, true);
+  assert.equal(privateSetting(db, "mail_poll_cursor").page, "fixture-next-page");
+  assert.deepEqual(results[0], results[1]);
 });
