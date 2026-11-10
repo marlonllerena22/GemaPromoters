@@ -668,11 +668,21 @@ async function oauthToken(params) {
         ...params,
       }),
     });
-  if (!r.ok)
+  if (!r.ok) {
+    const detail = await r.json().catch(() => ({}));
+    console.error(
+      "[finance] Gmail token response " +
+        r.status +
+        " " +
+        String(detail.error || "")
+          .replace(/[^a-zA-Z0-9_]/g, "")
+          .slice(0, 80),
+    );
     fail(
       "Google no pudo autorizar la lectura del correo. Vuelve a conectarlo",
       502,
     );
+  }
   return r.json();
 }
 async function gmail(access, path) {
@@ -683,7 +693,18 @@ async function gmail(access, path) {
       headers: { Authorization: `Bearer ${access}` },
     },
   );
-  if (!r.ok) fail("No se pudo leer Gmail; revisa la conexión", 502);
+  if (!r.ok) {
+    const detail = await r.json().catch(() => ({}));
+    console.error(
+      "[finance] Gmail API response " +
+        r.status +
+        " " +
+        String(detail.error?.status || "")
+          .replace(/[^A-Z_]/g, "")
+          .slice(0, 80),
+    );
+    fail("No se pudo leer Gmail; revisa la conexión", 502);
+  }
   return r.json();
 }
 export function registerGmailPublic(app, db, { route }) {
@@ -845,9 +866,10 @@ export function registerGmailRoutes(app, db, { route, owner }) {
       running = true;
       try {
         await syncGmail(db);
-      } catch {
+      } catch (error) {
         console.error(
-          "[finance] Gmail scheduled synchronization needs attention",
+          "[finance] Gmail scheduled synchronization needs attention: " +
+            (error.status ? error.message : error.code || error.name),
         );
         putPrivateSetting(
           db,
@@ -1082,6 +1104,7 @@ export function recordCardPayment(
   return true;
 }
 export function autoApplyBankMail(db, id) {
+  if (process.env.FINANCE_GMAIL_AUTO_APPLY === "0") return;
   const row = db
     .prepare("SELECT * FROM finance_mail_messages WHERE id=?")
     .get(id);
