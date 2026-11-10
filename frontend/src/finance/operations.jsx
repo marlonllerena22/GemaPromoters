@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
+import { payeeBanks } from "../../../shared/finance-payees.mjs";
+import { receivingBank, storeReceiptRoute } from "../../../shared/finance-store-receipts.mjs";
 import {
   ArrowRight,
   ArrowUpRight,
@@ -222,6 +224,7 @@ export function StoreReceiptForm({ onClose }) {
         (!user.unit_ids.length || user.unit_ids.includes(u.id)),
     );
   const [unit, setUnit] = useState(units.length === 1 ? units[0].id : ""),
+    [bank, setBank] = useState(""),
     [value, setValue] = useState(""),
     [evidence, setEvidence] = useState(null),
     [busy, setBusy] = useState(false),
@@ -245,6 +248,7 @@ export function StoreReceiptForm({ onClose }) {
           );
           if (analysis.amount_cents)
             setValue((analysis.amount_cents / 100).toFixed(2));
+          setBank(receivingBank(analysis.receiving_bank));
         } catch {}
       }
     } catch (e) {
@@ -263,6 +267,7 @@ export function StoreReceiptForm({ onClose }) {
         amount_cents: amount(value),
         evidence_id: evidence.id,
         day: data.period.today,
+        receiving_bank: bank,
       });
       await refresh();
       setDone(r);
@@ -286,7 +291,9 @@ export function StoreReceiptForm({ onClose }) {
           <p>
             {done.confirmed
               ? "Confirmada por ti al subir el comprobante. No necesitas otro paso."
-              : "Enviada a confirmación del responsable."}
+              : done.responsible
+                ? `Enviada a ${done.responsible} para confirmar.`
+                : "Enviada a confirmación del responsable."}
           </p>
           <Button onClick={onClose}>Listo</Button>
         </div>
@@ -298,6 +305,7 @@ export function StoreReceiptForm({ onClose }) {
               onChange={(e) => {
                 setUnit(e.target.value);
                 setEvidence(null);
+                setBank("");
               }}
               required
               disabled={busy}
@@ -344,6 +352,15 @@ export function StoreReceiptForm({ onClose }) {
                 ? "Usar comprobante de ejemplo"
                 : "Subir comprobante del cliente"}
           </Button>
+          <Field label="Banco que recibió el dinero">
+            <select value={bank} onChange={(e) => setBank(e.target.value)} required={unit === "marjorie-sur"} disabled={busy}>
+              <option value="">Selecciona el banco receptor</option>
+              {payeeBanks.map((name) => <option key={name} value={name}>{name}</option>)}
+            </select>
+          </Field>
+          {!auto && storeReceiptRoute({ unit_id: unit, receiving_bank: bank }) && (
+            <p className="gf-note">La revisará {storeReceiptRoute({ unit_id: unit, receiving_bank: bank }).name}.</p>
+          )}
           {auto && (
             <p className="gf-note">
               Al enviar, quedará confirmada por {user.name}. La comprobación
@@ -353,7 +370,7 @@ export function StoreReceiptForm({ onClose }) {
           {!preview && data.capabilities.ai && (
             <p className="gf-payee-hint">
               La imagen se enviará al servicio de IA configurado para leer el
-              monto.
+              monto y el banco receptor. Revisa los datos detectados antes de enviar.
             </p>
           )}
           {error && <p className="gf-error">{error}</p>}
@@ -364,6 +381,7 @@ export function StoreReceiptForm({ onClose }) {
             disabled={
               !unit ||
               !evidence ||
+              (unit === "marjorie-sur" && !bank) ||
               !Number.isSafeInteger(amount(value)) ||
               amount(value) <= 0
             }
@@ -386,7 +404,7 @@ export function StoreReview() {
     )
     .filter((r) =>
       tab === "pending"
-        ? !r.confirmed_at &&
+        ? r.assigned_to_me !== false && !r.confirmed_at &&
           r.status !== "reconciled" &&
           r.status !== "rejected"
         : true,
@@ -438,6 +456,7 @@ export function StoreReview() {
               <p>
                 {r.creator_name || r.created_by} · {dateLabel(r.day)}
               </p>
+              {r.receiving_bank && <small>{r.receiving_bank}{r.confirmation_responsible ? ` · Confirma ${r.confirmation_responsible}` : ""}</small>}
               {r.confirmed_at && (
                 <small>
                   Confirmada por {r.confirmed_by}
@@ -450,7 +469,7 @@ export function StoreReview() {
               title="Transferencia del cliente"
               returnInitial={{}}
             />
-            {!r.confirmed_at && r.status !== "reconciled" && (
+            {!r.confirmed_at && r.status !== "reconciled" && r.can_confirm !== false && (
               <Button
                 icon={Check}
                 loading={busy === r.id}

@@ -10,6 +10,7 @@ export function initFinanceOperationsDb(db) {
     ["finance_members", "checks_manage", "INTEGER NOT NULL DEFAULT 0"],
     ["finance_accounts", "opening_at", "TEXT"],
     ["finance_movements", "cross_account", "INTEGER NOT NULL DEFAULT 0"],
+    ["finance_movements", "receiving_bank", "TEXT NOT NULL DEFAULT ''"],
     [
       "finance_bank_transactions",
       "import_source",

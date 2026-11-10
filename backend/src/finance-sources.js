@@ -124,6 +124,7 @@ export function syncInternalSources(db, user) {
         payments++;
       }
     }
+    let ticketingSales = 0;
     if (tableExists(db, "ticketing_orders")) {
       const rows = db
         .prepare(
@@ -225,8 +226,19 @@ export function syncInternalSources(db, user) {
           },
           user.username,
         );
-        if (!result.ignored) sales++;
+        if (!result.ignored) {
+          sales++;
+          ticketingSales++;
+        }
       }
+      db.prepare(
+        `INSERT INTO finance_sync_log (source,last_run,count,state,detail) VALUES ('protickets',?,?,'ready',?)
+        ON CONFLICT(source) DO UPDATE SET last_run=excluded.last_run,count=excluded.count,state=excluded.state,detail=excluded.detail`,
+      ).run(
+        new Date().toISOString(),
+        ticketingSales,
+        "Conexión interna automática cada minuto. Recibe pagos confirmados, transferencias verificadas y cambios de estado por evento. No modifica saldos bancarios ni el saldo disponible de PayPhone.",
+      );
     }
     const detail = tableExists(db, "production_orders")
       ? "Pedidos y abonos internos disponibles. Los abonos históricos no acreditan saldo bancario."
@@ -272,6 +284,11 @@ export function startFinanceSyncWorker(db) {
         `INSERT INTO finance_sync_log (source,last_run,state,detail) VALUES ('internal',?,'attention','La sincronización no terminó. Revisa las fuentes antes de utilizar sus totales.')
         ON CONFLICT(source) DO UPDATE SET state=excluded.state,detail=excluded.detail`,
       ).run(new Date().toISOString());
+      if (tableExists(db, "ticketing_orders"))
+        db.prepare(
+          `INSERT INTO finance_sync_log (source,last_run,state,detail) VALUES ('protickets',?,'attention','No se pudo completar la actualización de ProTickets. Los cobros mostrados pueden estar desactualizados.')
+          ON CONFLICT(source) DO UPDATE SET state=excluded.state,detail=excluded.detail`,
+        ).run(new Date().toISOString());
       console.error("[finance] Internal synchronization needs review");
     }
   };

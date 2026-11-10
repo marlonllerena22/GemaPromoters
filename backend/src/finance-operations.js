@@ -9,6 +9,7 @@ import {
   text,
 } from "./finance-service.js";
 import { encryptDocument, decryptDocument } from "./finance-ai.js";
+import { receivingBank, storeReceiptRoute } from "../../shared/finance-store-receipts.mjs";
 import { loanOverview } from "./finance-loans.js";
 import {
   accountPresentation,
@@ -145,12 +146,14 @@ export function adjustCustody(db, user, id, body) {
   })();
 }
 export function canConfirmStore(user, m) {
+  const target = storeReceiptRoute(m);
   return (
     m.business_id === "marjorie" &&
     m.kind === "income" &&
     !m.is_payment_request &&
     user.business_ids.includes("marjorie") &&
-    (user.role === "owner" || (user.review_unit_ids || []).includes(m.unit_id))
+    (user.role === "owner" ||
+      (target?.role !== "owner" && (user.review_unit_ids || []).includes(m.unit_id)))
   );
 }
 export function confirmStoreReceipt(db, user, id, mode = "review") {
@@ -224,7 +227,17 @@ export function storeReceipts(db, user) {
         user.work_view ||
         m.created_by === user.username ||
         canConfirmStore(user, m),
-    );
+    )
+    .map((m) => {
+      const target = storeReceiptRoute(m);
+      return {
+        ...m,
+        confirmation_responsible: target?.name || null,
+        can_confirm: canConfirmStore(user, m),
+        assigned_to_me: canConfirmStore(user, m) &&
+          (!target || (target.role === "owner" ? user.role === "owner" : user.role !== "owner")),
+      };
+    });
 }
 export function attachOperations(db, user, data) {
   const scope = data.businesses.map((b) => b.id);
@@ -422,6 +435,11 @@ export function registerOperationsRoutes(app, db, { route, owner }) {
         (u.role === "collector" && e.created_by !== u.username)
       )
         fail("Comprobante fuera del local", 403);
+      let analysis = {};
+      try { analysis = JSON.parse(e.analysis || "{}"); } catch {}
+      const bank = receivingBank(b.receiving_bank || analysis.receiving_bank);
+      if (b.unit_id === "marjorie-sur" && !bank)
+        fail("Selecciona el banco que recibió la transferencia para enviarla a Marlon o Morelia");
       const existing = db
         .prepare(
           "SELECT * FROM finance_movements WHERE evidence_id=? AND kind='income' AND status!='rejected'",
@@ -431,7 +449,8 @@ export function registerOperationsRoutes(app, db, { route, owner }) {
         if (
           existing.created_by === u.username &&
           existing.unit_id === b.unit_id &&
-          existing.amount_cents === b.amount_cents
+          existing.amount_cents === b.amount_cents &&
+          existing.receiving_bank === bank
         )
           return res.json({
             id: existing.id,
@@ -461,11 +480,13 @@ export function registerOperationsRoutes(app, db, { route, owner }) {
           reference: text(b.reference, 200),
         });
         db.prepare(
-          "UPDATE finance_movements SET source_system='store-receipt',status='pending' WHERE id=?",
-        ).run(m.id);
+          "UPDATE finance_movements SET source_system='store-receipt',status='pending',receiving_bank=? WHERE id=?",
+        ).run(bank, m.id);
+        audit(db, u.username, "store.receipt_routed", "movement", m.id, null,
+          { receiving_bank: bank, responsible: storeReceiptRoute({ unit_id: b.unit_id, receiving_bank: bank })?.name || null }, "marjorie");
         const auto = (u.auto_confirm_unit_ids || []).includes(b.unit_id);
         if (auto) confirmStoreReceipt(db, u, m.id, "on_upload");
-        return { id: m.id, confirmed: auto };
+        return { id: m.id, confirmed: auto, responsible: storeReceiptRoute({ unit_id: b.unit_id, receiving_bank: bank })?.name || null };
       })();
       res.status(201).json(result);
     }),

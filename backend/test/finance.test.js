@@ -1811,6 +1811,36 @@ test("a reconciled Producalza receipt updates its original order once and revers
   assert.equal(paid[0].amount, 200);
 });
 
+test("Sur routes recipient-bank receipts to Marlon or Morelia and enforces the reviewer on the server", async (t) => {
+  const f = await fixture(t);
+  f.db.prepare("INSERT INTO finance_members (name,username,password_hash,role,business_ids,unit_ids,review_unit_ids) VALUES (?,?,?,'collector','[\"marjorie\"]',?,?)").run("South", "south", passwordHash(password), '["marjorie-sur"]', '[]');
+  f.db.prepare("INSERT INTO finance_members (name,username,password_hash,role,business_ids,unit_ids,review_unit_ids) VALUES (?,?,?,'collector','[\"marjorie\"]','[]','[\"marjorie-sur\"]')").run("Morelia", "morelia", passwordHash(password));
+  await f.login(); await f.login("south"); await f.login("morelia");
+  function evidence(analysis = null) {
+    return Number(f.db.prepare("INSERT INTO finance_evidence (business_id,unit_id,name,mime,bytes,sha256,encrypted,created_by,analysis) VALUES ('marjorie','marjorie-sur','fixture.png','image/png',1,?,?,'south',?)").run(crypto.randomUUID(), encryptDocument(Buffer.from("fixture")), analysis && JSON.stringify(analysis)).lastInsertRowid);
+  }
+  const body = { unit_id: "marjorie-sur", amount_cents: 2000, evidence_id: evidence() };
+  assert.equal((await f.req("/store-receipts", "south", body)).status, 400);
+  const guay = await f.req("/store-receipts", "south", { ...body, receiving_bank: "Banco Guayaquil" });
+  assert.equal(guay.status, 201); assert.equal(guay.body.responsible, "Marlon");
+  assert.equal((await f.req(`/store-receipts/${guay.body.id}/confirm`, "morelia", {})).status, 403);
+  let list = (await f.req("/store-receipts")).body.receipts;
+  assert.equal(list.find((r) => r.id === guay.body.id).assigned_to_me, true);
+  assert.equal((await f.req("/store-receipts", "morelia")).body.receipts.some((r) => r.id === guay.body.id), false);
+  const same = await f.req("/store-receipts", "south", { ...body, receiving_bank: "Guayaquil" });
+  assert.equal(same.body.duplicate, true);
+  assert.equal((await f.req("/store-receipts", "south", { ...body, receiving_bank: "Pichincha" })).status, 409);
+  const pich = await f.req("/store-receipts", "south", { ...body, evidence_id: evidence({ receiving_bank: "Banco Pichincha" }) });
+  assert.equal(pich.status, 201); assert.equal(pich.body.responsible, "Morelia");
+  list = (await f.req("/store-receipts")).body.receipts;
+  assert.equal(list.find((r) => r.id === pich.body.id).assigned_to_me, false);
+  const moreList = (await f.req("/store-receipts", "morelia")).body.receipts;
+  assert.equal(moreList.find((r) => r.id === pich.body.id).assigned_to_me, true);
+  assert.equal((await f.req(`/store-receipts/${pich.body.id}/confirm`, "morelia", {})).status, 200);
+  assert.equal((await f.req(`/store-receipts/${guay.body.id}/confirm`, "owner", {})).status, 200);
+  assert.equal(f.db.prepare("SELECT count(*) n FROM finance_bank_transactions").get().n, 0);
+});
+
 test("full account numbers are owner-managed, encrypted and never exposed to other readers", async (t) => {
   const f = await fixture(t);
   await f.login();

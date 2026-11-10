@@ -935,6 +935,35 @@ export function snapshot(db, user, filters = {}) {
       .all()
       .filter(permitted)
       .slice(0, 100),
+    ticketing_receipts:
+      businessIds.includes("gemashow") && user.role !== "collector"
+        ? {
+            ...sales
+              .filter((s) => s.source_system === "protickets")
+              .reduce(
+                (result, sale) => {
+                  if (sale.state === "pending") result.pending_orders++;
+                  if (sale.state === "refunded") result.refunded_orders++;
+                  if (sale.state !== "active") return result;
+                  result.paid_orders++;
+                  for (const payment of sale.payments) {
+                    const amount = Math.max(
+                      0,
+                      payment.amount_cents - (payment.refunded_cents || 0),
+                    );
+                    if (payment.method === "payphone")
+                      result.payphone_cents += amount;
+                    if (payment.method === "transfer")
+                      result.transfer_cents += amount;
+                  }
+                  return result;
+                },
+                { paid_orders: 0, pending_orders: 0, refunded_orders: 0, payphone_cents: 0, transfer_cents: 0 },
+              ),
+            provider_fees_verified: false,
+            wallet_auto_updated: false,
+          }
+        : null,
     integrations: db.prepare("SELECT * FROM finance_sync_log").all(),
     capabilities: {
       ai: Boolean(process.env.OPENAI_API_KEY),

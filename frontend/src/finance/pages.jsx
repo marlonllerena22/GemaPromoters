@@ -1863,6 +1863,7 @@ export function Integrations() {
   const { data, user, run } = useFinance();
   const icons = {
     internal: Building2,
+    protickets: CreditCard,
     alfabusiness: Building2,
     payphone: CreditCard,
     bank: Landmark,
@@ -1870,6 +1871,7 @@ export function Integrations() {
   };
   const names = {
     internal: "Promoters y ProTickets",
+    protickets: "PayPhone y transferencias · ProTickets",
     alfabusiness: "AlfaBusiness",
     payphone: "Liquidaciones Payphone",
     bank: "Movimientos bancarios",
@@ -1877,6 +1879,7 @@ export function Integrations() {
   };
   const descriptions = {
     internal: "Pedidos y abonos de Producalza; ventas y pagos de la ticketera.",
+    protickets: "Cobros de entradas confirmados en ProTickets, separados por evento y forma de pago.",
     alfabusiness:
       "Todas las ventas de los locales, con cobros, cambios y devoluciones.",
     payphone:
@@ -1922,6 +1925,8 @@ export function Integrations() {
                 >
                   {s.state === "ready"
                     ? "Disponible"
+                    : s.state === "attention"
+                      ? "Requiere revisión"
                     : s.state === "manual"
                       ? "Importación manual"
                       : s.state === "demo"
@@ -1931,6 +1936,21 @@ export function Integrations() {
               </div>
               <h3>{names[s.source] || s.source}</h3>
               <p>{descriptions[s.source]}</p>
+              {s.source === "protickets" && data.ticketing_receipts && (
+                <div className="gf-ticketing-receipts">
+                  <small>COBROS DEL PERÍODO SELECCIONADO</small>
+                  <dl>
+                    <div><dt>PayPhone confirmado</dt><dd>{money(data.ticketing_receipts.payphone_cents)}</dd></div>
+                    <div><dt>Transferencias verificadas</dt><dd>{money(data.ticketing_receipts.transfer_cents)}</dd></div>
+                    <div><dt>Pedidos por pagar</dt><dd>{data.ticketing_receipts.pending_orders}</dd></div>
+                  </dl>
+                  <small>
+                    Los cobros incluyen la parte de ProTickets, que también es tuya.
+                    La comisión real de PayPhone y su saldo disponible se comprueban aparte.
+                    Estos totales no se suman otra vez a tus cuentas.
+                  </small>
+                </div>
+              )}
               <div className="gf-integration-meta">
                 <small>{s.detail}</small>
                 <span>

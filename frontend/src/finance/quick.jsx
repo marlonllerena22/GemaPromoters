@@ -61,6 +61,7 @@ export function CollaboratorHome() {
     reviews = (data.store_receipts || []).filter(
       (r) =>
         user.review_unit_ids?.includes(r.unit_id) &&
+        r.assigned_to_me !== false &&
         !r.confirmed_at &&
         r.status !== "reconciled",
     );

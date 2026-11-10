@@ -4837,3 +4837,19 @@ small {
     margin: 16mm;
   }
 }
+.gf-ticketing-receipts {
+  padding: 16px;
+  margin: 8px 0 16px;
+  border-radius: 16px;
+  background: #f3f6f1;
+}
+.gf-ticketing-receipts dl { margin: 12px 0; }
+.gf-ticketing-receipts dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 0;
+}
+.gf-ticketing-receipts dt { font-size: 14px; }
+.gf-ticketing-receipts dd { margin: 0; font-weight: 650; white-space: nowrap; }
+.gf-ticketing-receipts > small { display: block; line-height: 1.6; }

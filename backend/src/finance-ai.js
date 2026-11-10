@@ -150,7 +150,7 @@ export async function analyzeDocument(evidence) {
         content: [
           {
             type: "input_text",
-            text: "Extrae los datos legibles de este documento. No confirma una acreditación bancaria.",
+            text: "Extrae los datos legibles de este documento. receiving_bank es únicamente el banco de la cuenta de DESTINO o receptora de la transferencia, nunca el banco de origen ni el logo del banco emisor. Si el destino no es legible o es ambiguo, devuelve null. No confirma una acreditación bancaria.",
           },
           content,
         ],
@@ -164,6 +164,7 @@ export async function analyzeDocument(evidence) {
         amount_cents: { type: ["integer", "null"] },
         day: nullableString,
         bank: nullableString,
+        receiving_bank: nullableString,
         reference: nullableString,
         counterparty: nullableString,
         description: nullableString,
@@ -173,6 +174,7 @@ export async function analyzeDocument(evidence) {
         "amount_cents",
         "day",
         "bank",
+        "receiving_bank",
         "reference",
         "counterparty",
         "description",
