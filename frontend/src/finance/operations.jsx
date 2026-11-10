@@ -590,6 +590,7 @@ export function MailInbox({ onClose }) {
     [direction, setDirection] = useState("outgoing"),
     [business, setBusiness] = useState(""),
     [at, setAt] = useState(""),
+    [linkedBank, setLinkedBank] = useState(""),
     [busy, setBusy] = useState(false);
   const [messages, setMessages] = useState([]),
     [error, setError] = useState("");
@@ -607,6 +608,7 @@ export function MailInbox({ onClose }) {
         account_id: Number(account),
         direction,
         business_id: business || null,
+        ...(linkedBank ? {link_bank_id:Number(linkedBank)} : {}),
         occurred_at: at ? `${at}:00-05:00` : undefined,
       });
       await refresh();
@@ -670,6 +672,9 @@ export function MailInbox({ onClose }) {
               />
             </Field>
           )}
+          <Field label="Relacionar con un movimiento ya registrado" hint="Si este aviso corresponde a un registro de Android o a un comprobante anterior, elígelo para no sumar otra vez.">
+            <select value={linkedBank} onChange={e=>setLinkedBank(e.target.value)}><option value="">Sin relación manual</option>{(data.bank_transactions||[]).filter(b=>b.account_id===Number(account)&&b.amount_cents===selected.amount_cents*(direction==='outgoing'?-1:1)).slice(0,30).map(b=><option value={b.id} key={b.id}>{b.day} · {money(Math.abs(b.amount_cents))} · {b.reference||b.description||'Sin referencia'}</option>)}</select>
+          </Field>
           <Field label="Asignar ingreso o gasto a">
             <select
               value={business}
@@ -741,6 +746,7 @@ export function MailInbox({ onClose }) {
                 disabled={!m.trusted || !m.amount_cents}
                 onClick={() => {
                   setSelected(m);
+                  setLinkedBank("");
                   setAccount(m.account_id ? String(m.account_id) : "");
                   setDirection(m.event === "income" ? "incoming" : "outgoing");
                   setAt("");

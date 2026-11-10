@@ -1,12 +1,65 @@
-import {Capacitor,registerPlugin} from "@capacitor/core";
-async function nativeFile(blob,name){
-  if(!Capacitor.isNativePlatform())return false;
-  const data=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result).split(",")[1]);r.onerror=reject;r.readAsDataURL(blob);});
-  const Filesystem=registerPlugin("Filesystem"),Share=registerPlugin("Share");
-  const safe=String(name||"comprobante").replace(/[^a-zA-Z0-9._-]/g,"_").slice(0,100);
-  const file=await Filesystem.writeFile({path:`gema/${Date.now()}-${safe}`,data,directory:"CACHE",recursive:true});
-  await Share.share({title:"Gema Finanzas",url:file.uri});
+import { Capacitor, registerPlugin } from "@capacitor/core";
+async function nativeFile(blob, name, text) {
+  if (!Capacitor.isNativePlatform()) return false;
+  const data = await new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(",")[1]);
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+  const Filesystem = registerPlugin("Filesystem"),
+    Share = registerPlugin("Share");
+  const safe = String(name || "comprobante")
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .slice(0, 100);
+  const file = await Filesystem.writeFile({
+    path: `gema/${Date.now()}-${safe}`,
+    data,
+    directory: "CACHE",
+    recursive: true,
+  });
+  await Share.share({
+    title: "Gema Finanzas",
+    url: file.uri,
+    ...(text ? { text } : {}),
+  });
   return true;
+}
+export async function shareBlob(blob, name, text) {
+  if (await nativeFile(blob, name, text)) return;
+  const file =
+    blob instanceof File ? blob : new File([blob], name, { type: blob.type });
+  if (!navigator.share || !navigator.canShare?.({ files: [file] }))
+    throw new Error(
+      "Este navegador no permite compartir archivos. Usa Guardar y adjúntalo en WhatsApp."
+    );
+  await navigator.share({ files: [file], title: "Comprobante de pago", text });
+}
+export async function saveBlob(blob, name) {
+  if (
+    Capacitor.isNativePlatform() &&
+    Capacitor.isPluginAvailable("FinanceFiles")
+  ) {
+    const data = await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result).split(",")[1]);
+      r.onerror = reject;
+      r.readAsDataURL(blob);
+    });
+    const result = await registerPlugin("FinanceFiles").save({
+      data,
+      name,
+      mime: blob.type.split(";")[0],
+    });
+    return result.saved ? result.location : null;
+  }
+  const url = URL.createObjectURL(blob),
+    a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
+  return "Descargas";
 }
 export async function financeApi(path, body, method, options = {}) {
   const response = await fetch(`/api/finance${path}`, {
@@ -28,7 +81,7 @@ export async function financeApi(path, body, method, options = {}) {
       window.dispatchEvent(
         new CustomEvent("finance-password-change-required", {
           detail: data.user,
-        }),
+        })
       );
     if (
       response.status === 401 &&
@@ -37,7 +90,7 @@ export async function financeApi(path, body, method, options = {}) {
     )
       window.dispatchEvent(new Event("finance-session-ended"));
     const error = new Error(
-      data.message || "No se pudo completar la operación",
+      data.message || "No se pudo completar la operación"
     );
     error.code = data.code;
     throw error;
@@ -62,7 +115,7 @@ export const today = () =>
 export const dateLabel = (day, options = { day: "2-digit", month: "short" }) =>
   day
     ? new Intl.DateTimeFormat("es-EC", options).format(
-        new Date(`${String(day).slice(0, 10)}T12:00:00`),
+        new Date(`${String(day).slice(0, 10)}T12:00:00`)
       )
     : "Sin fecha";
 export const businessNames = {
@@ -123,8 +176,8 @@ export async function downloadEvidence(id, name) {
     credentials: "same-origin",
   });
   if (!response.ok) throw new Error("No se pudo descargar el comprobante");
-  const blob=await response.blob();
-  if(await nativeFile(blob,name||"comprobante"))return;
+  const blob = await response.blob();
+  if (await nativeFile(blob, name || "comprobante")) return;
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -135,14 +188,15 @@ export async function downloadEvidence(id, name) {
 export async function downloadReport(filters) {
   const response = await fetch(
     `/api/finance/export?${new URLSearchParams(filters)}`,
-    { cache: "no-store", credentials: "same-origin" },
+    { cache: "no-store", credentials: "same-origin" }
   );
   if (!response.ok) {
     const data = await response.json();
     throw new Error(data.message);
   }
-  const blob=await response.blob();
-  if(await nativeFile(blob,`finanzas-${filters.from}-${filters.to}.csv`))return;
+  const blob = await response.blob();
+  if (await nativeFile(blob, `finanzas-${filters.from}-${filters.to}.csv`))
+    return;
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

@@ -128,7 +128,14 @@ export function Field({ label, hint, children, ...props }) {
     </label>
   );
 }
-export function Modal({ title, subtitle, onClose, children, wide = false }) {
+export function Modal({
+  title,
+  subtitle,
+  onClose,
+  children,
+  wide = false,
+  className = "",
+}) {
   const ref = useRef();
   useEffect(() => {
     const previous = document.activeElement;
@@ -144,7 +151,7 @@ export function Modal({ title, subtitle, onClose, children, wide = false }) {
       if (e.key === "Tab") {
         const nodes = [
           ...ref.current.querySelectorAll(
-            'button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href],[tabindex="0"]',
+            'button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href],[tabindex="0"]'
           ),
         ].filter((n) => n.offsetParent !== null);
         if (!nodes.length) return;
@@ -174,7 +181,7 @@ export function Modal({ title, subtitle, onClose, children, wide = false }) {
     >
       <section
         ref={ref}
-        className={`gf-modal ${wide ? "wide" : ""}`}
+        className={`gf-modal ${wide ? "wide" : ""} ${className}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="gf-dialog-title"
@@ -259,23 +266,25 @@ export function MovementTable({ rows, onSelect, compact = false }) {
                     ? m.status === "reported"
                       ? "Pagado"
                       : m.status === "rejected"
-                        ? "Anulado"
-                        : m.paid_total_cents > 0
-                          ? "Pago parcial"
-                          : "Por pagar"
+                      ? "Anulado"
+                      : m.paid_total_cents > 0
+                      ? "Pago parcial"
+                      : "Por pagar"
                     : undefined}
                 </Badge>
               </td>
               <td
-                className={`gf-right gf-amount ${m.kind === "income" ? "positive" : ""}`}
+                className={`gf-right gf-amount ${
+                  m.kind === "income" ? "positive" : ""
+                }`}
               >
                 {m.is_payment_request
                   ? ""
                   : m.kind === "income"
-                    ? "+"
-                    : m.kind === "transfer"
-                      ? ""
-                      : "−"}
+                  ? "+"
+                  : m.kind === "transfer"
+                  ? ""
+                  : "−"}
                 {money(m.amount_cents)}
               </td>
               <td>
@@ -320,7 +329,7 @@ export function FlowChart({ daily, period }) {
   if (rows.length === 1) rows.push({ ...rows[0] });
   const max = Math.max(
     10000,
-    ...rows.flatMap((r) => [r.income_cents, r.expense_cents]),
+    ...rows.flatMap((r) => [r.income_cents, r.expense_cents])
   );
   const point = (r, i, key) => [
     pad + (i * (width - pad * 2)) / (rows.length - 1),
@@ -330,7 +339,9 @@ export function FlowChart({ daily, period }) {
     rows
       .map((r, i) => `${i ? "L" : "M"}${point(r, i, key).join(",")}`)
       .join(" ");
-  const fill = `${path("income_cents")} L${width - pad},${height} L${pad},${height} Z`;
+  const fill = `${path("income_cents")} L${
+    width - pad
+  },${height} L${pad},${height} Z`;
   return (
     <div
       className="gf-chart"
@@ -395,7 +406,7 @@ export function FlowChart({ daily, period }) {
                 stroke="white"
                 strokeWidth="2"
               />
-            ) : null,
+            ) : null
           )}
         </svg>
         <div className="gf-chart-labels">
@@ -404,7 +415,7 @@ export function FlowChart({ daily, period }) {
               {dateLabel(
                 rows[
                   Math.min(rows.length - 1, Math.round(v * (rows.length - 1)))
-                ].day,
+                ].day
               )}
             </span>
           ))}
@@ -441,7 +452,9 @@ export function BusinessDonut({ businesses }) {
                 fill="none"
                 stroke={b.color}
                 strokeWidth="20"
-                strokeDasharray={`${Math.max(0, length - 5)} ${427.2566 - length + 5}`}
+                strokeDasharray={`${Math.max(0, length - 5)} ${
+                  427.2566 - length + 5
+                }`}
                 strokeDashoffset={-offset}
                 transform="rotate(-90 90 90)"
               />

@@ -1,5 +1,13 @@
 import { canUseFinanceAssistant } from "../../../shared/finance-workflow.mjs";
-import { isNativeFinance, NativeNotificationBridge, disconnectNativePush } from "./native-push.jsx";
+import {
+  isNativeFinance,
+  NativeNotificationBridge,
+  disconnectNativePush,
+} from "./native-push.jsx";
+import {
+  BankNotificationsBridge,
+  stopBankNotifications,
+} from "./bank-notifications.jsx";
 import { AccountNumberEditor } from "./account-summary.jsx";
 import React, {
   useCallback,
@@ -246,17 +254,17 @@ const pages = [
 pages.unshift(
   pages.splice(
     pages.findIndex((p) => p.id === "inicio"),
-    1,
-  )[0],
+    1
+  )[0]
 );
 pages.find((p) => p.id === "equipo").component = Team;
 
 function Login({ session, onLogin }) {
   const [username, setUsername] = useState(
-      () => localStorage.getItem("gf_finance_username") || "",
+      () => localStorage.getItem("gf_finance_username") || ""
     ),
     [remember, setRemember] = useState(
-      () => localStorage.getItem("gf_finance_remember") !== "false",
+      () => localStorage.getItem("gf_finance_remember") !== "false"
     ),
     [password, setPassword] = useState(""),
     [code, setCode] = useState(""),
@@ -270,7 +278,7 @@ function Login({ session, onLogin }) {
     try {
       const data = await financeApi(
         demo ? "/demo" : "/login",
-        demo ? {} : { username, password, code, remember },
+        demo ? {} : { username, password, code, remember }
       );
       localStorage.setItem("gf_finance_remember", String(remember));
       if (remember) localStorage.setItem("gf_finance_username", username);
@@ -446,7 +454,7 @@ function FinanceApp() {
     [data, setData] = useState(null),
     [fatal, setFatal] = useState("");
   const [page, setPage] = useState(
-      window.location.pathname.split("/")[2] || "inicio",
+      window.location.pathname.split("/")[2] || "inicio"
     ),
     [mobileOpen, setMobileOpen] = useState(false),
     [modal, setModal] = useState(null);
@@ -479,7 +487,7 @@ function FinanceApp() {
           `/snapshot?${new URLSearchParams(filters)}`,
           undefined,
           undefined,
-          { interactive: background !== true },
+          { interactive: background !== true }
         );
         if (id === loadId.current) {
           setData(result);
@@ -492,7 +500,7 @@ function FinanceApp() {
         if (id === loadId.current) setLoading(false);
       }
     },
-    [filters],
+    [filters]
   );
   useEffect(() => {
     financeApi("/session")
@@ -524,12 +532,12 @@ function FinanceApp() {
       check = () => {
         if (Date.now() >= deadline)
           setUser((current) =>
-            current ? { ...current, password_change_required: true } : current,
+            current ? { ...current, password_change_required: true } : current
           );
       };
     const timer = setTimeout(
       check,
-      Math.min(Math.max(0, deadline - Date.now()), 2147483647),
+      Math.min(Math.max(0, deadline - Date.now()), 2147483647)
     );
     window.addEventListener("focus", check);
     document.addEventListener("visibilitychange", check);
@@ -551,7 +559,7 @@ function FinanceApp() {
       [...ids].some((id) => !knownPayables.current.has(id))
     )
       notify(
-        "Tienes una nueva solicitud de transferencia. Quedará visible en Por transferir.",
+        "Tienes una nueva solicitud de transferencia. Quedará visible en Por transferir."
       );
     knownPayables.current = ids;
     navigator.serviceWorker?.controller?.postMessage({
@@ -589,7 +597,7 @@ function FinanceApp() {
     window.addEventListener("finance-session-ended", ended);
     window.addEventListener(
       "finance-password-change-required",
-      passwordRequired,
+      passwordRequired
     );
     window.addEventListener("online", connect);
     window.addEventListener("offline", connect);
@@ -600,7 +608,7 @@ function FinanceApp() {
       window.removeEventListener("finance-session-ended", ended);
       window.removeEventListener(
         "finance-password-change-required",
-        passwordRequired,
+        passwordRequired
       );
       window.removeEventListener("online", connect);
       window.removeEventListener("offline", connect);
@@ -652,7 +660,7 @@ function FinanceApp() {
       notify(
         result.created !== undefined
           ? `${result.created} pendientes nuevos preparados`
-          : success,
+          : success
       );
       return result;
     } catch (e) {
@@ -660,6 +668,7 @@ function FinanceApp() {
     }
   };
   async function logout() {
+    await stopBankNotifications();
     await disconnectNativePush();
     try {
       await financeApi("/logout", {});
@@ -733,7 +742,7 @@ function FinanceApp() {
           "tarjetas",
           ...(canUseFinanceAssistant(user) ? ["asistente"] : []),
         ].includes(p.id)) &&
-      (!p.hideCollector || user?.role !== "collector"),
+      (!p.hideCollector || user?.role !== "collector")
   );
   const current = visiblePages.find((p) => p.id === page) || visiblePages[0];
   const Page = current?.component;
@@ -812,6 +821,7 @@ function FinanceApp() {
       }}
     >
       <NativeNotificationBridge />
+      <BankNotificationsBridge />
       <div
         className={`gf-app ${hidden ? "gf-values-hidden" : ""} ${
           user.role === "collector" ? "gf-collector" : ""
@@ -955,7 +965,7 @@ function FinanceApp() {
                 aria-label={`${data.summary.pending_count} movimientos pendientes`}
                 onClick={() =>
                   navigate(
-                    user.role === "collector" ? "movimientos" : "pendientes",
+                    user.role === "collector" ? "movimientos" : "pendientes"
                   )
                 }
               >
@@ -989,8 +999,8 @@ function FinanceApp() {
                       (user.role === "owner"
                         ? "owner"
                         : user.work_view
-                          ? "german"
-                          : "norma")
+                        ? "german"
+                        : "norma")
                     }
                     onChange={(e) => previewPersona(e.target.value)}
                   >
@@ -1163,8 +1173,8 @@ function FinanceApp() {
                 {user.work_view
                   ? "Trabajo"
                   : user.role === "collector"
-                    ? "Mis envíos"
-                    : "Movimientos"}
+                  ? "Mis envíos"
+                  : "Movimientos"}
               </span>
             </button>
             {user.role !== "viewer" && (
@@ -1272,6 +1282,7 @@ function FinanceApp() {
           <RecordPayment
             id={modal.initial.id}
             initialDestination={modal.initial.destination_index}
+            initialFile={modal.initial.initial_file}
             onClose={requestClose}
           />
         )}
@@ -1286,7 +1297,7 @@ function FinanceApp() {
               modal.initial.return_type
                 ? open(
                     modal.initial.return_type,
-                    modal.initial.return_initial || {},
+                    modal.initial.return_initial || {}
                   )
                 : close()
             }
@@ -1353,7 +1364,7 @@ function FinanceApp() {
                     m.amount_cents / 100
                   }`
                     .toLowerCase()
-                    .includes(search.toLowerCase()),
+                    .includes(search.toLowerCase())
                 )
                 .slice(0, 12)
                 .map((m) => (
@@ -1458,5 +1469,5 @@ createRoot(document.getElementById("root")).render(
     ) : (
       <FinanceApp />
     )}
-  </FinanceErrorBoundary>,
+  </FinanceErrorBoundary>
 );

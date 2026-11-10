@@ -1,0 +1,300 @@
+.gf-request-open {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  cursor: pointer;
+}
+.gf-request-open:focus-visible {
+  outline: 3px solid #799d69;
+  outline-offset: 6px;
+  border-radius: 10px;
+}
+.gf-request-open .gf-pay-request-main {
+  margin-top: 14px;
+}
+.gf-request-tappable .gf-proof-quick {
+  margin-top: 12px;
+}
+.gf-proof-quick-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.gf-proof-quick-buttons .gf-button {
+  min-height: 44px;
+  padding: 10px 14px;
+  font-size: 15px;
+  flex: 1 1 auto;
+}
+.gf-proof-quick > small {
+  display: block;
+  margin-top: 6px;
+  color: #6a7d68;
+  font-size: 13px;
+}
+.gf-paid-quick-wrap {
+  border-bottom: 1px solid #e0e7dd;
+  padding-bottom: 16px;
+  margin-bottom: 12px;
+}
+.gf-paid-quick-wrap .gf-paid-row {
+  border-bottom: 0;
+  margin-bottom: 8px;
+}
+.gf-paid-quick-wrap .gf-proof-quick {
+  padding: 0 8px;
+}
+.gf-payment-fast-modal > header {
+  padding: 15px 20px;
+}
+.gf-payment-fast-modal > header .gf-eyebrow {
+  display: none;
+}
+.gf-payment-fast-modal > header h2 {
+  font-size: 20px;
+  line-height: 1.25;
+}
+.gf-payment-fast-modal > header p {
+  display: none;
+}
+.gf-payment-fast-modal .gf-modal-body {
+  padding: 16px 20px;
+}
+.gf-payment-fast-modal .gf-request-detail-summary {
+  padding: 0;
+  background: none;
+  border: 0;
+  margin: 0 0 12px;
+}
+.gf-payment-fast-modal .gf-request-detail-summary > span {
+  font-size: 13px;
+}
+.gf-payment-fast-modal .gf-request-detail-summary h3 {
+  font-size: 19px;
+  margin: 6px 0;
+}
+.gf-payment-fast-modal .gf-request-detail-summary > strong {
+  font-size: 36px;
+  line-height: 1.15;
+}
+.gf-payment-fast-modal .gf-request-detail-summary p {
+  font-size: 15px;
+  line-height: 1.35;
+  margin: 6px 0;
+  overflow-wrap: anywhere;
+}
+.gf-payment-fast-modal .gf-request-detail-summary small {
+  display: none;
+}
+.gf-request-primary-action {
+  margin: 10px 0;
+}
+.gf-request-primary-action > .gf-button {
+  min-height: 48px;
+  font-size: 16px;
+}
+.gf-beneficiary-compact {
+  margin: 12px 0;
+  gap: 8px;
+}
+.gf-beneficiary-compact .gf-beneficiary-heading {
+  display: none;
+}
+.gf-beneficiary-compact .gf-account-choice-note {
+  font-size: 14px;
+  line-height: 1.4;
+  margin: 0 0 5px;
+}
+.gf-beneficiary-compact .gf-beneficiary-accounts {
+  gap: 7px;
+}
+.gf-beneficiary-compact .gf-beneficiary-account {
+  padding: 9px 12px;
+}
+.gf-beneficiary-compact .gf-beneficiary-account.selected {
+  padding: 8px 11px;
+}
+.gf-beneficiary-compact .gf-beneficiary-account > header {
+  gap: 8px;
+}
+.gf-beneficiary-compact .gf-bank-logo {
+  width: 27px;
+  height: 27px;
+}
+.gf-beneficiary-compact .gf-beneficiary-account > header > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.gf-beneficiary-compact .gf-beneficiary-account > header strong {
+  font-size: 15px;
+}
+.gf-beneficiary-compact .gf-beneficiary-account > header span {
+  font-size: 13px;
+}
+.gf-beneficiary-compact .gf-account-holder {
+  font-size: 13px;
+  line-height: 1.3;
+  margin: 4px 0 0;
+}
+.gf-beneficiary-compact .gf-copy-datum {
+  margin-top: 2px;
+  gap: 0;
+}
+.gf-beneficiary-compact .gf-copy-datum > span {
+  font-size: 12px;
+}
+.gf-beneficiary-compact .gf-copy-datum > button {
+  min-height: 36px;
+  padding: 4px 0;
+  font-size: 18px;
+}
+.gf-beneficiary-compact > .gf-copy-datum {
+  border-top: 1px solid #e0e7dd;
+  padding-top: 7px;
+  margin-top: 8px;
+}
+.gf-beneficiary-compact .gf-choose-destination {
+  min-height: 36px;
+  font-size: 12px;
+  padding: 7px;
+}
+.gf-request-more {
+  border-top: 1px solid #e1e8dc;
+  margin-top: 16px;
+  padding-top: 14px;
+}
+.gf-request-more > summary,
+.gf-fast-edit > summary {
+  font-size: 15px;
+  cursor: pointer;
+  color: #3b6549;
+  padding: 8px 0;
+}
+.gf-request-proof-first {
+  display: grid;
+  gap: 14px;
+  margin: 16px 0;
+}
+.gf-request-proof-first > div > strong {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 16px;
+}
+.gf-record-payment-fast {
+  gap: 12px;
+}
+.gf-record-payment-fast .gf-pay-target {
+  padding: 0;
+  background: none;
+  border: 0;
+  margin: 0;
+  gap: 4px;
+}
+.gf-record-payment-fast .gf-pay-target span {
+  font-size: 18px;
+}
+.gf-record-payment-fast .gf-pay-target strong {
+  font-size: 36px;
+  line-height: 1.2;
+  color: #244e3b;
+}
+.gf-record-payment-fast .gf-pay-target small {
+  font-size: 14px;
+  line-height: 1.35;
+  color: #63765e;
+}
+.gf-record-payment-fast .gf-field {
+  margin: 0;
+}
+.gf-record-payment-fast .gf-field > span {
+  font-size: 14px;
+}
+.gf-record-payment-fast input,
+.gf-record-payment-fast select {
+  min-height: 44px;
+  padding: 10px 12px;
+  font-size: 16px;
+}
+.gf-fast-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  color: #54724f;
+  overflow-wrap: anywhere;
+}
+.gf-fast-origin {
+  font-size: 13px;
+  line-height: 1.3;
+  color: #53704d;
+  margin: -6px 0 0;
+}
+.gf-fast-edit .gf-payment-fields {
+  padding-top: 10px;
+}
+.gf-fast-confirm {
+  position: sticky;
+  bottom: -16px;
+  background: #fff;
+  padding: 12px 0 8px;
+  border-top: 1px solid #e1e8dc;
+  z-index: 2;
+}
+.gf-fast-confirm .gf-button {
+  min-height: 48px;
+  font-size: 16px;
+}
+.gf-fast-confirm small {
+  display: block;
+  font-size: 12px;
+  color: #697c62;
+  line-height: 1.4;
+  margin-top: 6px;
+}
+.gf-record-payment-fast .gf-full-width {
+  width: 100%;
+}
+@media (max-width: 600px) {
+  .gf-payment-fast-modal {
+    max-height: calc(100dvh - 16px);
+  }
+  .gf-payment-fast-modal > header {
+    padding: 13px 17px;
+  }
+  .gf-payment-fast-modal .gf-modal-body {
+    padding: 14px 17px;
+  }
+  .gf-proof-quick-buttons .gf-button {
+    font-size: 15px;
+    padding: 10px;
+  }
+  .gf-payment-fast-modal .gf-request-detail-summary > strong {
+    font-size: 34px;
+  }
+  .gf-beneficiary-compact .gf-beneficiary-account > header .gf-bank-logo {
+    width: 26px;
+    height: 26px;
+  }
+  .gf-payment-fast-modal .gf-copy-datum strong {
+    font-size: 18px;
+  }
+  .gf-fast-confirm {
+    bottom: -14px;
+  }
+  .gf-record-payment-fast .gf-payment-fields {
+    grid-template-columns: 1fr 1fr;
+  }
+  .gf-record-payment-fast .gf-payment-fields input {
+    min-width: 0;
+    width: 100%;
+  }
+}

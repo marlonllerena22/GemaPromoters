@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import {notificationBankMatch} from './finance-notification-match.js';
 import {
   recordedAccountBalance,
   matchReportedChecks,
@@ -256,7 +257,7 @@ export function importBank(db, user, body) {
     const batch = crypto.randomUUID();
     let imported = 0;
     const transactionIds = [];
-    const source = ["bank-email", "assistant", "statement-image"].includes(body.source_system) ? body.source_system : "csv";
+    const source = ["bank-email", "assistant", "statement-image", "bank-notification"].includes(body.source_system) ? body.source_system : "csv";
     rows.forEach((row, index) => {
       const fingerprint = crypto
         .createHash("sha256")
@@ -279,6 +280,10 @@ export function importBank(db, user, body) {
           );
         transactionIds.push(existing.id);
         return;
+      }
+      if(source!=='bank-notification'){
+        const notice=notificationBankMatch(db,{account_id:account.id,...row});
+        if(notice){transactionIds.push(notice.id);return;}
       }
       if (row.reference) {
         const matching = db

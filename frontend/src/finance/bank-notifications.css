@@ -1,0 +1,140 @@
+.gf-bank-notifications {
+  margin-bottom: 24px;
+  padding: 24px;
+  min-width: 0;
+}
+.gf-bank-title {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+.gf-bank-title h3 {
+  margin: 0 0 6px;
+}
+.gf-bank-title p {
+  margin: 0;
+}
+.gf-bank-privacy {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  background: #edf4ef;
+  border-radius: 14px;
+  padding: 14px;
+  margin-top: 18px;
+}
+.gf-bank-privacy svg {
+  flex-shrink: 0;
+}
+.gf-bank-privacy p {
+  margin: 0;
+  line-height: 1.5;
+}
+.gf-bank-app {
+  border: 1px solid #d9e3dc;
+  border-radius: 16px;
+  padding: 16px;
+  margin: 12px 0;
+}
+.gf-bank-app-select {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 16px;
+  line-height: 1.5;
+}
+.gf-bank-app-select input {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  accent-color: #356648;
+}
+.gf-bank-app-options {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+.gf-bank-notice {
+  border: 1px solid #d9e3dc;
+  border-radius: 16px;
+  padding: 18px;
+  margin: 14px 0;
+}
+.gf-bank-notice-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.gf-bank-notice-fields {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 12px;
+  margin: 18px 0;
+}
+.gf-bank-inbox-title {
+  margin-top: 26px;
+  gap: 12px;
+}
+.gf-bank-shortcut {
+  width: 100%;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  text-align: left;
+  padding: 16px 18px;
+  background: white;
+  border: 1px solid #d9e3dc;
+  border-radius: 16px;
+  color: #234735;
+  margin: 0 0 18px;
+  font: inherit;
+}
+.gf-bank-shortcut > span:first-of-type {
+  flex: 1;
+}
+.gf-bank-shortcut small {
+  display: block;
+  margin-top: 5px;
+  font-size: 14px;
+  color: #647367;
+}
+.gf-bank-notifications .gf-form-actions {
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.gf-bank-notifications .gf-field select,
+.gf-bank-notifications .gf-field input {
+  width: 100%;
+  min-height: 46px;
+}
+.gf-bank-notice .gf-between {
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.gf-bank-notice .gf-between > span {
+  font-size: 14px;
+  color: #647367;
+}
+@media (max-width: 600px) {
+  .gf-bank-notifications {
+    padding: 18px;
+  }
+  .gf-bank-notice {
+    padding: 14px;
+  }
+  .gf-bank-notice-fields {
+    grid-template-columns: 1fr;
+  }
+  .gf-bank-notifications .gf-form-actions > .gf-button {
+    flex: 1 1 160px;
+  }
+  .gf-bank-title {
+    align-items: flex-start;
+  }
+  .gf-bank-title svg {
+    flex-shrink: 0;
+  }
+  .gf-bank-notifications details {
+    overflow-wrap: anywhere;
+  }
+}

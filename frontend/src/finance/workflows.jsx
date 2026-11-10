@@ -55,6 +55,8 @@ import { transferFeeQuote } from "../../../shared/finance-fees.mjs";
 import { CustodyFunds } from "./operations.jsx";
 import { SettlementFunds } from "./settlements.jsx";
 import { BeneficiaryDetails, EvidenceThumbnail } from "./payees.jsx";
+import { PaymentProofActions } from "./payment-proof.jsx";
+import "./payment-fast.css";
 const emptyWorkflow = {
   spaces: [],
   requests: [],
@@ -114,7 +116,7 @@ export function SpaceTiles({ pinned = false, compact = false }) {
   const { data, user, open } = useFinance();
   const w = data.workflow || emptyWorkflow;
   const spaces = w.spaces.filter(
-    (s) => s.active && (!pinned || s.is_member || user.role === "owner"),
+    (s) => s.active && (!pinned || s.is_member || user.role === "owner")
   );
   if (!spaces.length)
     return (
@@ -199,38 +201,57 @@ export function Spaces() {
 export function RequestCard({ request, returnSpace = null }) {
   const { data, user, open } = useFinance();
   const space = data.workflow?.spaces.find((s) => s.id === request.space_id);
+  const lastPayment = (data.workflow?.payments || [])
+    .filter((p) => p.request_id === request.id && !p.voided_at)
+    .sort((a, b) => b.id - a.id)[0];
+  const showRequest = () =>
+    open("pay-request", { id: request.id, return_space: returnSpace });
   return (
-    <article className="gf-pay-request-card">
-      <div className="gf-pay-request-top">
-        <span className={`gf-pay-state ${request.payment_state}`}>
-          {request.payment_state === "partial"
-            ? "Pago parcial"
-            : request.payment_state === "paid"
+    <article className="gf-pay-request-card gf-request-tappable" role="group">
+      <button
+        type="button"
+        className="gf-request-open"
+        onClick={showRequest}
+        aria-label={`Abrir petición de ${request.counterparty} por ${money(
+          request.amount_cents
+        )}`}
+      >
+        <div className="gf-pay-request-top">
+          <span className={`gf-pay-state ${request.payment_state}`}>
+            {request.payment_state === "partial"
+              ? "Pago parcial"
+              : request.payment_state === "paid"
               ? "Pagado"
               : request.payment_state === "cancelled"
-                ? "Anulado"
-                : "Por transferir"}
-        </span>
-        <span>{space?.name || businessNames[request.business_id]}</span>
-      </div>
-      <div className="gf-pay-request-main">
-        <div>
-          <h3>{request.counterparty}</h3>
-          <p>{request.description}</p>
-          <small>
-            {request.requester_name || request.created_by}
-            {request.due_date ? ` · Vence ${dateLabel(request.due_date)}` : ""}
-          </small>
+              ? "Anulado"
+              : "Por transferir"}
+          </span>
+          <span>{space?.name || businessNames[request.business_id]}</span>
         </div>
-        <strong>
-          {money(request.remaining_cents || request.amount_cents)}
-        </strong>
-      </div>
-      {request.paid_cents > 0 && request.remaining_cents > 0 && (
-        <p className="gf-pay-partial">
-          Ya pagado: {money(request.paid_cents)} · queda{" "}
-          {money(request.remaining_cents)}
-        </p>
+        <div className="gf-pay-request-main">
+          <div>
+            <h3>{request.counterparty}</h3>
+            <p>{request.description}</p>
+            <small>
+              {request.requester_name || request.created_by}
+              {request.due_date
+                ? ` · Vence ${dateLabel(request.due_date)}`
+                : ""}
+            </small>
+          </div>
+          <strong>
+            {money(request.remaining_cents || request.amount_cents)}
+          </strong>
+        </div>
+        {request.paid_cents > 0 && request.remaining_cents > 0 && (
+          <p className="gf-pay-partial">
+            Ya pagado: {money(request.paid_cents)} · queda{" "}
+            {money(request.remaining_cents)}
+          </p>
+        )}
+      </button>
+      {lastPayment && (
+        <PaymentProofActions payment={lastPayment} request={request} />
       )}
       <footer>
         <Button
@@ -252,7 +273,7 @@ export function RequestCard({ request, returnSpace = null }) {
               })
             }
           >
-            Ya transferí
+            Subir comprobante
           </Button>
         )}
       </footer>
@@ -262,50 +283,55 @@ export function RequestCard({ request, returnSpace = null }) {
 export function PaymentRow({ payment }) {
   const { data, open } = useFinance();
   const request = data.workflow?.requests.find(
-    (r) => r.id === payment.request_id,
+    (r) => r.id === payment.request_id
   );
   return (
-    <div className={`gf-paid-row ${payment.voided_at ? "voided" : ""}`}>
-      {!payment.voided_at ? (
-        <EvidenceThumbnail
-          path={`/payments/${payment.id}/evidence`}
-          title="Comprobante de pago"
-          returnType="pay-request"
-          returnInitial={{ id: payment.request_id }}
-        />
-      ) : (
-        <span className="gf-paid-check">
-          {payment.voided_at ? <X size={19} /> : <CheckCircle2 size={19} />}
-        </span>
-      )}
-      <div>
-        <strong>{request?.counterparty || "Pago registrado"}</strong>
-        <p>
-          {dateLabel(payment.paid_day)} ·{" "}
-          {payment.payer_name || payment.created_by}
-        </p>
-        <small>
-          {payment.voided_at
-            ? "Corregido, historial conservado"
-            : payment.verification_status === "reconciled"
+    <div className="gf-paid-quick-wrap">
+      <div className={`gf-paid-row ${payment.voided_at ? "voided" : ""}`}>
+        {!payment.voided_at ? (
+          <EvidenceThumbnail
+            path={`/payments/${payment.id}/evidence`}
+            title="Comprobante de pago"
+            returnType="pay-request"
+            returnInitial={{ id: payment.request_id }}
+          />
+        ) : (
+          <span className="gf-paid-check">
+            {payment.voided_at ? <X size={19} /> : <CheckCircle2 size={19} />}
+          </span>
+        )}
+        <div>
+          <strong>{request?.counterparty || "Pago registrado"}</strong>
+          <p>
+            {dateLabel(payment.paid_day)} ·{" "}
+            {payment.payer_name || payment.created_by}
+          </p>
+          <small>
+            {payment.voided_at
+              ? "Corregido, historial conservado"
+              : payment.verification_status === "reconciled"
               ? "Pago conciliado"
               : "Pago informado · por conciliar"}
-        </small>
-        {payment.destination_bank && (
-          <small>
-            Destino: {payment.destination_bank} ··
-            {payment.destination_last_four}
           </small>
-        )}
+          {payment.destination_bank && (
+            <small>
+              Destino: {payment.destination_bank} ··
+              {payment.destination_last_four}
+            </small>
+          )}
+        </div>
+        <div>
+          <b>{money(payment.amount_cents)}</b>
+          {!payment.voided_at && (
+            <button onClick={() => open("share-payment", { id: payment.id })}>
+              <MessageCircle size={15} /> Comprobante
+            </button>
+          )}
+        </div>
       </div>
-      <div>
-        <b>{money(payment.amount_cents)}</b>
-        {!payment.voided_at && (
-          <button onClick={() => open("share-payment", { id: payment.id })}>
-            <MessageCircle size={15} /> Comprobante
-          </button>
-        )}
-      </div>
+      {!payment.voided_at && (
+        <PaymentProofActions payment={payment} request={request} />
+      )}
     </div>
   );
 }
@@ -386,7 +412,7 @@ export function PaymentDesk() {
               (p) =>
                 space === "all" ||
                 w.requests.find((r) => r.id === p.request_id)?.space_id ===
-                  space,
+                  space
             )
             .map((p) => (
               <PaymentRow key={p.id} payment={p} />
@@ -520,7 +546,7 @@ export function SpacePanel({ id, onClose }) {
 export function WorkSummary() {
   const { data, user, navigate, open } = useFinance();
   const accounts = data.accounts.filter((a) =>
-    ["bank", "wallet"].includes(a.kind),
+    ["bank", "wallet"].includes(a.kind)
   );
   return (
     <div className="gf-work-summary">
@@ -572,6 +598,7 @@ export function RequestDetails({ id, onClose }) {
     [error, setError] = useState(""),
     [cancel, setCancel] = useState(false),
     [reason, setReason] = useState("");
+  const proofPicker = useRef();
   const load = () =>
     financeApi(`/payment-requests/${id}`)
       .then(setDetail)
@@ -601,7 +628,11 @@ export function RequestDetails({ id, onClose }) {
   }
   const r = detail?.request;
   return (
-    <Modal title="Detalle de solicitud" onClose={onClose}>
+    <Modal
+      title="Petición de pago"
+      className="gf-payment-fast-modal"
+      onClose={onClose}
+    >
       {error && <p className="gf-error">{error}</p>}
       {!detail ? (
         <p>Consultando solicitud…</p>
@@ -617,108 +648,155 @@ export function RequestDetails({ id, onClose }) {
               {dateLabel(r.day)}
             </small>
           </div>
-          <BeneficiaryDetails
-            beneficiary={detail.beneficiary}
-            selected={destination}
-            onSelect={user.role === "owner" ? setDestination : undefined}
-          />
-          <div className="gf-request-progress">
-            <div>
-              Pagado <b>{money(r.paid_cents)}</b>
+          {detail.payments.filter((p) => !p.voided_at).length > 0 && (
+            <div className="gf-request-proof-first">
+              {detail.payments
+                .filter((p) => !p.voided_at)
+                .map((p) => (
+                  <div key={p.id}>
+                    <strong>
+                      {money(p.amount_cents)} · {dateLabel(p.paid_day)}
+                    </strong>
+                    <PaymentProofActions payment={p} request={r} />
+                  </div>
+                ))}
             </div>
-            <div>
-              Por pagar <b>{money(r.remaining_cents)}</b>
+          )}
+          {user.role === "owner" && r.remaining_cents > 0 && (
+            <div className="gf-request-primary-action">
+              <input
+                hidden
+                type="file"
+                ref={proofPicker}
+                accept="image/jpeg,image/png,image/webp,application/pdf"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file)
+                    open("record-payment", {
+                      id: r.id,
+                      return_space: r.space_id,
+                      destination_index: destination,
+                      initial_file: file,
+                    });
+                }}
+              />
+              <Button
+                icon={Upload}
+                className="gf-full-width"
+                onClick={() => proofPicker.current.click()}
+              >
+                Subir comprobante
+              </Button>
             </div>
-          </div>
-          {r.evidence_id && (
-            <EvidenceThumbnail
-              path={`/payment-requests/${id}/evidence`}
-              title="Documento de la solicitud"
-              returnType="pay-request"
-              returnInitial={{ id }}
+          )}
+          {r.remaining_cents > 0 && (
+            <BeneficiaryDetails
+              compact
+              beneficiary={detail.beneficiary}
+              selected={destination}
+              onSelect={user.role === "owner" ? setDestination : undefined}
             />
           )}
-          {user.role === "owner" && r.remaining_cents > 0 && (
-            <Button
-              className="gf-full-width gf-mt"
-              icon={ArrowUpRight}
-              onClick={() =>
-                open("record-payment", {
-                  id: r.id,
-                  return_space: r.space_id,
-                  destination_index: destination,
-                })
-              }
-            >
-              Ya realicé la transferencia
-            </Button>
-          )}
-          <h3 className="gf-workflow-section-title">Pagos y comprobantes</h3>
-          {detail.payments.length ? (
-            detail.payments.map((p) => <PaymentRow key={p.id} payment={p} />)
-          ) : (
-            <p className="gf-workflow-empty-line">
-              Todavía no se ha registrado un pago.
-            </p>
-          )}
-          {r.status === "rejected" && (
-            <div className="gf-note">Solicitud anulada: {r.review_note}</div>
-          )}
-          <h3 className="gf-workflow-section-title">Notas de este pago</h3>
-          <div className="gf-space-notes">
-            {detail.notes.map((n) => (
-              <div key={n.id}>
-                <strong>{n.actor_name || n.actor}</strong>
-                <p>{n.body}</p>
-                <small>
-                  {new Date(n.created_at).toLocaleString("es-EC", {
-                    timeZone: "America/Guayaquil",
-                  })}
-                </small>
+          <details className="gf-request-more">
+            <summary>Historial, documentos y notas</summary>
+            <div className="gf-request-progress">
+              <div>
+                Pagado <b>{money(r.paid_cents)}</b>
               </div>
-            ))}
-          </div>
-          {user.role !== "viewer" && (
-            <form className="gf-space-note-form" onSubmit={addNote}>
-              <input
-                aria-label="Nota de la solicitud"
-                placeholder="Añadir un dato o una aclaración…"
-                value={note}
-                maxLength={1000}
-                onChange={(e) => setNote(e.target.value)}
-                required
-              />
-              <Button type="submit" icon={Send}>
-                Enviar
-              </Button>
-            </form>
-          )}
-          {user.role === "owner" && r.remaining_cents > 0 && (
-            <div className="gf-request-cancel">
-              {cancel ? (
-                <>
-                  <Field label="Motivo de anulación">
-                    <textarea
-                      value={reason}
-                      onChange={(e) => setReason(e.target.value)}
-                      maxLength={1000}
-                    />
-                  </Field>
-                  <Button
-                    variant="secondary"
-                    disabled={!reason.trim()}
-                    onClick={cancelRequest}
-                  >
-                    Anular y conservar historial
-                  </Button>
-                </>
-              ) : (
-                <button onClick={() => setCancel(true)}>
-                  Anular una solicitud que ya no corresponde
-                </button>
-              )}
+              <div>
+                Por pagar <b>{money(r.remaining_cents)}</b>
+              </div>
             </div>
-          )}
+            {r.evidence_id && (
+              <EvidenceThumbnail
+                path={`/payment-requests/${id}/evidence`}
+                title="Documento de la solicitud"
+                returnType="pay-request"
+                returnInitial={{ id }}
+              />
+            )}
+            {user.role === "owner" && r.remaining_cents > 0 && (
+              <Button
+                className="gf-full-width gf-mt"
+                icon={ArrowUpRight}
+                onClick={() =>
+                  open("record-payment", {
+                    id: r.id,
+                    return_space: r.space_id,
+                    destination_index: destination,
+                  })
+                }
+              >
+                Ya realicé la transferencia
+              </Button>
+            )}
+            <h3 className="gf-workflow-section-title">Pagos y comprobantes</h3>
+            {detail.payments.length ? (
+              detail.payments.map((p) => <PaymentRow key={p.id} payment={p} />)
+            ) : (
+              <p className="gf-workflow-empty-line">
+                Todavía no se ha registrado un pago.
+              </p>
+            )}
+            {r.status === "rejected" && (
+              <div className="gf-note">Solicitud anulada: {r.review_note}</div>
+            )}
+            <h3 className="gf-workflow-section-title">Notas de este pago</h3>
+            <div className="gf-space-notes">
+              {detail.notes.map((n) => (
+                <div key={n.id}>
+                  <strong>{n.actor_name || n.actor}</strong>
+                  <p>{n.body}</p>
+                  <small>
+                    {new Date(n.created_at).toLocaleString("es-EC", {
+                      timeZone: "America/Guayaquil",
+                    })}
+                  </small>
+                </div>
+              ))}
+            </div>
+            {user.role !== "viewer" && (
+              <form className="gf-space-note-form" onSubmit={addNote}>
+                <input
+                  aria-label="Nota de la solicitud"
+                  placeholder="Añadir un dato o una aclaración…"
+                  value={note}
+                  maxLength={1000}
+                  onChange={(e) => setNote(e.target.value)}
+                  required
+                />
+                <Button type="submit" icon={Send}>
+                  Enviar
+                </Button>
+              </form>
+            )}
+            {user.role === "owner" && r.remaining_cents > 0 && (
+              <div className="gf-request-cancel">
+                {cancel ? (
+                  <>
+                    <Field label="Motivo de anulación">
+                      <textarea
+                        value={reason}
+                        onChange={(e) => setReason(e.target.value)}
+                        maxLength={1000}
+                      />
+                    </Field>
+                    <Button
+                      variant="secondary"
+                      disabled={!reason.trim()}
+                      onClick={cancelRequest}
+                    >
+                      Anular y conservar historial
+                    </Button>
+                  </>
+                ) : (
+                  <button onClick={() => setCancel(true)}>
+                    Anular una solicitud que ya no corresponde
+                  </button>
+                )}
+              </div>
+            )}
+          </details>
         </>
       )}
     </Modal>
@@ -737,7 +815,12 @@ async function downloadPrivate(path, name = "comprobante") {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-export function RecordPayment({ id, initialDestination, onClose }) {
+export function RecordPayment({
+  id,
+  initialDestination,
+  initialFile,
+  onClose,
+}) {
   const { data, user, refresh, open } = useFinance();
   const request = data.workflow?.requests.find((r) => r.id === Number(id));
   const [beneficiary, setBeneficiary] = useState(null),
@@ -760,21 +843,21 @@ export function RecordPayment({ id, initialDestination, onClose }) {
     };
   }, [id]);
   const [value, setValue] = useState(
-      request ? (request.remaining_cents / 100).toFixed(2) : "",
+      request ? (request.remaining_cents / 100).toFixed(2) : ""
     ),
     [account, setAccount] = useState(""),
     [day, setDay] = useState(
-      data.capabilities.public_preview ? data.period.today : today(),
+      data.capabilities.public_preview ? data.period.today : today()
     ),
     [reference, setReference] = useState(""),
     [evidence, setEvidence] = useState(null),
     [origin, setOrigin] = useState(null),
-    [confirmed, setConfirmed] = useState(false),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [uploading, setUploading] = useState(false),
     [done, setDone] = useState(null);
   const file = useRef(),
+    initialUploaded = useRef(false),
     key = useRef(crypto.randomUUID());
   const preview = data.capabilities.public_preview,
     accounts = data.accounts.filter(
@@ -782,11 +865,11 @@ export function RecordPayment({ id, initialDestination, onClose }) {
         ["bank", "wallet", "card"].includes(a.kind) &&
         (user.role === "owner" ||
           !a.business_id ||
-          a.business_id === request?.business_id),
+          a.business_id === request?.business_id)
     );
   async function upload(selected) {
     if (!selected || preview) return;
-    if(origin?.account_id===Number(account))setAccount("");
+    if (origin?.account_id === Number(account)) setAccount("");
     setOrigin(null);
     setUploading(true);
     setError("");
@@ -811,10 +894,14 @@ export function RecordPayment({ id, initialDestination, onClose }) {
         try {
           const { analysis, origin_account } = await financeApi(
             `/evidence/${result.id}/analyze`,
-            {},
+            {}
           );
           setOrigin(origin_account);
-          if(origin_account?.state==="matched" && accounts.some(a=>a.id===origin_account.account_id))setAccount(String(origin_account.account_id));
+          if (
+            origin_account?.state === "matched" &&
+            accounts.some((a) => a.id === origin_account.account_id)
+          )
+            setAccount(String(origin_account.account_id));
           if (analysis.reference) setReference(analysis.reference);
           if (analysis.day) setDay(analysis.day);
           if (
@@ -824,7 +911,7 @@ export function RecordPayment({ id, initialDestination, onClose }) {
             setValue((analysis.amount_cents / 100).toFixed(2));
         } catch {
           setError(
-            "El comprobante se guardó. Completa la referencia y revisa el monto.",
+            "El comprobante se guardó. Completa la referencia y revisa el monto."
           );
         }
       }
@@ -834,6 +921,12 @@ export function RecordPayment({ id, initialDestination, onClose }) {
       setUploading(false);
     }
   }
+  useEffect(() => {
+    if (initialFile && request && !initialUploaded.current) {
+      initialUploaded.current = true;
+      void upload(initialFile);
+    }
+  }, [initialFile]);
   async function submit(e) {
     e.preventDefault();
     setBusy(true);
@@ -846,7 +939,7 @@ export function RecordPayment({ id, initialDestination, onClose }) {
         paid_day: day,
         reference,
         evidence_id: evidence?.id,
-        confirm_paid: confirmed,
+        confirm_paid: true,
         destination_index: destination,
       });
       await refresh();
@@ -865,7 +958,8 @@ export function RecordPayment({ id, initialDestination, onClose }) {
     );
   return (
     <Modal
-      title={done ? "Pago registrado" : "Registrar transferencia realizada"}
+      className="gf-payment-fast-modal"
+      title={done ? "Pago registrado" : "Subir comprobante"}
       subtitle={
         done
           ? undefined
@@ -890,182 +984,164 @@ export function RecordPayment({ id, initialDestination, onClose }) {
           {done.remaining_cents > 0 && (
             <div>Queda por transferir: {money(done.remaining_cents)}</div>
           )}
-          <Button
-            icon={MessageCircle}
-            onClick={() => open("share-payment", { id: done.payment.id })}
-          >
-            Compartir comprobante
-          </Button>
+          <PaymentProofActions payment={done.payment} request={request} />
           <Button variant="secondary" onClick={onClose}>
             Terminar
           </Button>
         </div>
       ) : (
-        <form className="gf-record-payment" onSubmit={submit}>
+        <form
+          className="gf-record-payment gf-record-payment-fast"
+          onSubmit={submit}
+        >
           <div className="gf-pay-target">
             <span>{request.counterparty}</span>
-            <strong>Pendiente: {money(request.remaining_cents)}</strong>
+            <strong>{money(amount(value))}</strong>
+            <small>{request.description}</small>
           </div>
-          {preview && (
-            <div className="gf-quick-preview-note">
-              Ejemplo: prueba registrar el pago sin utilizar datos reales.
-            </div>
-          )}
-          <BeneficiaryDetails
-            beneficiary={beneficiary}
-            selected={destination}
-            onSelect={setDestination}
+          <input
+            type="file"
+            ref={file}
+            accept="image/jpeg,image/png,image/webp,application/pdf"
+            hidden
+            onChange={(e) => upload(e.target.files?.[0])}
           />
-          <div className="gf-payment-fields">
-            <Field label="Monto transferido (USD)">
-              <input
-                type="number"
-                min="0.01"
-                max={request.remaining_cents / 100}
-                step="0.01"
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                required
-              />
-            </Field>
-            <Field label="Fecha del pago">
-              <input
-                type="date"
-                max={preview ? data.period.today : today()}
-                value={day}
-                onChange={(e) => setDay(e.target.value)}
-                required
-              />
-            </Field>
-          </div>
-          <Field label="Cuenta o tarjeta desde la que pagaste">
-            <select
-              value={account}
-              onChange={(e) => setAccount(e.target.value)}
-              disabled={uploading || busy}
-              required
-            >
-              <option value="">Selecciona la cuenta de salida</option>
-              {accounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.bank} · {a.name} · {a.last_four}
-                </option>
-              ))}
-            </select>
-          </Field>
-          {origin && <p className="gf-note" role="status">{origin.state==="matched" ? `Detecté la cuenta de origen terminada en ${origin.suffix} y la seleccioné. Revísala antes de guardar.` : origin.state==="ambiguous" ? "Los dígitos de origen coinciden con varias cuentas. Elige desde cuál pagaste." : "No pude identificar una cuenta de origen única en la foto. Selecciónala para registrar el pago."}</p>}
-          <Field label="Referencia de la transferencia">
-            <input
-              value={reference}
-              onChange={(e) => setReference(e.target.value)}
-              placeholder={
-                preview
-                  ? "EJEMPLO-TRANSFERENCIA-123"
-                  : "Número de operación del comprobante"
-              }
-              maxLength={200}
-              required
+          <Button
+            type="button"
+            icon={Upload}
+            loading={uploading}
+            variant={evidence ? "secondary" : ""}
+            onClick={() =>
+              preview
+                ? setEvidence({ id: -1, name: "Comprobante de ejemplo" })
+                : file.current.click()
+            }
+          >
+            {uploading
+              ? "Leyendo comprobante…"
+              : evidence
+              ? "Cambiar comprobante"
+              : "Elegir comprobante"}
+          </Button>
+          {!evidence && (
+            <BeneficiaryDetails
+              compact
+              beneficiary={beneficiary}
+              selected={destination}
+              onSelect={setDestination}
             />
-          </Field>
-          {account &&
-            beneficiary?.accounts?.[destination] &&
-            (() => {
-              const fee = transferFeeQuote(
-                accounts.find((a) => a.id === Number(account))?.bank,
-                beneficiary.accounts[destination].bank,
-              );
-              return (
-                <p className="gf-note">
-                  Comisión de referencia:{" "}
-                  {fee.cents === null ? "Por comprobar" : money(fee.cents)}.{" "}
-                  {fee.note ||
-                    "Se comprobará con el cargo real del banco y se registrará aparte del monto enviado."}
+          )}
+          {evidence && (
+            <>
+              <p className="gf-fast-file">
+                <FileCheck2 size={19} /> {evidence.name}
+              </p>
+              <Field label="Sale de">
+                <select
+                  value={account}
+                  onChange={(e) => setAccount(e.target.value)}
+                  disabled={uploading || busy}
+                  required
+                >
+                  <option value="">Selecciona la cuenta de origen</option>
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.bank} · {a.name} · {a.last_four}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              {origin && (
+                <p className="gf-fast-origin" role="status">
+                  {origin.state === "matched"
+                    ? `Cuenta detectada por el comprobante · ${origin.suffix}`
+                    : origin.state === "ambiguous"
+                    ? "Coincide con varias cuentas; elige la correcta."
+                    : "Revisa y elige la cuenta desde la que pagaste."}
                 </p>
-              );
-            })()}
-          <div className="gf-payment-evidence">
-            <FileCheck2 size={27} />
-            <strong>
-              {evidence?.name || "Comprobante del pago realizado"}
-            </strong>
-            <p>
-              Adjunta el comprobante de la transferencia, no la factura que te
-              pidieron pagar.
-            </p>
-            <input
-              type="file"
-              ref={file}
-              accept="image/jpeg,image/png,image/webp,application/pdf"
-              hidden
-              onChange={(e) => upload(e.target.files?.[0])}
-            />
-            {preview ? (
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() =>
-                  setEvidence({
-                    id: -1,
-                    name: "Comprobante ficticio · demostración",
-                  })
-                }
-              >
-                Usar comprobante de ejemplo
-              </Button>
-            ) : (
-              <Button
-                type="button"
-                variant="secondary"
-                icon={Upload}
-                disabled={uploading}
-                onClick={() => file.current.click()}
-              >
-                {uploading ? "Guardando…" : "Adjuntar comprobante"}
-              </Button>
-            )}
-          </div>
-          <label className="gf-paid-confirmation">
-            <input
-              type="checkbox"
-              checked={confirmed}
-              onChange={(e) => setConfirmed(e.target.checked)}
-              required
-            />
-            <span>
-              {preview
-                ? "Simular que esta transferencia ya fue realizada"
-                : "Confirmo que ya realicé esta transferencia en el banco"}
-            </span>
-          </label>
+              )}
+              <Field label="Referencia">
+                <input
+                  value={reference}
+                  onChange={(e) => setReference(e.target.value)}
+                  placeholder="Número de operación"
+                  maxLength={200}
+                  required
+                />
+              </Field>
+              {beneficiary && beneficiary.accounts.length > 1 && (
+                <Field label="Cuenta del beneficiario">
+                  <select
+                    value={destination ?? ""}
+                    onChange={(e) => setDestination(Number(e.target.value))}
+                    required
+                  >
+                    <option value="">
+                      Elige la cuenta que recibió el pago
+                    </option>
+                    {beneficiary.accounts.map((a, i) => (
+                      <option key={i} value={i}>
+                        {a.bank} · {a.number}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )}
+              <details className="gf-fast-edit">
+                <summary>Editar monto o fecha · {dateLabel(day)}</summary>
+                <div className="gf-payment-fields">
+                  <Field label="Monto transferido (USD)">
+                    <input
+                      type="number"
+                      min="0.01"
+                      max={request.remaining_cents / 100}
+                      step="0.01"
+                      value={value}
+                      onChange={(e) => setValue(e.target.value)}
+                      required
+                    />
+                  </Field>
+                  <Field label="Fecha del pago">
+                    <input
+                      type="date"
+                      max={preview ? data.period.today : today()}
+                      value={day}
+                      onChange={(e) => setDay(e.target.value)}
+                      required
+                    />
+                  </Field>
+                </div>
+              </details>
+            </>
+          )}
           {error && (
             <p className="gf-error" role="alert">
               {error}
             </p>
           )}
-          <Button
-            type="submit"
-            icon={Check}
-            loading={busy}
-            disabled={
-              !evidence ||
-              !destinationLoaded ||
-              (beneficiary && destination === null) ||
-              !confirmed ||
-              uploading ||
-              !account ||
-              amount(value) <= 0 ||
-              amount(value) > request.remaining_cents
-            }
-            className="gf-full-width"
-          >
-            {preview
-              ? "Simular registro del pago"
-              : "Guardar pago y resolver pendiente"}
-          </Button>
-          <p className="gf-payment-proof-note">
-            El pendiente se actualiza con el valor pagado. Un abono parcial
-            conserva el resto por transferir.
-          </p>
+          <div className="gf-fast-confirm">
+            <Button
+              type="submit"
+              icon={Check}
+              loading={busy}
+              disabled={
+                !evidence ||
+                !destinationLoaded ||
+                (beneficiary && destination === null) ||
+                uploading ||
+                !account ||
+                !reference.trim() ||
+                amount(value) <= 0 ||
+                amount(value) > request.remaining_cents
+              }
+              className="gf-full-width"
+            >
+              {preview ? "Simular registro" : "Confirmar pago realizado"}
+            </Button>
+            <small>
+              Se guardará este comprobante y se actualizará el pendiente.
+            </small>
+          </div>
         </form>
       )}
     </Modal>
@@ -1084,7 +1160,7 @@ export function SharePayment({ id, onClose }) {
     ? `${space?.name || businessNames[request?.business_id] || "Pago"}\n${
         request?.counterparty || "Pago registrado"
       } · ${money(payment.amount_cents)}\nFecha: ${dateLabel(
-        payment.paid_day,
+        payment.paid_day
       )}\nReferencia: ${payment.reference}\nComprobante del pago adjunto.`
     : "";
   useEffect(() => {
@@ -1103,7 +1179,7 @@ export function SharePayment({ id, onClose }) {
           setFile(
             new File([blob], payment.evidence_name || "comprobante", {
               type: blob.type,
-            }),
+            })
           );
       })
       .catch((e) => {
@@ -1128,7 +1204,7 @@ export function SharePayment({ id, onClose }) {
     }
   }
   const native = Boolean(
-    file && navigator.share && navigator.canShare?.({ files: [file] }),
+    file && navigator.share && navigator.canShare?.({ files: [file] })
   );
   return (
     <Modal
@@ -1166,7 +1242,7 @@ export function SharePayment({ id, onClose }) {
             onClick={() =>
               downloadPrivate(
                 `/payments/${id}/evidence`,
-                payment.evidence_name,
+                payment.evidence_name
               ).catch((e) => setError(e.message))
             }
           >
@@ -1204,7 +1280,7 @@ export function SharePayment({ id, onClose }) {
                       onClick={() =>
                         downloadPrivate(
                           `/payments/${id}/evidence`,
-                          payment.evidence_name,
+                          payment.evidence_name
                         )
                       }
                     >
@@ -1215,12 +1291,12 @@ export function SharePayment({ id, onClose }) {
                       onClick={() =>
                         window.open(
                           `https://wa.me/${String(
-                            space?.share_phone || "",
+                            space?.share_phone || ""
                           ).replace(/\D/g, "")}?text=${encodeURIComponent(
-                            message,
+                            message
                           )}`,
                           "_blank",
-                          "noopener,noreferrer",
+                          "noopener,noreferrer"
                         )
                       }
                     >
@@ -1256,7 +1332,7 @@ export function SpaceSettings({ id, onClose }) {
     [phone, setPhone] = useState(space?.share_phone || ""),
     [members, setMembers] = useState([]),
     [selected, setSelected] = useState(
-      space?.members?.map((m) => m.member_id) || [],
+      space?.members?.map((m) => m.member_id) || []
     ),
     [error, setError] = useState("");
   useEffect(() => {
@@ -1268,9 +1344,9 @@ export function SpaceSettings({ id, onClose }) {
             (m) =>
               m.active &&
               m.role !== "owner" &&
-              m.business_ids.some((b) => space?.business_ids.includes(b)),
-          ),
-        ),
+              m.business_ids.some((b) => space?.business_ids.includes(b))
+          )
+        )
       )
       .catch((e) => setError(e.message));
   }, [id]);
@@ -1319,7 +1395,7 @@ export function SpaceSettings({ id, onClose }) {
                   setSelected((p) =>
                     e.target.checked
                       ? [...p, m.id]
-                      : p.filter((id) => id !== m.id),
+                      : p.filter((id) => id !== m.id)
                   )
                 }
               />
@@ -1380,7 +1456,7 @@ export function NewSpace({ onClose }) {
   const { user, refresh, notify } = useFinance();
   const [name, setName] = useState(""),
     [business, setBusiness] = useState(
-      user.business_ids.filter((id) => id !== "personal").slice(0, 1),
+      user.business_ids.filter((id) => id !== "personal").slice(0, 1)
     ),
     [kind, setKind] = useState("event"),
     [error, setError] = useState("");
@@ -1428,7 +1504,7 @@ export function NewSpace({ onClose }) {
                 checked={business.includes(id)}
                 onChange={(e) =>
                   setBusiness((p) =>
-                    e.target.checked ? [...p, id] : p.filter((b) => b !== id),
+                    e.target.checked ? [...p, id] : p.filter((b) => b !== id)
                   )
                 }
               />
@@ -1445,22 +1521,49 @@ export function NewSpace({ onClose }) {
   );
 }
 export function PushEnrollment() {
-  if(isNativeFinance()) return <NativePushEnrollment />;
+  if (isNativeFinance()) return <NativePushEnrollment />;
   const { data, user, notify } = useFinance();
   const allowed = user.role === "owner" || user.checks_manage;
-  const [busy, setBusy] = useState(false), [enabled, setEnabled] = useState(false);
-  const [config, setConfig] = useState(null), [detail, setDetail] = useState("Comprobando los avisos de este dispositivo…");
-  const mounted = useRef(true), timers = useRef([]);
-  const supported = typeof window !== "undefined" && "PushManager" in window && "serviceWorker" in navigator && "Notification" in window;
+  const [busy, setBusy] = useState(false),
+    [enabled, setEnabled] = useState(false);
+  const [config, setConfig] = useState(null),
+    [detail, setDetail] = useState(
+      "Comprobando los avisos de este dispositivo…"
+    );
+  const mounted = useRef(true),
+    timers = useRef([]);
+  const supported =
+    typeof window !== "undefined" &&
+    "PushManager" in window &&
+    "serviceWorker" in navigator &&
+    "Notification" in window;
   async function registration() {
-    const reg = await navigator.serviceWorker.register("/finanzas/sw.js", { scope: "/finanzas/", updateViaCache: "none" });
-    if (!reg.active) await new Promise((resolve,reject) => {
-      const worker = reg.installing || reg.waiting;
-      const id = setTimeout(() => { worker?.removeEventListener("statechange", changed); reject(new Error("La app sigue preparando los avisos. Reabre Gema e inténtalo de nuevo.")); }, 15000);
-      timers.current.push(id);
-      const changed = () => { if (reg.active || worker?.state === "activated") { clearTimeout(id); worker?.removeEventListener("statechange", changed); resolve(); } };
-      worker?.addEventListener("statechange", changed); changed();
+    const reg = await navigator.serviceWorker.register("/finanzas/sw.js", {
+      scope: "/finanzas/",
+      updateViaCache: "none",
     });
+    if (!reg.active)
+      await new Promise((resolve, reject) => {
+        const worker = reg.installing || reg.waiting;
+        const id = setTimeout(() => {
+          worker?.removeEventListener("statechange", changed);
+          reject(
+            new Error(
+              "La app sigue preparando los avisos. Reabre Gema e inténtalo de nuevo."
+            )
+          );
+        }, 15000);
+        timers.current.push(id);
+        const changed = () => {
+          if (reg.active || worker?.state === "activated") {
+            clearTimeout(id);
+            worker?.removeEventListener("statechange", changed);
+            resolve();
+          }
+        };
+        worker?.addEventListener("statechange", changed);
+        changed();
+      });
     return reg;
   }
   async function inspect() {
@@ -1469,24 +1572,56 @@ export function PushEnrollment() {
       const cfg = await financeApi("/push/config");
       if (!mounted.current) return;
       setConfig(cfg);
-      if (!cfg.enabled) { setDetail("Los avisos están pendientes de configurar en el servidor."); return; }
-      if (Notification.permission === "denied") { setDetail("Los avisos están bloqueados. En Chrome: configuración de este sitio → Notificaciones → Permitir. Revisa también Ajustes de Android → Notificaciones → Chrome o Gema."); return; }
-      if (Notification.permission !== "granted") { setDetail("Actívalos aquí para recibir pendientes aunque Gema esté cerrada."); return; }
-      const reg = await registration(), sub = await reg.pushManager.getSubscription();
-      if (!sub) { setEnabled(false); setDetail("El permiso está concedido; falta activar este dispositivo."); return; }
+      if (!cfg.enabled) {
+        setDetail("Los avisos están pendientes de configurar en el servidor.");
+        return;
+      }
+      if (Notification.permission === "denied") {
+        setDetail(
+          "Los avisos están bloqueados. En Chrome: configuración de este sitio → Notificaciones → Permitir. Revisa también Ajustes de Android → Notificaciones → Chrome o Gema."
+        );
+        return;
+      }
+      if (Notification.permission !== "granted") {
+        setDetail(
+          "Actívalos aquí para recibir pendientes aunque Gema esté cerrada."
+        );
+        return;
+      }
+      const reg = await registration(),
+        sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        setEnabled(false);
+        setDetail("El permiso está concedido; falta activar este dispositivo.");
+        return;
+      }
       await financeApi("/push/subscribe", { subscription: sub.toJSON() });
-      const status = await financeApi("/push/status", { endpoint: sub.endpoint });
+      const status = await financeApi("/push/status", {
+        endpoint: sub.endpoint,
+      });
       if (!mounted.current) return;
       setEnabled(status.registered);
-      setDetail(status.latest_test?.displayed_at ? "La última prueba llegó al navegador de este dispositivo." : "Dispositivo conectado. Envía una prueba para comprobar que aparece en tu celular.");
-    } catch (e) { if (mounted.current) setDetail(e.message); }
+      setDetail(
+        status.latest_test?.displayed_at
+          ? "La última prueba llegó al navegador de este dispositivo."
+          : "Dispositivo conectado. Envía una prueba para comprobar que aparece en tu celular."
+      );
+    } catch (e) {
+      if (mounted.current) setDetail(e.message);
+    }
   }
   useEffect(() => {
     mounted.current = true;
     void inspect();
-    const visible = () => { if (document.visibilityState === "visible") void inspect(); };
+    const visible = () => {
+      if (document.visibilityState === "visible") void inspect();
+    };
     document.addEventListener("visibilitychange", visible);
-    return () => { mounted.current = false; timers.current.forEach(clearTimeout); document.removeEventListener("visibilitychange", visible); };
+    return () => {
+      mounted.current = false;
+      timers.current.forEach(clearTimeout);
+      document.removeEventListener("visibilitychange", visible);
+    };
   }, [user.id]);
   async function test(sub) {
     await financeApi("/push/test", { endpoint: sub.endpoint });
@@ -1495,48 +1630,120 @@ export function PushEnrollment() {
     const poll = async (attempt) => {
       if (!mounted.current) return;
       try {
-        const status = await financeApi("/push/status", { endpoint: sub.endpoint });
+        const status = await financeApi("/push/status", {
+          endpoint: sub.endpoint,
+        });
         if (!mounted.current) return;
-        if (status.latest_test?.displayed_at) { setDetail("Prueba recibida por este dispositivo. Revisa la barra de notificaciones del celular."); return; }
-        if (attempt < 7) { timers.current.push(setTimeout(() => void poll(attempt + 1), 2000)); return; }
-        setDetail("El servicio aceptó la prueba, pero el celular no confirmó recepción. Revisa los avisos de Chrome/Gema en Ajustes de Android, la conexión y el ahorro de batería.");
-      } catch (e) { if (mounted.current) setDetail(e.message); }
+        if (status.latest_test?.displayed_at) {
+          setDetail(
+            "Prueba recibida por este dispositivo. Revisa la barra de notificaciones del celular."
+          );
+          return;
+        }
+        if (attempt < 7) {
+          timers.current.push(setTimeout(() => void poll(attempt + 1), 2000));
+          return;
+        }
+        setDetail(
+          "El servicio aceptó la prueba, pero el celular no confirmó recepción. Revisa los avisos de Chrome/Gema en Ajustes de Android, la conexión y el ahorro de batería."
+        );
+      } catch (e) {
+        if (mounted.current) setDetail(e.message);
+      }
     };
     void poll(0);
   }
   async function enable() {
     if (!supported || !config?.enabled) return;
     // Ask synchronously in the tap handler: awaiting an API first can lose the gesture.
-    const permission = Notification.permission === "granted" ? Promise.resolve("granted") : Notification.requestPermission();
+    const permission =
+      Notification.permission === "granted"
+        ? Promise.resolve("granted")
+        : Notification.requestPermission();
     setBusy(true);
     try {
-      if (await permission !== "granted") throw new Error("Permite las notificaciones de Gema en Chrome y en los ajustes de tu celular. Tus pendientes seguirán visibles dentro de la app.");
+      if ((await permission) !== "granted")
+        throw new Error(
+          "Permite las notificaciones de Gema en Chrome y en los ajustes de tu celular. Tus pendientes seguirán visibles dentro de la app."
+        );
       const reg = await registration();
       const key = config.public_key.replace(/-/g, "+").replace(/_/g, "/");
-      const bytes = Uint8Array.from(atob(key + "=".repeat((4 - key.length % 4) % 4)), (c) => c.charCodeAt(0));
+      const bytes = Uint8Array.from(
+        atob(key + "=".repeat((4 - (key.length % 4)) % 4)),
+        (c) => c.charCodeAt(0)
+      );
       let sub = await reg.pushManager.getSubscription();
-      if (sub?.options.applicationServerKey && String(new Uint8Array(sub.options.applicationServerKey)) !== String(bytes)) { await sub.unsubscribe(); sub = null; }
-      sub ||= await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes });
+      if (
+        sub?.options.applicationServerKey &&
+        String(new Uint8Array(sub.options.applicationServerKey)) !==
+          String(bytes)
+      ) {
+        await sub.unsubscribe();
+        sub = null;
+      }
+      sub ||= await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: bytes,
+      });
       await financeApi("/push/subscribe", { subscription: sub.toJSON() });
       if (!mounted.current) return;
-      setEnabled(true); notify("Avisos activados para este dispositivo");
+      setEnabled(true);
+      notify("Avisos activados para este dispositivo");
       await test(sub);
-    } catch (e) { if (mounted.current) { setDetail(e.message); notify(e.message, true); } }
-    finally { if (mounted.current) setBusy(false); }
+    } catch (e) {
+      if (mounted.current) {
+        setDetail(e.message);
+        notify(e.message, true);
+      }
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
   }
   async function sendTest() {
     setBusy(true);
     try {
-      const reg = await registration(), sub = await reg.pushManager.getSubscription();
-      if (!sub) { setEnabled(false); throw new Error("Vuelve a activar los avisos de este dispositivo."); }
+      const reg = await registration(),
+        sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        setEnabled(false);
+        throw new Error("Vuelve a activar los avisos de este dispositivo.");
+      }
       await test(sub);
-    } catch(e) { if (mounted.current) { setDetail(e.message); notify(e.message,true); } }
-    finally { if (mounted.current) setBusy(false); }
+    } catch (e) {
+      if (mounted.current) {
+        setDetail(e.message);
+        notify(e.message, true);
+      }
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
   }
   if (!allowed || data.capabilities.public_preview) return null;
-  return <section className="gf-push-enrollment" aria-label="Notificaciones de este dispositivo">
-    <Bell size={22} />
-    <div><strong>{enabled ? "Avisos conectados" : "Activa tus avisos al celular"}</strong><p>{supported ? detail : "Este navegador no permite avisos. Abre Gema en Chrome de Android, o añádela a Inicio en Safari de iPhone. Los pendientes siempre quedan en la app."}</p></div>
-    {supported && config?.enabled && <Button variant="secondary" loading={busy} onClick={enabled ? sendTest : enable}>{enabled ? "Probar aviso" : "Activar avisos"}</Button>}
-  </section>;
+  return (
+    <section
+      className="gf-push-enrollment"
+      aria-label="Notificaciones de este dispositivo"
+    >
+      <Bell size={22} />
+      <div>
+        <strong>
+          {enabled ? "Avisos conectados" : "Activa tus avisos al celular"}
+        </strong>
+        <p>
+          {supported
+            ? detail
+            : "Este navegador no permite avisos. Abre Gema en Chrome de Android, o añádela a Inicio en Safari de iPhone. Los pendientes siempre quedan en la app."}
+        </p>
+      </div>
+      {supported && config?.enabled && (
+        <Button
+          variant="secondary"
+          loading={busy}
+          onClick={enabled ? sendTest : enable}
+        >
+          {enabled ? "Probar aviso" : "Activar avisos"}
+        </Button>
+      )}
+    </section>
+  );
 }

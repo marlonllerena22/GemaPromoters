@@ -84,6 +84,7 @@ import { SecurityPanel } from "./security.jsx";
 import { CollaboratorHome, QuickAccess } from "./quick.jsx";
 import { BankLogo } from "./banks.jsx";
 import { WorkSummary, AssistantAvatar, PushEnrollment } from "./workflows.jsx";
+import {BankNotificationsPanel,BankNotificationsShortcut} from './bank-notifications.jsx';
 
 export function Overview() {
   const { data, user, open, navigate, selectMovement, filters } = useFinance();
@@ -112,6 +113,7 @@ export function Overview() {
         </div>
       </div>
       <PushEnrollment />
+      <BankNotificationsShortcut />
       <LiquidityPlan />
       {user.role !== "viewer" && <QuickAccess />}
       <IncomingNotices />
@@ -1931,6 +1933,7 @@ export function Integrations() {
         description="Estado real de las integraciones y de su última actualización."
       />
       <GmailPanel />
+      <BankNotificationsPanel />
       <div className="gf-integrations-grid">
         {sources.map((s) => {
           const Icon = icons[s.source] || Link2;

@@ -92,10 +92,18 @@ export function CopyDatum({ label, value }) {
     </div>
   );
 }
-export function BeneficiaryDetails({ beneficiary, selected, onSelect }) {
+export function BeneficiaryDetails({
+  beneficiary,
+  selected,
+  onSelect,
+  compact = false,
+}) {
   if (!beneficiary) return null;
   return (
-    <section className="gf-beneficiary" aria-label="Datos para transferir">
+    <section
+      className={`gf-beneficiary ${compact ? "gf-beneficiary-compact" : ""}`}
+      aria-label="Datos para transferir"
+    >
       <div className="gf-beneficiary-heading">
         <span>DATOS PARA TRANSFERIR</span>
         <h3>{beneficiary.name}</h3>
@@ -119,7 +127,7 @@ export function BeneficiaryDetails({ beneficiary, selected, onSelect }) {
                 <strong>{a.bank}</strong>
                 <span>{accountTypes[a.type] || a.type}</span>
               </div>
-              {onSelect && (
+              {onSelect && (!compact || beneficiary.accounts.length > 1) && (
                 <button
                   type="button"
                   className="gf-choose-destination"

@@ -3,6 +3,7 @@ import { financeSupportCheck } from "./finance-support-check.js";
 import {uploadConversationPhoto} from "./finance-conversation-photos.js";
 import {suggestOriginAccount} from "./finance-origin-account.js";
 import {marjorieIntegrationHealth} from "./finance-integration-health.js";
+import {registerNotificationPublic,registerNotificationRoutes} from "./finance-bank-notifications.js";
 import { assistantFilters, sourcedAnswer } from "./finance-assistant.js";
 import { canUseFinanceAssistant } from "../../shared/finance-workflow.mjs";
 import crypto from "node:crypto";
@@ -291,6 +292,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
 
   registerPublicFinanceAccess(app, db, { route, startSession });
   registerGmailPublic(app, db, { route });
+  registerNotificationPublic(app, db, { route });
   app.use(
     "/api/finance",
     route((req, res, next) => {
@@ -400,6 +402,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
   registerOperationsRoutes(app, db, { route, owner });
   registerInviteManagement(app, db, { route, owner });
   registerGmailRoutes(app, db, { route, owner });
+  registerNotificationRoutes(app, db, { route, owner, sessionToken });
   registerLoanRoutes(app, db, { route, owner });
   registerFundingRoutes(app, db, { route, owner });
   registerPaymentPush(app, db, { route, owner });
