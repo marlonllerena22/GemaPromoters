@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import {notificationBankMatch} from './finance-notification-match.js';
 import {linkRecordedBankEvidence} from './finance-evidence-links.js';
+import {matchOwnTransferCredit} from './finance-own-transfers.js';
 import {
   recordedAccountBalance,
   matchReportedChecks,
@@ -239,6 +240,7 @@ export function importBank(db, user, body) {
       description: text(row.description, 500),
       external_id: text(row.external_id),
       counterparty: text(row.counterparty,150),
+      origin_account_id: Number(row.origin_account_id)||null,
     };
   });
   // Two identical rows without a stable bank identifier cannot be distinguished safely.
@@ -262,6 +264,8 @@ export function importBank(db, user, body) {
     const transactionIds = [];
     const source = ["bank-email", "assistant", "statement-image", "bank-notification"].includes(body.source_system) ? body.source_system : "csv";
     rows.forEach((row, index) => {
+      const ownCredit=matchOwnTransferCredit(db,{account_id:account.id,...row},source);
+      if(ownCredit){transactionIds.push(ownCredit.id);return;}
       const fingerprint = crypto
         .createHash("sha256")
         .update(identities[index])

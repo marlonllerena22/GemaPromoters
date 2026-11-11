@@ -107,15 +107,15 @@ test("review first; encrypted storage, explicit confirmation and repeat delivery
   );
 });
 
-test('pending transfer mail closes automatically only after the completed bank notification with the same reference',(t)=>{
+test('accepted Pichincha transfer template posts immediately and its later phone notification does not debit twice',(t)=>{
   const f=fixture(t,{automatic:true});
   f.db.prepare("UPDATE finance_accounts SET bank='Pichincha' WHERE id=?").run(f.account);
   f.device.apps_json=JSON.stringify([{package_name:'app.test.deuna',bank:'Pichincha',account_id:f.account,automatic:true}]);
   putPrivateSetting(f.db,'own_account_registry',{accounts:[{account_id:f.account,bank:'Pichincha',number:'2200001234'}]});
   const pending={id:'request-pending',internalDate:String(Date.now()-15000),payload:{headers:[{name:'From',value:'avisos@pichincha.com'},{name:'Subject',value:'Notificación Banco Pichincha'},{name:'Authentication-Results',value:'mx.google.com; dmarc=pass header.from=pichincha.com'}],body:{content:'La transferencia solicitada será debitada de su cuenta y acreditada en la cuenta destino en 1 hora. Cuenta de origen: ******1234 Cuenta acreditada: ******0052 Monto: USD 25.00 Número de documento: 12345678'}}};
   ingestBankMessages(f.db,[pending]);
-  assert.equal(f.balance(),10000);
-  assert.equal(f.db.prepare('SELECT state FROM finance_mail_messages').get().state,'pending');
+  assert.equal(f.balance(),7500);
+  assert.equal(f.db.prepare('SELECT state FROM finance_mail_messages').get().state,'applied');
   ingestBankNotifications(f.db,f.device,[f.event({text:'Enviaste $25. Cuenta origen: ****1234. Referencia 12345678'})]);
   assert.equal(f.balance(),7500);
   assert.equal(f.db.prepare('SELECT state FROM finance_mail_messages').get().state,'applied');

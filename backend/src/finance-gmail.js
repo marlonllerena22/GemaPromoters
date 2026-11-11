@@ -1,5 +1,6 @@
 import { matchUnreferencedDeclaration } from "./finance-declared-bank.js";
 import {linkRecordedBankEvidence} from './finance-evidence-links.js';
+import {postOwnTransferDestination} from './finance-own-transfers.js';
 import { ensureCardCycles } from "./finance-funding.js";
 import crypto from "node:crypto";
 import {
@@ -163,8 +164,8 @@ export function parseBankMail(m, registry = { accounts: [] }) {
   const rejected =
       /fondos insuficientes|no se pudo procesar|rechazad|fallid|no fue realizad|no (?:se (?:ha )?debito|(?:fue|ha sido) debitad)/.test(
         plain,
-      ),
-    pending =
+      );
+  let pending =
       /en proceso|pendiente de (confirmacion|aprobacion)|solicitud recibida/.test(plain) || (!debitCompleted && /sera debitada|sera acreditad|acreditada.*en (?:1|una) hora/.test(
         plain,
       ));
@@ -224,8 +225,10 @@ export function parseBankMail(m, registry = { accounts: [] }) {
       });
     return candidates.length === 1 ? candidates[0].account_id : null;
   };
+  const destinationBankText=body.match(/Banco destino\s*:\s*(.+?)(?=\s+Cuenta|\s+Fecha|$)/i)?.[1]||'';
+  const destinationBank=/(?:pichincha|produbanco|guayaquil|pacifico|solidario|deuna)/.test(normalize(destinationBankText))?bankLabel(normalize(destinationBankText)):null;
   const originId = find(origin, outgoing ? bank : null),
-    destinationId = find(destination, incoming ? bank : null),
+    destinationId = destinationBankText&&!destinationBank?null:find(destination, incoming ? bank : destinationBank),
     cardMatches = (registry.debit_cards || []).filter(
       (c) =>
         c.bank &&
@@ -260,9 +263,12 @@ export function parseBankMail(m, registry = { accounts: [] }) {
     body.match(/Documento:\s*Fecha:\s*(\d{5,30})/i)?.[1] ||
     "";
   const receivedDate = new Date(
+    // Gmail receipt time is used if this template omits the operation time.
     Number(m.internalDate || m.internal_date || Date.parse(head(m, "date"))),
   );
   if (!Number.isFinite(receivedDate.getTime())) return null;
+  const acceptedScheduledTransfer=bank==='Pichincha'&&!rejected&&originId!==destinationId&&Boolean(amount&&originId&&reference)&&/la transferencia solicitada sera debitada de su cuenta/.test(plain);
+  if(acceptedScheduledTransfer)pending=false;
   const received = receivedDate.toISOString();
   const date = body.match(/(\d{2})[/-](\d{2})[/-](\d{4})/),
     time = body.match(/(?:a la\(s\)|a las|Hora\s*:?)\s*(\d{1,2}:\d{2})/i);
@@ -309,6 +315,8 @@ export function parseBankMail(m, registry = { accounts: [] }) {
     : null;
   return {
     id: m.id,
+    parser_version:2,
+    accepted_scheduled_transfer:acceptedScheduledTransfer,
     from,
     subject,
     received_at: received,
@@ -532,11 +540,16 @@ export function applyMailDraft(db, user, id, body) {
       `${row.transaction_key}|${account.id}|${direction}`;
     const previous = db
       .prepare(
-        "SELECT id FROM finance_mail_messages WHERE id!=? AND state='applied' AND transaction_key=? AND account_id=?",
+        "SELECT id,bank_transaction_id FROM finance_mail_messages WHERE id!=? AND state='applied' AND transaction_key=? AND account_id=?",
       )
       .get(id, row.transaction_key, account.id);
-    if (row.transaction_key && previous)
-      fail("Este movimiento ya fue registrado desde otro aviso", 409);
+    if (row.transaction_key && previous){
+      const known=db.prepare('SELECT * FROM finance_bank_transactions WHERE id=? AND account_id=? AND amount_cents=?').get(previous.bank_transaction_id,account.id,p.amount_cents*(direction==='outgoing'?-1:1));
+      if(!known)fail("Este aviso tiene una referencia ya registrada con otros datos",409);
+      db.prepare("UPDATE finance_mail_messages SET state='applied',account_id=?,bank_transaction_id=? WHERE id=?").run(account.id,known.id,id);
+      postOwnTransferDestination(db,p,known.id);
+      return {ok:true,duplicate:true};
+    }
     const day = financeDay(timestamp),
       kind = direction === "incoming" ? "income" : "expense";
     const existing = p.reference
@@ -584,12 +597,14 @@ export function applyMailDraft(db, user, id, body) {
               reference: p.reference,
               description: "Aviso bancario revisado",
               counterparty:p.counterparty,
+              origin_account_id:p.origin_account_id,
               external_id: key || `mail:${id}:${account.id}:${direction}`,
             },
           ],
         });
     const bank = { id: importedBank.transaction_ids[0] };
     if(p.reference)db.prepare("UPDATE finance_bank_transactions SET reference=? WHERE id=? AND COALESCE(reference,'')=''").run(p.reference,bank.id);
+    postOwnTransferDestination(db,p,bank.id);
     let movement = existing[0] || (declaredBank ? db.prepare("SELECT m.* FROM finance_allocations a JOIN finance_movements m ON m.id=a.movement_id WHERE a.bank_transaction_id=?").get(declaredBank.id) : null) || null;
     if (
       !movement &&
@@ -904,6 +919,10 @@ export function registerGmailRoutes(app, db, { route, owner }) {
     }),
   );
   if (process.env.FINANCE_DEMO !== "1") {
+    queueMicrotask(()=>{
+      try{replayAutomaticBankMail(db);}
+      catch(error){console.error('[finance] Bank mail replay needs attention: '+(error.status?error.message:error.code||error.name));}
+    });
     let running = false;
     const timer = setInterval(async () => {
       if (
@@ -1014,13 +1033,13 @@ export function replayAutomaticBankMail(db) {
   const saved = privateSetting(db, "mail_auto_replay_cursor");
   const cursor = saved?.after === after ? saved : null;
   const rows = db.prepare(`SELECT id,received_at,state FROM finance_mail_messages
-    WHERE state IN ('draft','applied') AND archived_at IS NULL AND received_at>=? AND
+    WHERE state IN ('draft','applied','pending') AND archived_at IS NULL AND received_at>=? AND
       (? IS NULL OR received_at>? OR (received_at=? AND id>?))
     ORDER BY received_at,id LIMIT 40`).all(after, cursor?.received_at || null, cursor?.received_at || null, cursor?.received_at || null, cursor?.id || "");
   let applied = 0, taxes = 0;
   for (const row of rows) {
     taxes += autoApplyBankMail(db, row.id)?.taxes || 0;
-    if (row.state === "draft" && db.prepare("SELECT state FROM finance_mail_messages WHERE id=?").get(row.id)?.state === "applied") applied++;
+    if (row.state !== "applied" && db.prepare("SELECT state FROM finance_mail_messages WHERE id=?").get(row.id)?.state === "applied") applied++;
   }
   const last = rows.at(-1);
   putPrivateSetting(db, "mail_auto_replay_cursor", rows.length === 40 ? { after, received_at: last.received_at, id: last.id } : null);
@@ -1197,11 +1216,22 @@ export function mailAutoPostingAllowed(draft, now = Date.now()) {
 }
 export function autoApplyBankMail(db, id) {
   if (process.env.FINANCE_GMAIL_AUTO_APPLY === "0") return;
-  const row = db
+  let row = db
     .prepare("SELECT * FROM finance_mail_messages WHERE id=?")
     .get(id);
   if (!row || row.archived_at) return;
-  const p = JSON.parse(decryptDocument(row.encrypted).toString());
+  let p = JSON.parse(decryptDocument(row.encrypted).toString());
+  if(p.trusted&&p.parser_version!==2){
+    const registry=privateSetting(db,'own_account_registry')||{accounts:[]};
+    registry.debit_cards=privateSetting(db,'debit_card_accounts')||registry.debit_cards||[];
+    const parsed=parseBankMail({id:p.id||id,internalDate:String(Date.parse(p.received_at)),payload:{headers:[{name:'From',value:p.from},{name:'Subject',value:p.subject}],body:{content:p.body}}},registry);
+    if(parsed){
+      p={...parsed,trusted:p.trusted};
+      const state=row.state==='applied'||row.state==='historical'?row.state:p.pending?'pending':p.rejected?'failed':'draft';
+      db.prepare('UPDATE finance_mail_messages SET encrypted=?,account_id=?,state=? WHERE id=?').run(encryptDocument(Buffer.from(JSON.stringify(p))),p.account_id,state,id);
+      row={...row,state,account_id:p.account_id};
+    }
+  }
   if (!mailAutoPostingAllowed(p)) return;
   if (!p.trusted || p.pending || p.rejected) return;
   if (row.state === "historical") {
@@ -1225,8 +1255,10 @@ export function autoApplyBankMail(db, id) {
     .prepare("SELECT * FROM finance_accounts WHERE id=? AND active=1")
     .get(p.account_id);
   if (!account) return;
-  if (row.state === "applied" && row.bank_transaction_id)
+  if (row.state === "applied" && row.bank_transaction_id){
+    postOwnTransferDestination(db,p,row.bank_transaction_id);
     return { taxes: applyDigitalServiceTaxes(db, p, account, row.bank_transaction_id) };
+  }
   if (
     !p.occurred_at &&
     account.opening_at &&

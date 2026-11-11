@@ -308,16 +308,15 @@ test("1243 cleanup refuses ambiguous receipts and leaves future receipts untouch
 test('activity reset clears old inboxes, survives resync and preserves balances, checks, loans and card bills',(t)=>{
   const f=fixture(t);
   registerQuickEntry(f.db,f.norma,f.payload);
-  const before=f.balance();
   f.db.prepare("INSERT INTO finance_checks(id,account_id,number,payee,amount_cents,due_day,fund_day,created_by,created_at,updated_at) VALUES ('keep-check',?,'900','Proveedor',2000,'2026-12-15','2026-12-13','marlon','now','now')").run(f.account);
   f.db.prepare("INSERT INTO finance_loans(id,name,bank,account_id,principal_cents,as_of,source_hash) VALUES ('keep-loan','Préstamo','Pichincha',?,10000,'2026-11-10','keep')").run(f.account);
   f.db.prepare("INSERT INTO finance_credit_cards VALUES ('keep-card','Tarjeta','Pichincha',?,24,9)").run(f.account);
   f.db.prepare("INSERT INTO finance_card_statements(id,card_id,cut_date,due_date,total_cents) VALUES ('keep-bill','keep-card','2026-11-24','2026-12-09',5500)").run();
   const snapshot=()=>['finance_accounts','finance_bank_transactions','finance_checks','finance_loans','finance_card_statements'].map(table=>f.db.prepare(`SELECT * FROM ${table}`).all());
-  const preserved=snapshot();
   const old={id:'old-notice',internalDate:String(Date.now()-60000),payload:{headers:[{name:'From',value:'avisos@pichincha.com'},{name:'Subject',value:'Transferencia'},{name:'Authentication-Results',value:'mx.google.com; dmarc=pass header.from=pichincha.com'}],body:{content:'La transferencia solicitada será debitada de su cuenta y acreditada en 1 hora. Cuenta de origen: ****0043 Cuenta acreditada: ****0052 Monto: USD 64.00 Número de documento: 29384633'}}};
   putPrivateSetting(f.db,'own_account_registry',{accounts:[{account_id:f.account,bank:'Pichincha',number:'2200000043'}]});
   ingestBankMessages(f.db,[old]);
+  const before=f.balance(),preserved=snapshot();
   assert.equal(mailDrafts(f.db).length,1);
   assert.equal(clearCurrentActivity(f.db).mail,1);
   assert.equal(f.balance(),before);

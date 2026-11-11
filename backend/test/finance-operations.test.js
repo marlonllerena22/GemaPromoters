@@ -1016,7 +1016,7 @@ test("card installments stay partial and unmatched debit cards never select an a
   assert.equal(debit.account_id, null);
 });
 
-test("promised transfers remain pending even when both own accounts are recognised", (t) => {
+test("an invalid transfer naming the same origin and destination remains pending", (t) => {
   const { db, account } = fixture(t);
   putPrivateSetting(db, "own_account_registry", {
     accounts: [{ account_id: account, bank: "Pichincha", number: "000009999" }],

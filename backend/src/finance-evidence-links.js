@@ -1,5 +1,6 @@
 import {decryptDocument} from './finance-ai.js';
 import {audit,financeDay} from './finance-db.js';
+import {matchOwnTransferCredit} from './finance-own-transfers.js';
 
 // Attach corroborating evidence to the existing ledger entry, without moving money.
 export function linkRecordedBankEvidence(db) {
@@ -13,7 +14,11 @@ export function linkRecordedBankEvidence(db) {
     for(const row of db.prepare("SELECT * FROM finance_notification_events WHERE state='review' AND archived_at IS NULL").all()){
       const p=JSON.parse(decryptDocument(row.encrypted).toString());
       if(p.blocked||p.credit||!p.direction)continue;
-      const bank=find(row.account_id,row.amount_cents,row.reference,financeDay(row.posted_at));
+      let bank=find(row.account_id,row.amount_cents,row.reference,financeDay(row.posted_at));
+      if(!bank&&row.amount_cents>0){
+        try{bank=matchOwnTransferCredit(db,{account_id:row.account_id,amount_cents:row.amount_cents,reference:row.reference,day:financeDay(row.posted_at),occurred_at:row.posted_at,counterparty:p.counterparty,external_id:`android:${row.device_id}:${row.event_key}`},'bank-notification');}
+        catch(error){if(!error.status)throw error;}
+      }
       if(!bank)continue;
       db.prepare("UPDATE finance_notification_events SET state='matched',bank_transaction_id=?,reason='Confirmado con el movimiento bancario; sin duplicar el importe' WHERE id=?").run(bank.id,row.id);
       audit(db,'system:bank-evidence','bank.evidence_linked','notification',row.id,null,{bank_transaction_id:bank.id});
