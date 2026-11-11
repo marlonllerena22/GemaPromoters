@@ -291,3 +291,27 @@ test("an existing reference cannot be registered again using a total that includ
   assert.equal(different.draft, null); assert.match(different.message, /otro importe/);
   assert.equal(f.db.prepare("SELECT count(*) n FROM finance_bank_transactions").get().n, 1);
 });
+
+test('conversation resolves authorized business labels and asks for missing shared-account classification',async(t)=>{
+  const f=fixture(t);
+  f.setResponse({action:'bank_entry',message:'Preparo el ingreso',data:{...f.data,business_id:null,custody_id:null,kind:'income',amount_cents:500,reference:null}});
+  const missing=await prepareConversation(f.db,f.owner,chat('Agrega cinco recibidos a corriente'));
+  assert.equal(missing.draft,null);assert.match(missing.message,/A qué negocio/);
+  f.setResponse({action:'bank_entry',message:'Preparo el ingreso',data:{...f.data,business_id:'GemaShow',custody_id:null,kind:'income',amount_cents:500,reference:null}});
+  const valid=await prepareConversation(f.db,f.owner,chat('Son de Gemashow'));
+  assert.equal(valid.draft.business_id,'gemashow');
+  assert.equal(valid.draft.after_cents,10500);
+  await assert.rejects(prepareConversation(f.db,f.norma,chat('Son de Gemashow')),e=>e.status===403);
+});
+
+test('authorized fund adjustment adds once without inventing income or changing another account',t=>{
+  const f=fixture(t);
+  putPrivateSetting(f.db,'own_account_registry',{accounts:[{bank:'Guayaquil',number:'0000969',account_id:f.accountId}]});
+  const config={kind:'bank-review-v1',id:'manual-five-test',expires_at:new Date(Date.now()+60000).toISOString(),messages:[],balance_adjustments:[{bank:'Guayaquil',account_suffix:'969',delta_cents:500,confirmed:true,reason:'Corrección manual indicada por el titular',source_hash:'e'.repeat(64)}]};
+  const result=applyBankReview(f.db,config);assert.equal(result.adjustments[0].after_cents,10500);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,0);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_movements').get().n,0);
+  assert.equal(applyBankReview(f.db,config).applied,false);
+  assert.equal(applyBankReview(f.db,{...config,id:'same-adjustment-different-job'}).adjustments.length,0);
+  assert.equal(recordedAccountBalance(f.db,f.db.prepare('SELECT * FROM finance_accounts WHERE id=?').get(f.accountId)),10500);
+});

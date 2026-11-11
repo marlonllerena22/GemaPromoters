@@ -22,6 +22,7 @@ import {
 } from "../../../shared/finance-quick.mjs";
 import { useFinance } from "./context.jsx";
 import { QuickConversation } from "./conversation.jsx";
+import {hasNativeDictation,dictateNative} from './native-speech.js';
 import {ReceiptList,ReceiptComposer} from './receipts.jsx';
 import { RetailBrand, isStoreUser, IncomingNotices } from "./operations.jsx";
 import {
@@ -303,7 +304,14 @@ function QuickCaptureForm({ initial = {}, onClose }) {
     setError("");
     requestId.current = crypto.randomUUID();
   }
-  function speak() {
+  async function speak() {
+    if(hasNativeDictation()){
+      if(listening)return;setError('');setListening(true);
+      try{const transcript=await dictateNative();if(mounted.current&&transcript)setText(previous=>[previous.trim(),transcript].filter(Boolean).join(' '));}
+      catch(e){if(mounted.current)setError(e.message);}
+      finally{if(mounted.current)setListening(false);}
+      return;
+    }
     if (listening) {
       recognition.current?.stop();
       return;

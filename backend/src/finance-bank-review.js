@@ -217,6 +217,19 @@ export function applyBankReview(db, config) {
     const declarations=(config.owner_declared_expenses||[]).map(entry=>recordOwnerDeclaration(db,entry,config.id));
     const mail = ingestBankMessages(db, config.messages, { reprocess: true });
     const statement_images=(config.statement_images||[]).map(image=>importStatementImage(db,findAccount(image),image));
+    const adjustments=[];
+    for(const entry of config.balance_adjustments||[]){
+      if(entry.confirmed!==true||!Number.isSafeInteger(entry.delta_cents)||entry.delta_cents===0||!entry.reason?.trim()||!/^[a-f0-9]{64}$/.test(entry.source_hash||''))throw new Error('Invalid authorized balance adjustment');
+      const account=findAccount(entry);
+      if(db.prepare('SELECT 1 FROM finance_balance_checkpoints WHERE account_id=? AND source_hash=?').get(account.id,entry.source_hash))continue;
+      const before=recordedAccountBalance(db,account),after=before+entry.delta_cents,at=new Date().toISOString();
+      if(!Number.isSafeInteger(after))throw new Error('Invalid adjusted balance');
+      db.prepare('INSERT INTO finance_balance_checkpoints(account_id,as_of_at,balance_cents,source_hash,created_by,created_at) VALUES (?,?,?,?,?,?)').run(account.id,at,after,entry.source_hash,'marlon',at);
+      db.prepare('UPDATE finance_accounts SET verified_cents=?,verified_at=? WHERE id=?').run(after,at,account.id);
+      const result={account_id:account.id,before_cents:before,after_cents:after,delta_cents:entry.delta_cents,reason:entry.reason};
+      audit(db,'marlon','account.balance_adjusted','account',account.id,{balance_cents:before},{...result,requested_by:'marlon',job_id:config.id});
+      adjustments.push(result);
+    }
     let balances = 0;
     for (const b of config.balances || []) {
       const a = findAccount(b);
@@ -339,6 +352,7 @@ export function applyBankReview(db, config) {
       removed,
       statement_images,
       declarations,
+      adjustments,
     };
     putPrivateSetting(db, key, result);
     return result;

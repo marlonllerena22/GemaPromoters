@@ -4,6 +4,7 @@ import { useFinance } from "./context.jsx";
 import { businessNames, financeApi, money } from "./api.js";
 import { Button, Modal } from "./components.jsx";
 import { AssistantAvatar } from "./workflows.jsx";
+import {hasNativeDictation,dictateNative} from './native-speech.js';
 
 export function QuickConversation({ initial = {}, onClose, onForm }) {
   const { refresh, user } = useFinance();
@@ -73,8 +74,15 @@ export function QuickConversation({ initial = {}, onClose, onForm }) {
     catch (e) { setError(e.message); return; }
     clearPhotos();setMessages([{ role: "assistant", content: "Cuéntame el siguiente movimiento." }]); setDraft(null); setDone(false); setValue(""); setError("");
   }
-  function speak() {
+  async function speak() {
     if (listening) { recognition.current?.stop(); return; }
+    if(hasNativeDictation()){
+      setError('');setListening(true);
+      try{const transcript=await dictateNative();if(mounted.current&&transcript){setValue(transcript);void send(transcript);}}
+      catch(e){if(mounted.current)setError(e.message);}
+      finally{if(mounted.current)setListening(false);}
+      return;
+    }
     const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!Speech) { setError("Puedes usar el micrófono del teclado de tu celular y después enviar el mensaje."); return; }
     let transcript = "";

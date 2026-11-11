@@ -99,6 +99,16 @@ function validatePlan(db, user, plan) {
     if (!text(d.description)) fail("¿Qué descripción dejamos para el cambio de saldo?");
     return { ...plan, data: d, balance_photo:photo?.id, fund_version: fund.version, summary: { type: "Actualizar saldo manual", account: fund.name, amount_cents: d.amount_cents, before_cents: fund.balance_cents, after_cents: d.amount_cents, description: d.description } };
   }
+  const businesses=db.prepare('SELECT id,name FROM finance_businesses').all();
+  const normalizedBusiness=String(d.business_id||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();
+  const business=businesses.find(b=>b.id===normalizedBusiness||b.name.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()===normalizedBusiness);
+  if(business)d.business_id=business.id;
+  else {
+    const accountBusiness=d.account_id&&visibleAccounts(db,user).find(a=>a.id===d.account_id)?.business_id;
+    if(!d.business_id&&accountBusiness&&user.business_ids.includes(accountBusiness))d.business_id=accountBusiness;
+    else if(!d.business_id&&user.business_ids.length===1)d.business_id=user.business_ids[0];
+    else fail('¿A qué negocio corresponde el movimiento: '+businesses.filter(b=>user.business_ids.includes(b.id)).map(b=>b.name).join(', ')+'?');
+  }
   businessAccess(user, d.business_id);
   unitAccess(db, user, d.unit_id, d.business_id);
   cents(d.amount_cents);
@@ -148,6 +158,7 @@ export async function prepareConversation(db, user, body) {
   const context = {
     photos:photos.map(({id,name,uploaded_at})=>({id,name,uploaded_at})),
     today: financeDay(), role: user.role, business_ids: user.business_ids,
+    businesses:db.prepare('SELECT id,name FROM finance_businesses').all().filter(b=>user.business_ids.includes(b.id)),
     units: db.prepare("SELECT id,business_id,name FROM finance_units").all().filter((u) => user.business_ids.includes(u.business_id) && (!user.unit_ids.length || user.unit_ids.includes(u.id))),
     accounts,
     recent_bank_notices: user.role === "owner" ? db.prepare("SELECT b.account_id,b.day,b.amount_cents,b.reference,b.description,m.encrypted FROM finance_bank_transactions b LEFT JOIN finance_mail_messages m ON m.bank_transaction_id=b.id WHERE b.import_source IN ('bank-email','assistant','statement-image','bank-notification') AND b.day>=date(?,'-3 days') ORDER BY b.id DESC LIMIT 30").all(financeDay()).map(({ encrypted, ...b }) => { let counterparty = ""; try { if (encrypted) counterparty = JSON.parse(decryptDocument(encrypted).toString()).counterparty || ""; } catch {} return { ...b, counterparty }; }) : [],

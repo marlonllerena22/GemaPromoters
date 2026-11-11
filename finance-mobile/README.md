@@ -14,6 +14,10 @@ El servidor necesita `FINANCE_FCM_CREDENTIALS`, con una cuenta de servicio restr
 
 La primera instalación requiere iniciar sesión y permitir Notificaciones de Android. El botón **Probar aviso Android** envía una prueba a ese mismo dispositivo. Una respuesta aceptada por Firebase no demuestra por sí sola que Android haya mostrado el aviso; debe comprobarse en el teléfono. Los pagos pendientes permanecen en la bandeja aunque se descarte una notificación del sistema.
 
+## Dictado (APK 1.1.2)
+
+**Hablar** solicita el permiso Micrófono y abre el reconocimiento de voz de Android en español. El resultado vuelve a la conversación como texto; registrar dinero sigue requiriendo confirmar el resumen. Si se cancela el dictado no se envía nada. No se conserva audio en Gema. Si Android deniega el permiso, se puede activar en Ajustes → Aplicaciones → Gema Finanzas → Permisos → Micrófono. El teléfono necesita un servicio de reconocimiento de voz habilitado. La instalación sobre la versión anterior conserva los datos y la sesión.
+
 ## Avisos bancarios (APK 1.1.1)
 
 Solo el propietario puede conectar apps desde **Inicio → Avisos de tus bancos**, o **Más → Fuentes y conexiones**. Selecciona las apps instaladas, asigna el banco y, si esa app tiene una sola cuenta, la cuenta receptora. El permiso de Android es general; Gema filtra los paquetes seleccionados antes de leer su texto y descarta códigos, claves y avisos de seguridad antes de enviarlos. No utiliza accesibilidad, SMS ni contraseñas bancarias. Android puede ocultar parte del contenido; una notificación incompleta queda para revisión.

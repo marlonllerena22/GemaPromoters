@@ -357,7 +357,7 @@ export function BankNotificationsPanel() {
   const updateReader=available()&&local&&(local.reader_version||1)<2;
   return (
     <section className="gf-bank-notifications gf-panel">
-      {updateReader&&<div className="gf-panel"><h3>Actualiza el lector bancario</h3><p>Esta actualización reconecta el lector y recupera avisos que sigan visibles en tu celular.</p><a className="gf-button" href="/finanzas/downloads/gema-finanzas-1.1.1.apk">Instalar actualización 1.1.1</a></div>}
+      {updateReader&&<div className="gf-panel"><h3>Actualiza el lector bancario</h3><p>Esta actualización reconecta el lector y recupera avisos que sigan visibles en tu celular.</p><a className="gf-button" href="/finanzas/downloads/gema-finanzas-1.1.2.apk">Instalar actualización 1.1.2</a></div>}
       <div className="gf-bank-title">
         <Smartphone size={28} />
         <div>
@@ -368,12 +368,12 @@ export function BankNotificationsPanel() {
       {!available() ? (
         <div>
           <p>
-            Instala la APK 1.1.1 para conectar Deuna y tus apps bancarias. El
+            Instala la APK 1.1.2 para conectar Deuna y tus apps bancarias. El
             correo seguirá funcionando por separado.
           </p>
           <a
             className="gf-button"
-            href="/finanzas/downloads/gema-finanzas-1.1.1.apk"
+            href="/finanzas/downloads/gema-finanzas-1.1.2.apk"
           >
             Descargar APK actualizada
           </a>
