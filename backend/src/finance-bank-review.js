@@ -15,6 +15,7 @@ import {
 import { recordedAccountBalance } from "./finance-check-ledger.js";
 import { importStatementImage } from "./finance-statement-images.js";
 import { recordOwnerDeclaration } from "./finance-owner-declarations.js";
+import {updateConfirmedBalance} from './finance-balance-updates.js';
 const normalize = (s) =>
   String(s || "")
     .normalize("NFD")
@@ -217,6 +218,14 @@ export function applyBankReview(db, config) {
     const declarations=(config.owner_declared_expenses||[]).map(entry=>recordOwnerDeclaration(db,entry,config.id));
     const mail = ingestBankMessages(db, config.messages, { reprocess: true });
     const statement_images=(config.statement_images||[]).map(image=>importStatementImage(db,findAccount(image),image));
+    const confirmedBalances=[];
+    for(const entry of config.confirmed_balance_updates||[]){
+      const account=findAccount(entry);
+      if(entry.confirmed!==true||!Number.isSafeInteger(entry.expected_balance_cents)||!Number.isSafeInteger(entry.expected_verified_cents)||entry.balance_cents!==entry.expected_verified_cents||account.verified_cents!==entry.expected_verified_cents)throw new Error('Saved balance confirmation changed; review before applying');
+      const result=updateConfirmedBalance(db,{role:'owner',username:'marlon',business_ids:['producalza','gemashow','marjorie','personal'],unit_ids:[]},account.id,entry);
+      if(entry.expected_receipt_id&&result.movement_id!==entry.expected_receipt_id)throw new Error('Pending receipt changed; review before applying');
+      confirmedBalances.push(result);
+    }
     const adjustments=[];
     for(const entry of config.balance_adjustments||[]){
       if(entry.confirmed!==true||!Number.isSafeInteger(entry.delta_cents)||entry.delta_cents===0||!entry.reason?.trim()||!/^[a-f0-9]{64}$/.test(entry.source_hash||''))throw new Error('Invalid authorized balance adjustment');
@@ -353,6 +362,7 @@ export function applyBankReview(db, config) {
       statement_images,
       declarations,
       adjustments,
+      confirmedBalances,
     };
     putPrivateSetting(db, key, result);
     return result;

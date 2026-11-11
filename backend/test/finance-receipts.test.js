@@ -19,6 +19,8 @@ import {receivedWithoutAccount} from '../src/finance-bank-identity.js';
 import { putPrivateSetting } from "../src/finance-operations.js";
 import { recordedAccountBalance } from "../src/finance-check-ledger.js";
 import { flushPaymentPush } from "../src/finance-push.js";
+import {updateConfirmedBalance} from '../src/finance-balance-updates.js';
+import {applyBankReview} from '../src/finance-bank-review.js';
 import { requireRow } from "../src/finance-service.js";
 process.env.FINANCE_DOCUMENT_KEY = "test-only-receipts-private-key-20261110";
 function fixture(t) {
@@ -408,4 +410,45 @@ test('a receipt arriving after an already-recorded reference-free notification r
   const submitted=registerQuickEntry(f.db,f.norma,{...f.payload,overrides:{...f.payload.overrides,amount_cents:26361,counterparty:'Rafael Gomez',reference:'PROOF26361'}});
   assert.equal(submitted.movement.status,'reconciled');assert.equal(f.balance(),36361);assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,1);
   assert.deepEqual(repairReceiptAccounts(f.db),{assigned:0,reconciled:0});assert.equal(f.balance(),36361);
+});
+
+test('saving the real balance confirms the unique pending deposit explaining its increase and later mail does not add it again',t=>{
+  const f=fixture(t);putPrivateSetting(f.db,'own_account_registry',{accounts:[{account_id:f.account,bank:'Pichincha',number:'2200000043'}]});
+  const receipt=registerQuickEntry(f.db,f.norma,{...f.payload,overrides:{...f.payload.overrides,amount_cents:25500,reference:'123456789',counterparty:'Diego Sandoval'}}).movement;
+  const otherEvidence=Number(f.db.prepare("INSERT INTO finance_evidence(business_id,unit_id,name,mime,bytes,sha256,encrypted,created_by) VALUES ('producalza','producalza-fabrica','other.png','image/png',4,'other',?,'norma')").run(encryptDocument(Buffer.from('other'))).lastInsertRowid);
+  const other=registerQuickEntry(f.db,f.norma,{...f.payload,evidence_id:otherEvidence,request_id:crypto.randomUUID(),overrides:{...f.payload.overrides,amount_cents:79852,reference:'46919',counterparty:'Maria Albornoz'}}).movement;
+  const result=updateConfirmedBalance(f.db,f.owner,f.account,{balance_cents:35500,expected_balance_cents:10000,day:financeDay()});
+  assert.equal(result.movement_id,receipt.id);assert.equal(result.unexplained_difference_cents,0);assert.equal(f.balance(),35500);
+  assert.equal(f.db.prepare('SELECT status FROM finance_movements WHERE id=?').get(receipt.id).status,'reconciled');
+  assert.equal(f.db.prepare('SELECT status FROM finance_movements WHERE id=?').get(other.id).status,'pending');
+  const checkpoint=f.db.prepare('SELECT * FROM finance_balance_checkpoints').get();assert.ok(Date.parse(checkpoint.as_of_at)<=Date.now());
+  assert.equal(updateConfirmedBalance(f.db,f.owner,f.account,{balance_cents:35500,expected_balance_cents:35500,day:financeDay()}).movement_id,null);
+  ingestBankMessages(f.db,[{id:'owner-confirmed-deposit-mail',internalDate:String(Date.now()),payload:{headers:[{name:'From',value:'avisos@pichincha.com'},{name:'Subject',value:'Transferencia recibida'},{name:'Authentication-Results',value:'mx.google.com; dmarc=pass header.from=pichincha.com'}],body:{content:'Te confirmamos que Diego Sandoval ha realizado una transferencia. Transferencia recibida. Cuenta destino: ****0043 Monto: USD 255.00 Número de documento: 123456789'}}}]);
+  assert.equal(f.db.prepare('SELECT state FROM finance_mail_messages').get().state,'applied');assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,1);assert.equal(f.balance(),35500);
+  const at=new Date(Date.parse(checkpoint.as_of_at)+1000).toISOString();
+  f.db.prepare("INSERT INTO finance_bank_transactions(account_id,day,occurred_at,amount_cents,reference,description,fingerprint,batch_id,created_by) VALUES (?,?,?,100,'later','Real later deposit','later-deposit','real','system')").run(f.account,financeDay(),at);assert.equal(f.balance(),35600);
+});
+
+test('a balance update with two equal pending receipts saves funds but leaves both receipts for review',t=>{
+  const f=fixture(t);for(const reference of ['one','two']){
+    const evidence=Number(f.db.prepare("INSERT INTO finance_evidence(business_id,unit_id,name,mime,bytes,sha256,encrypted,created_by) VALUES ('producalza','producalza-fabrica','receipt.png','image/png',4,?,?,'norma')").run(reference,encryptDocument(Buffer.from(reference))).lastInsertRowid);
+    registerQuickEntry(f.db,f.norma,{...f.payload,evidence_id:evidence,request_id:crypto.randomUUID(),overrides:{...f.payload.overrides,amount_cents:25500,reference}});
+  }
+  const result=updateConfirmedBalance(f.db,f.owner,f.account,{balance_cents:35500,day:financeDay(),expected_balance_cents:10000});assert.equal(result.movement_id,null);assert.equal(f.balance(),35500);assert.equal(result.unexplained_difference_cents,25500);assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,0);
+  assert.equal(f.db.prepare("SELECT count(*) n FROM finance_movements WHERE status='pending'").get().n,2);
+});
+
+test('balance updates reject collaborators and stale amounts without altering funds',t=>{
+  const f=fixture(t);assert.throws(()=>updateConfirmedBalance(f.db,f.norma,f.account,{balance_cents:35500,day:financeDay()}),e=>e.status===403);
+  assert.throws(()=>updateConfirmedBalance(f.db,f.owner,f.account,{balance_cents:35500,day:financeDay(),expected_balance_cents:0}),e=>e.status===409);assert.equal(f.balance(),10000);assert.equal(f.db.prepare('SELECT count(*) n FROM finance_balance_checkpoints').get().n,0);
+});
+
+test('recovering a previously saved balance is guarded and applies only once',t=>{
+  const f=fixture(t);putPrivateSetting(f.db,'own_account_registry',{accounts:[{account_id:f.account,bank:'Pichincha',number:'2200000043'}]});
+  f.db.prepare('UPDATE finance_accounts SET verified_cents=35500 WHERE id=?').run(f.account);
+  const receipt=registerQuickEntry(f.db,f.norma,{...f.payload,overrides:{...f.payload.overrides,amount_cents:25500}}).movement;
+  const config={kind:'bank-review-v1',id:'recover-owner-confirmed-balance',messages:[],expires_at:new Date(Date.now()+60000).toISOString(),confirmed_balance_updates:[{bank:'Pichincha',account_suffix:'0043',confirmed:true,balance_cents:35500,expected_verified_cents:35500,expected_balance_cents:10000,expected_receipt_id:receipt.id,day:financeDay()}]};
+  const result=applyBankReview(f.db,config);assert.equal(result.confirmedBalances[0].movement_id,receipt.id);assert.equal(f.balance(),35500);
+  assert.deepEqual(applyBankReview(f.db,config),{applied:false});assert.equal(f.balance(),35500);
+  assert.throws(()=>applyBankReview(f.db,{...config,id:'wrong-saved-value',confirmed_balance_updates:[{...config.confirmed_balance_updates[0],expected_verified_cents:99999}]}),/Saved balance confirmation changed/);assert.equal(f.balance(),35500);
 });

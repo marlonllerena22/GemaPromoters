@@ -583,8 +583,11 @@ export function applyMailDraft(db, user, id, body) {
       );
     if (declaredBank) {
       if (existing[0]?.status === "reconciled" && !db.prepare("SELECT 1 FROM finance_allocations WHERE movement_id=? AND bank_transaction_id=?").get(existing[0].id, declaredBank.id)) fail("Este registro ya se relacionó con otro movimiento bancario", 409);
-      db.prepare("UPDATE finance_bank_transactions SET day=?,occurred_at=?,reference=?,import_source='bank-email' WHERE id=?").run(day, timestamp, linkedBank?.reference || p.reference || declaredBank.reference, declaredBank.id);
-      audit(db, user.username, "assistant.bank_notice_matched", "bank_transaction", declaredBank.id, { import_source: "assistant" }, { import_source: "bank-email", mail_id: id }, account.business_id);
+      const includedInBalance=db.prepare('SELECT as_of_at FROM finance_balance_checkpoints WHERE account_id=?').all(account.id).some(c=>financeDay(c.as_of_at)>declaredBank.day||(financeDay(c.as_of_at)===declaredBank.day&&(!declaredBank.occurred_at||Date.parse(declaredBank.occurred_at)<=Date.parse(c.as_of_at))));
+      // Corroborating a recorded entry must not move it past the owner's balance
+      // checkpoint: that would count the same money a second time.
+      db.prepare("UPDATE finance_bank_transactions SET day=?,occurred_at=?,reference=?,import_source='bank-email' WHERE id=?").run(includedInBalance?declaredBank.day:day,includedInBalance?declaredBank.occurred_at:timestamp,linkedBank?.reference || p.reference || declaredBank.reference, declaredBank.id);
+      audit(db, user.username, "assistant.bank_notice_matched", "bank_transaction", declaredBank.id, { import_source: declaredBank.import_source }, { import_source: "bank-email", mail_id: id,bank_reported_at:timestamp,balance_checkpoint_preserved:includedInBalance }, account.business_id);
     }
     const importedBank = declaredBank
       ? { transaction_ids: [declaredBank.id] }

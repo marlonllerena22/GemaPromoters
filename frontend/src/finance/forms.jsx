@@ -98,7 +98,7 @@ export function EditPanel({ type, initial = {}, onClose }) {
     movement: "Subir un comprobante",
     expense: "Registrar un gasto",
     account: "Añadir una cuenta",
-    verify: "Comprobar saldo",
+    verify: "Actualizar saldo real",
     recurring: "Nuevo gasto recurrente",
     budget: "Definir presupuesto",
     closing: "Cerrar caja",
@@ -110,7 +110,7 @@ export function EditPanel({ type, initial = {}, onClose }) {
     expense: "Registra una solicitud o gasto y conserva su respaldo.",
     account: "El saldo inicial corresponde al inicio de la fecha elegida.",
     verify:
-      "Compara con el saldo de cierre mostrado por la entidad en la fecha elegida.",
+      "Guarda el saldo real que ves en tu banco y relaciona el depósito pendiente que explique exactamente el aumento.",
     recurring:
       "Crearemos pendientes para revisar; ningún pago se ejecuta automáticamente.",
     budget: "Un límite de referencia para organizar tus gastos mensuales.",
@@ -278,6 +278,8 @@ export function EditPanel({ type, initial = {}, onClose }) {
         await financeApi(`/accounts/${initial.id}/verify`, {
           balance_cents: amount(form.balance),
           day: form.day,
+          update_balance: true,
+          expected_balance_cents: initial.balance_cents,
         });
       if (type === "recurring")
         await financeApi("/recurring", {
@@ -682,7 +684,7 @@ export function EditPanel({ type, initial = {}, onClose }) {
               <span>Saldo calculado al día de hoy</span>
             </div>
             <Field
-              label="Fecha del saldo de cierre"
+              label="Fecha del saldo real"
               type="date"
               max={today()}
               min={initial.opening_date}
@@ -691,7 +693,7 @@ export function EditPanel({ type, initial = {}, onClose }) {
               onChange={(e) => set("day", e.target.value)}
             />
             <Field
-              label="Saldo comprobado en la entidad (USD)"
+              label="Saldo real en el banco (USD)"
               type="number"
               step="0.01"
               required
@@ -699,8 +701,7 @@ export function EditPanel({ type, initial = {}, onClose }) {
               onChange={(e) => set("balance", e.target.value)}
             />
             <div className="gf-note">
-              Se conservará la comparación y su fecha. Una diferencia no se
-              corregirá modificando el saldo inicial.
+              Al guardar se actualizarán los fondos. Si el aumento coincide con un único comprobante pendiente de esta cuenta, quedará confirmado por ti. El cambio se conserva en el historial.
             </div>
           </>
         )}

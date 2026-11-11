@@ -1,5 +1,6 @@
 import { applyPrivateBankReview } from "./finance-bank-review.js";
 import { financeSupportCheck } from "./finance-support-check.js";
+import {updateConfirmedBalance} from './finance-balance-updates.js';
 import {archiveBankPromotions} from './finance-bank-inbox.js';
 import {uploadConversationPhoto} from "./finance-conversation-photos.js";
 import {cancelsConversation} from '../../shared/finance-conversation.mjs';
@@ -561,6 +562,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
     "/api/finance/accounts/:id/verify",
     route((req, res) => {
       owner(req);
+      if(req.body.update_balance===true){res.json(updateConfirmedBalance(db,req.financeUser,Number(req.params.id),req.body));return;}
       const a = db
         .prepare("SELECT * FROM finance_accounts WHERE id=?")
         .get(req.params.id);

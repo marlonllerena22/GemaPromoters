@@ -777,7 +777,7 @@ export function Accounts() {
                         variant="ghost small"
                         onClick={() => open("verify", a)}
                       >
-                        Comprobar saldo
+                        Actualizar saldo real
                       </Button>
                       <span>{a.transaction_count} movimientos</span>
                     </footer>
