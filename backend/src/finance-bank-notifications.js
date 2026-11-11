@@ -6,6 +6,8 @@ import { fail, importBank, reconcile } from "./finance-service.js";
 import {linkRecordedBankEvidence} from './finance-evidence-links.js';
 import {reconcileRecordedReceipt} from './finance-receipts.js';
 import {matchingBankPerson,receivedWithoutAccount} from './finance-bank-identity.js';
+import {isBankPromotion} from '../../shared/finance-bank-promotions.mjs';
+import {archiveBankNotice} from './finance-bank-inbox.js';
 
 const digest = (v) =>
   crypto.createHash("sha256").update(String(v)).digest("hex");
@@ -62,7 +64,7 @@ export function parseBankNotification(
 ) {
   const body = `${event.title || ""}\n${event.text || ""}`.slice(0, 6000),
     plain = norm(body);
-  if (sensitiveNotification(body)) return null;
+  if (sensitiveNotification(body)||isBankPromotion(event.title,event.text)) return null;
   const currencyMatches=[...body.matchAll(/(?:US\$|USD|\$)\s*([\d.,]+)/gi)];
   const phraseMatches=[...plain.matchAll(/(?:\brecibiste|\bhas recibido|\bacabas de recibir|\bte (?:han? )?(?:pagaron|pago|pagado|enviaron|envio|enviado|depositaron|deposito|depositado|transfirieron|transfirio|transferido|acreditaron|acredito|acreditado)|\bpagaste|\benviaste|\btransferiste|\bconsumiste|\btu (?:pago|transferencia) (?:de|por)|\bpago por|\b(?:abono|deposito) recibido|\bse (?:ha )?(?:acredito|debito)|\bmonto\s*:?|\bvalor\s*:?)\s*(?:una? (?:pago|deposito|abono|transferencia)\s*)?(?:(?:por|de|valor de|un monto de)\s*)?(?:usd\s*|\$\s*)?([\d.,]+)/g)];
   const amountMatches=[...currencyMatches,...phraseMatches];
@@ -348,7 +350,7 @@ export function ingestBankNotifications(db, device, events) {
       at < Date.now() - 7 * 86400000 ||
       at > Date.now() + 120000 ||
       raw.length > 6000 ||
-      sensitiveNotification(raw)
+      sensitiveNotification(raw)||isBankPromotion(e.title,e.text)
     ) {
       ack.push(e.id);
       continue;
@@ -613,17 +615,7 @@ export function registerNotificationRoutes(
     "/api/finance/bank-notifications/:id/dismiss",
     route((req, res) => {
       owner(req);
-      db.prepare(
-        "UPDATE finance_notification_events SET state='dismissed',reason='Descartado por el propietario' WHERE id=? AND state='review'"
-      ).run(Number(req.params.id));
-      audit(
-        db,
-        req.financeUser.username,
-        "android.bank_notice_dismissed",
-        "notification",
-        req.params.id
-      );
-      res.json({ ok: true });
+      res.json(archiveBankNotice(db,req.financeUser,'android',Number(req.params.id)));
     })
   );
 }

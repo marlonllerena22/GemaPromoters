@@ -1,4 +1,6 @@
 import { matchUnreferencedDeclaration } from "./finance-declared-bank.js";
+import {isBankPromotion} from '../../shared/finance-bank-promotions.mjs';
+import {archiveBankNotice} from './finance-bank-inbox.js';
 import {linkRecordedBankEvidence} from './finance-evidence-links.js';
 import {postOwnTransferDestination} from './finance-own-transfers.js';
 import { ensureCardCycles } from "./finance-funding.js";
@@ -138,6 +140,7 @@ export function parseBankMail(m, registry = { accounts: [] }) {
     plain = normalize(body),
     subject = head(m, "subject"),
     isStatement = /estado[s]? de cuenta/i.test(subject);
+  if(!isStatement&&isBankPromotion(subject,body))return null;
   if (
     /clave temporal|codigo de seguridad|c[oó]digo de acceso|verificaci[oó]n de acceso|notificaci[oó]n otp/i.test(
       subject,
@@ -464,7 +467,7 @@ export function ingestBankMessages(db, messages, { reprocess = false } = {}) {
 export function mailDrafts(db) {
   return db
     .prepare(
-      "SELECT id,state,account_id,movement_id,bank_transaction_id,encrypted FROM finance_mail_messages WHERE archived_at IS NULL ORDER BY received_at DESC LIMIT 250",
+      "SELECT id,state,account_id,movement_id,bank_transaction_id,encrypted FROM finance_mail_messages WHERE archived_at IS NULL AND inbox_hidden_at IS NULL ORDER BY received_at DESC LIMIT 250",
     )
     .all()
     .map((r) => ({
@@ -843,6 +846,7 @@ export function registerGmailPublic(app, db, { route }) {
   );
 }
 export function registerGmailRoutes(app, db, { route, owner }) {
+  app.post('/api/finance/mail/:id/archive',route((req,res)=>{owner(req);res.json(archiveBankNotice(db,req.financeUser,'mail',req.params.id));}));
   app.get(
     "/api/finance/mail",
     route((req, res) => {

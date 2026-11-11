@@ -232,11 +232,6 @@ function Notice({ event, onChange }) {
               </select>
             </Field>
           )}
-          {error && (
-            <p className="gf-error" role="alert">
-              {error}
-            </p>
-          )}
           <div className="gf-form-actions">
             <Button
               loading={busy}
@@ -260,18 +255,11 @@ function Notice({ event, onChange }) {
                 ? "Relacionar sin sumar"
                 : "Confirmar en la cuenta"}
             </Button>
-            <Button
-              variant="secondary"
-              loading={busy}
-              onClick={() =>
-                action(`/bank-notifications/${event.id}/dismiss`, {})
-              }
-            >
-              Descartar
-            </Button>
           </div>
         </>
       )}
+      {error&&<p className="gf-error" role="alert">{error}</p>}
+      <Button variant="ghost" disabled={busy} onClick={()=>action(`/bank-notifications/${event.id}/dismiss`,{})}>Quitar aviso</Button>
     </article>
   );
 }
@@ -578,6 +566,7 @@ export function BankNotificationsPanel() {
           Actualizar
         </Button>
       </div>
+      <p className="gf-muted">Las promociones se filtran automáticamente. «Quitar aviso» lo oculta de esta bandeja y conserva los movimientos registrados.</p>
       {!events.length && (
         <p>
           Aún no ha llegado ningún aviso de este celular. Después de conectarlo,

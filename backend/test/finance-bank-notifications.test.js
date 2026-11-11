@@ -15,6 +15,10 @@ import { importBank } from "../src/finance-service.js";
 import { ingestBankMessages,applyMailDraft } from "../src/finance-gmail.js";
 import { recordedAccountBalance } from "../src/finance-check-ledger.js";
 import {linkRecordedBankEvidence} from '../src/finance-evidence-links.js';
+import {isBankPromotion} from '../../shared/finance-bank-promotions.mjs';
+import {archiveBankNotice,archiveBankPromotions} from '../src/finance-bank-inbox.js';
+import {parseBankMail,mailDrafts} from '../src/finance-gmail.js';
+import {encryptDocument} from '../src/finance-ai.js';
 
 process.env.FINANCE_DOCUMENT_KEY = "test-only-bank-notification-key-0123456789";
 test('bank wording recognizes received and sent payments with or without currency signs',()=>{
@@ -426,5 +430,51 @@ test('a received-money push without account digits links to matching bank mail b
   const message={id:'incoming50',internalDate:String(at.getTime()),payload:{headers:[{name:'From',value:'banco@pichincha.com'},{name:'Subject',value:'Transferencia recibida'},{name:'Authentication-Results',value:'mx.google.com; dmarc=pass header.from=pichincha.com'}],body:{content:'Te confirmamos que PEREZ ANDRADE LUCIA ISABEL ha realizado una transferencia recibida. Cuenta destino: ****1234 Monto: USD 50.00 Referencia REALIN50'}}};
   ingestBankMessages(f.db,[message]);
   assert.equal(f.balance(),15000);const row=f.db.prepare('SELECT * FROM finance_notification_events').get();assert.equal(row.state,'matched');assert.equal(row.account_id,f.account);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,1);
+});
+
+test('advertising amounts are ignored while actual payments, cashback credits and statements remain visible',()=>{
+  const promos=[['Gana $1000','Participa en el sorteo de tu banco'],['Tu crédito preaprobado','Recibiste una oferta de $5000 para tus compras'],['Cashback de $20','Aprovecha pagando con tu tarjeta'],['Recibe $10 al abrir tu cuenta','Beneficio promocional'],['Si pagaste $20','Participa por $500'],['Promoción exclusiva','Has recibido una promoción de USD 100'],['Gana $50','Realiza una transferencia exitosa y gana $50']];
+  for(const [title,text]of promos){assert.equal(isBankPromotion(title,text),true,title);assert.equal(parseBankNotification({title,text},{bank:'Pichincha',account_id:1}),null);const mail={id:'promo',internalDate:String(Date.now()),payload:{headers:[{name:'From',value:'banco@pichincha.com'},{name:'Subject',value:title}],body:{content:text}}};assert.equal(parseBankMail(mail),null);}
+  for(const [title,text]of [['Recibiste $20','Ana Perez te envió 20.00. Aprovecha los beneficios del banco.'],['Pagaste $14','Comercio Promociones Locales'],['Pagaste en Descuentos Locales $14','Comercio real'],['Recibiste una transferencia de Ana Perez por $20','Aprovecha los beneficios de tu banco'],['Transferencia exitosa','Monto $25. Gana puntos con tu banco'],['Has recibido $5 de cashback','Ya se acreditó en tu cuenta'],['Estado de cuenta','Total a pagar $100. Descubre tus descuentos'],['Banco','Estado de cuenta: total $100. Aprovecha tus descuentos'],['Notificación bancaria','La transferencia solicitada será debitada de su cuenta. Cuenta origen: ******6432 Documento: 12345678. Ofertas de tu banco']])assert.equal(isBankPromotion(title,text),false,title);
+});
+
+test('phone marketing is acknowledged without storage, bank postings or repeated processing',t=>{
+  const f=fixture(t,{automatic:true}),e=f.event({title:'Gana $500',text:'Participa en nuestro sorteo pagando con tu tarjeta'});
+  assert.deepEqual(ingestBankNotifications(f.db,f.device,[e]).ack,[e.id]);
+  ingestBankNotifications(f.db,f.device,[e]);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_notification_events').get().n,0);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,0);assert.equal(f.balance(),10000);
+});
+
+test('existing pending promotions are archived automatically without touching registered money',t=>{
+  const f=fixture(t),e=f.event();ingestBankNotifications(f.db,f.device,[e]);
+  const payload={subject:'Gana $500',body:'Participa en el sorteo, paga con tu tarjeta'};
+  f.db.prepare('UPDATE finance_notification_events SET encrypted=?').run(encryptDocument(Buffer.from(JSON.stringify(payload))));
+  f.db.prepare("INSERT INTO finance_mail_messages(id,received_at,encrypted,state,created_at) VALUES ('old-promo',?,?,'draft',?)").run(new Date().toISOString(),encryptDocument(Buffer.from(JSON.stringify(payload))),new Date().toISOString());
+  assert.deepEqual(archiveBankPromotions(f.db),{android:1,mail:1});
+  assert.ok(f.db.prepare('SELECT archived_at FROM finance_notification_events').get().archived_at);
+  assert.equal(mailDrafts(f.db).length,0);assert.equal(f.balance(),10000);
+  assert.deepEqual(archiveBankPromotions(f.db),{android:0,mail:0});
+});
+
+test('owner can remove an applied phone notice without reversing its payment or letting it return',t=>{
+  const f=fixture(t),e=f.event();ingestBankNotifications(f.db,f.device,[e]);const id=f.db.prepare('SELECT id FROM finance_notification_events').get().id;
+  applyBankNotification(f.db,owner,id,{account_id:f.account});assert.equal(f.balance(),12500);
+  assert.throws(()=>archiveBankNotice(f.db,{role:'viewer'},'android',id),e=>e.status===403);
+  archiveBankNotice(f.db,owner,'android',id);ingestBankNotifications(f.db,f.device,[e]);
+  const row=f.db.prepare('SELECT * FROM finance_notification_events').get();assert.equal(row.state,'applied');assert.ok(row.archived_at);assert.equal(f.balance(),12500);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,1);
+});
+
+test('removing an applied email preserves its corroboration of the matching phone notification',t=>{
+  const f=fixture(t),instant=new Date().toISOString();
+  const bank=importBank(f.db,owner,{source_system:'bank-email',account_id:f.account,rows:[{day:financeDay(),occurred_at:instant,amount_cents:2500,reference:'MAIL12345',description:'Real transfer',external_id:'received-real'}]}).transaction_ids[0];
+  const p={trusted:true,bank:'Deuna',amount_cents:2500,counterparty:'Ana Perez',occurred_at:instant,received_at:instant,body:'Transferencia recibida de Ana Perez'};
+  f.db.prepare("INSERT INTO finance_mail_messages(id,received_at,encrypted,state,account_id,bank_transaction_id,created_at) VALUES ('hide-real',?,?,'applied',?,?,?)").run(instant,encryptDocument(Buffer.from(JSON.stringify(p))),f.account,bank,instant);
+  archiveBankNotice(f.db,owner,'mail','hide-real');assert.equal(mailDrafts(f.db).length,0);
+  const row=f.db.prepare("SELECT * FROM finance_mail_messages WHERE id='hide-real'").get();assert.ok(row.inbox_hidden_at);assert.equal(row.archived_at,null);
+  ingestBankNotifications(f.db,f.device,[f.event({text:'Recibiste $25 de Ana Perez.'})]);linkRecordedBankEvidence(f.db);
+  assert.equal(f.db.prepare('SELECT state FROM finance_notification_events').get().state,'matched');assert.equal(f.balance(),12500);
   assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,1);
 });

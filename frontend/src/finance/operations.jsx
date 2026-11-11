@@ -624,10 +624,15 @@ export function MailInbox({ onClose }) {
       setBusy(false);
     }
   }
+  async function archive(message){
+    setBusy(true);setError('');
+    try{await financeApi(`/mail/${message.id}/archive`,{});setMessages(list=>list.filter(m=>m.id!==message.id));if(selected?.id===message.id)setSelected(null);await refresh();notify('Aviso quitado de la bandeja');}
+    catch(e){setError(e.message);}finally{setBusy(false);}
+  }
   return (
     <Modal
       title="Avisos bancarios"
-      subtitle="Solo tú puedes consultar el correo y sus detalles."
+      subtitle="Las promociones se filtran solas. Puedes quitar un aviso sin cambiar saldos ni borrar el correo de Gmail."
       onClose={onClose}
       wide
     >
@@ -726,6 +731,7 @@ export function MailInbox({ onClose }) {
                         ? "En proceso en el banco"
                         : "Por revisar"}
             </span>
+            <Button variant="ghost" disabled={busy} onClick={()=>archive(m)}>Quitar aviso</Button>
             <h3>
               {m.amount_cents
                 ? money(m.amount_cents)

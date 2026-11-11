@@ -1,5 +1,6 @@
 import { applyPrivateBankReview } from "./finance-bank-review.js";
 import { financeSupportCheck } from "./finance-support-check.js";
+import {archiveBankPromotions} from './finance-bank-inbox.js';
 import {uploadConversationPhoto} from "./finance-conversation-photos.js";
 import {cancelsConversation} from '../../shared/finance-conversation.mjs';
 import {suggestOriginAccount} from "./finance-origin-account.js";
@@ -89,6 +90,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
   archiveNovemberTrialReceipt(db);
   clearCurrentActivity(db);
   repairKnownAccountNumbers(db);
+  archiveBankPromotions(db);
   applyPrivateBankReview(db);
   setImmediate(()=>financeSupportCheck(db));
   if(process.env.NODE_ENV!=="test")console.info("[finance] Marjorie integration health "+JSON.stringify(marjorieIntegrationHealth(db)));
