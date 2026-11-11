@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import Database from "better-sqlite3";
 import { initFinanceDb, safeMember, financeDay } from "../src/finance-db.js";
-import { encryptDocument } from "../src/finance-ai.js";
+import { encryptDocument,decryptDocument } from "../src/finance-ai.js";
 import { registerQuickEntry } from "../src/finance-quick.js";
 import {
   receiptInbox,
@@ -14,6 +14,7 @@ import {
 import { applyNovemberCleanup, archiveNovemberTrialReceipt, clearCurrentActivity } from "../src/finance-start-clean.js";
 import {ingestBankMessages,mailDrafts,applyMailDraft,replayAutomaticBankMail} from '../src/finance-gmail.js';
 import {initBankNotifications,ingestBankNotifications} from '../src/finance-bank-notifications.js';
+import {receivedWithoutAccount} from '../src/finance-bank-identity.js';
 import { putPrivateSetting } from "../src/finance-operations.js";
 import { recordedAccountBalance } from "../src/finance-check-ledger.js";
 import { flushPaymentPush } from "../src/finance-push.js";
@@ -369,4 +370,17 @@ for(const notificationFirst of [true,false])test(`a received-money phone notific
   ingestBankNotifications(f.db,device,[{...event,id:'ambiguous-small-receipt',text:'Recibiste $1,00 de Ana Perez. Cuenta destino: ****0043'}]);
   assert.equal(f.balance(),134300);
   assert.equal(f.db.prepare("SELECT count(*) n FROM finance_movements WHERE amount_cents=100 AND status='pending'").get().n,2);
+});
+
+for(const [amount,legal,client]of [[5000,'PEREZ ANDRADE LUCIA ISABEL','Lucia Perez'],[26361,'Gomez del Valle Rafael Antonio','Rafael Gomez']])test(`received money ${amount} waits for account evidence, then confirms automatically from the collaborator receipt`,(t)=>{
+  const f=fixture(t);initBankNotifications(f.db);putPrivateSetting(f.db,'receipt_auto_confirm_from_notification',true);
+  const device={id:'morning-phone',created_at:new Date(Date.now()-3600000).toISOString(),apps_json:JSON.stringify([{package_name:'bank.test',bank:'Pichincha',account_id:null,automatic:true}])};
+  f.db.prepare("INSERT INTO finance_notification_devices(id,client_id,member_id,session_hash,token_hash,apps_json,created_at,expires_at) VALUES (?,'morning-client',?,'test','morning-token',?,?,?)").run(device.id,f.owner.id,device.apps_json,device.created_at,Date.now()+3600000);
+  ingestBankNotifications(f.db,device,[{id:'received-morning',package_name:'bank.test',posted_at:new Date(Date.now()-1000).toISOString(),title:`Recibiste ${(amount/100).toFixed(2)}!`,text:`${legal} te envió ${(amount/100).toFixed(2)}.`}]);
+  const before=f.db.prepare('SELECT * FROM finance_notification_events').get();
+  assert.equal(receivedWithoutAccount(before,JSON.parse(decryptDocument(before.encrypted).toString())),true);
+  assert.equal(f.balance(),10000);assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,0);
+  const submitted=registerQuickEntry(f.db,f.norma,{...f.payload,overrides:{...f.payload.overrides,amount_cents:amount,counterparty:client,reference:'PROOF'+amount}});
+  assert.equal(submitted.movement.status,'reconciled');assert.equal(f.balance(),10000+amount);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,1);
 });

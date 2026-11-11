@@ -123,7 +123,7 @@ function Notice({ event, onChange }) {
     ),
     [link, setLink] = useState(""),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),[assigning,setAssigning]=useState(false);
   const accounts = data.accounts.filter(
     (a) => a.kind === "bank" && code(a.bank) === code(event.bank)
   );
@@ -153,7 +153,7 @@ function Notice({ event, onChange }) {
       setBusy(false);
     }
   }
-  const state = event.awaiting_mail?'Verificando automáticamente':
+  const state = event.account_pending?'Recibido · cuenta por identificar':event.awaiting_mail?'Verificando automáticamente':
     {
       review: "Por revisar",
       applied: "Registrado",
@@ -175,8 +175,9 @@ function Notice({ event, onChange }) {
           timeZone: "America/Guayaquil",
         })}
       </small>
-      <p>{event.awaiting_mail?'Buscando el correo para identificar la cuenta. Se actualizará solo.':event.reason}</p>
-      {event.state === "review" && !event.awaiting_mail && (
+      <p>{event.account_pending?'El banco confirma el ingreso. La cuenta se asociará al llegar un comprobante o correo con datos coincidentes.':event.awaiting_mail?'Buscando el correo para identificar la cuenta. Se actualizará solo.':event.reason}</p>
+      {event.account_pending&&!assigning&&<Button variant="secondary" onClick={()=>setAssigning(true)}>Asociar cuenta ahora</Button>}
+      {event.state === "review" && ((!event.awaiting_mail&&!event.account_pending)||assigning) && (
         <>
           <div className="gf-bank-notice-fields">
             <Field label="Cuenta">
@@ -255,7 +256,7 @@ function Notice({ event, onChange }) {
                 })
               }
             >
-              {link && link !== "new"
+              {event.account_pending?'Guardar cuenta del ingreso':link && link !== "new"
                 ? "Relacionar sin sumar"
                 : "Confirmar en la cuenta"}
             </Button>
@@ -300,7 +301,7 @@ export function BankNotificationsPanel() {
     }
     return state;
   }
-  const waitingIds=(server?.events||[]).filter(e=>e.awaiting_mail).map(e=>e.id).join(',');
+  const waitingIds=(server?.events||[]).filter(e=>e.awaiting_mail||e.account_pending).map(e=>e.id).join(',');
   useEffect(()=>{
     if(!waitingIds)return;
     let active=true,running=false;
@@ -311,7 +312,7 @@ export function BankNotificationsPanel() {
         const next=await reload({quiet:true});
         if(active&&next.events.some(e=>waitingIds.split(',').includes(String(e.id))&&['applied','matched'].includes(e.state))){await refresh();notify('Transferencia verificada automáticamente');}
       }catch{}finally{running=false;}
-    },4000);
+    },server?.events.some(e=>e.awaiting_mail&&!e.account_pending)?4000:15000);
     return()=>{active=false;clearInterval(timer);};
   },[waitingIds]);
   useEffect(() => {
@@ -566,7 +567,7 @@ export function BankNotificationsPanel() {
       <div className="gf-between gf-bank-inbox-title">
         <h4>
           {pending.length
-            ? pending.every(e=>e.awaiting_mail)?`${pending.length} avisos verificándose`:`${pending.filter(e=>!e.awaiting_mail).length} avisos por revisar`
+            ? pending.every(e=>e.account_pending)?`${pending.length} ingresos recibidos`:pending.every(e=>e.awaiting_mail||e.account_pending)?`${pending.length} avisos en seguimiento`:`${pending.filter(e=>!e.awaiting_mail&&!e.account_pending).length} avisos por revisar`
             : "Avisos recibidos"}
         </h4>
         <Button

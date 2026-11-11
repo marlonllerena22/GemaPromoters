@@ -276,6 +276,7 @@ export function OwnerHome() {
             <ChevronRight size={18} />
           </button>
         )}
+        {extra.bank_received_unassigned>0&&<button className="gf-home-reminder" onClick={()=>navigate('conexiones')}><Wallet size={21}/><span><strong>Ingresos recibidos por asociar</strong><small>{extra.bank_received_unassigned} ingresos · esperando datos de la cuenta</small></span><ChevronRight size={18}/></button>}
         {extra.mail > 0 && (
           <button
             className="gf-home-reminder"

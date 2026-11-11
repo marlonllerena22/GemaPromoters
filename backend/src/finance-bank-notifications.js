@@ -5,6 +5,7 @@ import { privateSetting } from "./finance-operations.js";
 import { fail, importBank, reconcile } from "./finance-service.js";
 import {linkRecordedBankEvidence} from './finance-evidence-links.js';
 import {reconcileRecordedReceipt} from './finance-receipts.js';
+import {matchingBankPerson,receivedWithoutAccount} from './finance-bank-identity.js';
 
 const digest = (v) =>
   crypto.createHash("sha256").update(String(v)).digest("hex");
@@ -62,9 +63,9 @@ export function parseBankNotification(
   const body = `${event.title || ""}\n${event.text || ""}`.slice(0, 6000),
     plain = norm(body);
   if (sensitiveNotification(body)) return null;
-  let amountMatches=[...body.matchAll(/(?:\$|USD\s*|US\$\s*)([\d.,]+)/gi)];
-  const noCurrency=amountMatches.length===0;
-  if(noCurrency)amountMatches=[...body.matchAll(/(?:recibiste|te envi[oó]|pagaste|consumiste)\s*(?:USD\s*|\$\s*)?([\d.,]+)/gi)];
+  const currencyMatches=[...body.matchAll(/(?:US\$|USD|\$)\s*([\d.,]+)/gi)];
+  const phraseMatches=[...plain.matchAll(/(?:\brecibiste|\bhas recibido|\bacabas de recibir|\bte (?:han? )?(?:pagaron|pago|pagado|enviaron|envio|enviado|depositaron|deposito|depositado|transfirieron|transfirio|transferido|acreditaron|acredito|acreditado)|\bpagaste|\benviaste|\btransferiste|\bconsumiste|\btu (?:pago|transferencia) (?:de|por)|\bpago por|\b(?:abono|deposito) recibido|\bse (?:ha )?(?:acredito|debito)|\bmonto\s*:?|\bvalor\s*:?)\s*(?:una? (?:pago|deposito|abono|transferencia)\s*)?(?:(?:por|de|valor de|un monto de)\s*)?(?:usd\s*|\$\s*)?([\d.,]+)/g)];
+  const amountMatches=[...currencyMatches,...phraseMatches];
   let amounts = amountMatches.map(
     (m) => {
       let v = m[1].replace(/[.,]+$/, "");
@@ -84,17 +85,17 @@ export function parseBankNotification(
         : null;
     }
   );
-  if(noCurrency)amounts=[...new Set(amounts)];
+  amounts=[...new Set(amounts)];
   const incoming =
-    /\brecibiste\b|\bhas recibido\b|transferencia recibida|deposito recibido|\bte (?:ha[n]? )?envi(?:o|ado|aron)\b|se ha acreditado/.test(
+    /\brecibiste\b|\bhas recibido\b|\bacabas de recibir\b|transferencia recibida|deposito recibido|abono recibido|\bte (?:ha[n]? )?(?:envi(?:o|ado|aron)|pag(?:o|ado|aron)|deposit(?:o|ado|aron)|transfiri(?:o|eron)|transferido|acreditaron)\b|se (?:ha )?acredit(?:ado|o)/.test(
       plain
     );
   const outgoing =
-    /\bpagaste\b|\benviaste\b|\bconsumiste\b|transferencia exitosa|transferencia enviada|pago realizado|pago exitoso|compra realizada|consumo (?:con|de|realizado)/.test(
+    /\bpagaste\b|\benviaste\b|\btransferiste\b|\bconsumiste\b|realizaste (?:un|una) (?:pago|transferencia|compra)|transferencia exitosa|transferencia enviada|pago realizado|pago exitoso|compra (?:realizada|exitosa)|consumo (?:con|de|realizado)|se (?:ha )?debit(?:ado|o)/.test(
       plain
     );
   const blocked =
-    /pendiente|en proceso|solicitud|rechazad|fallid|insuficiente|no se pudo|no fue exitosa|autorizacion|ser[aá] (?:debitad|acreditad)|intento|recordatorio/.test(
+    /pendiente|en proceso|por confirmar|solicitud|rechazad|fallid|insuficiente|no se pudo|no fue exitosa|no exitoso|no se (?:realizo|proceso|envio)|anulad|cancelad|revertid|autorizacion|ser[aá] (?:debitad|acreditad)|intento|recordatorio/.test(
       plain
     );
   const credit =
@@ -129,9 +130,9 @@ export function parseBankNotification(
   if (!/\d/.test(reference)) reference = "";
   const direction =
     incoming !== outgoing ? (incoming ? "incoming" : "outgoing") : null;
-  const counterparty=(body.match(/(?:recibiste|has recibido|transferencia recibida)[\s\S]*?(?:\bde\s+)([\p{L}][\p{L}\s.'-]+?)(?=\s+(?:cuenta|referencia|banco|saldo|fecha|por|el)\b|[.\n]|$)/iu)?.[1]||body.match(/(?:^|\n)\s*([\p{L}][\p{L}\s.'-]+?)\s+te envi[oó]\s*[\d.,]+/iu)?.[1]||'').trim();
+  const counterparty=(body.match(/(?:recibiste|has recibido|transferencia recibida|te pagaron|te depositaron|te transfirieron)[\s\S]*?(?:\bde\s+)([\p{L}][\p{L}\s.'-]+?)(?=\s+(?:cuenta|referencia|banco|saldo|fecha|por|el)\b|[.\n]|$)/iu)?.[1]||body.match(/(?:^|[\n!.])\s*([\p{L}][\p{L}\s.'-]+?)\s+te (?:ha[n]? )?(?:envi[oó]|enviado|pag[oó]|pagado|deposit[oó]|depositado|transfiri[oó]|transferido)\s*[\d.,]+/iu)?.[1]||'').trim();
   return {
-    parser_version:2,
+    parser_version:3,
     body,
     bank: policy.bank,
     amount_cents: amounts.length === 1 ? amounts[0] : null,
@@ -175,14 +176,12 @@ function decode(row) {
 }
 function notificationReceipt(db,row,p) {
   if(p.blocked||p.credit||p.direction!=='incoming'||!p.amount_cents)return null;
-  const name=v=>norm(v).replace(/[^a-z\s]/g,' ').split(/\s+/).filter(w=>w.length>1).sort().join(' ');
   const candidates=db.prepare(`SELECT m.*,a.bank account_bank FROM finance_movements m JOIN finance_accounts a ON a.id=m.account_id WHERE m.kind='income' AND m.is_payment_request=0
     AND (? IS NULL OR m.account_id=?) AND m.amount_cents=? AND m.day=? AND m.evidence_id IS NOT NULL
     AND m.hidden_at IS NULL AND m.status IN ('pending','reported','approved')`).all(row.account_id,row.account_id,p.amount_cents,financeDay(row.posted_at)).filter(m=>bankCode(m.account_bank)===bankCode(row.bank));
   const matches=candidates.filter(m=>{
     if(p.reference&&m.reference)return p.reference===m.reference;
-    const payer=name(p.counterparty),recipient=name(m.counterparty);
-    return payer.split(' ').length>=2 && payer===recipient;
+    return matchingBankPerson(p.counterparty,m.counterparty);
   });
   return matches.length===1?matches[0]:null;
 }
@@ -204,7 +203,7 @@ export function reprocessBankNotifications(db){
   const registry=privateSetting(db,'own_account_registry')||{accounts:[]};
   let upgraded=0;
   for(const row of db.prepare("SELECT * FROM finance_notification_events WHERE state='review' AND archived_at IS NULL").all()){
-    const prior=decode(row);if(prior.parser_version===2)continue;
+    const prior=decode(row);if(prior.parser_version===3)continue;
     const device=db.prepare('SELECT apps_json FROM finance_notification_devices WHERE id=?').get(row.device_id);
     const policy=device&&JSON.parse(device.apps_json).find(a=>a.package_name===row.package_name);
     if(!policy)continue;
@@ -471,6 +470,7 @@ export function registerNotificationRoutes(
             bank: r.bank,
             posted_at: r.posted_at,
             state: r.state,
+            account_pending:receivedWithoutAccount(r,p),
             awaiting_mail:r.state==='review'&&!p.blocked&&!p.credit&&p.direction&&p.amount_cents&&!r.account_id&&mailConnected&&Date.now()-Date.parse(r.created_at)<180000,
             reason: r.reason,
             account_id: r.account_id,

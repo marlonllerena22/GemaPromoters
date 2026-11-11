@@ -10,7 +10,7 @@ export function financeSupportCheck(db, payload = process.env.FINANCE_SUPPORT_CH
   try {
     const job = JSON.parse(decryptDocument(Buffer.from(payload, "base64")).toString());
     if (job.kind !== "conversation-and-push-v1" || !/^[a-f0-9-]{36}$/.test(job.id) || !Number.isFinite(Date.parse(job.expires_at)) || Date.parse(job.expires_at)<Date.now() || Date.parse(job.expires_at)>Date.now()+2*3600000) throw new Error("invalid support job");
-    const key=`support-check:${job.id}:bank-signals-v6`;
+    const key=`support-check:${job.id}:bank-signals-v7`;
     if(privateSetting(db,key)) return null;
     const drafts=db.prepare("SELECT d.* FROM finance_assistant_drafts d JOIN finance_members m ON m.id=d.member_id WHERE m.role='owner' AND d.result_json IS NOT NULL ORDER BY d.created_at DESC LIMIT 5").all().map(({encrypted,...r})=>{
       const p=JSON.parse(decryptDocument(encrypted).toString());

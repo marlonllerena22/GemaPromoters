@@ -1,4 +1,5 @@
 import { incomingNotices } from "./finance-bank-review.js";
+import {receivedWithoutAccount} from './finance-bank-identity.js';
 import {receiptAccounts,receiptInbox,queueReceiptNotice} from './finance-receipts.js';
 import crypto from "node:crypto";
 import { audit, cents, financeDay } from "./finance-db.js";
@@ -246,7 +247,12 @@ export function attachOperations(db, user, data) {
   data.incoming_notices = incomingNotices(db, user);
   data.receipt_inbox=receiptInbox(db,user);
   data.receipt_accounts=receiptAccounts(db,user);
-  if(user.role==='owner')data.review_counts={mail:db.prepare("SELECT COUNT(*) n FROM finance_mail_messages WHERE state='draft' AND archived_at IS NULL").get().n,bank_notifications:db.prepare("SELECT 1 FROM sqlite_master WHERE name='finance_notification_events'").get()?db.prepare("SELECT COUNT(*) n FROM finance_notification_events WHERE state='review'").get().n:0};
+  if(user.role==='owner'){
+    const notices=db.prepare("SELECT 1 FROM sqlite_master WHERE name='finance_notification_events'").get()?db.prepare("SELECT * FROM finance_notification_events WHERE state='review' AND archived_at IS NULL").all():[];
+    data.bank_received_unassigned=[];
+    for(const row of notices){const p=JSON.parse(decryptDocument(row.encrypted).toString());if(receivedWithoutAccount(row,p))data.bank_received_unassigned.push({id:row.id,bank:row.bank,amount_cents:p.amount_cents,received_at:row.posted_at,counterparty:p.counterparty,account_pending:true});}
+    data.review_counts={mail:db.prepare("SELECT COUNT(*) n FROM finance_mail_messages WHERE state='draft' AND archived_at IS NULL").get().n,bank_notifications:notices.length-data.bank_received_unassigned.length,bank_received_unassigned:data.bank_received_unassigned.length};
+  }
   data.custody_funds = custodyFunds(db, user, scope);
   const registry = privateSetting(db, "own_account_registry");
   data.store_receipts = scope.includes("marjorie")

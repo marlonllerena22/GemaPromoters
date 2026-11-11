@@ -1,6 +1,7 @@
 import {decryptDocument} from './finance-ai.js';
 import {audit,financeDay} from './finance-db.js';
 import {matchOwnTransferCredit} from './finance-own-transfers.js';
+import {matchingBankPerson} from './finance-bank-identity.js';
 
 // Attach corroborating evidence to the existing ledger entry, without moving money.
 export function linkRecordedBankEvidence(db) {
@@ -15,6 +16,21 @@ export function linkRecordedBankEvidence(db) {
       const p=JSON.parse(decryptDocument(row.encrypted).toString());
       if(p.blocked||p.credit||!p.direction)continue;
       let bank=find(row.account_id,row.amount_cents,row.reference,financeDay(row.posted_at));
+      if(!bank&&p.amount_cents){
+        const signed=p.amount_cents*(p.direction==='outgoing'?-1:1);
+        const candidates=db.prepare(`SELECT b.*,m.encrypted mail_payload FROM finance_mail_messages m JOIN finance_bank_transactions b ON b.id=m.bank_transaction_id
+          WHERE m.state='applied' AND m.archived_at IS NULL AND b.amount_cents=? AND (? IS NULL OR b.account_id=?)
+          AND NOT EXISTS(SELECT 1 FROM finance_notification_events n WHERE n.id!=? AND n.device_id=? AND n.package_name=? AND n.bank_transaction_id=b.id AND n.state IN ('matched','applied'))`).all(signed,row.account_id,row.account_id,row.id,row.device_id,row.package_name).filter(candidate=>{
+          const mail=JSON.parse(decryptDocument(candidate.mail_payload).toString());
+          if(!mail.trusted||mail.bank!==row.bank)return false;
+          if(row.reference&&mail.reference&&row.reference!==mail.reference)return false;
+          const difference=Math.abs(Date.parse(mail.occurred_at||mail.received_at)-Date.parse(row.posted_at));
+          if(matchingBankPerson(p.counterparty,mail.counterparty))return difference<=5*60000;
+          return p.direction==='outgoing'&&!p.counterparty&&!p.destination_suffix&&difference<=2*60000;
+        });
+        const unique=[...new Map(candidates.map(c=>[c.id,c])).values()];
+        if(unique.length===1)bank=unique[0];
+      }
       if(!bank&&p.direction==='outgoing'&&p.destination_suffix?.length>=4){
         const candidates=db.prepare("SELECT b.*,m.encrypted mail_payload FROM finance_mail_messages m JOIN finance_bank_transactions b ON b.id=m.bank_transaction_id WHERE m.state='applied' AND m.archived_at IS NULL AND b.amount_cents=?").all(-p.amount_cents).filter(m=>{
           const mail=JSON.parse(decryptDocument(m.mail_payload).toString());

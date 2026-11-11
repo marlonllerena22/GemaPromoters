@@ -14,8 +14,14 @@ import { putPrivateSetting } from "../src/finance-operations.js";
 import { importBank } from "../src/finance-service.js";
 import { ingestBankMessages,applyMailDraft } from "../src/finance-gmail.js";
 import { recordedAccountBalance } from "../src/finance-check-ledger.js";
+import {linkRecordedBankEvidence} from '../src/finance-evidence-links.js';
 
 process.env.FINANCE_DOCUMENT_KEY = "test-only-bank-notification-key-0123456789";
+test('bank wording recognizes received and sent payments with or without currency signs',()=>{
+  const cases=[['Recibiste un pago de 50.00','incoming',5000],['Te pagaron 50,00 de Ana Perez','incoming',5000],['Juan Perez te pagó 12.50','incoming',1250],['Te depositaron 263.61','incoming',26361],['Has recibido una transferencia de $ 10.00','incoming',1000],['Te acreditaron 7.25','incoming',725],['Pagaste 5.00','outgoing',500],['Enviaste 5,00','outgoing',500],['Transferiste USD 8.50','outgoing',850],['Pago exitoso\nTu pago de 44.20 fue realizado exitosamente.','outgoing',4420],['Se debitó $ 12.40 de tu cuenta','outgoing',1240]];
+  for(const [text,direction,cents]of cases)for(const bank of ['Pichincha','Guayaquil','Pacífico','Produbanco','Solidario','Deuna']){const p=parseBankNotification({text},{bank,account_id:1});assert.equal(p.direction,direction,text);assert.equal(p.amount_cents,cents,text);}
+  for(const text of ['Pago rechazado. Tu pago de 44.20 no se pudo realizar','Pagaste $20. Operación pendiente de confirmación','Enviaste $10. Transferencia anulada'])assert.equal(parseBankNotification({text},{bank:'Pichincha'}).blocked,true);
+});
 test('localized notification amounts keep thousand separators and cents correct',()=>{
   const policy={bank:'Deuna',account_id:1};
   for(const [text,cents] of [['Recibiste $1.500,25',150025],['Recibiste USD 1,500.25',150025],['Recibiste $1,500',150000],['Pagaste $25,00.',2500]])assert.equal(parseBankNotification({text},policy).amount_cents,cents);
@@ -395,4 +401,30 @@ test('reader health is owner-scoped, sanitized, and cannot change financial bala
   assert.equal(stored.includes('never-store-this'),false);assert.equal(f.balance(),before);
   assert.throws(()=>report({...req,financeUser:{role:'owner',id:member+100}},{json(){}}),e=>e.status===404);
   assert.throws(()=>report({...req,financeUser:{role:'viewer',id:member}},{json(){}}),e=>e.status===403);
+});
+
+test('generic successful-payment push links to the unique bank mail without debiting again',(t)=>{
+  const f=fixture(t);f.db.prepare("UPDATE finance_accounts SET bank='Pichincha',opening_cents=10000 WHERE id=?").run(f.account);
+  putPrivateSetting(f.db,'debit_card_accounts',[{bank:'Pichincha',suffix:'5621',account_id:f.account}]);
+  const at=new Date(Date.now()-5000),day=financeDay(at).split('-').reverse().join('/');
+  const m={id:'confirmed-facebook',internalDate:String(at.getTime()),payload:{headers:[{name:'From',value:'banco@pichincha.com'},{name:'Subject',value:'Pago exitoso'},{name:'Authentication-Results',value:'mx.google.com; dmarc=pass header.from=pichincha.com'}],body:{content:`Pago exitoso. El día ${day} a la(s) ${at.toLocaleTimeString('en-GB',{timeZone:'America/Guayaquil',hour:'2-digit',minute:'2-digit'})} tu pago con tu Tarjeta de Débito fue realizado exitosamente. Monto $ 44.20 Comercio COMERCIO PRUEBA Fecha ${day} Número de tarjeta ************5621`}}};
+  ingestBankMessages(f.db,[m]);assert.equal(f.balance(),5580);
+  f.device.apps_json=JSON.stringify([{package_name:'app.test.deuna',bank:'Pichincha',account_id:null,automatic:true}]);
+  ingestBankNotifications(f.db,f.device,[f.event({posted_at:at.toISOString(),title:'Pago exitoso',text:'Tu pago de 44.20 fue realizado exitosamente.'})]);
+  assert.equal(f.balance(),5580);assert.equal(f.db.prepare('SELECT state FROM finance_notification_events').get().state,'matched');
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,1);
+  linkRecordedBankEvidence(f.db);assert.equal(f.balance(),5580);
+});
+
+test('a received-money push without account digits links to matching bank mail by payer, bank, amount and time',(t)=>{
+  const f=fixture(t);f.db.prepare("UPDATE finance_accounts SET bank='Pichincha' WHERE id=?").run(f.account);
+  f.device.apps_json=JSON.stringify([{package_name:'app.test.deuna',bank:'Pichincha',account_id:null,automatic:true}]);
+  putPrivateSetting(f.db,'own_account_registry',{accounts:[{account_id:f.account,bank:'Pichincha',number:'2200001234'}]});
+  const at=new Date(Date.now()-5000);
+  ingestBankNotifications(f.db,f.device,[f.event({posted_at:at.toISOString(),title:'Recibiste 50.00!',text:'PEREZ ANDRADE LUCIA ISABEL te envió 50.00.'})]);
+  assert.equal(f.balance(),10000);
+  const message={id:'incoming50',internalDate:String(at.getTime()),payload:{headers:[{name:'From',value:'banco@pichincha.com'},{name:'Subject',value:'Transferencia recibida'},{name:'Authentication-Results',value:'mx.google.com; dmarc=pass header.from=pichincha.com'}],body:{content:'Te confirmamos que PEREZ ANDRADE LUCIA ISABEL ha realizado una transferencia recibida. Cuenta destino: ****1234 Monto: USD 50.00 Referencia REALIN50'}}};
+  ingestBankMessages(f.db,[message]);
+  assert.equal(f.balance(),15000);const row=f.db.prepare('SELECT * FROM finance_notification_events').get();assert.equal(row.state,'matched');assert.equal(row.account_id,f.account);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,1);
 });
