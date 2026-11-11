@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
 import {initFinanceDb,financeDay} from '../src/finance-db.js';
-import {putPrivateSetting} from '../src/finance-operations.js';
+import {putPrivateSetting,privateSetting} from '../src/finance-operations.js';
+import {repairKnownAccountNumbers} from '../src/finance-start-clean.js';
 import {ingestBankMessages,replayAutomaticBankMail} from '../src/finance-gmail.js';
 import {encryptDocument} from '../src/finance-ai.js';
 import {recordedAccountBalance} from '../src/finance-check-ledger.js';
@@ -67,6 +68,22 @@ test('untrusted or rejected scheduled-transfer messages never post money',(t)=>{
   ingestBankMessages(f.db,[untrusted,rejected]);
   assert.equal(f.balance(f.from),100000);assert.equal(f.balance(f.to),10619);
   assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,0);
+});
+test('repairing the supplied PAGOS number reclassifies an already debited transfer and adds only its missing credit',(t)=>{
+  const f=fixture(t),registry=privateSetting(f.db,'own_account_registry');
+  const target=registry.accounts.find(a=>a.account_id===f.to);target.key='gyq-pagos';delete target.number;delete target.suffix;
+  f.db.prepare("UPDATE finance_accounts SET name='Guayaquil · PAGOS · Ahorros',last_four='' WHERE id=?").run(f.to);
+  putPrivateSetting(f.db,'own_account_registry',registry);
+  const m=f.make('pagos-missing-number');m.payload.body.content=m.payload.body.content.replace('6207','2719');
+  ingestBankMessages(f.db,[m]);
+  assert.equal(f.balance(f.from),88697);assert.equal(f.balance(f.to),10619);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,1);
+  assert.equal(repairKnownAccountNumbers(f.db).last_four,'2719');
+  assert.equal(f.balance(f.from),88697);assert.equal(f.balance(f.to),10619);
+  replayAutomaticBankMail(f.db);
+  assert.equal(f.balance(f.from),88697);assert.equal(f.balance(f.to),21922);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,2);
+  replayAutomaticBankMail(f.db);assert.equal(f.balance(f.to),21922);
 });
 for(const phoneFirst of [true,false])test(`the real Pichincha successful-transfer notification links to the sending account; phone first: ${phoneFirst}`,(t)=>{
   const f=fixture(t);initBankNotifications(f.db);

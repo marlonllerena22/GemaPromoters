@@ -142,7 +142,7 @@ function Notice({ event, onChange }) {
       setBusy(false);
     }
   }
-  const state =
+  const state = event.awaiting_mail?'Verificando automáticamente':
     {
       review: "Por revisar",
       applied: "Registrado",
@@ -164,8 +164,8 @@ function Notice({ event, onChange }) {
           timeZone: "America/Guayaquil",
         })}
       </small>
-      <p>{event.reason}</p>
-      {event.state === "review" && (
+      <p>{event.awaiting_mail?'Buscando el correo para identificar la cuenta. Se actualizará solo.':event.reason}</p>
+      {event.state === "review" && !event.awaiting_mail && (
         <>
           <div className="gf-bank-notice-fields">
             <Field label="Cuenta">
@@ -264,7 +264,7 @@ function Notice({ event, onChange }) {
   );
 }
 export function BankNotificationsPanel() {
-  const { user, data, notify } = useFinance(),
+  const { user, data, notify,refresh } = useFinance(),
     [local, setLocal] = useState(null),
     [installed, setInstalled] = useState([]),
     [apps, setApps] = useState({}),
@@ -272,10 +272,10 @@ export function BankNotificationsPanel() {
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [showAll, setShowAll] = useState(false);
-  async function reload() {
+  async function reload(options={}) {
     const state = await financeApi("/bank-notifications");
     setServer(state);
-    if (available()) {
+    if (available()&&!options.quiet) {
       const [s, a] = await Promise.all([Native.status(), Native.apps()]);
       setLocal(s);
       setInstalled(a.apps);
@@ -287,7 +287,22 @@ export function BankNotificationsPanel() {
           Object.fromEntries(device.apps.map((p) => [p.package_name, p]))
         );
     }
+    return state;
   }
+  const waitingIds=(server?.events||[]).filter(e=>e.awaiting_mail).map(e=>e.id).join(',');
+  useEffect(()=>{
+    if(!waitingIds)return;
+    let active=true,running=false;
+    const timer=setInterval(async()=>{
+      if(running||document.visibilityState==='hidden')return;
+      running=true;
+      try{
+        const next=await reload({quiet:true});
+        if(active&&next.events.some(e=>waitingIds.split(',').includes(String(e.id))&&['applied','matched'].includes(e.state))){await refresh();notify('Transferencia verificada automáticamente');}
+      }catch{}finally{running=false;}
+    },4000);
+    return()=>{active=false;clearInterval(timer);};
+  },[waitingIds]);
   useEffect(() => {
     if (user.role !== "owner") return;
     void reload().catch((e) => setError(e.message));
@@ -538,7 +553,7 @@ export function BankNotificationsPanel() {
       <div className="gf-between gf-bank-inbox-title">
         <h4>
           {pending.length
-            ? `${pending.length} avisos por revisar`
+            ? pending.every(e=>e.awaiting_mail)?`${pending.length} avisos verificándose`:`${pending.filter(e=>!e.awaiting_mail).length} avisos por revisar`
             : "Avisos recibidos"}
         </h4>
         <Button

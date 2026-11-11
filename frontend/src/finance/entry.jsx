@@ -524,8 +524,13 @@ function FinanceApp() {
   useEffect(() => {
     if (user && !user.password_change_required) {
       refresh();
-      const timer = setInterval(() => refresh(true), 60_000);
-      return () => clearInterval(timer);
+      const tick=()=>{if(document.visibilityState!=='hidden')void refresh(true);};
+      const fast=user.role==='owner'&&['inicio','cuentas','conexiones'].includes(page);
+      const timer = setInterval(tick, fast?15_000:60_000);
+      let lastWake=0;
+      const wake=()=>{if(Date.now()-lastWake>1000){lastWake=Date.now();tick();}};
+      window.addEventListener('focus',wake);document.addEventListener('visibilitychange',wake);
+      return () => {clearInterval(timer);window.removeEventListener('focus',wake);document.removeEventListener('visibilitychange',wake);};
     }
   }, [user, refresh, page]);
   useEffect(() => {

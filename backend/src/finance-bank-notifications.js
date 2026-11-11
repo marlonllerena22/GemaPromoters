@@ -414,7 +414,7 @@ export function ingestBankNotifications(db, device, events) {
   ).run(new Date().toISOString(), device.id);
   return { ok: true, ack };
 }
-export function registerNotificationPublic(app, db, { route }) {
+export function registerNotificationPublic(app, db, { route,requestMailCorroboration }) {
   initBankNotifications(db);
   const attempts = new Map();
   // This bearer can only submit events. It cannot read accounts, emails, or balances.
@@ -438,22 +438,26 @@ export function registerNotificationPublic(app, db, { route }) {
       const n = (attempts.get(key) || 0) + 1;
       attempts.set(key, n);
       if (n > 60) fail("Demasiados avisos; se reintentará", 429);
+      const result=ingestBankNotifications(db, device, req.body.events);
+      requestMailCorroboration?.();
       res
         .set("Cache-Control", "no-store")
-        .json(ingestBankNotifications(db, device, req.body.events));
+        .json(result);
     })
   );
 }
 export function registerNotificationRoutes(
   app,
   db,
-  { route, owner, sessionToken }
+  { route, owner, sessionToken,requestMailCorroboration }
 ) {
   queueMicrotask(()=>{try{reprocessBankNotifications(db);}catch(error){console.error('[finance] Phone notice replay needs attention: '+(error.status?error.message:error.code||error.name));}});
   app.get(
     "/api/finance/bank-notifications",
     route((req, res) => {
       owner(req);
+      requestMailCorroboration?.();
+      const mailConnected=Boolean(db.prepare("SELECT 1 FROM finance_mail_oauth WHERE id='gmail'").get());
       const events = db
         .prepare(
           "SELECT * FROM finance_notification_events WHERE archived_at IS NULL ORDER BY id DESC LIMIT 100"
@@ -466,6 +470,7 @@ export function registerNotificationRoutes(
             bank: r.bank,
             posted_at: r.posted_at,
             state: r.state,
+            awaiting_mail:r.state==='review'&&!p.blocked&&!p.credit&&p.direction&&p.amount_cents&&!r.account_id&&mailConnected&&Date.now()-Date.parse(r.created_at)<180000,
             reason: r.reason,
             account_id: r.account_id,
             amount_cents: Math.abs(r.amount_cents || 0) || null,

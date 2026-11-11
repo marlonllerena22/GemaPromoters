@@ -125,6 +125,7 @@ const bankLabel = (root) =>
             ? "Solidario"
             : "Deuna";
 const bankCode = (s) => normalize(s).replace(/banco|del|de|[^a-z]/g, "");
+const registrySignature=registry=>crypto.createHash('sha256').update(JSON.stringify({accounts:registry.accounts||[],debit_cards:registry.debit_cards||[],owner_name:registry.owner_name||''})).digest('hex');
 export function parseBankMail(m, registry = { accounts: [] }) {
   const from = head(m, "from"),
     domain = (from.match(/@([a-z0-9.-]+)>?/i)?.[1] || "").toLowerCase(),
@@ -316,6 +317,7 @@ export function parseBankMail(m, registry = { accounts: [] }) {
   return {
     id: m.id,
     parser_version:2,
+    registry_signature:registrySignature(registry),
     accepted_scheduled_transfer:acceptedScheduledTransfer,
     from,
     subject,
@@ -1222,11 +1224,11 @@ export function autoApplyBankMail(db, id) {
     .get(id);
   if (!row || row.archived_at) return;
   let p = JSON.parse(decryptDocument(row.encrypted).toString());
-  if(p.trusted&&p.parser_version!==2){
-    const registry=privateSetting(db,'own_account_registry')||{accounts:[]};
-    registry.debit_cards=privateSetting(db,'debit_card_accounts')||registry.debit_cards||[];
+  const registry=privateSetting(db,'own_account_registry')||{accounts:[]};
+  registry.debit_cards=privateSetting(db,'debit_card_accounts')||registry.debit_cards||[];
+  if(p.trusted&&(p.parser_version!==2||p.registry_signature!==registrySignature(registry))){
     const parsed=parseBankMail({id:p.id||id,internalDate:String(Date.parse(p.received_at)),payload:{headers:[{name:'From',value:p.from},{name:'Subject',value:p.subject}],body:{content:p.body}}},registry);
-    if(parsed){
+    if(parsed&&!(row.state==='applied'&&parsed.account_id!==row.account_id)){
       p={...parsed,trusted:p.trusted};
       const state=row.state==='applied'||row.state==='historical'?row.state:p.pending?'pending':p.rejected?'failed':'draft';
       db.prepare('UPDATE finance_mail_messages SET encrypted=?,account_id=?,state=? WHERE id=?').run(encryptDocument(Buffer.from(JSON.stringify(p))),p.account_id,state,id);

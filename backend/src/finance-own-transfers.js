@@ -40,6 +40,7 @@ export function matchOwnTransferCredit(db,row,source) {
 export function postOwnTransferDestination(db,p,originBankId) {
   if(p.event!=='internal_transfer'||!p.origin_account_id||!p.destination_account_id||p.origin_account_id===p.destination_account_id||!p.reference)return null;
   if(p.account_id!==p.origin_account_id)return null;
+  if(!db.prepare('SELECT 1 FROM finance_bank_transactions WHERE id=? AND account_id=? AND amount_cents=?').get(originBankId,p.origin_account_id,-p.amount_cents))fail('El aviso no coincide con el débito de origen ya registrado',409);
   const registry=privateSetting(db,'own_account_registry')?.accounts||[];
   if(!registry.some(a=>a.account_id===p.origin_account_id)||!registry.some(a=>a.account_id===p.destination_account_id))return null;
   const previous=db.prepare('SELECT * FROM finance_own_transfers WHERE origin_bank_id=?').get(originBankId);

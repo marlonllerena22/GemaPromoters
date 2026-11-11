@@ -4,14 +4,15 @@ import {uploadConversationPhoto} from "./finance-conversation-photos.js";
 import {suggestOriginAccount} from "./finance-origin-account.js";
 import {marjorieIntegrationHealth} from "./finance-integration-health.js";
 import {registerReceiptRoutes,suggestReceivingAccount} from './finance-receipts.js';
-import {applyNovemberCleanup,archiveNovemberTrialReceipt,clearCurrentActivity} from './finance-start-clean.js';
-import {registerNotificationPublic,registerNotificationRoutes} from "./finance-bank-notifications.js";
+import {applyNovemberCleanup,archiveNovemberTrialReceipt,clearCurrentActivity,repairKnownAccountNumbers} from './finance-start-clean.js';
+import {registerNotificationPublic,registerNotificationRoutes,reprocessBankNotifications} from "./finance-bank-notifications.js";
+import {createBankMailCorroborator} from './finance-bank-mail-corroboration.js';
 import { assistantFilters, sourcedAnswer } from "./finance-assistant.js";
 import { canUseFinanceAssistant } from "../../shared/finance-workflow.mjs";
 import crypto from "node:crypto";
 import { registerFundingRoutes } from "./finance-funding.js";
 import { registerLoanRoutes } from "./finance-loans.js";
-import { registerGmailPublic, registerGmailRoutes } from "./finance-gmail.js";
+import { registerGmailPublic, registerGmailRoutes,syncGmail } from "./finance-gmail.js";
 import {
   applyFinanceBootstrap,
   registerPublicFinanceAccess,
@@ -86,6 +87,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
   applyNovemberCleanup(db);
   archiveNovemberTrialReceipt(db);
   clearCurrentActivity(db);
+  repairKnownAccountNumbers(db);
   applyPrivateBankReview(db);
   setImmediate(()=>financeSupportCheck(db));
   if(process.env.NODE_ENV!=="test")console.info("[finance] Marjorie integration health "+JSON.stringify(marjorieIntegrationHealth(db)));
@@ -297,7 +299,8 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
 
   registerPublicFinanceAccess(app, db, { route, startSession });
   registerGmailPublic(app, db, { route });
-  registerNotificationPublic(app, db, { route });
+  const requestMailCorroboration=createBankMailCorroborator(db,{syncMail:()=>syncGmail(db),matchNotifications:()=>reprocessBankNotifications(db)});
+  registerNotificationPublic(app, db, { route,requestMailCorroboration });
   app.use(
     "/api/finance",
     route((req, res, next) => {
@@ -408,7 +411,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
   registerReceiptRoutes(app,db,{route});
   registerInviteManagement(app, db, { route, owner });
   registerGmailRoutes(app, db, { route, owner });
-  registerNotificationRoutes(app, db, { route, owner, sessionToken });
+  registerNotificationRoutes(app, db, { route, owner, sessionToken,requestMailCorroboration });
   registerLoanRoutes(app, db, { route, owner });
   registerFundingRoutes(app, db, { route, owner });
   registerPaymentPush(app, db, { route, owner });

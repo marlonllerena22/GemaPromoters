@@ -2,6 +2,27 @@ import { audit } from "./finance-db.js";
 import { privateSetting, putPrivateSetting } from "./finance-operations.js";
 import { queueReceiptNotice } from "./finance-receipts.js";
 
+export function repairKnownAccountNumbers(db){
+  const key='known-guayaquil-pagos-number-2026-11-11-v1';if(privateSetting(db,key))return;
+  return db.transaction(()=>{
+    const registry=privateSetting(db,'own_account_registry');
+    if(!registry)return;
+    const entries=registry.accounts.filter(a=>a.key==='gyq-pagos');
+    if(entries.length!==1)return;
+    const entry=entries[0],account=db.prepare("SELECT * FROM finance_accounts WHERE id=? AND bank='Guayaquil' AND name LIKE '%PAGOS%'").get(entry.account_id);
+    if(!account||(account.last_four&&!['2719'].includes(account.last_four))||(entry.number&&entry.number!=='0013282719'))return;
+    // Full number supplied by Marlon; confirmed again by the bank's named PAGOS transfer.
+    entry.number='0013282719';entry.suffix='2719';
+    putPrivateSetting(db,'own_account_registry',registry);
+    putPrivateSetting(db,'mail_auto_replay_cursor',null);
+    db.prepare("UPDATE finance_accounts SET last_four='2719' WHERE id=?").run(account.id);
+    const result={account_id:account.id,last_four:'2719',balances_unchanged:true};
+    putPrivateSetting(db,key,result);audit(db,'marlon','account.number_repaired','account',account.id,null,result);
+    console.info('[finance] Known account number repaired '+JSON.stringify(result));
+    return result;
+  })();
+}
+
 export function clearCurrentActivity(db) {
   const key='owner-clear-activity-2026-11-11-v1';
   if(privateSetting(db,key))return;
