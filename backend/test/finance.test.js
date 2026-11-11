@@ -1294,6 +1294,30 @@ test("signed AlfaBusiness deliveries validate raw payload, timestamp and busines
   );
 });
 
+test('signed AlfaBusiness delivery accepts the reported sale 866 envelope and repeats return the same financial ID',async t=>{
+  const f=await fixture(t),old=process.env.FINANCE_SALES_WEBHOOK_SECRET;process.env.FINANCE_SALES_WEBHOOK_SECRET='test-only-alfabusiness-secret-866-000000';t.after(()=>{if(old===undefined)delete process.env.FINANCE_SALES_WEBHOOK_SECRET;else process.env.FINANCE_SALES_WEBHOOK_SECRET=old;});
+  // Synthetic amounts: the report supplies ID, branch and invoice, not its real total.
+  const body={event:'sale.registered',occurred_at:'2026-11-11T21:30:56Z',promo_code:null,local:'marjorie-sur',sale:{id:866,local:'Quito Sur',invoice_number:'000000104',sold_at:'2026-11-11T16:20:00-05:00',total:12.34,payments:[{method:'cash',amount_cents:1234}]}};
+  const send=async(value=body,path='/integrations/alfabusiness')=>{const timestamp=String(Math.floor(Date.now()/1000));return f.req(path,'none',value,'POST',{'idempotency-key':'mb-sale-866','x-finance-timestamp':timestamp,'x-finance-signature':crypto.createHmac('sha256',process.env.FINANCE_SALES_WEBHOOK_SECRET).update(timestamp+'.'+JSON.stringify(value)).digest('hex')});};
+  const accepted=await send();assert.equal(accepted.status,200,JSON.stringify(accepted.body));assert.equal(accepted.body.external_id,'866');assert.equal(accepted.body.unit_id,'marjorie-sur');
+  const repeated=await send();assert.equal(repeated.status,200);assert.equal(repeated.body.id,accepted.body.id);assert.equal(repeated.body.ignored,true);
+  const stored=f.db.prepare('SELECT * FROM finance_sales').get();assert.equal(stored.document_number,'000000104');assert.equal(stored.total_cents,1234);assert.equal(stored.day,'2026-11-11');assert.equal(stored.business_id,'marjorie');assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,0);
+  assert.equal((await send({...body,sale:{...body.sale,total:13}})).status,409);
+  const canonical={external_id:'866',unit_id:'marjorie-sur',document_number:'000000104',day:'2026-11-11',total_cents:1234,refunded_cents:0,state:'active',source_updated_at:body.occurred_at,payments:body.sale.payments,promo_code:null};
+  const canonicalRetry=await send(canonical);assert.equal(canonicalRetry.status,200);assert.equal(canonicalRetry.body.id,accepted.body.id);assert.equal(canonicalRetry.body.ignored,true);
+  assert.equal((await send({...body,local:'Norte'})).status,400);
+  const noLocal={...body};delete noLocal.local;noLocal.sale={...body.sale};delete noLocal.sale.local;assert.equal((await send(noLocal,'/integrations/alfabusiness?local=marjorie-sur')).status,400);
+});
+
+test('AlfaBusiness accepts explicit branch aliases for all four stores and rejects unsigned body changes',async t=>{
+  const f=await fixture(t),old=process.env.FINANCE_SALES_WEBHOOK_SECRET;process.env.FINANCE_SALES_WEBHOOK_SECRET='test-only-alfabusiness-aliases-00000000';t.after(()=>{if(old===undefined)delete process.env.FINANCE_SALES_WEBHOOK_SECRET;else process.env.FINANCE_SALES_WEBHOOK_SECRET=old;});
+  for(const [field,name,unit]of [['local','Quito Norte','marjorie-norte'],['sucursal','Quito Sur','marjorie-sur'],['location','Valle','marjorie-valle'],['branch_name','JC Sebastián / Paseo El Bosque','marjorie-bosque'],['unitId','marjorie-bosque','marjorie-bosque']]){
+    const payload=f.sale({external_id:'alias-'+field,[field]:name});delete payload.unit_id;const timestamp=String(Math.floor(Date.now()/1000)),headers={'x-finance-timestamp':timestamp,'x-finance-signature':crypto.createHmac('sha256',process.env.FINANCE_SALES_WEBHOOK_SECRET).update(timestamp+'.'+JSON.stringify(payload)).digest('hex')};
+    const result=await f.req('/integrations/alfabusiness','none',payload,'POST',headers);assert.equal(result.status,200,JSON.stringify(result.body));assert.equal(result.body.unit_id,unit);
+    assert.equal((await f.req('/integrations/alfabusiness','none',{...payload,[field]:'Otro local'},'POST',headers)).status,401);
+  }
+});
+
 test("cash closing uses actual imported payment breakdown and flags later source changes", async (t) => {
   const f = await fixture(t);
   await f.login();

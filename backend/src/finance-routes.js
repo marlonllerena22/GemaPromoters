@@ -6,6 +6,7 @@ import {uploadConversationPhoto} from "./finance-conversation-photos.js";
 import {cancelsConversation} from '../../shared/finance-conversation.mjs';
 import {suggestOriginAccount} from "./finance-origin-account.js";
 import {marjorieIntegrationHealth} from "./finance-integration-health.js";
+import {normalizeAlfaBusinessSale} from './finance-alfabusiness.js';
 import {registerReceiptRoutes,suggestReceivingAccount,repairReceiptAccounts,activateReceiptCredits,confirmReceiptDeposit} from './finance-receipts.js';
 import {applyNovemberCleanup,archiveNovemberTrialReceipt,clearCurrentActivity,repairKnownAccountNumbers} from './finance-start-clean.js';
 import {registerNotificationPublic,registerNotificationRoutes,reprocessBankNotifications} from "./finance-bank-notifications.js";
@@ -1445,19 +1446,15 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         !crypto.timingSafeEqual(check, actual)
       )
         fail("Firma no válida", 401);
-      const sale = {
-        ...req.body,
-        business_id: "marjorie",
-        source_system: "alfabusiness",
-      };
-      if (!sale.unit_id) fail("La venta debe identificar el local");
       if (req.rawBody.length > 1024 * 1024)
         fail("El aviso de venta excede el tamaño permitido", 413);
+      const sale=normalizeAlfaBusinessSale(req.body,{idempotencyKey:req.get('idempotency-key')});
       const result = importSale(db, sale);
       db.prepare(
         "UPDATE finance_sync_log SET state='ready',last_run=?,count=count+?,detail='Recepción de ventas autenticadas; cotejar cobertura con AlfaBusiness' WHERE source='alfabusiness'",
       ).run(new Date().toISOString(), result.ignored ? 0 : 1);
-      res.json(result);
+      console.info('[finance] AlfaBusiness delivery accepted '+JSON.stringify({external_id:sale.external_id,unit_id:sale.unit_id,id:result.id,ignored:result.ignored}));
+      res.json({...result,external_id:sale.external_id,unit_id:sale.unit_id});
     }),
   );
   app.get("/api/finance/integrations/alfabusiness/status",route((req,res)=>{

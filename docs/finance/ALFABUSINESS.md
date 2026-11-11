@@ -37,10 +37,28 @@ No se utiliza una cookie de usuario ni se transmite el secreto. Firmar los mismo
 
 El receptor fija negocio `marjorie` y origen `alfabusiness`; el emisor no puede cambiarlos. Confirmar el mapeo real de locales antes de activar. Los identificadores iniciales son `marjorie-norte`, `marjorie-valle`, `marjorie-bosque`, `marjorie-sur`.
 
+## Campo exacto del local y formato alternativo
+
+El campo recomendado es **`unit_id` en la raíz del JSON**, por ejemplo `"unit_id": "marjorie-sur"`. Los cuatro locales ya están dados de alta:
+
+| Local | `unit_id` |
+| --- | --- |
+| Quito Norte | `marjorie-norte` |
+| Quito Sur | `marjorie-sur` |
+| Valle | `marjorie-valle` |
+| JC Sebastián / Paseo El Bosque | `marjorie-bosque` |
+
+También se aceptan `local`, `location`, `sucursal`, `unitId`, `branch_name`, `branchName`, `store_name` o `storeName`, tanto en la raíz como dentro de `sale`. Se reconocen los identificadores anteriores y los nombres de la tabla. Un objeto `local` puede identificarlo mediante `name`, `nombre`, `code` o `unit_id`. Si dos campos señalan locales distintos, el envío se rechaza. El local debe venir en el **cuerpo firmado**; los parámetros de la URL no se usan.
+
+En un sobre `{ "event": "sale.registered", "sale": { ... } }`, se admiten `sale.id` como identificador original, `sale.total` expresado en dólares con hasta dos decimales, `sale.invoice_number` y `sale.sold_at` con zona horaria. `source_updated_at` conserva la versión de origen; si falta se usa `updated_at`, `occurred_at` del sobre o `sold_at`. Sin `day`, se toma el día de Ecuador de `sold_at`/`occurred_at`. `sale.registered` representa una venta activa; los demás eventos deben indicar `state` explícito. `payments` conserva el mismo desglose en centavos del ejemplo y nunca se inventa a partir del total.
+
+Para la venta 866: conservar el ID original `866`, la factura `000000104`, el local `marjorie-sur` y `Idempotency-Key: mb-sale-866`. No sustituir el ID por el número de factura ni generar otro ID en un reintento. Mantener la misma versión y datos al repetir; si cambia la factura, un abono o una devolución, actualizar `source_updated_at`. Renovar únicamente el timestamp y la firma de entrega. La respuesta incluye `id` de Finanzas, `external_id`, `unit_id` e `ignored`; al repetir debe devolver el mismo `id`.
+
 - Todos los importes son enteros en centavos USD; 8000 representa USD 80,00.
 - `external_id`: estable, inmutable y único en todo el origen de Marjorie, incluidos todos los locales. Si el proveedor repite números por local, debe componer una clave con el local.
 - `day`: fecha operativa de la venta en Ecuador.
 - `source_updated_at`: timestamp de actualización con zona explícita y suficiente precisión. Una versión antigua se ignora. Repetir una versión idéntica es seguro; enviar distintos datos con la misma versión devuelve 409.
+- Las variantes de sobre y los campos adicionales ajenos al modelo financiero no crean otra venta: una misma versión con local, factura, fecha, importes, estado y desglose de pagos idénticos conserva el mismo ID. Un cambio en esos datos financieros requiere una versión nueva.
 - `state`: `active`, `cancelled`, `pending` o `refunded`. Cancelar o devolver una venta conserva su identificador.
 - `refunded_cents`: devoluciones acumuladas, nunca superiores al total original.
 - `payments`: cobros acumulados de la venta, no solo el último abono. Métodos: `cash`, `card`, `transfer`, `payphone`, `other`. Los pagos mixtos se desglosan. La suma no puede exceder el total.
