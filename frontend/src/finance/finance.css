@@ -4868,6 +4868,15 @@ small {
 .gf-quick-confirm dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
 .gf-quick-confirm > p { line-height: 1.6; font-size: 14px; }
 .gf-quick-confirm .gf-button { width: 100%; }
+.gf-conversation-editor { display:grid; gap:14px; margin-top:14px; }
+.gf-conversation-editor p { margin:0; line-height:1.5; }
+.gf-conversation-editor details > .gf-field { margin-top:12px; }
+.gf-conversation-editor summary { cursor:pointer; padding:8px 0; font-weight:600; }
+.gf-conversation-editor small { line-height:1.5; color:#63705d; }
+.gf-conversation-editor .gf-draft-field-missing input,.gf-conversation-editor .gf-draft-field-missing select { border-color:#b7822d; background:#fffcf3; }
+.gf-conversation-editor .gf-draft-field-missing small { color:#865d1c; }
+.gf-quick-dialogue.is-editing .gf-quick-dialogue-messages { max-height:min(70vh,650px); }
+.gf-conversation-editor .gf-draft-known { padding:10px 12px; background:#eaf0e4; border-radius:12px; font-size:14px; }
 .gf-quick-dialogue-composer textarea { width: 100%; padding: 14px; border-radius: 16px; border: 1px solid #ccd6c5; font: inherit; resize: vertical; min-height: 72px; box-sizing: border-box; }
 .gf-quick-dialogue-composer > div, .gf-quick-dialogue-done { display: flex; gap: 12px; justify-content: space-between; align-items: center; margin-top: 12px; }
 .gf-quick-dialogue-footer { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }

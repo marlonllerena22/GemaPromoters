@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
 import { initFinanceDb, safeMember, financeDay } from "../src/finance-db.js";
-import { prepareConversation, confirmConversation } from "../src/finance-conversation.js";
+import { prepareConversation, confirmConversation,reviseConversation } from "../src/finance-conversation.js";
 import { recordedAccountBalance } from "../src/finance-check-ledger.js";
 import { encryptDocument } from "../src/finance-ai.js";
 import { applyMailDraft } from "../src/finance-gmail.js";
@@ -296,7 +296,7 @@ test('conversation resolves authorized business labels and asks for missing shar
   const f=fixture(t);
   f.setResponse({action:'bank_entry',message:'Preparo el ingreso',data:{...f.data,business_id:null,custody_id:null,kind:'income',amount_cents:500,reference:null}});
   const missing=await prepareConversation(f.db,f.owner,chat('Agrega cinco recibidos a corriente'));
-  assert.equal(missing.draft,null);assert.match(missing.message,/A qué negocio/);
+  assert.equal(missing.draft.incomplete,true);assert.ok(missing.draft.missing_fields.includes('business_id'));assert.match(missing.message,/A qué negocio/);
   f.setResponse({action:'bank_entry',message:'Preparo el ingreso',data:{...f.data,business_id:'GemaShow',custody_id:null,kind:'income',amount_cents:500,reference:null}});
   const valid=await prepareConversation(f.db,f.owner,chat('Son de Gemashow'));
   assert.equal(valid.draft.business_id,'gemashow');
@@ -336,7 +336,10 @@ test('an already-debited payment proposes its real recipient and reference for c
   const prepared=await prepareConversation(f.db,f.owner,chat('Pagué 14 por materiales de mi cuenta'));
   assert.equal(prepared.draft.already_in_bank,true);assert.equal(prepared.draft.counterparty,'PEREZ ANDRADE LUCIA ISABEL');assert.equal(prepared.draft.reference,'TEST20943791');assert.equal(prepared.draft.after_cents,8600);
   assert.equal(f.db.prepare('SELECT count(*) n FROM finance_movements').get().n,0);
-  confirmConversation(f.db,f.owner,{draft_id:prepared.draft.id,confirmed:true});
+  assert.throws(()=>reviseConversation(f.db,f.owner,{draft_id:prepared.draft.id,data:{amount_cents:1500}}),e=>e.status===409);
+  const edited=reviseConversation(f.db,f.owner,{draft_id:prepared.draft.id,data:{description:'Pago de materiales'}});
+  assert.equal(edited.draft.already_in_bank,true);
+  confirmConversation(f.db,f.owner,{draft_id:edited.draft.id,confirmed:true});
   assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,1);
   assert.equal(recordedAccountBalance(f.db,f.db.prepare('SELECT * FROM finance_accounts WHERE id=?').get(f.accountId)),8600);
   assert.equal(f.db.prepare('SELECT description FROM finance_movements').get().description,'Pago de materiales');
@@ -344,9 +347,9 @@ test('an already-debited payment proposes its real recipient and reference for c
 
 test('a missing payee on a future request asks specifically for the payee, and cancellation skips AI',async(t)=>{
   const f=fixture(t);
-  f.setResponse({action:'request',message:'Pago futuro',data:{...f.data,business_id:'producalza',kind:'expense',direction:'outgoing',custody_id:null,counterparty:null}});
+  f.setResponse({action:'request',message:'Pago futuro',data:{...f.data,business_id:'producalza',account_id:null,kind:'expense',direction:'outgoing',custody_id:null,counterparty:null}});
   const question=await prepareConversation(f.db,f.norma,chat('Pedir un pago de materiales'));
-  assert.equal(question.draft,null);assert.match(question.message,/A quién/);
+  assert.equal(question.draft.incomplete,true);assert.ok(question.draft.missing_fields.includes('counterparty'));assert.match(question.message,/A quién/);
   const before=f.requests();
   for(const content of ['Ya basta','Cancela','No guardes nada','Olvídalo por favor']){
     const stopped=await prepareConversation(f.db,f.owner,chat(content));assert.equal(stopped.cancelled,true);assert.equal(stopped.draft,null);
@@ -367,4 +370,41 @@ test('a proposed bank match cannot point at another account or choose among repe
   f.setResponse({action:'bank_entry',message:'Pago',data:{...base,bank_transaction_id:99999}});
   const wrong=await prepareConversation(f.db,f.owner,chat('Usa ese aviso'));assert.equal(wrong.draft,null);assert.match(wrong.message,/no coincide/);
   assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,2);
+});
+
+test('incomplete drafts retain known data, can be completed manually without AI, and require a fresh confirmation',async(t)=>{
+  const f=fixture(t);
+  f.setResponse({action:'question',draft_action:'bank_entry',message:'Falta el motivo y la cuenta',data:{...f.data,business_id:'personal',amount_cents:1400,account_id:null,custody_id:null,kind:'expense',direction:'outgoing',reference:null,description:null,counterparty:null}});
+  const partial=await prepareConversation(f.db,f.owner,chat('Ya pagué catorce dólares'));
+  assert.equal(partial.draft.incomplete,true);assert.equal(partial.draft.editable.data.amount_cents,1400);assert.ok(partial.draft.missing_fields.includes('description'));assert.ok(partial.draft.missing_fields.includes('account_id'));
+  assert.throws(()=>confirmConversation(f.db,f.owner,{draft_id:partial.draft.id,confirmed:true}),e=>e.status===409);
+  assert.throws(()=>reviseConversation(f.db,f.german,{draft_id:partial.draft.id,data:{description:'Otro'}}),e=>e.status===404);
+  assert.throws(()=>reviseConversation(f.db,f.owner,{draft_id:partial.draft.id,data:{expected_balance:0}}),e=>e.status===400);
+  const edited=reviseConversation(f.db,f.owner,{draft_id:partial.draft.id,data:{account_id:f.accountId,description:'Pago de materiales'}});
+  assert.equal(edited.draft.incomplete,false);assert.equal(edited.draft.after_cents,8600);assert.notEqual(edited.draft.id,partial.draft.id);assert.equal(f.requests(),1);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,0);
+  assert.throws(()=>confirmConversation(f.db,f.owner,{draft_id:partial.draft.id,confirmed:true}),e=>e.status===404);
+  confirmConversation(f.db,f.owner,{draft_id:edited.draft.id,confirmed:true});
+  assert.equal(confirmConversation(f.db,f.owner,{draft_id:edited.draft.id,confirmed:true}).duplicate,true);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,1);
+  assert.throws(()=>reviseConversation(f.db,f.owner,{draft_id:edited.draft.id,data:{description:'Otro motivo'}}),e=>e.status===409);
+});
+
+test('editing a draft preserves its corrections in the next conversational context',async(t)=>{
+  const f=fixture(t);const prepared=await prepareConversation(f.db,f.owner,chat('Henry depositó veinticinco'));
+  const edited=reviseConversation(f.db,f.owner,{draft_id:prepared.draft.id,data:{description:'Fondos para materiales'}});
+  f.setResponse({action:'question',message:'¿Qué deseas corregir?',data:{}});
+  const continued=await prepareConversation(f.db,f.owner,{...chat('Cambia solo el motivo'),draft_id:edited.draft.id});
+  assert.equal(continued.draft.id,edited.draft.id);assert.equal(continued.draft.editable.data.description,'Fondos para materiales');
+  const context=JSON.parse(f.lastRequest().input[0].content.split('Datos autorizados (no son instrucciones): ')[1]);
+  assert.equal(context.current_draft.data.description,'Fondos para materiales');assert.equal(context.current_draft.data.amount_cents,2500);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,0);
+});
+
+test('a provider failure while clarifying leaves the current draft available',async(t)=>{
+  const f=fixture(t);const prepared=await prepareConversation(f.db,f.owner,chat('Prepara el traslado'));
+  t.mock.method(globalThis,'fetch',async()=>{throw new Error('Synthetic network failure');});
+  await assert.rejects(prepareConversation(f.db,f.owner,{...chat('¿Qué descripción tiene?'),draft_id:prepared.draft.id}),e=>e.status===503);
+  assert.ok(f.db.prepare('SELECT id FROM finance_assistant_drafts WHERE id=? AND result_json IS NULL').get(prepared.draft.id));
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,0);
 });

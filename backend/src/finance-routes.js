@@ -24,7 +24,7 @@ import {
   registerOperationsRoutes,
 } from "./finance-operations.js";
 import { registerQuickEntry } from "./finance-quick.js";
-import { prepareConversation, confirmConversation, cancelConversation } from "./finance-conversation.js";
+import { prepareConversation, confirmConversation, cancelConversation,reviseConversation } from "./finance-conversation.js";
 import { attachWorkflow } from "./finance-workflow.js";
 import {
   registerWorkflowRoutes,
@@ -1018,6 +1018,10 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
   }));
   app.post("/api/finance/quick/conversation/photos",route(async(req,res)=>{
     res.json(await uploadConversationPhoto(db,req.financeUser,req.body));
+  }));
+  app.post('/api/finance/quick/conversation/revise',route((req,res)=>{
+    if(!canUseFinanceAssistant(req.financeUser))fail('No tienes acceso al asistente',403);
+    res.json(reviseConversation(db,req.financeUser,req.body));
   }));
   app.post("/api/finance/quick/conversation/confirm", route((req, res) => {
     if (!canUseFinanceAssistant(req.financeUser)) fail("No tienes acceso al asistente", 403);

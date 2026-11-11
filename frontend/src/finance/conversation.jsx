@@ -6,17 +6,20 @@ import { Button, Modal } from "./components.jsx";
 import { AssistantAvatar } from "./workflows.jsx";
 import {hasNativeDictation,dictateNative} from './native-speech.js';
 import {cancelsConversation} from '../../../shared/finance-conversation.mjs';
+import {ConversationDraftEditor} from './conversation-editor.jsx';
 
 export function QuickConversation({ initial = {}, onClose, onForm }) {
   const { refresh, user } = useFinance();
   const [messages, setMessages] = useState([{ role: "assistant", content: `Hola, ${user.name.split(" ")[0]}. Cuéntame qué pasó con el dinero. Yo preparo el registro y te pregunto lo que falte.` }]);
   const [value, setValue] = useState(initial.text || ""), [draft, setDraft] = useState(null), [busy, setBusy] = useState(false), [done, setDone] = useState(false), [error, setError] = useState(""), [listening, setListening] = useState(false);
   const [photos,setPhotos]=useState([]),[uploading,setUploading]=useState(false);
+  const [editing,setEditing]=useState(false);
   const picker=useRef(null),photoUrls=useRef(new Set()),initialPhoto=useRef(false);
   const recognition = useRef(null), mounted = useRef(true), latest = useRef({}), end = useRef(null), sending = useRef(false);
   latest.current = { messages, draft, value, busy, photos };
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; photoUrls.current.forEach(URL.revokeObjectURL); if (recognition.current) { recognition.current.onend = null; recognition.current.abort(); } }; }, []);
   useEffect(() => { end.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, [messages, draft, busy]);
+  useEffect(()=>{setEditing(Boolean(draft?.incomplete));},[draft?.id]);
   useEffect(()=>{if(initial.photo&&!initialPhoto.current){initialPhoto.current=true;void attachPhotos([initial.photo]);}},[]);
   async function attachPhotos(files){
     if(sending.current||uploading)return;
@@ -43,6 +46,7 @@ export function QuickConversation({ initial = {}, onClose, onForm }) {
   }
   async function confirm() {
     if (!latest.current.draft || sending.current) return;
+    if(latest.current.draft.incomplete){setEditing(true);setError('Completa los datos señalados y revisa el resumen antes de confirmar.');return;}
     stopListening();
     sending.current = true; setBusy(true); setError("");
     try {
@@ -66,13 +70,14 @@ export function QuickConversation({ initial = {}, onClose, onForm }) {
     }
     if (latest.current.draft && /^(sí|si|confirmo|confirmar|confirma|sí,? confirma|si,? confirma)[.!]?$/i.test(message)) { setValue(""); return confirm(); }
     sending.current = true; setBusy(true); setError(""); setValue("");
+    const previousDraft=latest.current.draft,previousDraftId=previousDraft?.id;
     const history = [...latest.current.messages, { role: "user", content: message }];
     setMessages(history); setDraft(null);
     try {
-      const result = await financeApi("/quick/conversation", { messages: history.slice(-24), photo_ids:latest.current.photos.map(p=>p.id) });
+      const result = await financeApi("/quick/conversation", { messages: history.slice(-24), photo_ids:latest.current.photos.map(p=>p.id),draft_id:previousDraftId });
       if (!mounted.current) return;
-      setMessages((m) => [...m, { role: "assistant", content: result.message }]); setDraft(result.draft);if(result.cancelled)setDone(true);
-    } catch (e) { if (mounted.current) { setError(e.message); setValue(message); } }
+      setMessages((m) => [...m, { role: "assistant", content: result.message }]); setDraft(result.draft);setEditing(false);if(result.cancelled)setDone(true);
+    } catch (e) { if (mounted.current) { setError(e.message); setValue(message);setDraft(previousDraft); } }
     finally { sending.current = false; if (mounted.current) setBusy(false); }
   }
   async function restart() {
@@ -81,6 +86,13 @@ export function QuickConversation({ initial = {}, onClose, onForm }) {
     try { if (draft) await financeApi(`/quick/conversation/${draft.id}`, null, "DELETE"); }
     catch (e) { setError(e.message); return; }
     clearPhotos();setMessages([{ role: "assistant", content: "Cuéntame el siguiente movimiento." }]); setDraft(null); setDone(false); setValue(""); setError("");
+  }
+  async function revise(data){
+    if(sending.current||!latest.current.draft)return;
+    sending.current=true;setBusy(true);setError('');stopListening();
+    try{const result=await financeApi('/quick/conversation/revise',{draft_id:latest.current.draft.id,data});if(!mounted.current)return;setDraft(result.draft);setEditing(false);setMessages(m=>[...m,{role:'assistant',content:result.message}]);}
+    catch(e){if(mounted.current)setError(e.message);}
+    finally{sending.current=false;if(mounted.current)setBusy(false);}
   }
   async function speak() {
     if (listening) { recognition.current?.stop(); return; }
@@ -103,13 +115,14 @@ export function QuickConversation({ initial = {}, onClose, onForm }) {
   }
   return (
     <Modal title="Registra conversando con Gema" subtitle="Tú me cuentas. Yo preparo. Tú confirmas." onClose={onClose}>
-      <div className="gf-quick-dialogue">
+      <div className={`gf-quick-dialogue ${editing?'is-editing':''}`}>
         <div className="gf-quick-dialogue-messages" aria-live="polite">
-          {messages.map((m, i) => <div key={i} className={`gf-quick-bubble ${m.role}`}>{m.role === "assistant" && <AssistantAvatar size={24} />}<p>{m.content}</p></div>)}
+          {!editing&&messages.map((m, i) => <div key={i} className={`gf-quick-bubble ${m.role}`}>{m.role === "assistant" && <AssistantAvatar size={24} />}<p>{m.content}</p></div>)}
           {busy && <p className="gf-muted">Gema está revisando los datos…</p>}
           {draft && <section className="gf-quick-confirm" aria-label="Resumen por confirmar">
             <small>REVISA ANTES DE GUARDAR</small>
-            <h3>{draft.type}</h3><strong>{money(draft.amount_cents)}</strong>
+            <h3>{draft.type}</h3><strong>{draft.amount_cents==null?'Monto por indicar':money(draft.amount_cents)}</strong>
+            {draft.editable&&editing?<ConversationDraftEditor key={draft.id} draft={draft} busy={busy} onReview={revise} onBack={()=>setEditing(false)}/>:<>
             {draft.items ? <>
               <div className="gf-quick-batch">{draft.items.map((item, i) => <article key={i}>
                 <b>{i + 1}. {item.counterparty || item.type}</b><strong>{money(item.amount_cents)}</strong>
@@ -133,8 +146,9 @@ export function QuickConversation({ initial = {}, onClose, onForm }) {
             {draft.source_balance_unknown && <p>El saldo de {draft.source_fund} sigue por indicar. No inventaré cuánto le queda.</p>}
             {draft.changes_cash_balance && <p>Se registra el gasto y se descuenta de tu efectivo.</p>}
             {draft.changes_bank_balance === false && !draft.already_in_bank && !draft.changes_cash_balance && <p>Este registro no cambia el saldo bancario. Se contrastará con el aviso del banco.</p>}
-            <Button icon={Check} onClick={confirm} loading={busy}>{draft.already_in_bank?'Sí, es este pago':'Sí, confirmar registro'}</Button>
-            <button className="gf-text-button" onClick={() => { setDraft(null); setValue("Quiero corregir "); }} disabled={busy}>Quiero corregir algo</button>
+            <Button icon={Check} onClick={confirm} loading={busy} disabled={draft.incomplete}>{draft.incomplete?'Completa los datos para confirmar':draft.already_in_bank?'Sí, es este pago':'Sí, confirmar registro'}</Button>
+            <button className="gf-text-button" onClick={() => { if(draft.editable)setEditing(true);else{setDraft(null);setValue('Quiero corregir ');} }} disabled={busy}>{draft.incomplete?'Completar datos':draft.editable?'Editar datos':'Quiero corregir algo'}</button>
+            </>}
           </section>}
           <div ref={end} />
         </div>
@@ -143,7 +157,7 @@ export function QuickConversation({ initial = {}, onClose, onForm }) {
           {uploading&&<p aria-live="polite">Guardando foto de forma segura…</p>}
         </section>}
         {error && <p className="gf-error" role="alert">{error}</p>}
-        {done ? <div className="gf-quick-dialogue-done"><CheckCircle2 size={22} /><Button onClick={onClose}>Listo</Button><Button variant="secondary" onClick={() => { clearPhotos();setMessages([{ role: "assistant", content: "Cuéntame el siguiente movimiento." }]); setDone(false); setValue(""); }}>Otro registro</Button></div> : <form className="gf-quick-dialogue-composer" onSubmit={(e) => { e.preventDefault(); void send(); }}>
+        {done ? <div className="gf-quick-dialogue-done"><CheckCircle2 size={22} /><Button onClick={onClose}>Listo</Button><Button variant="secondary" onClick={() => { clearPhotos();setMessages([{ role: "assistant", content: "Cuéntame el siguiente movimiento." }]); setDone(false); setValue(""); }}>Otro registro</Button></div> : !editing&&<form className="gf-quick-dialogue-composer" onSubmit={(e) => { e.preventDefault(); void send(); }}>
           <textarea aria-label="Habla o escribe a Gema" placeholder={listening ? "Te escucho…" : "Por ejemplo: pagué 80 dólares de gasolina personal…"} value={value} onChange={(e) => setValue(e.target.value)} disabled={busy} maxLength={1200} rows={2} />
           <input ref={picker} type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onChange={e=>void attachPhotos(e.target.files)} aria-label="Adjuntar fotos a Gema"/>
           <div><Button type="button" variant="secondary" icon={ImagePlus} onClick={()=>picker.current?.click()} disabled={busy||uploading||photos.length>=3}>Foto</Button><Button type="button" variant="secondary" icon={listening ? Square : Mic} onClick={speak} disabled={busy||uploading}>{listening ? "Terminar" : "Hablar"}</Button><Button type="submit" icon={Send} disabled={(!value.trim()&&!photos.length) || busy || uploading} loading={busy}>{photos.length&&!value.trim()?"Analizar foto":"Enviar"}</Button></div>
