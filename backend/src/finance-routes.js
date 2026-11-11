@@ -114,6 +114,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
     try {
       await fn(req, res, next);
     } catch (error) {
+      if(req.method==='POST'&&req.path==='/api/finance/integrations/alfabusiness')console.warn('[finance] AlfaBusiness delivery rejected '+JSON.stringify({status:error.status||500,message:error.status?error.message:'Error interno',authenticated:req.financeSalesAuthenticated===true,...(req.financeSalesAuthenticated?{external_id:String(req.body?.external_id??req.body?.sale?.id??req.body?.sale_id??'').slice(0,200),received_fields:['external_id','unit_id','local','sale','day','total_cents','state','source_updated_at','payments'].filter(k=>Object.hasOwn(req.body||{},k))}:{})}));
       if (!error.status) console.error("[finance]", error.code || error.name);
       res.status(error.status || 500).json({
         message: error.status
@@ -1448,6 +1449,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         fail("Firma no válida", 401);
       if (req.rawBody.length > 1024 * 1024)
         fail("El aviso de venta excede el tamaño permitido", 413);
+      req.financeSalesAuthenticated=true;
       const sale=normalizeAlfaBusinessSale(req.body,{idempotencyKey:req.get('idempotency-key')});
       const result = importSale(db, sale);
       db.prepare(

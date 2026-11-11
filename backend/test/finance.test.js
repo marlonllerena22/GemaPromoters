@@ -1309,6 +1309,15 @@ test('signed AlfaBusiness delivery accepts the reported sale 866 envelope and re
   const noLocal={...body};delete noLocal.local;noLocal.sale={...body.sale};delete noLocal.sale.local;assert.equal((await send(noLocal,'/integrations/alfabusiness?local=marjorie-sur')).status,400);
 });
 
+test('AlfaBusiness records authenticated rejection reasons without logging credentials or the customer payload',async t=>{
+  const f=await fixture(t),old=process.env.FINANCE_SALES_WEBHOOK_SECRET,originalWarn=console.warn,captured=[];
+  process.env.FINANCE_SALES_WEBHOOK_SECRET='test-only-diagnostic-secret-00000000';console.warn=(...v)=>captured.push(v.join(' '));t.after(()=>{console.warn=originalWarn;if(old===undefined)delete process.env.FINANCE_SALES_WEBHOOK_SECRET;else process.env.FINANCE_SALES_WEBHOOK_SECRET=old;});
+  const body={external_id:'870',local:'JC SEBASTIAN — Paseo El Bosque',customer_name:'PRIVATE-CUSTOMER-NAME'},timestamp=String(Math.floor(Date.now()/1000));
+  const signature=crypto.createHmac('sha256',process.env.FINANCE_SALES_WEBHOOK_SECRET).update(timestamp+'.'+JSON.stringify(body)).digest('hex');
+  const r=await f.req('/integrations/alfabusiness','none',body,'POST',{'x-finance-timestamp':timestamp,'x-finance-signature':signature});assert.equal(r.status,400);
+  const lines=captured.join('\n');assert.ok(lines.includes('AlfaBusiness delivery rejected'));assert.ok(lines.includes('"external_id":"870"'));assert.ok(lines.includes('"authenticated":true'));assert.ok(!lines.includes('PRIVATE-CUSTOMER-NAME'));assert.ok(!lines.includes(signature));assert.ok(!lines.includes(process.env.FINANCE_SALES_WEBHOOK_SECRET));
+});
+
 test('AlfaBusiness accepts explicit branch aliases for all four stores and rejects unsigned body changes',async t=>{
   const f=await fixture(t),old=process.env.FINANCE_SALES_WEBHOOK_SECRET;process.env.FINANCE_SALES_WEBHOOK_SECRET='test-only-alfabusiness-aliases-00000000';t.after(()=>{if(old===undefined)delete process.env.FINANCE_SALES_WEBHOOK_SECRET;else process.env.FINANCE_SALES_WEBHOOK_SECRET=old;});
   for(const [field,name,unit]of [['local','Quito Norte','marjorie-norte'],['sucursal','Quito Sur','marjorie-sur'],['location','Valle','marjorie-valle'],['branch_name','JC Sebastián / Paseo El Bosque','marjorie-bosque'],['unitId','marjorie-bosque','marjorie-bosque']]){
