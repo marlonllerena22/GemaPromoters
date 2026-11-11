@@ -18,6 +18,7 @@ export function initFinanceOperationsDb(db) {
     ],
     ["finance_bank_transactions", "occurred_at", "TEXT"],
     ["finance_movements", "hidden_at", "TEXT"],
+    ["finance_movements", "observation", "TEXT NOT NULL DEFAULT ''"],
   ]) {
     if (
       !db

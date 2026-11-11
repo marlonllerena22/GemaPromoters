@@ -1,6 +1,7 @@
 import { audit, cents, validDay, financeDay } from "./finance-db.js";
 import { fail, scoped, text, reconcile } from "./finance-service.js";
 import { privateSetting } from "./finance-operations.js";
+import {acceptsBankNotification} from '../../shared/finance-notification-accounts.mjs';
 
 const bankCode = (value) =>
   String(value || "")
@@ -12,9 +13,9 @@ export function receiptAccounts(db, user) {
   if (!["owner", "manager", "collector"].includes(user.role)) return [];
   return db
     .prepare(
-      "SELECT id,name,bank,kind,last_four,business_id FROM finance_accounts WHERE active=1 AND kind='bank' ORDER BY bank,name"
+      "SELECT id,name,bank,kind,last_four,business_id FROM finance_accounts WHERE active=1 AND kind IN ('bank','wallet') ORDER BY bank,name"
     )
-    .all();
+    .all().filter(a=>a.kind==='bank'||acceptsBankNotification(a,'Deuna'));
 }
 export function suggestReceivingAccount(db, user, analysis) {
   const suffix = String(analysis.destination_account_suffix || "").replace(

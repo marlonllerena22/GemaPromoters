@@ -5,6 +5,7 @@ import { financeApi, money, amount } from "./api.js";
 import { useFinance } from "./context.jsx";
 import { Button, Field } from "./components.jsx";
 import "./bank-notifications.css";
+import {acceptsBankNotification} from '../../../shared/finance-notification-accounts.mjs';
 
 const Native = registerPlugin("BankNotifications");
 const available = () =>
@@ -125,8 +126,9 @@ function Notice({ event, onChange }) {
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),[assigning,setAssigning]=useState(false);
   const accounts = data.accounts.filter(
-    (a) => a.kind === "bank" && code(a.bank) === code(event.bank)
+    (a) => acceptsBankNotification(a,event.bank)
   );
+  useEffect(()=>{if(event.account_id)setAccount(String(event.account_id));},[event.account_id]);
   const signed = amount(value) * (direction === "outgoing" ? -1 : 1);
   const day = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Guayaquil",
@@ -475,8 +477,7 @@ export function BankNotificationsPanel() {
                           {data.accounts
                             .filter(
                               (b) =>
-                                b.kind === "bank" &&
-                                code(b.bank) === code(p.bank)
+                                acceptsBankNotification(b,p.bank)
                             )
                             .map((b) => (
                               <option key={b.id} value={b.id}>

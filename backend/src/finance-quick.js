@@ -48,12 +48,14 @@ export function registerQuickEntry(db, user, body) {
     "reference",
     "payment_method",
     "account_id",
+    "description",
   ];
   const overrides = Object.fromEntries(
     accepted
       .filter((key) => body.overrides?.[key] !== undefined)
       .map((key) => [key, body.overrides[key]]),
   );
+  if(overrides.description!==undefined&&(typeof overrides.description!=='string'||overrides.description.length>1000))fail('El motivo admite hasta 1000 caracteres');
   const payload = {
     text: body.text,
     overrides,

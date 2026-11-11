@@ -376,7 +376,7 @@ export function interpretQuickEntry(value, context = {}) {
           (kind === "income" ? "Cliente por identificar" : category),
       ).slice(0, 200),
       description:
-        original ||
+        String(overrides.description||original) ||
         (kind === "income" ? "Comprobante recibido" : "Registro rápido"),
       reference: String(overrides.reference || "").slice(0, 200),
       payment_method,

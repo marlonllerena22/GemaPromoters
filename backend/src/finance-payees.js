@@ -141,6 +141,8 @@ export function requestPayee(db, id) {
 }
 export function createPayeeRequest(db, user, body) {
   return db.transaction(() => {
+    if(body.observation!=null&&(typeof body.observation!=='string'||body.observation.length>1000))fail('La observación admite hasta 1000 caracteres');
+    const observation=(body.observation||'').trim();
     const contact = getPayee(db, user, body.contact_id, { write: true });
     if (
       contact.business_id !== body.business_id ||
@@ -169,6 +171,7 @@ export function createPayeeRequest(db, user, body) {
         "SELECT movement_id FROM finance_quick_requests WHERE member_id=? AND request_id=?"
       )
       .get(user.id, key);
+    if(original&&(db.prepare('SELECT observation FROM finance_movements WHERE id=?').get(original.movement_id)?.observation||'')!==observation)fail('Esta solicitud ya fue enviada con otra observación. Abre su detalle para añadir una nota',409);
     if (
       original &&
       JSON.stringify(requestPayee(db, original.movement_id)) !==
@@ -177,7 +180,7 @@ export function createPayeeRequest(db, user, body) {
       fail("Este envío ya se utilizó con otro destinatario", 409);
     const result = registerQuickEntry(db, user, {
       request_id: key,
-      text: String(body.description || "Pago solicitado"),
+      text: 'Pago solicitado',
       request: true,
       space_id: body.space_id || null,
       evidence_id: body.evidence_id || null,
@@ -189,8 +192,14 @@ export function createPayeeRequest(db, user, body) {
         counterparty: contact.name,
         payment_method: "transfer",
         category: body.category || "Otros",
+        description:String(body.description||'Pago solicitado'),
       },
     });
+    if(!result.duplicate){
+      db.prepare('UPDATE finance_movements SET observation=? WHERE id=?').run(observation,result.movement.id);
+      result.movement.observation=observation;
+      if(observation)audit(db,user.username,'payment_request.observation_added','movement',result.movement.id,null,{observation},body.business_id);
+    }
     if (!result.duplicate)
       db.prepare(
         "INSERT INTO finance_request_payees (request_id,payee_id,encrypted) VALUES (?,?,?)"

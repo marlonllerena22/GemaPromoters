@@ -298,3 +298,5 @@
     width: 100%;
   }
 }
+.gf-request-observation { padding:12px 14px; background:#f1f5eb; border-radius:14px; margin:12px 0; text-align:left; }
+.gf-request-observation p { white-space:pre-wrap; overflow-wrap:anywhere; margin:6px 0 0; }

@@ -10,7 +10,7 @@ export function financeSupportCheck(db, payload = process.env.FINANCE_SUPPORT_CH
   try {
     const job = JSON.parse(decryptDocument(Buffer.from(payload, "base64")).toString());
     if (job.kind !== "conversation-and-push-v1" || !/^[a-f0-9-]{36}$/.test(job.id) || !Number.isFinite(Date.parse(job.expires_at)) || Date.parse(job.expires_at)<Date.now() || Date.parse(job.expires_at)>Date.now()+2*3600000) throw new Error("invalid support job");
-    const key=`support-check:${job.id}:bank-signals-v7`;
+    const key=`support-check:${job.id}:bank-signals-v8`;
     if(privateSetting(db,key)) return null;
     const drafts=db.prepare("SELECT d.* FROM finance_assistant_drafts d JOIN finance_members m ON m.id=d.member_id WHERE m.role='owner' AND d.result_json IS NOT NULL ORDER BY d.created_at DESC LIMIT 5").all().map(({encrypted,...r})=>{
       const p=JSON.parse(decryptDocument(encrypted).toString());
@@ -26,9 +26,10 @@ export function financeSupportCheck(db, payload = process.env.FINANCE_SUPPORT_CH
     const notificationTable=db.prepare("SELECT 1 FROM sqlite_master WHERE name='finance_notification_events'").get();
     const notifications=notificationTable?db.prepare('SELECT * FROM finance_notification_events ORDER BY id DESC LIMIT 12').all().map(({encrypted,...row})=>({...row,parsed:JSON.parse(decryptDocument(encrypted).toString())})):[];
     const notificationDevices=notificationTable?db.prepare('SELECT id,member_id,apps_json,last_seen,expires_at,revoked FROM finance_notification_devices').all():[];
-    const bankAccounts=db.prepare("SELECT * FROM finance_accounts WHERE kind='bank' AND active=1").all().map(a=>({id:a.id,name:a.name,bank:a.bank,last_four:a.last_four,opening_at:a.opening_at,verified_at:a.verified_at,balance_cents:recordedAccountBalance(db,a)}));
+    const bankAccounts=db.prepare("SELECT * FROM finance_accounts WHERE kind IN ('bank','wallet') AND active=1").all().map(a=>({id:a.id,name:a.name,bank:a.bank,kind:a.kind,last_four:a.last_four,opening_at:a.opening_at,verified_at:a.verified_at,balance_cents:recordedAccountBalance(db,a)}));
     const pendingReceipts=db.prepare("SELECT id,kind,business_id,unit_id,account_id,amount_cents,counterparty,reference,status,created_by,created_at,evidence_id FROM finance_movements WHERE kind='income' AND evidence_id IS NOT NULL AND hidden_at IS NULL AND status IN ('pending','reported','approved') ORDER BY id DESC LIMIT 25").all();
-    const result={job_id:job.id,drafts,accounts,movements,push,ownerMovements,evidence,recentMail,notifications,notificationDevices,bankAccounts,pendingReceipts,registry:privateSetting(db,'own_account_registry'),auto_after:process.env.FINANCE_GMAIL_AUTO_APPLY_AFTER,auto_enabled:process.env.FINANCE_GMAIL_AUTO_APPLY!=='0',restart_at:privateSetting(db,'activity_restart_at')};
+    const requestMembers=db.prepare("SELECT id,username,role,active,business_ids,unit_ids,request_payments FROM finance_members WHERE lower(username) IN ('norma','normita')").all().map(m=>({...m,spaces:db.prepare('SELECT s.id,s.name,s.business_ids,sm.role FROM finance_space_members sm JOIN finance_spaces s ON s.id=sm.space_id WHERE sm.member_id=? AND s.active=1').all(m.id)}));
+    const result={job_id:job.id,drafts,accounts,movements,push,ownerMovements,evidence,recentMail,notifications,notificationDevices,bankAccounts,pendingReceipts,requestMembers,registry:privateSetting(db,'own_account_registry'),auto_after:process.env.FINANCE_GMAIL_AUTO_APPLY_AFTER,auto_enabled:process.env.FINANCE_GMAIL_AUTO_APPLY!=='0',restart_at:privateSetting(db,'activity_restart_at')};
     const cipher=encryptDocument(Buffer.from(JSON.stringify(result))).toString("base64"), chunks=cipher.match(/.{1,3500}/g);
     chunks.forEach((chunk,index)=>console.info(`[finance] Private support check ${job.id}|${index}|${chunks.length}|${chunk}`));
     putPrivateSetting(db,key,{completed_at:new Date().toISOString()});

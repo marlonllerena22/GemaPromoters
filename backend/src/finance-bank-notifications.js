@@ -8,6 +8,7 @@ import {reconcileRecordedReceipt} from './finance-receipts.js';
 import {matchingBankPerson,receivedWithoutAccount} from './finance-bank-identity.js';
 import {isBankPromotion} from '../../shared/finance-bank-promotions.mjs';
 import {archiveBankNotice} from './finance-bank-inbox.js';
+import {acceptsBankNotification,soleDeunaAccount} from '../../shared/finance-notification-accounts.mjs';
 
 const digest = (v) =>
   crypto.createHash("sha256").update(String(v)).digest("hex");
@@ -47,13 +48,18 @@ export function initBankNotifications(db) {
   if(!db.prepare('PRAGMA table_info(finance_notification_events)').all().some(c=>c.name==='archived_at'))db.exec('ALTER TABLE finance_notification_events ADD COLUMN archived_at TEXT');
 }
 const bankCode = (v) => norm(v).replace(/banco|del|de|[^a-z]/g, "");
+function notificationRegistry(db){
+  const registry=privateSetting(db,'own_account_registry')||{accounts:[]};
+  const sole=soleDeunaAccount(db.prepare('SELECT id,bank,kind,active FROM finance_accounts WHERE active=1').all());
+  return {...registry,single_deuna_account_id:sole?.id||null};
+}
 function usableAccount(db, id, bank) {
   const a = db
     .prepare(
-      "SELECT * FROM finance_accounts WHERE id=? AND active=1 AND kind='bank'"
+      "SELECT * FROM finance_accounts WHERE id=? AND active=1"
     )
     .get(id);
-  if (!a || bankCode(a.bank) !== bankCode(bank))
+  if (!a || !acceptsBankNotification(a,bank))
     fail("Elige una cuenta bancaria de esa entidad");
   return a;
 }
@@ -106,10 +112,11 @@ export function parseBankNotification(
     );
   const destinationText=body.match(/(?:a la cuenta|cuenta (?:de )?destino)\s*[:#]?\s*([*xX\d-]{3,30})/i)?.[1]||'';
   const destinationSuffix=destinationText.match(/\d{3,}$/)?.[0]||'';
+  const ownedAccountBody=incoming?body.replace(/desde (?:la |una |su )?(?:cta\.?|cuenta)(?: (?:de )?origen)?\s*[:#]?\s*[*xX\d-]{3,30}/gi,''):body;
   const accountText = outgoing&&destinationText
     ?body.match(/cuenta (?:de )?origen\s*[:#]?\s*([*xX\d-]{3,30})/i)?.[1]||''
     :
-    body.match(
+    ownedAccountBody.match(
       /cuenta(?: (?:de )?(?:origen|destino|acreditada|debito|ahorros|corriente))?\s*[:#·]?\s*([*xX\d-]{3,30})/i
     )?.[1] || "";
   const suffix = accountText.match(/\d{3,}$/)?.[0] || "";
@@ -119,12 +126,13 @@ export function parseBankNotification(
       suffix &&
       String(a.number || a.suffix || "").endsWith(suffix)
   );
+  const fallback=policy.account_id||(bankCode(policy.bank)===bankCode('Deuna')?registry.single_deuna_account_id:null)||null;
   const mapped = suffix
     ? matches.length === 1
       ? matches[0].account_id
       : null
-    : policy.account_id || null;
-  const conflict = suffix && policy.account_id && mapped !== policy.account_id;
+    : fallback;
+  const conflict = suffix && fallback && mapped !== fallback;
   let reference =
     body.match(
       /(?:referencia|comprobante|transacci[oó]n|operaci[oó]n)\s*(?:n[º°o.]?\s*)?[:#]?\s*([A-Z0-9-]{5,60})\b/i
@@ -132,9 +140,9 @@ export function parseBankNotification(
   if (!/\d/.test(reference)) reference = "";
   const direction =
     incoming !== outgoing ? (incoming ? "incoming" : "outgoing") : null;
-  const counterparty=(body.match(/(?:recibiste|has recibido|transferencia recibida|te pagaron|te depositaron|te transfirieron)[\s\S]*?(?:\bde\s+)([\p{L}][\p{L}\s.'-]+?)(?=\s+(?:cuenta|referencia|banco|saldo|fecha|por|el)\b|[.\n]|$)/iu)?.[1]||body.match(/(?:^|[\n!.])\s*([\p{L}][\p{L}\s.'-]+?)\s+te (?:ha[n]? )?(?:envi[oó]|enviado|pag[oó]|pagado|deposit[oó]|depositado|transfiri[oó]|transferido)\s*[\d.,]+/iu)?.[1]||'').trim();
+  const counterparty=(body.match(/(?:recibiste|has recibido|transferencia recibida|te pagaron|te depositaron|te transfirieron)[\s\S]*?(?:\bde\s+)([\p{L}][\p{L}\s.'-]+?)(?=\s+(?:cuenta|referencia|banco|saldo|fecha|por|el)\b|[.\n]|$)/iu)?.[1]||body.match(/(?:^|[\n!.])\s*([\p{L}][\p{L}\s.'-]+?)\s+te (?:ha[n]? )?(?:envi[oó]|enviado|pag[oó]|pagado|deposit[oó]|depositado|transfiri[oó]|transferido)\s*(?:USD\s*|\$\s*)?[\d.,]+/iu)?.[1]||'').trim();
   return {
-    parser_version:3,
+    parser_version:4,
     body,
     bank: policy.bank,
     amount_cents: amounts.length === 1 ? amounts[0] : null,
@@ -202,10 +210,10 @@ export function autoConfirmNotificationReceipts(db) {
   return confirmed;
 }
 export function reprocessBankNotifications(db){
-  const registry=privateSetting(db,'own_account_registry')||{accounts:[]};
+  const registry=notificationRegistry(db);
   let upgraded=0;
   for(const row of db.prepare("SELECT * FROM finance_notification_events WHERE state='review' AND archived_at IS NULL").all()){
-    const prior=decode(row);if(prior.parser_version===3)continue;
+    const prior=decode(row);if(prior.parser_version===4)continue;
     const device=db.prepare('SELECT apps_json FROM finance_notification_devices WHERE id=?').get(row.device_id);
     const policy=device&&JSON.parse(device.apps_json).find(a=>a.package_name===row.package_name);
     if(!policy)continue;
@@ -332,9 +340,7 @@ export function ingestBankNotifications(db, device, events) {
     fail("Envía entre 1 y 50 avisos");
   const policies = JSON.parse(device.apps_json),
     ack = [];
-  const registry = privateSetting(db, "own_account_registry") || {
-    accounts: [],
-  };
+  const registry = notificationRegistry(db);
   for (const e of events) {
     if (typeof e.id !== "string" || !/^[-a-zA-Z0-9_:]{1,160}$/.test(e.id))
       fail("Identificador de aviso inválido");

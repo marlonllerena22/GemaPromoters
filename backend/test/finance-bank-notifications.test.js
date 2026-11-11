@@ -9,6 +9,7 @@ import {
   applyBankNotification,
   parseBankNotification,
   registerNotificationRoutes,
+  reprocessBankNotifications,
 } from "../src/finance-bank-notifications.js";
 import { putPrivateSetting } from "../src/finance-operations.js";
 import { importBank } from "../src/finance-service.js";
@@ -19,6 +20,8 @@ import {isBankPromotion} from '../../shared/finance-bank-promotions.mjs';
 import {archiveBankNotice,archiveBankPromotions} from '../src/finance-bank-inbox.js';
 import {parseBankMail,mailDrafts} from '../src/finance-gmail.js';
 import {encryptDocument} from '../src/finance-ai.js';
+import {receiptAccounts} from '../src/finance-receipts.js';
+import {acceptsBankNotification,soleDeunaAccount} from '../../shared/finance-notification-accounts.mjs';
 
 process.env.FINANCE_DOCUMENT_KEY = "test-only-bank-notification-key-0123456789";
 test('bank wording recognizes received and sent payments with or without currency signs',()=>{
@@ -223,6 +226,7 @@ test("ambiguous account and conflicting account suffix always stay in review", (
       { package_name: "app.test.deuna", bank: "Deuna", automatic: true },
     ]),
   };
+  f.db.prepare("INSERT INTO finance_accounts(name,bank,kind,opening_cents,opening_date) VALUES ('Segunda Deuna','Deuna','bank',0,?)").run(financeDay());
   ingestBankNotifications(f.db, unbound, [f.event()]);
   assert.equal(f.balance(), 10000);
 });
@@ -477,4 +481,28 @@ test('removing an applied email preserves its corroboration of the matching phon
   ingestBankNotifications(f.db,f.device,[f.event({text:'Recibiste $25 de Ana Perez.'})]);linkRecordedBankEvidence(f.db);
   assert.equal(f.db.prepare('SELECT state FROM finance_notification_events').get().state,'matched');assert.equal(f.balance(),12500);
   assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,1);
+});
+
+test('the single Deuna digital account receives incoming notices without confusing the sender account',t=>{
+  const f=fixture(t);f.db.prepare("UPDATE finance_accounts SET kind='wallet' WHERE id=?").run(f.account);
+  f.device.apps_json=JSON.stringify([{package_name:'app.test.deuna',bank:'Deuna',account_id:null,automatic:false}]);f.db.prepare('UPDATE finance_notification_devices SET apps_json=? WHERE id=?').run(f.device.apps_json,f.device.id);
+  const incoming=f.event({title:'Recibiste $48',text:'Perez Andrade Lucia Isabel te pagó $48 desde la cta. ******0822 el 11 nov 2026'}),outgoing=f.event({title:'¡Listo! Pagaste $15,00',text:'Pagaste a Carlos Perez por $15,00'});
+  ingestBankNotifications(f.db,f.device,[incoming,outgoing]);
+  const rows=f.db.prepare('SELECT account_id,amount_cents,state FROM finance_notification_events ORDER BY id').all();
+  assert.equal(rows[0].account_id,f.account);assert.equal(rows[0].amount_cents,4800);assert.equal(rows[1].account_id,f.account);assert.equal(rows[1].amount_cents,-1500);assert.equal(f.balance(),10000);
+  assert.ok(receiptAccounts(f.db,owner).some(a=>a.id===f.account));
+  const own=soleDeunaAccount([{id:f.account,kind:'wallet',bank:'Deuna',active:1}]);assert.equal(own.id,f.account);
+  assert.equal(acceptsBankNotification({kind:'wallet',bank:'Deuna'},'Deuna'),true);assert.equal(acceptsBankNotification({kind:'wallet',bank:'PayPhone'},'Deuna'),false);
+  const parsed=parseBankNotification(incoming,{bank:'Deuna'},{accounts:[],single_deuna_account_id:f.account});assert.equal(parsed.counterparty,'Perez Andrade Lucia Isabel');assert.equal(parsed.suffix,'');
+  applyBankNotification(f.db,owner,1,{account_id:f.account});assert.equal(f.balance(),14800);applyBankNotification(f.db,owner,1,{account_id:f.account});assert.equal(f.balance(),14800);
+});
+
+test('legacy unassigned Deuna notices are remapped without posting money or changing other banks',t=>{
+  const f=fixture(t);f.db.prepare("UPDATE finance_accounts SET kind='wallet' WHERE id=?").run(f.account);
+  f.device.apps_json=JSON.stringify([{package_name:'app.test.deuna',bank:'Deuna',account_id:null,automatic:false}]);f.db.prepare('UPDATE finance_notification_devices SET apps_json=? WHERE id=?').run(f.device.apps_json,f.device.id);
+  const e=f.event({text:'Recibiste $48 de Lucia Perez.'});ingestBankNotifications(f.db,f.device,[e]);
+  const p={...parseBankNotification(e,{bank:'Deuna'}),parser_version:3,account_id:null};f.db.prepare('UPDATE finance_notification_events SET encrypted=?,account_id=NULL').run(encryptDocument(Buffer.from(JSON.stringify(p))));
+  reprocessBankNotifications(f.db);assert.equal(f.db.prepare('SELECT account_id FROM finance_notification_events').get().account_id,f.account);assert.equal(f.balance(),10000);assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,0);
+  assert.equal(soleDeunaAccount([{id:1,kind:'wallet',bank:'Deuna'},{id:2,kind:'bank',bank:'Deuna'}]),null);
+  assert.equal(parseBankNotification(e,{bank:'Pichincha'},{accounts:[],single_deuna_account_id:f.account}).account_id,null);
 });

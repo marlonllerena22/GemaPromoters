@@ -184,13 +184,17 @@ test("saved payees preserve leading zeroes, alternatives and encrypted historica
     space_id: "producalza-materiales",
     unit_id: "producalza-fabrica",
     amount_cents: 50000,
-    description: "Pago de transporte",
+    description: "Pago de personal de Producalza",
+    observation:"Factura 125. Entregar el comprobante a bodega.",
   };
   const created = await f.req("/payment-requests", "normita", reqBody);
   assert.equal(created.status, 201, JSON.stringify(created.body));
   const id = created.body.movement.id,
     detail = await f.req(`/payment-requests/${id}`, "owner");
   assert.equal(detail.body.beneficiary.accounts.length, 2);
+  assert.equal(detail.body.request.description,reqBody.description);
+  assert.equal(detail.body.request.observation,reqBody.observation);
+  assert.equal((await f.req("/payment-requests","normita",{...reqBody,observation:"Otra indicación"})).status,409);
   assert.equal(detail.body.beneficiary.document, "0012345678");
   assert.equal(
     (await f.req("/payment-requests", "normita", reqBody)).body.duplicate,

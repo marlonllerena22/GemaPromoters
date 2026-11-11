@@ -179,21 +179,22 @@ export function RequestComposer({ initial = {}, onClose }) {
   const preview = data.capabilities.public_preview;
   const writable = (data.workflow?.spaces || []).filter(
     (s) =>
-      s.active &&
+      s.active && s.business_ids.some(id=>user.business_ids.includes(id)) &&
       (user.role === "owner" ||
         (s.is_member &&
           s.members?.find((m) => m.member_id === user.id)?.role !== "observer"))
   );
+  const defaultSpace=writable.find(s=>s.id===initial.space_id)||writable.find(s=>s.business_ids.includes(initial.business_id))||writable[0];
   const [spaceId, setSpaceId] = useState(
-      initial.space_id || writable[0]?.id || ""
+      defaultSpace?.id || ""
     ),
     [business, setBusiness] = useState(
-      initial.business_id ||
-        writable.find((s) => s.id === (initial.space_id || writable[0]?.id))
-          ?.business_ids[0] ||
+      (user.business_ids.includes(initial.business_id)&&(!defaultSpace||defaultSpace.business_ids.includes(initial.business_id))?initial.business_id:null)||
+        defaultSpace?.business_ids.find(id=>user.business_ids.includes(id)) ||
         user.business_ids[0]
     );
   const space = writable.find((s) => s.id === spaceId);
+  const allowedBusinesses=(space?.business_ids||user.business_ids).filter(id=>user.business_ids.includes(id));
   const units = data.units.filter(
     (u) =>
       u.business_id === business &&
@@ -214,6 +215,7 @@ export function RequestComposer({ initial = {}, onClose }) {
     [draft, setDraft] = useState(blankContact),
     [value, setValue] = useState(""),
     [reason, setReason] = useState(initial.description||""),
+    [observation,setObservation]=useState(initial.observation||''),
     [warnings, setWarnings] = useState([]),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
@@ -252,7 +254,7 @@ export function RequestComposer({ initial = {}, onClose }) {
   function changeSpace(id) {
     const s = writable.find((s) => s.id === id);
     setSpaceId(id);
-    if (s && !s.business_ids.includes(business)) setBusiness(s.business_ids[0]);
+    if (s && (!s.business_ids.includes(business)||!user.business_ids.includes(business))) setBusiness(s.business_ids.find(id=>user.business_ids.includes(id))||user.business_ids[0]);
   }
   function account(i, k, v) {
     setDraft((p) => ({
@@ -335,6 +337,7 @@ export function RequestComposer({ initial = {}, onClose }) {
         space_id: spaceId || null,
         amount_cents: amount(value),
         description: reason.trim() || "Pago solicitado",
+        observation:observation.trim(),
         category: initial.category || (space?.kind === "materials" ? "Materiales" : "Otros"),
         evidence_id: evidence?.id || null,
       });
@@ -660,14 +663,14 @@ export function RequestComposer({ initial = {}, onClose }) {
             ) : (
               <span>{space?.name || businessNames[business]}</span>
             )}
-            {(space?.business_ids || user.business_ids).length > 1 && (
+            {allowedBusinesses.length > 1 && (
               <Field label="Negocio">
                 <select
                   value={business}
                   onChange={(e) => setBusiness(e.target.value)}
                   disabled={busy}
                 >
-                  {(space?.business_ids || user.business_ids).map((b) => (
+                  {allowedBusinesses.map((b) => (
                     <option value={b} key={b}>
                       {businessNames[b]}
                     </option>
@@ -796,6 +799,9 @@ export function RequestComposer({ initial = {}, onClose }) {
               placeholder="Motivo del pago"
               maxLength={1000}
             />
+          </Field>
+          <Field label="Detalle u observación (opcional)" hint="Agrega una factura, una indicación o algo que Marlon deba saber.">
+            <textarea value={observation} onChange={e=>setObservation(e.target.value)} maxLength={1000} rows={2} disabled={busy} placeholder="Por ejemplo: corresponde a la factura 125; pagar antes de las 4."/>
           </Field>
           {error && (
             <p className="gf-error" role="alert">

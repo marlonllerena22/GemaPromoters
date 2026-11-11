@@ -632,6 +632,7 @@ export function RequestDetails({ id, onClose }) {
             <h3>{r.counterparty}</h3>
             <strong>{money(r.amount_cents)}</strong>
             <p>{r.description}</p>
+            {r.observation&&<div className="gf-request-observation"><strong>Detalle u observación</strong><p>{r.observation}</p></div>}
             <small>
               Solicitado por {r.requester_name || r.created_by} ·{" "}
               {dateLabel(r.day)}
