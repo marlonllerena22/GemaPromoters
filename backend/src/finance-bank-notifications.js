@@ -186,9 +186,10 @@ function decode(row) {
 }
 function notificationReceipt(db,row,p) {
   if(p.blocked||p.credit||p.direction!=='incoming'||!p.amount_cents)return null;
+  const activation=privateSetting(db,'receipt_confirmation_credits_v1');
   const candidates=db.prepare(`SELECT m.*,a.bank account_bank FROM finance_movements m JOIN finance_accounts a ON a.id=m.account_id WHERE m.kind='income' AND m.is_payment_request=0
     AND (? IS NULL OR m.account_id=?) AND m.amount_cents=? AND m.day=? AND m.evidence_id IS NOT NULL
-    AND m.hidden_at IS NULL AND m.status IN ('pending','reported','approved')`).all(row.account_id,row.account_id,p.amount_cents,financeDay(row.posted_at)).filter(m=>bankCode(m.account_bank)===bankCode(row.bank));
+    AND m.hidden_at IS NULL AND m.status IN ('pending','reported','approved')`).all(row.account_id,row.account_id,p.amount_cents,financeDay(row.posted_at)).filter(m=>(!activation||m.id>activation.legacy_through_id)&&bankCode(m.account_bank)===bankCode(row.bank));
   const matches=candidates.filter(m=>{
     if(p.reference&&m.reference)return p.reference===m.reference;
     return matchingBankPerson(p.counterparty,m.counterparty);

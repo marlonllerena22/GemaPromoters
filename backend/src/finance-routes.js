@@ -6,7 +6,7 @@ import {uploadConversationPhoto} from "./finance-conversation-photos.js";
 import {cancelsConversation} from '../../shared/finance-conversation.mjs';
 import {suggestOriginAccount} from "./finance-origin-account.js";
 import {marjorieIntegrationHealth} from "./finance-integration-health.js";
-import {registerReceiptRoutes,suggestReceivingAccount,repairReceiptAccounts} from './finance-receipts.js';
+import {registerReceiptRoutes,suggestReceivingAccount,repairReceiptAccounts,activateReceiptCredits,confirmReceiptDeposit} from './finance-receipts.js';
 import {applyNovemberCleanup,archiveNovemberTrialReceipt,clearCurrentActivity,repairKnownAccountNumbers} from './finance-start-clean.js';
 import {registerNotificationPublic,registerNotificationRoutes,reprocessBankNotifications} from "./finance-bank-notifications.js";
 import {createBankMailCorroborator} from './finance-bank-mail-corroboration.js';
@@ -87,6 +87,7 @@ const localHost = (req) =>
 export function registerFinanceRoutes(app, db, bridges = {}) {
   initFinanceDb(db);
   applyFinanceBootstrap(db);
+  activateReceiptCredits(db);
   applyNovemberCleanup(db);
   archiveNovemberTrialReceipt(db);
   clearCurrentActivity(db);
@@ -483,6 +484,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
       )
         fail("Otro administrador debe revisar tu propia solicitud", 403);
       const note = text(req.body.note, 1000);
+      if(req.body.status==='approved'&&movement.kind==='income'&&movement.evidence_id){res.json(confirmReceiptDeposit(db,req.financeUser,movement.id,req.body));return;}
       if (req.body.status === "rejected" && !note)
         fail("Indica el motivo del rechazo");
       db.transaction(() => {

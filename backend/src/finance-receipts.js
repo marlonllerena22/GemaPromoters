@@ -1,9 +1,62 @@
 import { audit, cents, validDay, financeDay } from "./finance-db.js";
-import { fail, scoped, text, reconcile } from "./finance-service.js";
-import { privateSetting } from "./finance-operations.js";
+import { fail, scoped, text, reconcile,importBank } from "./finance-service.js";
+import { privateSetting,putPrivateSetting } from "./finance-operations.js";
 import {acceptsBankNotification} from '../../shared/finance-notification-accounts.mjs';
 import {decryptDocument} from './finance-ai.js';
 import {matchingBankPerson} from './finance-bank-identity.js';
+import {recordedAccountBalance} from './finance-check-ledger.js';
+import {linkRecordedBankEvidence} from './finance-evidence-links.js';
+import {matchKnownBankReceipt} from './finance-declared-bank.js';
+
+export function activateReceiptCredits(db){
+  const key='receipt_confirmation_credits_v1';let policy=privateSetting(db,key);
+  if(!policy){policy={activated_at:new Date().toISOString(),legacy_through_id:db.prepare('SELECT COALESCE(MAX(id),0) id FROM finance_movements').get().id,balances_at_activation:db.prepare('SELECT * FROM finance_accounts WHERE active=1').all().map(a=>({account_id:a.id,balance_cents:recordedAccountBalance(db,a)}))};putPrivateSetting(db,key,policy);console.info('[finance] Receipt confirmation credits activated '+JSON.stringify({activated_at:policy.activated_at,legacy_through_id:policy.legacy_through_id,account_balances_unchanged:policy.balances_at_activation.every(a=>recordedAccountBalance(db,db.prepare('SELECT * FROM finance_accounts WHERE id=?').get(a.account_id))===a.balance_cents)}));}
+  return policy;
+}
+export function resolveReceiptAccount(db,row,selected){
+  const accounts=receiptAccounts(db,{role:'owner'});
+  let id=selected===undefined?row.account_id:Number(selected);
+  if(!id){let analysis;try{analysis=JSON.parse(db.prepare('SELECT analysis FROM finance_evidence WHERE id=?').get(row.evidence_id)?.analysis||'null');}catch{}
+    if(analysis)id=suggestReceivingAccount(db,{role:'owner'},analysis).account_id;
+  }
+  return accounts.find(a=>a.id===id)||null;
+}
+export function confirmReceiptDeposit(db,user,id,body={}){
+  if(user.role!=='owner')fail('No puedes confirmar este depósito',403);
+  if(body.already_in_balance!==undefined&&typeof body.already_in_balance!=='boolean')fail('Revisa el tipo de confirmación');
+  return db.transaction(()=>{
+    const row=db.prepare("SELECT * FROM finance_movements WHERE id=? AND kind='income' AND evidence_id IS NOT NULL AND is_payment_request=0 AND hidden_at IS NULL").get(id);
+    if(!row||!scoped(user,row))fail('Comprobante no disponible',404);
+    const saved=db.prepare('SELECT * FROM finance_receipt_confirmations WHERE movement_id=?').get(row.id);
+    if(saved)return {ok:true,duplicate:true,disposition:saved.disposition,bank_transaction_id:saved.bank_transaction_id};
+    if(row.status==='reconciled')return {ok:true,duplicate:true,disposition:'bank_linked'};
+    if(!['pending','reported','approved'].includes(row.status))fail('Este comprobante no se puede confirmar',409);
+    if(row.unit_id&&db.prepare('SELECT 1 FROM finance_closings WHERE unit_id=? AND day=?').get(row.unit_id,row.day))fail('Reabre el cierre antes de confirmar este comprobante',409);
+    if(db.prepare('SELECT 1 FROM finance_allocations WHERE movement_id=?').get(row.id))fail('Revisa las asignaciones parciales antes de confirmar',409);
+    const account=resolveReceiptAccount(db,row,body.account_id);if(!account)fail('No pude identificar una cuenta única. Selecciona la cuenta que recibió el dinero');
+    const full=db.prepare('SELECT * FROM finance_accounts WHERE id=?').get(account.id),before=recordedAccountBalance(db,full),now=new Date().toISOString();
+    const policy=privateSetting(db,'receipt_confirmation_credits_v1');
+    const included=body.already_in_balance===true||!policy||row.id<=policy.legacy_through_id;
+    db.prepare('UPDATE finance_movements SET account_id=?,receiving_bank=?,cross_account=? WHERE id=?').run(account.id,account.bank,account.business_id&&account.business_id!==row.business_id?1:0,row.id);
+    let disposition='bank_linked',bankId;
+    if(reconcileRecordedReceipt(db,row.id))bankId=db.prepare('SELECT bank_transaction_id FROM finance_allocations WHERE movement_id=?').get(row.id).bank_transaction_id;
+    else if(!included&&(bankId=matchKnownBankReceipt(db,{account_id:account.id,day:row.day,amount_cents:row.amount_cents,counterparty:row.counterparty})?.id))reconcile(db,user,{movement_id:row.id,bank_transaction_id:bankId,amount_cents:row.amount_cents});
+    else{
+      if(row.reference){const known=db.prepare("SELECT b.id FROM finance_bank_transactions b WHERE b.account_id=? AND b.reference=? AND b.amount_cents=? AND b.day BETWEEN date(?,'-1 day') AND date(?,'+1 day')").all(account.id,row.reference,row.amount_cents,row.day,row.day);if(known.length)fail('Ese abono ya tiene una asociación o coincidencias por revisar. No se sumó otra vez',409);}
+      const imported=importBank(db,user,{source_system:'assistant',account_id:account.id,rows:[{day:financeDay(now),occurred_at:now,amount_cents:row.amount_cents,reference:row.reference||'',description:`Depósito confirmado por ${user.username}: ${row.counterparty}. ${included?'Ya contemplado en el saldo.':'Confirmado al revisar el comprobante.'}`,external_id:`receipt-confirmation:${row.id}`} ]});bankId=imported.transaction_ids[0];
+      if(!imported.imported)fail('El depósito ya tiene un registro. Revisa su asociación antes de confirmar',409);
+      disposition=included?'included':'credited';
+      db.prepare('INSERT INTO finance_receipt_confirmations VALUES (?,?,?,?,?,?)').run(row.id,account.id,bankId,disposition,user.username,now);
+      reconcile(db,user,{movement_id:row.id,bank_transaction_id:bankId,amount_cents:row.amount_cents});
+    }
+    db.prepare('INSERT OR IGNORE INTO finance_receipt_confirmations VALUES (?,?,?,?,?,?)').run(row.id,account.id,bankId,disposition,user.username,now);
+    db.prepare('UPDATE finance_movements SET reviewed_by=?,reviewed_at=?,review_note=?,updated_at=? WHERE id=?').run(user.username,now,included?'Ya está contemplado en el saldo':'Depósito confirmado al revisar el comprobante',now,row.id);
+    db.prepare("UPDATE finance_push_outbox SET state='skipped' WHERE request_id=? AND state='queued'").run(row.id);
+    linkRecordedBankEvidence(db);
+    const after=recordedAccountBalance(db,full);audit(db,user.username,'receipt.deposit_confirmed','movement',row.id,{balance_cents:before},{account_id:account.id,bank_transaction_id:bankId,disposition,balance_cents:after,delta_cents:after-before},row.business_id);
+    return {ok:true,account_id:account.id,bank_transaction_id:bankId,disposition,balance_cents:after,delta_cents:after-before};
+  })();
+}
 
 const bankCode = (value) =>
   String(value || "")
@@ -55,9 +108,9 @@ export function receiptInbox(db, user) {
   return db
     .prepare(
       `SELECT m.*,u.name creator_name,a.name account_name,a.bank,a.last_four,
-    e.name evidence_name,c.confirmed_at FROM finance_movements m
+    e.name evidence_name,c.confirmed_at,rc.disposition receipt_disposition FROM finance_movements m
     LEFT JOIN finance_members u ON u.username=m.created_by LEFT JOIN finance_accounts a ON a.id=m.account_id
-    LEFT JOIN finance_evidence e ON e.id=m.evidence_id LEFT JOIN finance_store_confirmations c ON c.movement_id=m.id
+    LEFT JOIN finance_evidence e ON e.id=m.evidence_id LEFT JOIN finance_store_confirmations c ON c.movement_id=m.id LEFT JOIN finance_receipt_confirmations rc ON rc.movement_id=m.id
     WHERE m.kind='income' AND m.is_payment_request=0 AND m.evidence_id IS NOT NULL AND m.hidden_at IS NULL
     ORDER BY m.created_at DESC,m.id DESC LIMIT 1000`
     )
@@ -204,6 +257,10 @@ export function repairReceiptAccounts(db){
 }
 export function registerReceiptRoutes(app, db, { route }) {
   db.prepare("UPDATE finance_movements SET receiving_bank=(SELECT bank FROM finance_accounts WHERE id=finance_movements.account_id) WHERE kind='income' AND evidence_id IS NOT NULL AND account_id IS NOT NULL AND COALESCE(receiving_bank,'')=''").run();
+  app.post(
+    '/api/finance/receipts/:id/confirm',
+    route((req,res)=>res.json(confirmReceiptDeposit(db,req.financeUser,Number(req.params.id),req.body)))
+  );
   app.post(
     "/api/finance/receipts/:id/edit",
     route((req, res) =>

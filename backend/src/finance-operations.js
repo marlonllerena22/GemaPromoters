@@ -1,6 +1,6 @@
 import { incomingNotices } from "./finance-bank-review.js";
 import {receivedWithoutAccount} from './finance-bank-identity.js';
-import {receiptAccounts,receiptInbox,queueReceiptNotice} from './finance-receipts.js';
+import {receiptAccounts,receiptInbox,queueReceiptNotice,confirmReceiptDeposit,resolveReceiptAccount,suggestReceivingAccount} from './finance-receipts.js';
 import crypto from "node:crypto";
 import { audit, cents, financeDay } from "./finance-db.js";
 import {
@@ -159,15 +159,18 @@ export function canConfirmStore(user, m) {
       (target?.role !== "owner" && (user.review_unit_ids || []).includes(m.unit_id)))
   );
 }
-export function confirmStoreReceipt(db, user, id, mode = "review") {
+export function confirmStoreReceipt(db, user, id, mode = "review",body={}) {
   return db.transaction(() => {
     const m = db.prepare("SELECT * FROM finance_movements WHERE id=?").get(id);
+    const active=privateSetting(db,'receipt_confirmation_credits_v1');
+    const destination=m&&active&&mode!=='on_upload'?resolveReceiptAccount(db,m,body.account_id):null;
+    const routed=destination?{...m,receiving_bank:destination.bank}:m;
     if (
       !m ||
       m.business_id !== "marjorie" ||
       m.kind !== "income" ||
       m.is_payment_request ||
-      (!canConfirmStore(user, m) &&
+      (!canConfirmStore(user, routed) &&
         !(
           mode === "on_upload" &&
           m.created_by === user.username &&
@@ -179,6 +182,12 @@ export function confirmStoreReceipt(db, user, id, mode = "review") {
       .prepare("SELECT * FROM finance_store_confirmations WHERE movement_id=?")
       .get(id);
     if (old) return { confirmation: old, duplicate: true };
+    if(active&&mode!=='on_upload'){
+      const ledger=confirmReceiptDeposit(db,{...user,role:'owner',business_ids:[m.business_id],unit_ids:[]},m.id,body);
+      const confirmation={movement_id:m.id,actor:user.username,confirmed_at:new Date().toISOString(),mode:ledger.disposition==='included'?'included':mode};
+      db.prepare('INSERT OR IGNORE INTO finance_store_confirmations VALUES (?,?,?,?)').run(m.id,user.username,confirmation.confirmed_at,confirmation.mode);
+      return {...(user.role==='owner'?ledger:{ok:ledger.ok,disposition:ledger.disposition,duplicate:ledger.duplicate}),confirmation};
+    }
     if (
       !m.evidence_id ||
       !["pending", "reported", "approved"].includes(m.status)
@@ -247,6 +256,7 @@ export function attachOperations(db, user, data) {
   data.incoming_notices = incomingNotices(db, user);
   data.receipt_inbox=receiptInbox(db,user);
   data.receipt_accounts=receiptAccounts(db,user);
+  data.receipt_confirmation_policy=privateSetting(db,'receipt_confirmation_credits_v1');
   if(user.role==='owner'){
     const notices=db.prepare("SELECT 1 FROM sqlite_master WHERE name='finance_notification_events'").get()?db.prepare("SELECT * FROM finance_notification_events WHERE state='review' AND archived_at IS NULL").all():[];
     data.bank_received_unassigned=[];
@@ -486,6 +496,7 @@ export function registerOperationsRoutes(app, db, { route, owner }) {
       const result = db.transaction(() => {
         const m = createMovement(db, u, {
           business_id: "marjorie",
+          account_id:suggestReceivingAccount(db,u,analysis).account_id,
           unit_id: b.unit_id,
           kind: "income",
           amount_cents: cents(b.amount_cents),
@@ -496,7 +507,7 @@ export function registerOperationsRoutes(app, db, { route, owner }) {
           payment_method: "transfer",
           evidence_id: e.id,
           reference: text(b.reference, 200),
-        });
+        },{receiptAccount:true});
         db.prepare(
           "UPDATE finance_movements SET source_system='store-receipt',status='pending',receiving_bank=? WHERE id=?",
         ).run(bank, m.id);
@@ -513,7 +524,7 @@ export function registerOperationsRoutes(app, db, { route, owner }) {
   app.post(
     "/api/finance/store-receipts/:id/confirm",
     route((req, res) =>
-      res.json(confirmStoreReceipt(db, req.financeUser, Number(req.params.id))),
+      res.json(confirmStoreReceipt(db, req.financeUser, Number(req.params.id),'review',req.body)),
     ),
   );
   app.get(

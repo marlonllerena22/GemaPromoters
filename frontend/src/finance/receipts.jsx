@@ -367,6 +367,8 @@ export function ReceiptReview({ id, onClose }) {
       (data.store_receipts || []).find((row) => row.id === Number(id));
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
+  const [account,setAccount]=useState(r?.account_id?String(r.account_id):'');
+  useEffect(()=>setAccount(r?.account_id?String(r.account_id):''),[r?.id,r?.account_id]);
   const storeRow = (data.store_receipts || []).find(
     (row) => row.id === Number(id)
   );
@@ -375,19 +377,13 @@ export function ReceiptReview({ id, onClose }) {
   const canConfirm = retailReceipt
     ? storeRow?.can_confirm && storeRow.assigned_to_me !== false
     : user.role === "owner";
-  async function confirm() {
+  async function confirm(alreadyIncluded=false) {
     setBusy(true);
     setError("");
     try {
-      if (retailReceipt)
-        await financeApi(`/store-receipts/${r.id}/confirm`, {});
-      else
-        await financeApi(`/movements/${r.id}/review`, {
-          status: "approved",
-          note: "Comprobante revisado desde Inicio",
-        });
+      const result=await financeApi(retailReceipt?`/store-receipts/${r.id}/confirm`:`/receipts/${r.id}/confirm`,{already_in_balance:alreadyIncluded,...(account?{account_id:Number(account)}:{})});
       await refresh();
-      notify("Depósito confirmado");
+      notify(result.disposition==='credited'?'Depósito confirmado y sumado a la cuenta':result.disposition==='included'?'Confirmado: ya estaba contemplado. El saldo no cambió.':'Depósito confirmado sin duplicar el abono registrado');
       onClose();
     } catch (e) {
       setError(e.message);
@@ -424,9 +420,17 @@ export function ReceiptReview({ id, onClose }) {
             </div>
           )}
           {canConfirm && pendingReceipt(r) && (
-            <Button icon={Check} loading={busy} onClick={confirm}>
-              Confirmar depósito revisado
-            </Button>
+            <>
+              <Field label="Cuenta que recibió el depósito">
+                <select value={account} onChange={e=>setAccount(e.target.value)}>
+                  <option value="">Detectar cuenta del comprobante</option>
+                  {(data.receipt_accounts||[]).map(a=><option key={a.id} value={a.id}>{a.bank} · {a.name} · {a.last_four}</option>)}
+                </select>
+              </Field>
+              <Button icon={Check} loading={busy} onClick={()=>confirm(false)}>Confirmar depósito</Button>
+              <Button variant="secondary" disabled={busy} onClick={()=>confirm(true)}>Ya está contemplado</Button>
+              <small>{r.id<=data.receipt_confirmation_policy?.legacy_through_id?'Este comprobante es anterior al nuevo flujo. Confirmarlo no cambia el saldo actual.':'Confirmar suma el depósito si aún no está registrado. Usa «Ya está contemplado» si ya lo incluiste en el saldo.'}</small>
+            </>
           )}
           {r.can_edit && (
             <Button

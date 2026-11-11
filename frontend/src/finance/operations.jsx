@@ -411,12 +411,12 @@ export function StoreReview() {
           r.status !== "rejected"
         : true,
     );
-  async function confirm(id) {
+  async function confirm(id,alreadyIncluded=false) {
     setBusy(id);
     try {
-      await financeApi(`/store-receipts/${id}/confirm`, {});
+      const result=await financeApi(`/store-receipts/${id}/confirm`, {already_in_balance:alreadyIncluded});
       await refresh();
-      notify("Transferencia confirmada");
+      notify(result.disposition==='credited'?'Depósito confirmado y sumado a la cuenta':result.disposition==='included'?'Confirmado sin cambiar el saldo':'Transferencia confirmada sin duplicar el abono');
     } catch (e) {
       setError(e.message);
     } finally {
@@ -473,6 +473,7 @@ export function StoreReview() {
               returnInitial={{}}
             />
             {!r.confirmed_at && r.status !== "reconciled" && r.can_confirm !== false && (
+              <>
               <Button
                 icon={Check}
                 loading={busy === r.id}
@@ -480,6 +481,9 @@ export function StoreReview() {
               >
                 Confirmar transferencia
               </Button>
+              <Button variant="secondary" disabled={busy===r.id} onClick={()=>confirm(r.id,true)}>Ya está contemplado</Button>
+              {!r.account_id&&<Button variant="secondary" onClick={()=>open('receipt-review',{id:r.id})}>Revisar cuenta del depósito</Button>}
+              </>
             )}
           </article>
         ))}

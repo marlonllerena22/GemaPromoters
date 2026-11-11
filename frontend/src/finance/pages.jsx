@@ -992,8 +992,9 @@ export function MovementDetail({ movement, onClose }) {
                   })
                 }
               >
-                Aprobar registro
+                {m.kind==='income'&&m.evidence_id?'Confirmar depósito':'Aprobar registro'}
               </Button>
+              {user.role==='owner'&&m.kind==='income'&&m.evidence_id&&<Button variant="secondary" disabled={busy} onClick={()=>action(`/receipts/${m.id}/confirm`,{already_in_balance:true})}>Ya está contemplado</Button>}
               <Button
                 variant="danger"
                 disabled={busy || !note.trim()}
@@ -1008,8 +1009,7 @@ export function MovementDetail({ movement, onClose }) {
               </Button>
             </div>
             <small className="gf-muted">
-              Aprobar una solicitud no ejecuta un pago ni confirma acreditación
-              bancaria.
+              {m.kind==='income'&&m.evidence_id?'Confirmar registra el depósito si todavía no está en la cuenta. «Ya está contemplado» conserva el saldo actual.':'Aprobar una solicitud no ejecuta un pago ni confirma acreditación bancaria.'}
             </small>
           </section>
         )}

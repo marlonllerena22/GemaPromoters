@@ -1,4 +1,4 @@
-import { matchUnreferencedDeclaration } from "./finance-declared-bank.js";
+import { matchUnreferencedDeclaration,matchConfirmedReceiptDeclaration } from "./finance-declared-bank.js";
 import {isBankPromotion} from '../../shared/finance-bank-promotions.mjs';
 import {archiveBankNotice} from './finance-bank-inbox.js';
 import {linkRecordedBankEvidence} from './finance-evidence-links.js';
@@ -575,7 +575,7 @@ export function applyMailDraft(db, user, id, body) {
     if (declared.length > 1) fail("Hay varios registros manuales con esa referencia. Revisa antes de aplicar el aviso", 409);
     const linkedBank = body.link_bank_id && !alreadyApplied ? db.prepare("SELECT * FROM finance_bank_transactions WHERE id=? AND account_id=? AND day=? AND amount_cents=?").get(Number(body.link_bank_id),account.id,day,p.amount_cents*(direction==='outgoing'?-1:1)) : null;
     if(body.link_bank_id&&!alreadyApplied&&!linkedBank)fail('El movimiento elegido no coincide con cuenta, fecha y valor');
-    const declaredBank = linkedBank || declared[0] || (!alreadyApplied ? matchUnreferencedDeclaration(db, { account_id: account.id, day, amount_cents: p.amount_cents * (direction === "outgoing" ? -1 : 1), counterparty: p.counterparty }) : null);
+    const declaredBank = linkedBank || declared[0] || (!alreadyApplied ? matchConfirmedReceiptDeclaration(db,{account_id:account.id,day,amount_cents:p.amount_cents*(direction==='outgoing'?-1:1),counterparty:p.counterparty})||matchUnreferencedDeclaration(db, { account_id: account.id, day, amount_cents: p.amount_cents * (direction === "outgoing" ? -1 : 1), counterparty: p.counterparty }) : null);
     if (existing[0]?.status === "reconciled" && !declaredBank)
       fail(
         "El gasto con esta referencia ya está conciliado. Revisa el aviso para evitar duplicarlo",
@@ -583,7 +583,7 @@ export function applyMailDraft(db, user, id, body) {
       );
     if (declaredBank) {
       if (existing[0]?.status === "reconciled" && !db.prepare("SELECT 1 FROM finance_allocations WHERE movement_id=? AND bank_transaction_id=?").get(existing[0].id, declaredBank.id)) fail("Este registro ya se relacionó con otro movimiento bancario", 409);
-      const includedInBalance=db.prepare('SELECT as_of_at FROM finance_balance_checkpoints WHERE account_id=?').all(account.id).some(c=>financeDay(c.as_of_at)>declaredBank.day||(financeDay(c.as_of_at)===declaredBank.day&&(!declaredBank.occurred_at||Date.parse(declaredBank.occurred_at)<=Date.parse(c.as_of_at))));
+      const includedInBalance=Boolean(db.prepare('SELECT 1 FROM finance_receipt_confirmations WHERE bank_transaction_id=?').get(declaredBank.id))||db.prepare('SELECT as_of_at FROM finance_balance_checkpoints WHERE account_id=?').all(account.id).some(c=>financeDay(c.as_of_at)>declaredBank.day||(financeDay(c.as_of_at)===declaredBank.day&&(!declaredBank.occurred_at||Date.parse(declaredBank.occurred_at)<=Date.parse(c.as_of_at))));
       // Corroborating a recorded entry must not move it past the owner's balance
       // checkpoint: that would count the same money a second time.
       db.prepare("UPDATE finance_bank_transactions SET day=?,occurred_at=?,reference=?,import_source='bank-email' WHERE id=?").run(includedInBalance?declaredBank.day:day,includedInBalance?declaredBank.occurred_at:timestamp,linkedBank?.reference || p.reference || declaredBank.reference, declaredBank.id);

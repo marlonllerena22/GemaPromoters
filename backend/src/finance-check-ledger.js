@@ -44,9 +44,10 @@ export function recordedAccountBalance(
   );
   const rows = db
     .prepare(
-      "SELECT * FROM finance_bank_transactions WHERE account_id=? AND day>=? AND day<=?",
+      "SELECT b.* FROM finance_bank_transactions b WHERE account_id=? AND day>=? AND day<=? AND NOT EXISTS(SELECT 1 FROM finance_receipt_confirmations c WHERE c.bank_transaction_id=b.id AND c.disposition='included')",
     )
-    .all(account.id, account.opening_date, throughDay);
+    .all(account.id, account.opening_date, throughDay)
+    .filter(r=>!throughInstant||!r.occurred_at||Date.parse(r.occurred_at)<=Date.parse(throughInstant));
   const after = checkpoint
     ? rows.filter(
         (r) =>

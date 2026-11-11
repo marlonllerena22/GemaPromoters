@@ -2,6 +2,7 @@ import {decryptDocument} from './finance-ai.js';
 import {audit,financeDay} from './finance-db.js';
 import {matchOwnTransferCredit} from './finance-own-transfers.js';
 import {matchingBankPerson} from './finance-bank-identity.js';
+import {notificationBankCode} from '../../shared/finance-notification-accounts.mjs';
 
 // Attach corroborating evidence to the existing ledger entry, without moving money.
 export function linkRecordedBankEvidence(db) {
@@ -16,6 +17,13 @@ export function linkRecordedBankEvidence(db) {
       const p=JSON.parse(decryptDocument(row.encrypted).toString());
       if(p.blocked||p.credit||!p.direction)continue;
       let bank=find(row.account_id,row.amount_cents,row.reference,financeDay(row.posted_at));
+      if(!bank&&p.direction==='incoming'&&p.amount_cents){
+        const candidates=db.prepare(`SELECT b.*,a.bank,m.counterparty FROM finance_receipt_confirmations c JOIN finance_bank_transactions b ON b.id=c.bank_transaction_id JOIN finance_movements m ON m.id=c.movement_id JOIN finance_accounts a ON a.id=c.account_id
+          WHERE b.amount_cents=? AND (? IS NULL OR c.account_id=?) AND b.import_source='assistant'
+          AND m.day BETWEEN date(?,'-1 day') AND date(?,'+1 day')
+          AND NOT EXISTS(SELECT 1 FROM finance_notification_events n WHERE n.bank_transaction_id=b.id AND n.state IN ('matched','applied'))`).all(p.amount_cents,row.account_id,row.account_id,financeDay(row.posted_at),financeDay(row.posted_at)).filter(c=>notificationBankCode(c.bank)===notificationBankCode(row.bank)&&matchingBankPerson(c.counterparty,p.counterparty));
+        if(candidates.length===1)bank=candidates[0];
+      }
       if(!bank&&p.amount_cents){
         const signed=p.amount_cents*(p.direction==='outgoing'?-1:1);
         const candidates=db.prepare(`SELECT b.*,m.encrypted mail_payload FROM finance_mail_messages m JOIN finance_bank_transactions b ON b.id=m.bank_transaction_id

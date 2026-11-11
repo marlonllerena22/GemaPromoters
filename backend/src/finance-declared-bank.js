@@ -1,5 +1,16 @@
 import { fail } from "./finance-service.js";
 import { decryptDocument } from "./finance-ai.js";
+import {matchingBankPerson} from './finance-bank-identity.js';
+
+export function matchConfirmedReceiptDeclaration(db,{account_id,day,amount_cents,counterparty}){
+  if(amount_cents<=0)return null;
+  const rows=db.prepare(`SELECT b.*,m.counterparty FROM finance_receipt_confirmations c JOIN finance_bank_transactions b ON b.id=c.bank_transaction_id JOIN finance_movements m ON m.id=c.movement_id
+    WHERE c.account_id=? AND b.amount_cents=? AND b.import_source='assistant' AND (m.day BETWEEN date(?,'-1 day') AND date(?,'+1 day') OR b.day BETWEEN date(?,'-1 day') AND date(?,'+1 day'))`).all(account_id,amount_cents,day,day,day,day);
+  if(!rows.length)return null;
+  const matches=rows.filter(r=>matchingBankPerson(r.counterparty,counterparty));
+  if(matches.length===1&&rows.length===1)return matches[0];
+  fail('Hay un depósito confirmado con ese importe. Revisa la coincidencia para evitar sumarlo otra vez',409);
+}
 
 const normalized = (value) => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 export const unknownBankParty=value=>!normalized(value)||/^(?:movimiento por correo|beneficiario no indicado|origen no indicado|no indicado|no especificado|no identificado|desconocido|por identificar)$/.test(normalized(value));

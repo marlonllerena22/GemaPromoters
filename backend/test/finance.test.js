@@ -1861,9 +1861,13 @@ test("Sur routes recipient-bank receipts to Marlon or Morelia and enforces the r
   assert.equal(list.find((r) => r.id === pich.body.id).assigned_to_me, false);
   const moreList = (await f.req("/store-receipts", "morelia")).body.receipts;
   assert.equal(moreList.find((r) => r.id === pich.body.id).assigned_to_me, true);
-  assert.equal((await f.req(`/store-receipts/${pich.body.id}/confirm`, "morelia", {})).status, 200);
-  assert.equal((await f.req(`/store-receipts/${guay.body.id}/confirm`, "owner", {})).status, 200);
-  assert.equal(f.db.prepare("SELECT count(*) n FROM finance_bank_transactions").get().n, 0);
+  const pichAccount=await f.account(null,'Pichincha destino'),guayAccount=await f.account(null,'Guayaquil destino');
+  f.db.prepare("UPDATE finance_accounts SET bank='Pichincha' WHERE id=?").run(pichAccount);f.db.prepare("UPDATE finance_accounts SET bank='Guayaquil' WHERE id=?").run(guayAccount);
+  assert.equal((await f.req(`/store-receipts/${pich.body.id}/confirm`, "morelia", {account_id:guayAccount})).status,403);
+  assert.equal((await f.req(`/store-receipts/${pich.body.id}/confirm`, "morelia", {account_id:pichAccount})).status, 200);
+  assert.equal((await f.req(`/store-receipts/${guay.body.id}/confirm`, "owner", {account_id:guayAccount,already_in_balance:true})).status, 200);
+  assert.equal(f.db.prepare("SELECT count(*) n FROM finance_bank_transactions").get().n, 2);
+  const accounts=(await f.req('/snapshot')).body.accounts;assert.equal(accounts.find(a=>a.id===pichAccount).balance_cents,2000);assert.equal(accounts.find(a=>a.id===guayAccount).balance_cents,0);
 });
 
 test("full account numbers are owner-managed, encrypted and never exposed to other readers", async (t) => {

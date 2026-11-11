@@ -11,6 +11,7 @@ import {
   suggestReceivingAccount,
   editReceipt,
   repairReceiptAccounts,
+  activateReceiptCredits,confirmReceiptDeposit,
 } from "../src/finance-receipts.js";
 import { applyNovemberCleanup, archiveNovemberTrialReceipt, clearCurrentActivity } from "../src/finance-start-clean.js";
 import {ingestBankMessages,mailDrafts,applyMailDraft,replayAutomaticBankMail} from '../src/finance-gmail.js';
@@ -451,4 +452,47 @@ test('recovering a previously saved balance is guarded and applies only once',t=
   const result=applyBankReview(f.db,config);assert.equal(result.confirmedBalances[0].movement_id,receipt.id);assert.equal(f.balance(),35500);
   assert.deepEqual(applyBankReview(f.db,config),{applied:false});assert.equal(f.balance(),35500);
   assert.throws(()=>applyBankReview(f.db,{...config,id:'wrong-saved-value',confirmed_balance_updates:[{...config.confirmed_balance_updates[0],expected_verified_cents:99999}]}),/Saved balance confirmation changed/);assert.equal(f.balance(),35500);
+});
+
+test('new receipt confirmation detects its account, credits once, and a different receiving-bank email reference links without another credit',t=>{
+  const f=fixture(t);activateReceiptCredits(f.db);putPrivateSetting(f.db,'own_account_registry',{accounts:[{account_id:f.account,bank:'Pichincha',number:'2200000043'}]});
+  f.db.prepare('UPDATE finance_evidence SET analysis=? WHERE id=?').run(JSON.stringify({receiving_bank:'Banco Pichincha',destination_account_suffix:'0043'}),f.evidence);
+  const r=registerQuickEntry(f.db,f.norma,{...f.payload,overrides:{...f.payload.overrides,account_id:null,amount_cents:25500,counterparty:'Diego Sandoval',reference:'ORIGIN255'}}).movement;
+  const result=confirmReceiptDeposit(f.db,f.owner,r.id);assert.equal(result.disposition,'credited');assert.equal(result.account_id,f.account);assert.equal(f.balance(),35500);
+  assert.equal(f.db.prepare('SELECT status FROM finance_movements WHERE id=?').get(r.id).status,'reconciled');
+  assert.equal(confirmReceiptDeposit(f.db,f.owner,r.id).duplicate,true);assert.equal(f.balance(),35500);
+  ingestBankMessages(f.db,[{id:'late-receiving-mail',internalDate:String(Date.now()),payload:{headers:[{name:'From',value:'avisos@pichincha.com'},{name:'Subject',value:'Transferencia recibida'},{name:'Authentication-Results',value:'mx.google.com; dmarc=pass header.from=pichincha.com'}],body:{content:'Te confirmamos que Diego Sandoval ha realizado una transferencia. Transferencia recibida. Cuenta destino: ****0043 Monto: USD 255.00 Número de documento: 987654321'}}}]);
+  assert.equal(f.db.prepare('SELECT state FROM finance_mail_messages').get().state,'applied');assert.equal(f.balance(),35500);assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,1);
+});
+
+for(const legacy of [false,true])test(`already-included confirmation keeps the current balance and late notices cannot add it, legacy: ${legacy}`,t=>{
+  const f=fixture(t);if(!legacy)activateReceiptCredits(f.db);initBankNotifications(f.db);
+  const r=registerQuickEntry(f.db,f.norma,{...f.payload,overrides:{...f.payload.overrides,amount_cents:25500,counterparty:'Diego Sandoval',reference:'123456789'}}).movement;
+  if(legacy)activateReceiptCredits(f.db);
+  const result=confirmReceiptDeposit(f.db,f.owner,r.id,legacy?{}:{already_in_balance:true});assert.equal(result.disposition,'included');assert.equal(f.balance(),10000);assert.equal(confirmReceiptDeposit(f.db,f.owner,r.id).duplicate,true);assert.equal(f.balance(),10000);
+  const device={id:'included-phone',created_at:new Date(Date.now()-60000).toISOString(),apps_json:JSON.stringify([{package_name:'bank.test',bank:'Pichincha',account_id:null,automatic:true}])};
+  f.db.prepare("INSERT INTO finance_notification_devices(id,client_id,member_id,session_hash,token_hash,apps_json,created_at,expires_at) VALUES (?,'included-client',?,'test','included-token',?,?,?)").run(device.id,f.owner.id,device.apps_json,device.created_at,Date.now()+3600000);
+  ingestBankNotifications(f.db,device,[{id:'included-late-push',package_name:'bank.test',posted_at:new Date().toISOString(),title:'Recibiste $255',text:'Sandoval Perez Diego Andres te envió $255.'}]);
+  assert.equal(f.db.prepare('SELECT state FROM finance_notification_events').get().state,'matched');assert.equal(f.balance(),10000);
+  putPrivateSetting(f.db,'own_account_registry',{accounts:[{account_id:f.account,bank:'Pichincha',number:'2200000043'}]});
+  ingestBankMessages(f.db,[{id:'late-included-mail',internalDate:String(Date.now()),payload:{headers:[{name:'From',value:'avisos@pichincha.com'},{name:'Subject',value:'Transferencia recibida'},{name:'Authentication-Results',value:'mx.google.com; dmarc=pass header.from=pichincha.com'}],body:{content:'Te confirmamos que Diego Sandoval ha realizado una transferencia. Transferencia recibida. Cuenta destino: ****0043 Monto: USD 255.00 Número de documento: 123456789'}}}]);
+  assert.equal(f.db.prepare('SELECT state FROM finance_mail_messages').get().state,'applied');assert.equal(f.balance(),10000);assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,1);
+});
+
+test('activating the new confirmation flow does not change existing receipts or account balances',t=>{
+  const f=fixture(t);const r=registerQuickEntry(f.db,f.norma,f.payload).movement;const before=f.balance(),row=f.db.prepare('SELECT * FROM finance_movements WHERE id=?').get(r.id);
+  const policy=activateReceiptCredits(f.db);assert.ok(policy.legacy_through_id>=r.id);assert.equal(f.balance(),before);assert.deepEqual(f.db.prepare('SELECT * FROM finance_movements WHERE id=?').get(r.id),row);assert.deepEqual(activateReceiptCredits(f.db),policy);
+});
+
+test('confirming with an unreadable destination requires an account and collaborators cannot confirm their own deposit',t=>{
+  const f=fixture(t);activateReceiptCredits(f.db);const r=registerQuickEntry(f.db,f.norma,{...f.payload,overrides:{...f.payload.overrides,account_id:null}}).movement;
+  assert.throws(()=>confirmReceiptDeposit(f.db,f.owner,r.id),/Selecciona la cuenta/);assert.throws(()=>confirmReceiptDeposit(f.db,f.norma,r.id,{account_id:f.account}),e=>e.status===403);assert.equal(f.balance(),10000);
+  assert.equal(confirmReceiptDeposit(f.db,f.owner,r.id,{account_id:f.account}).disposition,'credited');assert.equal(f.balance(),134300);
+});
+
+test('confirming after the bank email links the existing deposit even when the sender receipt has a different reference',t=>{
+  const f=fixture(t);activateReceiptCredits(f.db);putPrivateSetting(f.db,'own_account_registry',{accounts:[{account_id:f.account,bank:'Pichincha',number:'2200000043'}]});
+  ingestBankMessages(f.db,[{id:'first-bank-mail',internalDate:String(Date.now()),payload:{headers:[{name:'From',value:'avisos@pichincha.com'},{name:'Subject',value:'Transferencia recibida'},{name:'Authentication-Results',value:'mx.google.com; dmarc=pass header.from=pichincha.com'}],body:{content:'Te confirmamos que Diego Sandoval ha realizado una transferencia. Transferencia recibida. Cuenta destino: ****0043 Monto: USD 255.00 Número de documento: 987654321'}}}]);
+  const before=f.balance(),receipt=registerQuickEntry(f.db,f.norma,{...f.payload,overrides:{...f.payload.overrides,counterparty:'Diego Sandoval',amount_cents:25500,reference:'ORIGIN255'}}).movement;
+  assert.equal(confirmReceiptDeposit(f.db,f.owner,receipt.id).disposition,'bank_linked');assert.equal(f.balance(),before);assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,1);
 });
