@@ -11,7 +11,7 @@ import {
   suggestReceivingAccount,
   editReceipt,
 } from "../src/finance-receipts.js";
-import { applyNovemberCleanup } from "../src/finance-start-clean.js";
+import { applyNovemberCleanup, archiveNovemberTrialReceipt } from "../src/finance-start-clean.js";
 import { putPrivateSetting } from "../src/finance-operations.js";
 import { recordedAccountBalance } from "../src/finance-check-ledger.js";
 import { flushPaymentPush } from "../src/finance-push.js";
@@ -277,4 +277,28 @@ test("cleanup removes the specified unpaid request and group access while preser
     true
   );
   assert.equal(applyNovemberCleanup(f.db), undefined);
+});
+
+test("explicit 1243 trial removal is scoped, audited, idempotent and leaves bank balances intact",(t)=>{
+  const f=fixture(t),receipt=registerQuickEntry(f.db,f.norma,f.payload).movement;
+  f.db.prepare("UPDATE finance_movements SET created_at='2026-11-10T20:00:00.000Z' WHERE id=?").run(receipt.id);
+  f.db.prepare("INSERT INTO finance_bank_transactions(account_id,day,amount_cents,reference,description,fingerprint,batch_id,created_by) VALUES (?,?,124300,'REAL1243','Real bank credit','real1243','real','marlon')").run(f.account,financeDay());
+  const before=f.balance();
+  assert.deepEqual(archiveNovemberTrialReceipt(f.db).archived,[receipt.id]);
+  assert.equal(receiptInbox(f.db,f.norma).length,0);
+  assert.equal(f.balance(),before);
+  assert.equal(f.db.prepare("SELECT count(*) n FROM finance_bank_transactions").get().n,1);
+  assert.equal(archiveNovemberTrialReceipt(f.db),undefined);
+});
+
+test("1243 cleanup refuses ambiguous receipts and leaves future receipts untouched",(t)=>{
+  const f=fixture(t),first=registerQuickEntry(f.db,f.norma,f.payload).movement;
+  f.db.prepare("UPDATE finance_movements SET created_at='2026-11-10T20:00:00.000Z' WHERE id=?").run(first.id);
+  f.db.prepare("INSERT INTO finance_movements(business_id,kind,amount_cents,day,category,counterparty,description,created_by,created_at) VALUES ('producalza','income',124300,?,'Abono','Otro cliente','Segundo comprobante','norma','2026-11-10T21:00:00.000Z')").run(financeDay());
+  const second=f.db.prepare("SELECT max(id) id FROM finance_movements").get().id;
+  f.db.prepare("INSERT INTO finance_movements(business_id,kind,amount_cents,day,category,counterparty,description,created_by,created_at) VALUES ('producalza','income',124300,?,'Abono','Cliente futuro','Comprobante futuro','norma','2026-11-11T06:00:00.000Z')").run(financeDay());
+  const result=archiveNovemberTrialReceipt(f.db);
+  assert.deepEqual(result.ambiguous,[first.id,second]);
+  assert.equal(result.archived.length,0);
+  assert.equal(f.db.prepare("SELECT count(*) n FROM finance_movements WHERE hidden_at IS NOT NULL").get().n,0);
 });

@@ -109,7 +109,7 @@ export function QuickConversation({ initial = {}, onClose, onForm }) {
               {draft.before_cents != null && <div><dt>Saldo anterior</dt><dd>{money(draft.before_cents)}</dd></div>}
               {draft.after_cents != null && <div><dt>Saldo después</dt><dd>{money(draft.after_cents)}</dd></div>}
             </dl>}
-            {draft.snapshot && <p>Confirma que la foto muestra el saldo actual. Reemplazaré el saldo indicado y guardaré la diferencia; no se suma como un ingreso nuevo.</p>}
+            {draft.snapshot && <p>{draft.manual_balance?'Confirma que escribiste el saldo actual de esta cuenta.':'Confirma que la foto muestra el saldo actual.'} Se guardará el saldo final y su diferencia en el historial.</p>}
             {draft.declared_without_reference && <p>Actualizaré el saldo con tu declaración. Quedará pendiente de contrastar con el aviso bancario, sin sumarlo dos veces.</p>}
             {draft.already_in_bank && <p>Ya aparece en el banco. Lo relacionaré sin sumarlo ni restarlo otra vez.</p>}
             {draft.source_balance_unknown && <p>El saldo de {draft.source_fund} sigue por indicar. No inventaré cuánto le queda.</p>}

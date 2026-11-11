@@ -2,6 +2,37 @@ import { audit } from "./finance-db.js";
 import { privateSetting, putPrivateSetting } from "./finance-operations.js";
 import { queueReceiptNotice } from "./finance-receipts.js";
 
+// Explicit follow-up from Marlon: remove Norma's $1,243 trial, preserving bank money.
+export function archiveNovemberTrialReceipt(db) {
+  const key = "owner-remove-1243-trial-2026-11-11-v1";
+  if (privateSetting(db, key)) return;
+  return db.transaction(() => {
+    const rows = db.prepare(`SELECT m.* FROM finance_movements m
+      WHERE m.business_id='producalza' AND m.kind='income' AND m.amount_cents=124300
+      AND m.is_payment_request=0 AND m.hidden_at IS NULL
+      AND lower(m.created_by) IN ('norma','normita')
+      AND julianday(m.created_at)<=julianday('2026-11-11T05:25:00.000Z')`).all();
+    const archived = [], protectedRows = [];
+    if (rows.length === 1) {
+      const row = rows[0];
+      const linked = db.prepare("SELECT 1 FROM finance_allocations WHERE movement_id=? UNION ALL SELECT 1 FROM finance_payments WHERE request_id=? AND voided_at IS NULL").get(row.id,row.id);
+      if (linked) protectedRows.push(row.id);
+      else {
+        const now = new Date().toISOString();
+        db.prepare("UPDATE finance_movements SET status='rejected',hidden_at=?,review_note='Prueba de $1.243 retirada por instrucción expresa de Marlon',reviewed_by='marlon',updated_at=? WHERE id=?").run(now,now,row.id);
+        db.prepare("UPDATE finance_push_outbox SET state='skipped' WHERE request_id=? AND state='queued'").run(row.id);
+        audit(db,'marlon','test.archived','movement',row.id,row,{reason:'Retirar prueba de $1.243; movimientos bancarios conservados'},row.business_id);
+        archived.push(row.id);
+      }
+    }
+    const existing = rows.length ? [] : db.prepare("SELECT id,business_id,kind,status,hidden_at IS NOT NULL AS hidden,lower(created_by) IN ('norma','normita') AS norma FROM finance_movements WHERE amount_cents=124300 AND julianday(created_at)<=julianday('2026-11-11T05:25:00.000Z') LIMIT 10").all();
+    const result = {archived,protected:protectedRows,ambiguous:rows.length>1?rows.map(r=>r.id):[],found:rows.length,existing};
+    putPrivateSetting(db,key,result);
+    console.info('[finance] Requested 1243 trial cleanup '+JSON.stringify(result));
+    return result;
+  })();
+}
+
 // Owner's November 10 cleanup. Never changes accounts, bank entries, or posted money.
 export function applyNovemberCleanup(db) {
   if (

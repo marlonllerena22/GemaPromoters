@@ -65,6 +65,31 @@ test("photos are private and encrypted, bank balance snapshots replace the balan
   assert.equal(repeat.draft,null);assert.match(repeat.message,/ya actualizó/);
 });
 
+test("typed bank balances require confirmation, replace rather than add, and reject changes during confirmation",async(t)=>{
+  const f=fixture(t);
+  f.setResponse({action:"account_balance",message:"Actualizar saldo actual",data:{...f.data,photo_id:null,amount_cents:25000,custody_id:null}});
+  await assert.rejects(prepareConversation(f.db,f.german,chat("Actualiza el saldo de Guayaquil a 250")),e=>e.status===403);
+  const ambiguous=await prepareConversation(f.db,f.owner,chat("Guayaquil tiene 250"));
+  assert.equal(ambiguous.draft,null);
+  const prepared=await prepareConversation(f.db,f.owner,{messages:[{role:"user",content:"Guayaquil tiene 250"},{role:"assistant",content:ambiguous.message},{role:"user",content:"Sí, correcto"}]});
+  assert.equal(prepared.draft.manual_balance,true);
+  assert.equal(prepared.draft.before_cents,10000);
+  assert.equal(prepared.draft.after_cents,25000);
+  const balance=()=>recordedAccountBalance(f.db,f.db.prepare("SELECT * FROM finance_accounts WHERE id=?").get(f.accountId));
+  assert.equal(balance(),10000);
+  assert.throws(()=>confirmConversation(f.db,f.owner,{draft_id:prepared.draft.id}),e=>e.status===400);
+  confirmConversation(f.db,f.owner,{draft_id:prepared.draft.id,confirmed:true});
+  assert.equal(balance(),25000);
+  assert.equal(confirmConversation(f.db,f.owner,{draft_id:prepared.draft.id,confirmed:true}).duplicate,true);
+  assert.equal(f.db.prepare("SELECT count(*) n FROM finance_balance_checkpoints").get().n,1);
+  assert.equal(f.db.prepare("SELECT count(*) n FROM finance_bank_transactions").get().n,0);
+  assert.equal(f.db.prepare("SELECT count(*) n FROM finance_movements").get().n,0);
+  const next=await prepareConversation(f.db,f.owner,chat("El saldo actual de Guayaquil es 250"));
+  f.db.prepare("INSERT INTO finance_bank_transactions(account_id,day,amount_cents,reference,description,fingerprint,batch_id,created_by,occurred_at) VALUES (?,?,-100,'LATEST','Pago nuevo','manual-stale','test','owner',?)").run(f.accountId,financeDay(),new Date(Date.now()+1000).toISOString());
+  assert.throws(()=>confirmConversation(f.db,f.owner,{draft_id:next.draft.id,confirmed:true}),e=>e.status===409);
+  assert.equal(f.db.prepare("SELECT count(*) n FROM finance_balance_checkpoints").get().n,1);
+});
+
 test("bank snapshots refuse stale pictures and cannot be prepared by staff",async(t)=>{
   const f=fixture(t),photo=await uploadPhoto(f),staffPhoto=await uploadPhoto(f,f.german);
   f.setResponse({action:"account_balance",message:"Ajustar",data:{...f.data,custody_id:null,photo_id:staffPhoto.id}});
