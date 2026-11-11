@@ -63,7 +63,8 @@ export function requireRow(db, table, id, user) {
   )
     fail("Recurso inválido");
   const row = db.prepare(`SELECT * FROM ${table} WHERE id=?`).get(id);
-  if (!row || !scoped(user, row)) fail("Registro no encontrado", 404);
+  const ownLegacyReceipt=row&&row.unit_id===null&&row.created_by===user.username&&user.business_ids.includes(row.business_id)&&(table==='finance_evidence'||(table==='finance_movements'&&row.kind==='income'&&row.evidence_id));
+  if (!row || (!scoped(user, row)&&!ownLegacyReceipt)) fail("Registro no encontrado", 404);
   return row;
 }
 
@@ -80,7 +81,7 @@ export function visibleAccounts(db, user) {
     );
 }
 
-export function createMovement(db, user, body) {
+export function createMovement(db, user, body, {receiptAccount=false}={}) {
   businessAccess(user, body.business_id);
   unitAccess(db, user, body.unit_id, body.business_id);
   if (!["income", "expense", "transfer", "refund"].includes(body.kind))
@@ -110,7 +111,8 @@ export function createMovement(db, user, body) {
       !account ||
       (account.business_id &&
         account.business_id !== body.business_id &&
-        !(user.role === "owner" && body.allow_cross_account === true))
+        !(user.role === "owner" && body.allow_cross_account === true) &&
+        !(receiptAccount && body.kind==='income' && body.evidence_id && account.kind==='bank'))
     )
       fail("La cuenta no corresponde al negocio");
   }
@@ -173,8 +175,7 @@ export function createMovement(db, user, body) {
         user.username,
       );
     if (
-      user.role === "owner" &&
-      body.allow_cross_account === true &&
+      ((user.role === "owner" && body.allow_cross_account === true) || receiptAccount) &&
       body.account_id
     ) {
       const a = db

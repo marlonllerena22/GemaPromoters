@@ -18,7 +18,7 @@ export async function sendFinancePush(subscription,payload,options) {
   const key=config.key;
   if(cached?.email!==key.client_email || cached?.keyId!==key.private_key_id) cached={email:key.client_email,keyId:key.private_key_id,client:new JWT({email:key.client_email,key:key.private_key,scopes:["https://www.googleapis.com/auth/firebase.messaging"]})};
   const value=JSON.parse(payload);
-  const data={url:value.url||"/finanzas/pagos",tag:value.tag||"gema-payment-requests",...(value.test_id?{test_id:value.test_id}:{})};
+  const data={url:value.url||"/finanzas/pagos",tag:value.tag||"gema-payment-requests",...(value.test_id?{test_id:value.test_id}:{}),...(value.receipt_id?{receipt_id:String(value.receipt_id)}:{}),...(value.request_id?{request_id:String(value.request_id)}:{})};
   try {
     await cached.client.request({url:`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(key.project_id)}/messages:send`,method:"POST",timeout:8000,data:{message:{token:subscription.token,notification:{title:value.title,body:value.body},data,android:{priority:"HIGH",ttl:`${Math.min(options?.TTL||86400,86400)}s`,notification:{channel_id:"gema-finance-alerts",sound:"default",tag:data.tag}}}}});
     return {statusCode:200};

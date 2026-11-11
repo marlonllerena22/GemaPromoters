@@ -85,12 +85,14 @@ import { CollaboratorHome, QuickAccess } from "./quick.jsx";
 import { BankLogo } from "./banks.jsx";
 import { WorkSummary, AssistantAvatar, PushEnrollment } from "./workflows.jsx";
 import {BankNotificationsPanel,BankNotificationsShortcut} from './bank-notifications.jsx';
+import {OwnerHome} from './home-action-center.jsx';
 
 export function Overview() {
   const { data, user, open, navigate, selectMovement, filters } = useFinance();
   const s = data.summary;
   if (user.work_view) return <WorkSummary />;
   if (user.role === "collector") return <CollaboratorHome />;
+  if (user.role === "owner") return <OwnerHome/>;
   return (
     <>
       <div className="gf-welcome gf-owner-greeting">

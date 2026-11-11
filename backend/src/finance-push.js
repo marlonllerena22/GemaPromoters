@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import {storeReceiptRoute} from '../../shared/finance-store-receipts.mjs';
 import { nativePushConfiguration, validateNativeSubscription, sendFinancePush } from "./finance-native-push.js";
 import { encryptDocument, decryptDocument } from "./finance-ai.js";
 import { fail } from "./finance-service.js";
@@ -76,25 +77,28 @@ export async function flushPaymentPush(
     if (!db.open) return;
     const request = db
       .prepare(
-        "SELECT * FROM finance_movements WHERE id=? AND is_payment_request=1"
+        "SELECT * FROM finance_movements WHERE id=?"
       )
       .get(event.request_id);
-    const payments = request
+    const receipt=event.event_key.startsWith('receipt-review:');
+    const payments = request&&!receipt
       ? db
           .prepare("SELECT * FROM finance_payments WHERE request_id=?")
           .all(request.id)
       : [];
-    if (!request || !paymentProgress(request, payments).remaining_cents) {
+    const confirmed=receipt&&request&&db.prepare('SELECT 1 FROM finance_store_confirmations WHERE movement_id=?').get(request.id);
+    if (!request || request.hidden_at || (receipt ? request.kind!=='income'||!request.evidence_id||!['pending','reported'].includes(request.status)||confirmed : !request.is_payment_request||!paymentProgress(request, payments).remaining_cents)) {
       db.prepare(
         "UPDATE finance_push_outbox SET state='skipped' WHERE id=?"
       ).run(event.id);
       continue;
     }
+    const recipient=receipt?storeReceiptRoute(request):null;
     const subscriptions = db
       .prepare(
-        "SELECT p.* FROM finance_push_subscriptions p JOIN finance_members m ON m.id=p.member_id WHERE m.role='owner' AND m.active=1"
+        "SELECT p.*,m.role member_role,m.username member_username FROM finance_push_subscriptions p JOIN finance_members m ON m.id=p.member_id WHERE m.active=1"
       )
-      .all();
+      .all().filter(s=>recipient?.role==='local-reviewer'?s.member_username==='morelia':s.member_role==='owner');
     if (!subscriptions.length) continue;
     let failed = false, delivered = 0;
     for (const subscription of subscriptions) {
@@ -105,10 +109,11 @@ export async function flushPaymentPush(
         await send(
           value,
           JSON.stringify({
-            title: "Tienes una transferencia pendiente",
-            body: "Abre Gema Finanzas para revisar la solicitud.",
-            url: "/finanzas/pagos",
-            tag: "gema-payment-requests",
+            title: receipt?"Depósito por confirmar":"Te pidieron una transferencia",
+            body: receipt?'Recibiste un comprobante de cliente. Toca para revisarlo.':'Toca para ver los datos y subir el comprobante del pago.',
+            url: receipt?"/finanzas/confirmaciones":"/finanzas/pagos",
+            ...(receipt?{receipt_id:String(request.id)}:{request_id:String(request.id)}),
+            tag: `${receipt?'gema-receipt':'gema-payment'}-${request.id}`,
           }),
           {
             vapidDetails: {
@@ -119,7 +124,7 @@ export async function flushPaymentPush(
             TTL: 86400,
             timeout: 8000,
             urgency: "normal",
-            topic: "gema-payment-requests",
+            topic: `gema-${receipt?'receipt':'payment'}-${request.id}`,
           }
         );
         delivered++;

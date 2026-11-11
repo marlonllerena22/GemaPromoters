@@ -9,6 +9,8 @@ import {
   stopBankNotifications,
 } from "./bank-notifications.jsx";
 import { AccountNumberEditor } from "./account-summary.jsx";
+import {PaymentUploadPicker} from './home-action-center.jsx';
+import {ReceiptReview,ReceiptComposer} from './receipts.jsx';
 import React, {
   useCallback,
   useEffect,
@@ -1022,9 +1024,7 @@ function FinanceApp() {
               )}
             </div>
           )}
-          <PersistentPayments />
-          <LoanAlertsBar />
-          <FundingAlertBar />
+          {!(user.role==='owner'&&current.id==='inicio')&&<><PersistentPayments/><LoanAlertsBar/><FundingAlertBar/></>}
           {!online && (
             <div className="gf-offline">
               <CloudOff size={17} />
@@ -1034,6 +1034,7 @@ function FinanceApp() {
           <main className="gf-main" id="gf-main" tabIndex={-1}>
             {user.role !== "collector" &&
               !(user.work_view && current.id === "inicio") &&
+              !(user.role==='owner'&&current.id==='inicio') &&
               !["espacios", "pagos"].includes(current.id) && (
                 <div className="gf-filterbar">
                   <div className="gf-business-filter">
@@ -1252,6 +1253,9 @@ function FinanceApp() {
         {modal?.type === "detail" && (
           <MovementDetail movement={modal.movement} onClose={close} />
         )}
+        {modal?.type==='upload-payment'&&<PaymentUploadPicker onClose={close}/>}
+        {modal?.type==='receipt-review'&&<ReceiptReview id={modal.initial.id} onClose={close}/>}
+        {modal?.type==='receipt-edit'&&<ReceiptComposer initial={modal.initial} onClose={close}/>}
         {modal?.type === "quick" && modal.initial?.mode === "request" && (
           <RequestComposer
             initial={modal.initial}

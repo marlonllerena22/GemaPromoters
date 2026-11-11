@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { payeeBanks } from "../../../shared/finance-payees.mjs";
 import { receivingBank, storeReceiptRoute } from "../../../shared/finance-store-receipts.mjs";
+import {ReceiptList} from './receipts.jsx';
 import {
   ArrowRight,
   ArrowUpRight,
@@ -432,6 +433,7 @@ export function StoreReview() {
             : "Transferencias del Sur para tu confirmación."
         }
       />
+      {user.role==='owner'&&<ReceiptList onlyPending={tab==='pending'} productionOnly/>}
       <RetailBrand />
       <div className="gf-tabs">
         <button

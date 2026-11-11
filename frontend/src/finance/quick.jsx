@@ -22,6 +22,7 @@ import {
 } from "../../../shared/finance-quick.mjs";
 import { useFinance } from "./context.jsx";
 import { QuickConversation } from "./conversation.jsx";
+import {ReceiptList,ReceiptComposer} from './receipts.jsx';
 import { RetailBrand, isStoreUser, IncomingNotices } from "./operations.jsx";
 import {
   businessNames,
@@ -88,7 +89,7 @@ export function CollaboratorHome() {
       </div>
       <IncomingNotices />
       <div className="gf-simple-actions">
-        {user.username === "norma" && (
+        {["norma","normita"].includes(user.username) && (
           <button onClick={() => open("quick", { mode: "receipt" })}>
             <span className="gf-simple-action-icon">
               <Camera size={27} />
@@ -152,6 +153,8 @@ export function CollaboratorHome() {
           <ArrowRight size={18} />
         </button>
       )}
+      {["norma","normita"].includes(user.username)&&<Button variant="secondary" icon={FileText} onClick={()=>open('quick',{mode:'request',business_id:'producalza',space_id:'producalza-pagos',description:'Servicios básicos',category:'Servicios'})}>Pedir pago de servicios básicos</Button>}
+      <ReceiptList/>
       <section className="gf-collaborator-spaces">
         <h2>Mis espacios</h2>
         <p>Solicitudes, pagos y comprobantes de tus grupos.</p>
@@ -168,6 +171,7 @@ export function CollaboratorHome() {
 export function QuickCapture({ initial = {}, onClose }) {
   const { user, data } = useFinance();
   const [form, setForm] = useState(false);
+  if(initial.mode==='receipt')return <ReceiptComposer initial={initial} onClose={onClose}/>;
   return !form && (!initial.mode || initial.mode === "message") && canUseFinanceAssistant(user) && !data.capabilities.public_preview
     ? <QuickConversation initial={initial} onClose={onClose} onForm={() => setForm(true)} />
     : <QuickCaptureForm initial={initial} onClose={onClose} />;

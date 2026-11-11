@@ -383,9 +383,7 @@ export function incomingNotices(db, user) {
       "SELECT n.*,a.bank,a.last_four FROM finance_incoming_notices n JOIN finance_accounts a ON a.id=n.account_id ORDER BY n.day DESC",
     )
     .all()
-    .filter(
-      (n) => user.role === "owner" || user.business_ids.includes(n.business_id),
-    )
+      .filter((n)=>!n.archived_at && (user.role === "owner" || user.business_ids.includes(n.business_id)))
     .map((n) => {
       const matches = db
         .prepare(

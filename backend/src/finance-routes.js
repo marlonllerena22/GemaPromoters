@@ -3,6 +3,8 @@ import { financeSupportCheck } from "./finance-support-check.js";
 import {uploadConversationPhoto} from "./finance-conversation-photos.js";
 import {suggestOriginAccount} from "./finance-origin-account.js";
 import {marjorieIntegrationHealth} from "./finance-integration-health.js";
+import {registerReceiptRoutes,suggestReceivingAccount} from './finance-receipts.js';
+import {applyNovemberCleanup} from './finance-start-clean.js';
 import {registerNotificationPublic,registerNotificationRoutes} from "./finance-bank-notifications.js";
 import { assistantFilters, sourcedAnswer } from "./finance-assistant.js";
 import { canUseFinanceAssistant } from "../../shared/finance-workflow.mjs";
@@ -81,6 +83,7 @@ const localHost = (req) =>
 export function registerFinanceRoutes(app, db, bridges = {}) {
   initFinanceDb(db);
   applyFinanceBootstrap(db);
+  applyNovemberCleanup(db);
   applyPrivateBankReview(db);
   financeSupportCheck(db);
   if(process.env.NODE_ENV!=="test")console.info("[finance] Marjorie integration health "+JSON.stringify(marjorieIntegrationHealth(db)));
@@ -400,6 +403,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
   registerFinanceSecurity(app, db, { route, sessionToken });
   registerWorkflowRoutes(app, db, { route, owner });
   registerOperationsRoutes(app, db, { route, owner });
+  registerReceiptRoutes(app,db,{route});
   registerInviteManagement(app, db, { route, owner });
   registerGmailRoutes(app, db, { route, owner });
   registerNotificationRoutes(app, db, { route, owner, sessionToken });
@@ -1038,7 +1042,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
           e.business_id,
         );
       })();
-      res.json({ analysis, origin_account:suggestOriginAccount(db,req.financeUser,analysis), draft: true });
+      res.json({ analysis, origin_account:suggestOriginAccount(db,req.financeUser,analysis),destination_account:suggestReceivingAccount(db,req.financeUser,analysis), draft: true });
     }),
   );
   app.post(

@@ -55,7 +55,7 @@ import { transferFeeQuote } from "../../../shared/finance-fees.mjs";
 import { CustodyFunds } from "./operations.jsx";
 import { SettlementFunds } from "./settlements.jsx";
 import { BeneficiaryDetails, EvidenceThumbnail } from "./payees.jsx";
-import { PaymentProofActions } from "./payment-proof.jsx";
+import { DirectPaymentUpload, PaymentProofActions } from "./payment-proof.jsx";
 import "./payment-fast.css";
 const emptyWorkflow = {
   spaces: [],
@@ -263,19 +263,8 @@ export function RequestCard({ request, returnSpace = null }) {
         >
           Ver detalles
         </Button>
-        {user.role === "owner" && request.remaining_cents > 0 && (
-          <Button
-            icon={ArrowUpRight}
-            onClick={() =>
-              open("record-payment", {
-                id: request.id,
-                return_space: returnSpace,
-              })
-            }
-          >
-            Subir comprobante
-          </Button>
-        )}
+        {user.role === "owner" && request.remaining_cents > 0 && <DirectPaymentUpload request={request}/>}
+
       </footer>
     </article>
   );

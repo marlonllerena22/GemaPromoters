@@ -11,6 +11,7 @@ function notificationUrl(value) {
     "/finanzas/cheques",
     "/finanzas/tarjetas",
     "/finanzas/prestamos",
+    "/finanzas/confirmaciones",
   ].includes(value)
     ? value
     : "/finanzas/pagos";

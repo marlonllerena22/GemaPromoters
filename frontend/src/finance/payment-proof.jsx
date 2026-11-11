@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Download, Share2, Image as ImageIcon } from "lucide-react";
+import { Download, Share2, Upload, Image as ImageIcon } from "lucide-react";
 import { Button } from "./components.jsx";
 import { money, saveBlob, shareBlob, dateLabel } from "./api.js";
 import { useFinance } from "./context.jsx";
@@ -139,5 +139,33 @@ export function PaymentProofActions({ payment, request, showView = true }) {
         </p>
       )}
     </div>
+  );
+}
+
+export function DirectPaymentUpload({ request }) {
+  const { open } = useFinance(),
+    file = useRef();
+  return (
+    <>
+      <input
+        ref={file}
+        type="file"
+        hidden
+        accept="image/jpeg,image/png,image/webp,application/pdf"
+        onChange={(e) => {
+          const selected = e.target.files?.[0];
+          if (selected)
+            open("record-payment", {
+              id: request.id,
+              return_space: request.space_id,
+              initial_file: selected,
+            });
+          e.target.value = "";
+        }}
+      />
+      <Button type="button" icon={Upload} onClick={() => file.current.click()}>
+        Subir comprobante
+      </Button>
+    </>
   );
 }

@@ -213,7 +213,7 @@ export function RequestComposer({ initial = {}, onClose }) {
     [editing, setEditing] = useState(false),
     [draft, setDraft] = useState(blankContact),
     [value, setValue] = useState(""),
-    [reason, setReason] = useState(""),
+    [reason, setReason] = useState(initial.description||""),
     [warnings, setWarnings] = useState([]),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
@@ -335,7 +335,7 @@ export function RequestComposer({ initial = {}, onClose }) {
         space_id: spaceId || null,
         amount_cents: amount(value),
         description: reason.trim() || "Pago solicitado",
-        category: space?.kind === "materials" ? "Materiales" : "Otros",
+        category: initial.category || (space?.kind === "materials" ? "Materiales" : "Otros"),
         evidence_id: evidence?.id || null,
       });
       await refresh();

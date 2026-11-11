@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import {receiptAccounts,queueReceiptNotice} from './finance-receipts.js';
 import { audit, financeDay } from "./finance-db.js";
 import {
   createMovement,
@@ -12,14 +13,14 @@ import {
   queuePaymentNotice,
 } from "./finance-workflow.js";
 
-export function quickContext(db, user) {
+export function quickContext(db, user, {receipt=false}={}) {
   return {
     business_ids: user.business_ids,
     unit_ids: user.unit_ids,
     day: financeDay(),
     units: db.prepare("SELECT id,business_id,name FROM finance_units").all(),
-    accounts: visibleAccounts(db, user),
-    allow_cross_account: user.role === "owner",
+    accounts: receipt ? receiptAccounts(db,user) : visibleAccounts(db, user),
+    allow_cross_account: user.role === "owner" || receipt,
   };
 }
 export function registerQuickEntry(db, user, body) {
@@ -83,7 +84,7 @@ export function registerQuickEntry(db, user, body) {
       return { movement, duplicate: true };
     }
     const parsed = interpretQuickEntry(body.text, {
-      ...quickContext(db, user),
+      ...quickContext(db, user,{receipt:!payload.request&&Boolean(payload.evidence_id)}),
       overrides,
       request: payload.request,
     });
@@ -101,10 +102,19 @@ export function registerQuickEntry(db, user, body) {
       parsed.draft.business_id,
       parsed.draft.unit_id,
     );
+    const isReceipt=!parsed.is_request&&parsed.draft.kind==='income'&&Boolean(payload.evidence_id);
+    if(isReceipt){
+      const existing=db.prepare("SELECT * FROM finance_movements WHERE evidence_id=? AND kind='income' AND is_payment_request=0 AND hidden_at IS NULL AND status!='rejected'").get(payload.evidence_id);
+      if(existing){
+        if(existing.business_id!==parsed.draft.business_id||existing.amount_cents!==parsed.draft.amount_cents||existing.account_id!==(parsed.draft.account_id||null))fail('Este comprobante ya está enviado. Abre Mis comprobantes para corregir sus datos',409);
+        if(user.role!=='owner'&&existing.created_by!==user.username)fail('Comprobante no disponible',404);
+        return {movement:existing,duplicate:true};
+      }
+    }
     const created = createMovement(db, user, {
       ...parsed.draft,
       evidence_id: payload.evidence_id,
-    });
+    },{receiptAccount:isReceipt});
     const status =
       created.kind === "expense" &&
       !parsed.is_request &&
@@ -121,6 +131,7 @@ export function registerQuickEntry(db, user, body) {
       created.id,
     );
     if (parsed.is_request) queuePaymentNotice(db, created.id);
+    if (isReceipt) queueReceiptNotice(db, created.id);
     const movement = db
       .prepare("SELECT * FROM finance_movements WHERE id=?")
       .get(created.id);

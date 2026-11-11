@@ -8,7 +8,7 @@ export const isNativeFinance=()=>Capacitor.isNativePlatform();
 const Push=registerPlugin("PushNotifications");
 let lastNativeEndpoint=null;
 export async function disconnectNativePush(){ if(!isNativeFinance())return; if(lastNativeEndpoint)await financeApi("/push/unsubscribe",{endpoint:lastNativeEndpoint}).catch(()=>{}); await Push.unregister().catch(()=>{}); lastNativeEndpoint=null; }
-const allowedRoutes=new Set(["/finanzas/pagos","/finanzas/cheques","/finanzas/tarjetas","/finanzas/prestamos"]);
+const allowedRoutes=new Set(["/finanzas/pagos","/finanzas/cheques","/finanzas/tarjetas","/finanzas/prestamos","/finanzas/confirmaciones"]);
 export function NativePushEnrollment(){
   const {user,notify,navigate}=useFinance(),[busy,setBusy]=useState(false),[connected,setConnected]=useState(false),[detail,setDetail]=useState("Activa los avisos de Android para recibir tus pendientes con la app cerrada.");
   const token=useRef(null),alive=useRef(true),listeners=useRef([]),registration=useRef(null);
@@ -53,13 +53,13 @@ export function NativePushEnrollment(){
 }
 
 export function NativeNotificationBridge(){
-  const {user,notify,navigate}=useFinance();
+  const {user,notify,navigate,open}=useFinance();
   useEffect(()=>{
     if(!isNativeFinance())return;
     let stopped=false,handles=[];
     void Promise.all([
       Push.addListener("pushNotificationReceived",value=>{if(value.data?.test_id)void financeApi("/push/receipt",{id:value.data.test_id});notify(value.title||"Tienes un aviso de Gema");}),
-      Push.addListener("pushNotificationActionPerformed",value=>{if(value.notification.data?.test_id)void financeApi("/push/receipt",{id:value.notification.data.test_id});const path=value.notification.data?.url;if(allowedRoutes.has(path))navigate(path.split("/").at(-1));})
+      Push.addListener("pushNotificationActionPerformed",value=>{const data=value.notification.data||{};if(data.test_id)void financeApi("/push/receipt",{id:data.test_id});if(/^\d+$/.test(data.receipt_id||'')){open('receipt-review',{id:Number(data.receipt_id)});return;}if(/^\d+$/.test(data.request_id||'')){open('pay-request',{id:Number(data.request_id)});return;}if(allowedRoutes.has(data.url))navigate(data.url.split("/").at(-1));})
     ]).then(result=>{if(stopped)result.forEach(h=>h.remove());else handles=result;});
     return()=>{stopped=true;handles.forEach(h=>h.remove());};
   },[user.id]);

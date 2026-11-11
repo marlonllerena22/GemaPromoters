@@ -16,7 +16,7 @@ export const SPACE_TEMPLATES = [
     business_ids: ["producalza"],
     unit_id: "producalza-fabrica",
     description: "Compras de materiales para bodega.",
-    suggested_members: ["Norma", "Morelia", "Ana", "José", "Tú"],
+    suggested_members: ["Ana", "José", "Tú"],
   },
   {
     id: "gema-mago-loja",
@@ -65,7 +65,7 @@ export const PROFILE_TEMPLATES = [
     role: "collector",
     work_view: false,
     business_ids: ["producalza"],
-    spaces: ["producalza-pagos", "producalza-materiales"],
+    spaces: ["producalza-pagos"],
     description: "Sube cobros y solicita pagos en sus espacios.",
   },
   {
@@ -75,7 +75,7 @@ export const PROFILE_TEMPLATES = [
     role: "collector",
     work_view: false,
     business_ids: WORK_BUSINESSES,
-    spaces: ["producalza-pagos", "producalza-materiales"],
+    spaces: ["producalza-pagos"],
     description:
       "Organiza solicitudes y revisa el historial de los espacios asignados. El propietario realiza los pagos.",
   },

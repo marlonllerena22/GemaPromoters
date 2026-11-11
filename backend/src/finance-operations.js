@@ -1,4 +1,5 @@
 import { incomingNotices } from "./finance-bank-review.js";
+import {receiptAccounts,receiptInbox,queueReceiptNotice} from './finance-receipts.js';
 import crypto from "node:crypto";
 import { audit, cents, financeDay } from "./finance-db.js";
 import {
@@ -243,6 +244,9 @@ export function storeReceipts(db, user) {
 export function attachOperations(db, user, data) {
   const scope = data.businesses.map((b) => b.id);
   data.incoming_notices = incomingNotices(db, user);
+  data.receipt_inbox=receiptInbox(db,user);
+  data.receipt_accounts=receiptAccounts(db,user);
+  if(user.role==='owner')data.review_counts={mail:db.prepare("SELECT COUNT(*) n FROM finance_mail_messages WHERE state='draft'").get().n,bank_notifications:db.prepare("SELECT 1 FROM sqlite_master WHERE name='finance_notification_events'").get()?db.prepare("SELECT COUNT(*) n FROM finance_notification_events WHERE state='review'").get().n:0};
   data.custody_funds = custodyFunds(db, user, scope);
   const registry = privateSetting(db, "own_account_registry");
   data.store_receipts = scope.includes("marjorie")
@@ -494,6 +498,7 @@ export function registerOperationsRoutes(app, db, { route, owner }) {
           { receiving_bank: bank, responsible: storeReceiptRoute({ unit_id: b.unit_id, receiving_bank: bank })?.name || null }, "marjorie");
         const auto = (u.auto_confirm_unit_ids || []).includes(b.unit_id);
         if (auto) confirmStoreReceipt(db, u, m.id, "on_upload");
+        else queueReceiptNotice(db,m.id);
         return { id: m.id, confirmed: auto, responsible: storeReceiptRoute({ unit_id: b.unit_id, receiving_bank: bank })?.name || null };
       })();
       res.status(201).json(result);
