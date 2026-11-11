@@ -61,7 +61,10 @@ export function parseBankNotification(
   const body = `${event.title || ""}\n${event.text || ""}`.slice(0, 6000),
     plain = norm(body);
   if (sensitiveNotification(body)) return null;
-  const amounts = [...body.matchAll(/(?:\$|USD\s*|US\$\s*)([\d.,]+)/gi)].map(
+  let amountMatches=[...body.matchAll(/(?:\$|USD\s*|US\$\s*)([\d.,]+)/gi)];
+  const noCurrency=amountMatches.length===0;
+  if(noCurrency)amountMatches=[...body.matchAll(/(?:recibiste|te envi[oó]|pagaste|consumiste)\s*(?:USD\s*|\$\s*)?([\d.,]+)/gi)];
+  let amounts = amountMatches.map(
     (m) => {
       let v = m[1].replace(/[.,]+$/, "");
       if (/^\d{1,3}(?:[,.]\d{3})+$/.test(v)) v = v.replace(/[,.]/g, "");
@@ -80,23 +83,28 @@ export function parseBankNotification(
         : null;
     }
   );
+  if(noCurrency)amounts=[...new Set(amounts)];
   const incoming =
     /\brecibiste\b|\bhas recibido\b|transferencia recibida|deposito recibido|\bte (?:ha[n]? )?envi(?:o|ado|aron)\b|se ha acreditado/.test(
       plain
     );
   const outgoing =
-    /\bpagaste\b|\benviaste\b|transferencia enviada|pago realizado|pago exitoso|compra realizada|consumo (?:con|de|realizado)/.test(
+    /\bpagaste\b|\benviaste\b|\bconsumiste\b|transferencia exitosa|transferencia enviada|pago realizado|pago exitoso|compra realizada|consumo (?:con|de|realizado)/.test(
       plain
     );
   const blocked =
-    /pendiente|en proceso|solicitud|rechazad|fallid|insuficiente|no se pudo|autorizacion|ser[aá] (?:debitad|acreditad)|intento|recordatorio/.test(
+    /pendiente|en proceso|solicitud|rechazad|fallid|insuficiente|no se pudo|no fue exitosa|autorizacion|ser[aá] (?:debitad|acreditad)|intento|recordatorio/.test(
       plain
     );
   const credit =
     /tarjeta (?:de )?credito|cupo disponible|pago minimo|estado de cuenta/.test(
       plain
     );
-  const accountText =
+  const destinationText=body.match(/(?:a la cuenta|cuenta (?:de )?destino)\s*[:#]?\s*([*xX\d-]{3,30})/i)?.[1]||'';
+  const destinationSuffix=destinationText.match(/\d{3,}$/)?.[0]||'';
+  const accountText = outgoing&&destinationText
+    ?body.match(/cuenta (?:de )?origen\s*[:#]?\s*([*xX\d-]{3,30})/i)?.[1]||''
+    :
     body.match(
       /cuenta(?: (?:de )?(?:origen|destino|acreditada|debito|ahorros|corriente))?\s*[:#·]?\s*([*xX\d-]{3,30})/i
     )?.[1] || "";
@@ -120,13 +128,15 @@ export function parseBankNotification(
   if (!/\d/.test(reference)) reference = "";
   const direction =
     incoming !== outgoing ? (incoming ? "incoming" : "outgoing") : null;
-  const counterparty=(body.match(/(?:recibiste|has recibido|transferencia recibida)[\s\S]*?(?:\bde\s+)([\p{L}][\p{L}\s.'-]+?)(?=\s+(?:cuenta|referencia|banco|saldo|fecha|por|el)\b|[.\n]|$)/iu)?.[1]||'').trim();
+  const counterparty=(body.match(/(?:recibiste|has recibido|transferencia recibida)[\s\S]*?(?:\bde\s+)([\p{L}][\p{L}\s.'-]+?)(?=\s+(?:cuenta|referencia|banco|saldo|fecha|por|el)\b|[.\n]|$)/iu)?.[1]||body.match(/(?:^|\n)\s*([\p{L}][\p{L}\s.'-]+?)\s+te envi[oó]\s*[\d.,]+/iu)?.[1]||'').trim();
   return {
+    parser_version:2,
     body,
     bank: policy.bank,
     amount_cents: amounts.length === 1 ? amounts[0] : null,
     direction,
     counterparty,
+    destination_suffix:destinationSuffix,
     reference,
     account_id: conflict ? null : mapped,
     suffix,
@@ -163,11 +173,11 @@ function decode(row) {
   return JSON.parse(decryptDocument(row.encrypted).toString());
 }
 function notificationReceipt(db,row,p) {
-  if(p.blocked||p.credit||p.direction!=='incoming'||!row.account_id||!p.amount_cents)return null;
+  if(p.blocked||p.credit||p.direction!=='incoming'||!p.amount_cents)return null;
   const name=v=>norm(v).replace(/[^a-z\s]/g,' ').split(/\s+/).filter(w=>w.length>1).sort().join(' ');
-  const candidates=db.prepare(`SELECT m.* FROM finance_movements m WHERE m.kind='income' AND m.is_payment_request=0
-    AND m.account_id=? AND m.amount_cents=? AND m.day=? AND m.evidence_id IS NOT NULL
-    AND m.hidden_at IS NULL AND m.status IN ('pending','reported','approved')`).all(row.account_id,p.amount_cents,financeDay(row.posted_at));
+  const candidates=db.prepare(`SELECT m.*,a.bank account_bank FROM finance_movements m JOIN finance_accounts a ON a.id=m.account_id WHERE m.kind='income' AND m.is_payment_request=0
+    AND (? IS NULL OR m.account_id=?) AND m.amount_cents=? AND m.day=? AND m.evidence_id IS NOT NULL
+    AND m.hidden_at IS NULL AND m.status IN ('pending','reported','approved')`).all(row.account_id,row.account_id,p.amount_cents,financeDay(row.posted_at)).filter(m=>bankCode(m.account_bank)===bankCode(row.bank));
   const matches=candidates.filter(m=>{
     if(p.reference&&m.reference)return p.reference===m.reference;
     const payer=name(p.counterparty),recipient=name(m.counterparty);
@@ -189,6 +199,22 @@ export function autoConfirmNotificationReceipts(db) {
   }
   return confirmed;
 }
+export function reprocessBankNotifications(db){
+  const registry=privateSetting(db,'own_account_registry')||{accounts:[]};
+  let upgraded=0;
+  for(const row of db.prepare("SELECT * FROM finance_notification_events WHERE state='review' AND archived_at IS NULL").all()){
+    const prior=decode(row);if(prior.parser_version===2)continue;
+    const device=db.prepare('SELECT apps_json FROM finance_notification_devices WHERE id=?').get(row.device_id);
+    const policy=device&&JSON.parse(device.apps_json).find(a=>a.package_name===row.package_name);
+    if(!policy)continue;
+    const parsed=parseBankNotification({text:prior.body},policy,registry);if(!parsed)continue;
+    db.prepare('UPDATE finance_notification_events SET encrypted=?,account_id=?,amount_cents=?,reference=?,reason=? WHERE id=?').run(encryptDocument(Buffer.from(JSON.stringify(parsed))),parsed.account_id,parsed.amount_cents?parsed.amount_cents*(parsed.direction==='outgoing'?-1:1):null,parsed.reference,parsed.reason,row.id);
+    upgraded++;
+  }
+  const links=linkRecordedBankEvidence(db),confirmed=autoConfirmNotificationReceipts(db);
+  if(upgraded||links.notifications||confirmed)console.info('[finance] Phone notices automatically matched '+JSON.stringify({upgraded,linked:links.notifications,confirmed}));
+  return {upgraded,linked:links.notifications,confirmed};
+}
 export function applyBankNotification(db, user, id, body = {}) {
   if (user.role !== "owner")
     fail("Solo Marlon revisa los avisos bancarios", 403);
@@ -208,7 +234,7 @@ export function applyBankNotification(db, user, id, body = {}) {
     const reference=p.reference||receipt?.reference||'';
     const account = usableAccount(
       db,
-      Number(body.account_id || row.account_id),
+      Number(body.account_id || row.account_id || receipt?.account_id),
       row.bank
     );
     const amount = body.amount_cents ?? p.amount_cents,
@@ -423,6 +449,7 @@ export function registerNotificationRoutes(
   db,
   { route, owner, sessionToken }
 ) {
+  queueMicrotask(()=>{try{reprocessBankNotifications(db);}catch(error){console.error('[finance] Phone notice replay needs attention: '+(error.status?error.message:error.code||error.name));}});
   app.get(
     "/api/finance/bank-notifications",
     route((req, res) => {

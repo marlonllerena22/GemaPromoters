@@ -6,7 +6,7 @@ import {putPrivateSetting} from '../src/finance-operations.js';
 import {ingestBankMessages,replayAutomaticBankMail} from '../src/finance-gmail.js';
 import {encryptDocument} from '../src/finance-ai.js';
 import {recordedAccountBalance} from '../src/finance-check-ledger.js';
-import {initBankNotifications,ingestBankNotifications} from '../src/finance-bank-notifications.js';
+import {initBankNotifications,ingestBankNotifications,reprocessBankNotifications} from '../src/finance-bank-notifications.js';
 process.env.FINANCE_DOCUMENT_KEY='test-only-own-transfer-encryption-key-123456';
 function fixture(t){
   const db=new Database(':memory:');initFinanceDb(db);t.after(()=>db.close());
@@ -67,6 +67,29 @@ test('untrusted or rejected scheduled-transfer messages never post money',(t)=>{
   ingestBankMessages(f.db,[untrusted,rejected]);
   assert.equal(f.balance(f.from),100000);assert.equal(f.balance(f.to),10619);
   assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,0);
+});
+for(const phoneFirst of [true,false])test(`the real Pichincha successful-transfer notification links to the sending account; phone first: ${phoneFirst}`,(t)=>{
+  const f=fixture(t);initBankNotifications(f.db);
+  const member=f.db.prepare("INSERT INTO finance_members(name,username,password_hash,role,business_ids) VALUES ('Owner','owner','unused','owner','[]')").run().lastInsertRowid;
+  const device={id:'pich-phone',created_at:new Date(Date.now()-3600000).toISOString(),apps_json:JSON.stringify([{package_name:'pich.test',bank:'Pichincha',account_id:null,automatic:true}])};
+  f.db.prepare("INSERT INTO finance_notification_devices(id,client_id,member_id,session_hash,token_hash,apps_json,created_at,expires_at) VALUES (?,'pich-client',?,'fixture','pichtoken',?,?,?)").run(device.id,member,device.apps_json,device.created_at,Date.now()+3600000);
+  const event={id:'pich-exitosa',package_name:'pich.test',posted_at:new Date(Date.now()-30000).toISOString(),title:'💵 ¡Transferencia exitosa!',text:'La transferencia interbancaria por $113.03 a la cuenta ******6207 fue exitosa.'};
+  if(phoneFirst){
+    ingestBankNotifications(f.db,device,[event]);
+    assert.equal(f.balance(f.from),100000);assert.equal(f.balance(f.to),10619);
+    const old={body:event.title+'\n'+event.text,bank:'Pichincha',amount_cents:11303,direction:null,account_id:null,reference:'',blocked:false};
+    f.db.prepare('UPDATE finance_notification_events SET encrypted=?').run(encryptDocument(Buffer.from(JSON.stringify(old))));
+    ingestBankMessages(f.db,[f.make('pich-source')]);
+    reprocessBankNotifications(f.db);
+  }else{
+    ingestBankMessages(f.db,[f.make('pich-source')]);
+    ingestBankNotifications(f.db,device,[event]);
+  }
+  const notice=f.db.prepare('SELECT * FROM finance_notification_events').get();
+  assert.equal(notice.state,'matched');assert.equal(notice.account_id,f.from);
+  assert.equal(notice.amount_cents,-11303);
+  assert.equal(f.balance(f.from),88697);assert.equal(f.balance(f.to),21922);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,2);
 });
 test('an existing pending notice is upgraded by automatic replay, without reviving archived old mail',(t)=>{
   const f=fixture(t),m=f.make('stored-pending');

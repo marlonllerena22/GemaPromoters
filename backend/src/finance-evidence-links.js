@@ -15,12 +15,20 @@ export function linkRecordedBankEvidence(db) {
       const p=JSON.parse(decryptDocument(row.encrypted).toString());
       if(p.blocked||p.credit||!p.direction)continue;
       let bank=find(row.account_id,row.amount_cents,row.reference,financeDay(row.posted_at));
+      if(!bank&&p.direction==='outgoing'&&p.destination_suffix?.length>=4){
+        const candidates=db.prepare("SELECT b.*,m.encrypted mail_payload FROM finance_mail_messages m JOIN finance_bank_transactions b ON b.id=m.bank_transaction_id WHERE m.state='applied' AND m.archived_at IS NULL AND b.amount_cents=?").all(-p.amount_cents).filter(m=>{
+          const mail=JSON.parse(decryptDocument(m.mail_payload).toString());
+          return mail.trusted&&mail.bank===row.bank&&mail.destination_suffix===p.destination_suffix&&Math.abs(Date.parse(mail.occurred_at||mail.received_at)-Date.parse(row.posted_at))<=5*60000;
+        });
+        const unique=[...new Map(candidates.map(c=>[c.id,c])).values()];
+        if(unique.length===1)bank=unique[0];
+      }
       if(!bank&&row.amount_cents>0){
         try{bank=matchOwnTransferCredit(db,{account_id:row.account_id,amount_cents:row.amount_cents,reference:row.reference,day:financeDay(row.posted_at),occurred_at:row.posted_at,counterparty:p.counterparty,external_id:`android:${row.device_id}:${row.event_key}`},'bank-notification');}
         catch(error){if(!error.status)throw error;}
       }
       if(!bank)continue;
-      db.prepare("UPDATE finance_notification_events SET state='matched',bank_transaction_id=?,reason='Confirmado con el movimiento bancario; sin duplicar el importe' WHERE id=?").run(bank.id,row.id);
+      db.prepare("UPDATE finance_notification_events SET state='matched',bank_transaction_id=?,account_id=?,amount_cents=?,reason='Confirmado con el movimiento bancario; sin duplicar el importe' WHERE id=?").run(bank.id,bank.account_id,bank.amount_cents,row.id);
       audit(db,'system:bank-evidence','bank.evidence_linked','notification',row.id,null,{bank_transaction_id:bank.id});
       notifications++;
     }

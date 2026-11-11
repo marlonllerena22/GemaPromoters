@@ -87,7 +87,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
   archiveNovemberTrialReceipt(db);
   clearCurrentActivity(db);
   applyPrivateBankReview(db);
-  financeSupportCheck(db);
+  setImmediate(()=>financeSupportCheck(db));
   if(process.env.NODE_ENV!=="test")console.info("[finance] Marjorie integration health "+JSON.stringify(marjorieIntegrationHealth(db)));
   startFinanceSyncWorker(db);
   const loginAttempts = new Map();

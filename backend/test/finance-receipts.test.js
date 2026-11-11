@@ -348,9 +348,9 @@ for(const notificationFirst of [true,false])test(`a received-money phone notific
   const f=fixture(t);initBankNotifications(f.db);
   putPrivateSetting(f.db,'receipt_auto_confirm_from_notification',true);
   putPrivateSetting(f.db,'own_account_registry',{accounts:[{account_id:f.account,bank:'Pichincha',number:'2200000043'}]});
-  const device={id:'test-phone',created_at:new Date(Date.now()-3600000).toISOString(),apps_json:JSON.stringify([{package_name:'bank.test',bank:'Pichincha',account_id:f.account,automatic:false}])};
+  const device={id:'test-phone',created_at:new Date(Date.now()-3600000).toISOString(),apps_json:JSON.stringify([{package_name:'bank.test',bank:'Pichincha',account_id:null,automatic:false}])};
   f.db.prepare("INSERT INTO finance_notification_devices(id,client_id,member_id,session_hash,token_hash,apps_json,created_at,expires_at) VALUES (?, 'fixture',?,'test','token',?,?,?)").run(device.id,f.owner.id,device.apps_json,device.created_at,Date.now()+3600000);
-  const event={id:'receive-1243',package_name:'bank.test',posted_at:new Date(Date.now()-1000).toISOString(),text:'Recibiste $1.243,00 de Ana Perez. Cuenta destino: ****0043'};
+  const event={id:'receive-1243',package_name:'bank.test',posted_at:new Date(Date.now()-1000).toISOString(),text:'💰¡Recibiste 1243.00!\nAna Perez te envió 1243.00.'};
   const upload=()=>registerQuickEntry(f.db,f.norma,{...f.payload,overrides:{...f.payload.overrides,counterparty:'Ana Perez',reference:null}});
   let registered;
   if(notificationFirst){ingestBankNotifications(f.db,device,[event]);assert.equal(f.balance(),10000);registered=upload();}

@@ -695,6 +695,7 @@ export function applyMailDraft(db, user, id, body) {
       movement_id: movement?.id || null,
     });
     const taxes = applyDigitalServiceTaxes(db, p, account, bank.id, user.username);
+    linkRecordedBankEvidence(db);
     return { ok: true, taxes };
   })();
 }
