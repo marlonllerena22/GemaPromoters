@@ -1975,3 +1975,19 @@ test("AlfaBusiness diagnostic status is read-only and restricted to the owner",a
   assert.equal(status.status,200);assert.equal(status.body.financial.total_sales,0);assert.equal(status.body.coverage_verified,false);
   assert.equal(f.db.prepare("SELECT count(*) n FROM finance_sales").get().n,0);
 });
+
+test('a normal clarification conversation can exceed six replies and cancellation still works after its rate limit',async(t)=>{
+  const f=await fixture(t);await f.login();
+  const old=process.env.OPENAI_API_KEY;process.env.OPENAI_API_KEY='test-only-conversation-key';
+  t.after(()=>{if(old===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=old;});
+  const actualFetch=globalThis.fetch;let calls=0;
+  t.mock.method(globalThis,'fetch',async(url,options)=>{
+    if(String(url)!=='https://api.openai.com/v1/responses')return actualFetch(url,options);
+    calls++;return Response.json({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify({action:'question',message:'¿De cuál cuenta?',data:{},items:[]})}]}]});
+  });
+  for(let i=0;i<18;i++)assert.equal((await f.req('/quick/conversation','owner',{messages:[{role:'user',content:'Preparar un movimiento '+i}]})).status,200);
+  assert.equal((await f.req('/quick/conversation','owner',{messages:[{role:'user',content:'Otra aclaración'}]})).status,429);
+  const cancel=await f.req('/quick/conversation','owner',{messages:[{role:'user',content:'Ya basta'}]});
+  assert.equal(cancel.status,200);assert.equal(cancel.body.cancelled,true);assert.equal(calls,18);
+  assert.equal(f.db.prepare('SELECT COUNT(*) n FROM finance_bank_transactions').get().n,0);
+});

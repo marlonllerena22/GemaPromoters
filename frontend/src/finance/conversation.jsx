@@ -5,6 +5,7 @@ import { businessNames, financeApi, money } from "./api.js";
 import { Button, Modal } from "./components.jsx";
 import { AssistantAvatar } from "./workflows.jsx";
 import {hasNativeDictation,dictateNative} from './native-speech.js';
+import {cancelsConversation} from '../../../shared/finance-conversation.mjs';
 
 export function QuickConversation({ initial = {}, onClose, onForm }) {
   const { refresh, user } = useFinance();
@@ -56,14 +57,21 @@ export function QuickConversation({ initial = {}, onClose, onForm }) {
     const message = String(raw).trim() || (latest.current.photos.length ? "Revisa las fotos adjuntas y ayúdame a registrar o actualizar sus datos. Pregúntame si falta algo." : "");
     if (!message || sending.current || uploading) return;
     stopListening();
+    if(cancelsConversation(message)){
+      sending.current=true;setBusy(true);setError('');
+      try{if(latest.current.draft)await financeApi(`/quick/conversation/${latest.current.draft.id}`,null,'DELETE');setMessages(m=>[...m,{role:'user',content:message},{role:'assistant',content:'De acuerdo, cancelado. No guardé cambios de esta conversación.'}]);setDraft(null);setValue('');setDone(true);}
+      catch(e){setError(e.message);}
+      finally{sending.current=false;setBusy(false);}
+      return;
+    }
     if (latest.current.draft && /^(sí|si|confirmo|confirmar|confirma|sí,? confirma|si,? confirma)[.!]?$/i.test(message)) { setValue(""); return confirm(); }
     sending.current = true; setBusy(true); setError(""); setValue("");
     const history = [...latest.current.messages, { role: "user", content: message }];
     setMessages(history); setDraft(null);
     try {
-      const result = await financeApi("/quick/conversation", { messages: history.slice(-12), photo_ids:latest.current.photos.map(p=>p.id) });
+      const result = await financeApi("/quick/conversation", { messages: history.slice(-24), photo_ids:latest.current.photos.map(p=>p.id) });
       if (!mounted.current) return;
-      setMessages((m) => [...m, { role: "assistant", content: result.message }]); setDraft(result.draft);
+      setMessages((m) => [...m, { role: "assistant", content: result.message }]); setDraft(result.draft);if(result.cancelled)setDone(true);
     } catch (e) { if (mounted.current) { setError(e.message); setValue(message); } }
     finally { sending.current = false; if (mounted.current) setBusy(false); }
   }
@@ -113,6 +121,8 @@ export function QuickConversation({ initial = {}, onClose, onForm }) {
               {draft.business_id && <div><dt>Corresponde a</dt><dd>{businessNames[draft.business_id]}</dd></div>}
               <div><dt>Cuenta o fondo</dt><dd>{draft.account}</dd></div>
               <div><dt>Descripción</dt><dd>{draft.description}</dd></div>
+              {draft.counterparty&&<div><dt>{draft.already_in_bank?'Destinatario del banco':'Persona o comercio'}</dt><dd>{draft.counterparty}</dd></div>}
+              {draft.already_in_bank&&draft.bank_day&&<div><dt>Fecha del movimiento</dt><dd>{draft.bank_day}</dd></div>}
               {draft.reference && <div><dt>Referencia</dt><dd>{draft.reference}</dd></div>}
               {draft.before_cents != null && <div><dt>Saldo anterior</dt><dd>{money(draft.before_cents)}</dd></div>}
               {draft.after_cents != null && <div><dt>Saldo después</dt><dd>{money(draft.after_cents)}</dd></div>}
@@ -123,7 +133,7 @@ export function QuickConversation({ initial = {}, onClose, onForm }) {
             {draft.source_balance_unknown && <p>El saldo de {draft.source_fund} sigue por indicar. No inventaré cuánto le queda.</p>}
             {draft.changes_cash_balance && <p>Se registra el gasto y se descuenta de tu efectivo.</p>}
             {draft.changes_bank_balance === false && !draft.already_in_bank && !draft.changes_cash_balance && <p>Este registro no cambia el saldo bancario. Se contrastará con el aviso del banco.</p>}
-            <Button icon={Check} onClick={confirm} loading={busy}>Sí, confirmar registro</Button>
+            <Button icon={Check} onClick={confirm} loading={busy}>{draft.already_in_bank?'Sí, es este pago':'Sí, confirmar registro'}</Button>
             <button className="gf-text-button" onClick={() => { setDraft(null); setValue("Quiero corregir "); }} disabled={busy}>Quiero corregir algo</button>
           </section>}
           <div ref={end} />

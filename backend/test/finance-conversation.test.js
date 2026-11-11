@@ -315,3 +315,56 @@ test('authorized fund adjustment adds once without inventing income or changing 
   assert.equal(applyBankReview(f.db,{...config,id:'same-adjustment-different-job'}).adjustments.length,0);
   assert.equal(recordedAccountBalance(f.db,f.db.prepare('SELECT * FROM finance_accounts WHERE id=?').get(f.accountId)),10500);
 });
+
+test('a short expense motive is sufficient without inventing a recipient or requiring a category',async(t)=>{
+  const f=fixture(t);
+  f.setResponse({action:'bank_entry',message:'¿Qué descripción?',data:{...f.data,business_id:'personal',kind:'expense',direction:'outgoing',custody_id:null,reference:null,amount_cents:1400,description:'Pago de materiales',counterparty:null,category:null}});
+  const prepared=await prepareConversation(f.db,f.owner,chat('Resta 14 de Marlon, ya pagué materiales'));
+  assert.equal(prepared.draft.description,'Pago de materiales');assert.equal(prepared.draft.counterparty,'Beneficiario no indicado');
+  assert.equal(prepared.draft.after_cents,8600);assert.doesNotMatch(prepared.message,/Qué descripción/);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,0);
+  confirmConversation(f.db,f.owner,{draft_id:prepared.draft.id,confirmed:true});
+  assert.equal(recordedAccountBalance(f.db,f.db.prepare('SELECT * FROM finance_accounts WHERE id=?').get(f.accountId)),8600);
+});
+
+test('an already-debited payment proposes its real recipient and reference for confirmation without a second debit',async(t)=>{
+  const f=fixture(t),instant=new Date().toISOString();
+  const p={id:'materials-mail',occurred_at:instant,bank:'Guayaquil',trusted:true,account_id:f.accountId,amount_cents:1400,reference:'TEST20943791',received_at:instant,event:'expense',counterparty:'Movimiento por correo',body:'Cuenta destino Nombre: Número de cuenta: PEREZ ANDRADE LUCIA ISABEL ******1601 Documento: TEST20943791'};
+  f.db.prepare("INSERT INTO finance_mail_messages(id,received_at,encrypted,state,account_id,created_at) VALUES (?,?,?,'draft',?,?)").run(p.id,instant,encryptDocument(Buffer.from(JSON.stringify(p))),f.accountId,instant);
+  applyMailDraft(f.db,f.owner,p.id,{account_id:f.accountId,direction:'outgoing'});
+  f.setResponse({action:'bank_entry',message:'Materiales',data:{...f.data,business_id:'personal',kind:'expense',direction:'outgoing',custody_id:null,reference:null,amount_cents:1400,description:'Pago de materiales',counterparty:null,category:'Materiales'}});
+  const prepared=await prepareConversation(f.db,f.owner,chat('Pagué 14 por materiales de mi cuenta'));
+  assert.equal(prepared.draft.already_in_bank,true);assert.equal(prepared.draft.counterparty,'PEREZ ANDRADE LUCIA ISABEL');assert.equal(prepared.draft.reference,'TEST20943791');assert.equal(prepared.draft.after_cents,8600);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_movements').get().n,0);
+  confirmConversation(f.db,f.owner,{draft_id:prepared.draft.id,confirmed:true});
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,1);
+  assert.equal(recordedAccountBalance(f.db,f.db.prepare('SELECT * FROM finance_accounts WHERE id=?').get(f.accountId)),8600);
+  assert.equal(f.db.prepare('SELECT description FROM finance_movements').get().description,'Pago de materiales');
+});
+
+test('a missing payee on a future request asks specifically for the payee, and cancellation skips AI',async(t)=>{
+  const f=fixture(t);
+  f.setResponse({action:'request',message:'Pago futuro',data:{...f.data,business_id:'producalza',kind:'expense',direction:'outgoing',custody_id:null,counterparty:null}});
+  const question=await prepareConversation(f.db,f.norma,chat('Pedir un pago de materiales'));
+  assert.equal(question.draft,null);assert.match(question.message,/A quién/);
+  const before=f.requests();
+  for(const content of ['Ya basta','Cancela','No guardes nada','Olvídalo por favor']){
+    const stopped=await prepareConversation(f.db,f.owner,chat(content));assert.equal(stopped.cancelled,true);assert.equal(stopped.draft,null);
+  }
+  assert.equal(f.requests(),before);assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,0);
+});
+
+test('a proposed bank match cannot point at another account or choose among repeated equal payments',async(t)=>{
+  const f=fixture(t),instant=new Date().toISOString();
+  const p={id:'collision-one',bank:'Guayaquil',trusted:true,account_id:f.accountId,occurred_at:instant,amount_cents:1400,reference:'COLLISION-ONE',received_at:instant,event:'expense',counterparty:'Movimiento por correo'};
+  for(const [id,reference] of [['collision-one','COLLISION-ONE'],['collision-two','COLLISION-TWO']]){
+    f.db.prepare("INSERT INTO finance_mail_messages(id,received_at,encrypted,state,account_id,created_at) VALUES (?,?,?,'draft',?,?)").run(id,instant,encryptDocument(Buffer.from(JSON.stringify({...p,id,reference}))),f.accountId,instant);
+    applyMailDraft(f.db,f.owner,id,{account_id:f.accountId,direction:'outgoing'});
+  }
+  const base={...f.data,business_id:'personal',kind:'expense',direction:'outgoing',custody_id:null,reference:null,amount_cents:1400,description:'Materiales',counterparty:null};
+  f.setResponse({action:'bank_entry',message:'Pago',data:base});
+  const ambiguous=await prepareConversation(f.db,f.owner,chat('Materiales, catorce'));assert.equal(ambiguous.draft,null);assert.match(ambiguous.message,/varios movimientos/);
+  f.setResponse({action:'bank_entry',message:'Pago',data:{...base,bank_transaction_id:99999}});
+  const wrong=await prepareConversation(f.db,f.owner,chat('Usa ese aviso'));assert.equal(wrong.draft,null);assert.match(wrong.message,/no coincide/);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,2);
+});

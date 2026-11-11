@@ -1,6 +1,7 @@
 import { applyPrivateBankReview } from "./finance-bank-review.js";
 import { financeSupportCheck } from "./finance-support-check.js";
 import {uploadConversationPhoto} from "./finance-conversation-photos.js";
+import {cancelsConversation} from '../../shared/finance-conversation.mjs';
 import {suggestOriginAccount} from "./finance-origin-account.js";
 import {marjorieIntegrationHealth} from "./finance-integration-health.js";
 import {registerReceiptRoutes,suggestReceivingAccount} from './finance-receipts.js';
@@ -999,19 +1000,20 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
       res.type(e.mime).send(decryptDocument(e.encrypted));
     }),
   );
-  const aiLimit = (req) => {
-    const key = req.financeUser.id;
+  const aiLimit = (req,conversation=false) => {
+    const key = `${req.financeUser.id}:${conversation?'conversation':'analysis'}`;
     const recent = (aiAttempts.get(key) || []).filter(
       (t) => Date.now() - t < 60_000,
     );
-    if (recent.length >= 6)
+    if (recent.length >= (conversation?18:6))
       fail("Espera un momento antes de otra consulta de IA", 429);
     recent.push(Date.now());
     aiAttempts.set(key, recent);
   };
   app.post("/api/finance/quick/conversation", route(async (req, res) => {
     if (!canUseFinanceAssistant(req.financeUser)) fail("El asistente está habilitado para Marlon, Germán, Morelia y Norma", 403);
-    aiLimit(req);
+    const lastMessage=Array.isArray(req.body.messages)?req.body.messages.at(-1)?.content:null;
+    if(!cancelsConversation(lastMessage))aiLimit(req,true);
     res.json(await prepareConversation(db, req.financeUser, req.body));
   }));
   app.post("/api/finance/quick/conversation/photos",route(async(req,res)=>{
