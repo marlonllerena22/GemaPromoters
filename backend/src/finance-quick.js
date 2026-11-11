@@ -131,7 +131,10 @@ export function registerQuickEntry(db, user, body) {
       created.id,
     );
     if (parsed.is_request) queuePaymentNotice(db, created.id);
-    if (isReceipt) queueReceiptNotice(db, created.id);
+    if (isReceipt) {
+      if(parsed.draft.account_id)db.prepare('UPDATE finance_movements SET receiving_bank=(SELECT bank FROM finance_accounts WHERE id=?) WHERE id=?').run(parsed.draft.account_id,created.id);
+      queueReceiptNotice(db, created.id);
+    }
     const movement = db
       .prepare("SELECT * FROM finance_movements WHERE id=?")
       .get(created.id);

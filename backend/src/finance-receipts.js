@@ -123,6 +123,11 @@ export function editReceipt(db, user, id, body) {
     const updated = db
       .prepare("SELECT * FROM finance_movements WHERE id=?")
       .get(row.id);
+    if(account){
+      db.prepare('UPDATE finance_movements SET receiving_bank=? WHERE id=?').run(account.bank,row.id);
+      updated.receiving_bank=account.bank;
+      if(row.unit_id==='marjorie-sur'&&row.receiving_bank!==account.bank)db.prepare("UPDATE finance_push_outbox SET state='queued',attempts=0,next_attempt=0 WHERE event_key=?").run('receipt-review:'+row.id);
+    }
     audit(
       db,
       user.username,
@@ -142,6 +147,7 @@ export function queueReceiptNotice(db, id) {
   ).run("receipt-review:" + id, id);
 }
 export function registerReceiptRoutes(app, db, { route }) {
+  db.prepare("UPDATE finance_movements SET receiving_bank=(SELECT bank FROM finance_accounts WHERE id=finance_movements.account_id) WHERE kind='income' AND evidence_id IS NOT NULL AND account_id IS NOT NULL AND COALESCE(receiving_bank,'')=''").run();
   app.post(
     "/api/finance/receipts/:id/edit",
     route((req, res) =>
