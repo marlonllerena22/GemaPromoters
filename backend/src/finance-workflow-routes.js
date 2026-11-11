@@ -98,7 +98,8 @@ export function registerWorkflowRoutes(app, db, { route, owner }) {
           db,
           req.financeUser,
           req.query.business_id,
-          req.query.space_id || null
+          req.query.space_id || null,
+          req.query.kind || 'bank'
         ),
       })
     )

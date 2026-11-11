@@ -105,7 +105,7 @@ export function BeneficiaryDetails({
       aria-label="Datos para transferir"
     >
       <div className="gf-beneficiary-heading">
-        <span>DATOS PARA TRANSFERIR</span>
+        <span>{beneficiary.kind==='employee'?'PAGO A EMPLEADOS':'DATOS PARA TRANSFERIR'}</span>
         <h3>{beneficiary.name}</h3>
       </div>
       {beneficiary.accounts.length > 1 && (
@@ -174,8 +174,27 @@ export async function uploadEvidence(file, business, unit) {
     data,
   });
 }
+function EmployeeRequestForm({business,spaceId,unit,spaces,allowedBusinesses,units,changeSpace,setBusiness,setUnit,onSent}){
+  const {user,refresh}=useFinance();
+  const [name,setName]=useState(''),[value,setValue]=useState(''),[observation,setObservation]=useState(''),[employees,setEmployees]=useState([]),[busy,setBusy]=useState(false),[error,setError]=useState('');
+  const key=useRef(crypto.randomUUID()),list=useRef('employees-'+crypto.randomUUID()),scope=useRef(0);
+  useEffect(()=>{const version=++scope.current;setEmployees([]);setName('');setError('');key.current=crypto.randomUUID();financeApi(`/payees?kind=employee&business_id=${encodeURIComponent(business)}&space_id=${encodeURIComponent(spaceId)}`).then(r=>{if(version===scope.current)setEmployees(r.contacts);}).catch(e=>{if(version===scope.current)setError(e.message);});return()=>{scope.current++;};},[business,spaceId]);
+  async function submit(e){e.preventDefault();setBusy(true);setError('');try{const result=await financeApi('/payment-requests',{request_id:key.current,request_kind:'employee',employee_name:name.trim(),business_id:business,space_id:spaceId||null,unit_id:unit,amount_cents:amount(value),observation:observation.trim()});await refresh();onSent(result,result.movement.counterparty,value);}catch(e){setError(e.message);}finally{setBusy(false);}}
+  return <form className="gf-form" onSubmit={submit}>
+    {spaces.length>1&&<Field label="Espacio"><select value={spaceId} onChange={e=>changeSpace(e.target.value)} disabled={busy}>{spaces.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>}
+    {allowedBusinesses.length>1&&<Field label="Negocio"><select value={business} onChange={e=>setBusiness(e.target.value)} disabled={busy}>{allowedBusinesses.map(b=><option key={b} value={b}>{businessNames[b]}</option>)}</select></Field>}
+    {!unit&&user.unit_ids.length>0&&<Field label="Local"><select required value={unit||''} onChange={e=>setUnit(e.target.value)}><option value="">Elige tu local</option>{units.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select></Field>}
+    <Field label="Monto a pagar (USD)"><input inputMode="decimal" value={value} onChange={e=>setValue(e.target.value)} placeholder="0,00" required disabled={busy}/></Field>
+    <Field label="Nombre completo del empleado" hint="Escribe el nombre o elige uno de tus empleados guardados."><input list={list.current} value={name} onChange={e=>setName(e.target.value)} maxLength={150} autoComplete="off" placeholder="Nombres y apellidos" required disabled={busy}/><datalist id={list.current}>{employees.map(p=><option key={p.id} value={p.name}/>)}</datalist></Field>
+    <Field label="Observaciones (opcional)"><textarea value={observation} onChange={e=>setObservation(e.target.value)} maxLength={1000} rows={3} placeholder="Por ejemplo: anticipo de sueldo de esta semana." disabled={busy}/></Field>
+    <small>El nombre se guardará en Pago a empleados al enviar la petición.</small>
+    {error&&<p className="gf-error" role="alert">{error}</p>}
+    <Button type="submit" icon={Send} loading={busy} disabled={!name.trim()||!Number.isSafeInteger(amount(value))||amount(value)<=0||(user.unit_ids.length>0&&!unit)}>Enviar petición{amount(value)>0?` · ${money(amount(value))}`:''}</Button>
+  </form>;
+}
 export function RequestComposer({ initial = {}, onClose }) {
   const { data, user, refresh, open } = useFinance();
+  const [requestType,setRequestType]=useState('bank');
   const preview = data.capabilities.public_preview;
   const writable = (data.workflow?.spaces || []).filter(
     (s) =>
@@ -363,17 +382,18 @@ export function RequestComposer({ initial = {}, onClose }) {
           ? "Solicitud enviada"
           : editing
           ? "Nuevo contacto"
-          : "Pedir una transferencia"
+          : requestType==='employee'?'Pago a empleados':"Pedir una transferencia"
       }
       subtitle={
         done
           ? undefined
           : editing
           ? "Guárdalo una vez y vuelve a elegirlo cuando lo necesites."
-          : "Contacto, monto y motivo. Listo."
+          : requestType==='employee'?'Nombre completo, monto y observaciones.':"Contacto, monto y motivo. Listo."
       }
       onClose={busy ? () => {} : onClose}
     >
+      {!done&&<div className="gf-tabs"><button type="button" className={requestType==='bank'?'active':''} onClick={()=>{setRequestType('bank');setEditing(false);}}>Transferencia</button><button type="button" className={requestType==='employee'?'active':''} onClick={()=>{setRequestType('employee');setEditing(false);}}>Pago a empleados</button></div>}
       {done ? (
         <div className="gf-transfer-request-done">
           <CheckCircle2 size={46} />
@@ -396,6 +416,8 @@ export function RequestComposer({ initial = {}, onClose }) {
             Ver mi petición
           </Button>
         </div>
+      ) : requestType==='employee'?(
+        <EmployeeRequestForm business={business} spaceId={spaceId} unit={chosenUnit} spaces={writable} allowedBusinesses={allowedBusinesses} units={units} changeSpace={changeSpace} setBusiness={setBusiness} setUnit={setUnitChoice} onSent={(result,name,amountValue)=>{setContact({name});setValue(amountValue);setDone(result);}}/>
       ) : editing ? (
         <form className="gf-payee-editor" onSubmit={saveContact}>
           <button

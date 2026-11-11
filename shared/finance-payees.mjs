@@ -31,6 +31,7 @@ export function normalizePayee(value = {}) {
       holder: clean(a.holder),
     }));
   return {
+    ...(value.kind==='employee'?{kind:'employee'}:{}),
     name: clean(value.name),
     document: clean(value.document, 30).replace(/[\s-]/g, ""),
     email: clean(value.email, 180),
@@ -39,6 +40,11 @@ export function normalizePayee(value = {}) {
 }
 export function payeeError(p) {
   if (!p.name) return "Escribe el nombre del contacto";
+  if(p.kind==='employee'){
+    if(p.accounts.length||p.document||p.email)return 'Para empleados escribe solo el nombre completo';
+    if(p.name.trim().split(/\s+/).length<2||!/^\p{L}[\p{L}\p{M}\s.'’-]+$/u.test(p.name))return 'Escribe el nombre completo del empleado';
+    return null;
+  }
   if (!p.accounts.length) return "Añade una cuenta de destino";
   if (
     p.accounts.some(

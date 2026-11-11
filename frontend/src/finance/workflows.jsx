@@ -1117,7 +1117,7 @@ export function RecordPayment({
               disabled={
                 !evidence ||
                 !destinationLoaded ||
-                (beneficiary && destination === null) ||
+                (beneficiary && beneficiary.kind!=='employee' && destination === null) ||
                 uploading ||
                 !account ||
                 !reference.trim() ||

@@ -250,6 +250,27 @@ test("saved payees preserve leading zeroes, alternatives and encrypted historica
     false
   );
 });
+test('employee requests save private reusable names without bank accounts and can be paid with a receipt',async t=>{
+  const f=await fixture(t);for(const name of ['owner','normita','peer'])await f.login(name);
+  const members=f.db.prepare("SELECT id FROM finance_members WHERE username IN ('normita','peer')").all();
+  assert.equal((await f.req('/spaces/producalza-pagos/settings','owner',{members:members.map(m=>({member_id:m.id,role:'requester'}))})).status,200);
+  const body={request_id:crypto.randomUUID(),request_kind:'employee',employee_name:'María Fernanda López',business_id:'producalza',space_id:'producalza-pagos',amount_cents:15000,observation:'Anticipo de esta semana'};
+  const created=await f.req('/payment-requests','normita',body);assert.equal(created.status,201,JSON.stringify(created.body));const id=created.body.movement.id;
+  assert.equal(created.body.movement.category,'Sueldos');assert.equal(created.body.movement.description,'Pago a empleados');assert.equal(created.body.movement.observation,body.observation);
+  assert.equal((await f.req('/payment-requests','normita',body)).body.duplicate,true);
+  const detail=await f.req(`/payment-requests/${id}`);assert.equal(detail.body.beneficiary.kind,'employee');assert.deepEqual(detail.body.beneficiary.accounts,[]);
+  assert.equal((await f.req('/payees?business_id=producalza&space_id=producalza-pagos','normita')).body.contacts.length,0);
+  assert.equal((await f.req('/payees?kind=employee&business_id=producalza&space_id=producalza-pagos','peer')).body.contacts.length,0);
+  assert.equal((await f.req('/payment-requests','normita',{...body,request_id:crypto.randomUUID(),employee_name:'maria fernanda lopez',amount_cents:5000})).status,201);
+  const employees=(await f.req('/payees?kind=employee&business_id=producalza&space_id=producalza-pagos','normita')).body.contacts;assert.equal(employees.length,1);assert.equal(employees[0].name,body.employee_name);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,0);
+  assert.equal((await f.req('/payment-requests','normita',{...body,request_id:crypto.randomUUID(),employee_name:'Apodo'})).status,400);
+  assert.equal((await f.req('/payees','normita',{business_id:'producalza',space_id:'producalza-pagos',name:'Otro Nombre',accounts:[]})).status,400);
+  assert.equal((await f.req('/payment-requests','normita',{...body,request_id:crypto.randomUUID(),business_id:'personal'})).status,403);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_payees').get().n,1);
+  const paid=await f.req(`/payment-requests/${id}/payments`,'owner',{request_key:crypto.randomUUID(),amount_cents:15000,account_id:await f.account('producalza'),evidence_id:await workflowReceipt(f,'employee-paid'),paid_day:f.day,reference:'EMPLOYEE-PAY',confirm_paid:true});assert.equal(paid.status,201,JSON.stringify(paid.body));assert.equal(paid.body.remaining_cents,0);assert.equal(paid.body.payment.destination_index,null);
+});
+
 test("contacts reject masked accounts and cannot move personal beneficiaries into work requests", async (t) => {
   const f = await fixture(t);
   await f.login();

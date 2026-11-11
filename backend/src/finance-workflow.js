@@ -183,10 +183,11 @@ export function recordRequestPayment(db, user, id, body) {
         decryptDocument(beneficiaryRow.encrypted).toString(),
       );
       if (
-        !Number.isInteger(payload.destination_index) ||
-        !beneficiary.accounts[payload.destination_index]
+        beneficiary.kind!=='employee'&&(!Number.isInteger(payload.destination_index) ||
+        !beneficiary.accounts[payload.destination_index])
       )
         fail("Elige la cuenta de destino que utilizaste");
+      if(beneficiary.kind==='employee'&&payload.destination_index!==null)fail('El pago a empleados no tiene una cuenta de destino guardada');
     }
     if (!request.remaining_cents)
       fail("La solicitud ya no tiene un valor pendiente", 409);

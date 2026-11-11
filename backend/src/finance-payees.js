@@ -25,14 +25,15 @@ function scopeAccess(db, user, business, space, { write = false } = {}) {
       fail("El contacto no corresponde al negocio");
   }
 }
-export function listPayees(db, user, business, space) {
+export function listPayees(db, user, business, space,kind='bank') {
+  if(!['bank','employee'].includes(kind))fail('Tipo de contacto inválido');
   scopeAccess(db, user, business, space);
   return db
     .prepare(
       "SELECT * FROM finance_payees WHERE business_id=? AND space_id IS ? AND created_by=? ORDER BY created_at DESC"
     )
     .all(business, space || null, user.username)
-    .map(decode);
+    .map(decode).filter(p=>kind==='employee'?p.kind==='employee':p.kind!=='employee');
 }
 export function getPayee(db, user, id, { write = false } = {}) {
   const row = db.prepare("SELECT * FROM finance_payees WHERE id=?").get(id);
@@ -68,6 +69,7 @@ export function savePayee(db, user, body) {
       ])
     )
   );
+  if(p.kind==='employee')hashes.push(privateFingerprint('employee:'+p.name.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim()));
   return db.transaction(() => {
     const ids = new Set(
       hashes
@@ -88,6 +90,7 @@ export function savePayee(db, user, body) {
       );
     if (ids.size) {
       const existing = getPayee(db, user, [...ids][0], { write: true });
+      if(p.kind==='employee'&&existing.kind==='employee')return {contact:existing,duplicate:true};
       const a = existing.accounts
           .map((x) => `${x.bank.toLowerCase()}|${x.number}`)
           .sort(),
@@ -143,7 +146,9 @@ export function createPayeeRequest(db, user, body) {
   return db.transaction(() => {
     if(body.observation!=null&&(typeof body.observation!=='string'||body.observation.length>1000))fail('La observación admite hasta 1000 caracteres');
     const observation=(body.observation||'').trim();
-    const contact = getPayee(db, user, body.contact_id, { write: true });
+    const employee=body.request_kind==='employee';
+    const contact=employee&&!body.contact_id?savePayee(db,user,{kind:'employee',business_id:body.business_id,space_id:body.space_id,name:String(body.employee_name||'').trim().replace(/\s+/g,' '),accounts:[]}).contact:getPayee(db, user, body.contact_id, { write: true });
+    if((contact.kind==='employee')!==employee)fail('Los empleados se solicitan desde Pago a empleados');
     if (
       contact.business_id !== body.business_id ||
       (contact.space_id || null) !== (body.space_id || null)
@@ -158,6 +163,7 @@ export function createPayeeRequest(db, user, body) {
     );
     unitAccess(db, user, body.unit_id, body.business_id);
     const payee = {
+      ...(employee?{kind:'employee'}:{}),
       name: contact.name,
       document: contact.document,
       email: contact.email,
@@ -191,8 +197,8 @@ export function createPayeeRequest(db, user, body) {
         amount_cents: body.amount_cents,
         counterparty: contact.name,
         payment_method: "transfer",
-        category: body.category || "Otros",
-        description:String(body.description||'Pago solicitado'),
+        category: employee?'Sueldos':body.category || "Otros",
+        description:employee?'Pago a empleados':String(body.description||'Pago solicitado'),
       },
     });
     if(!result.duplicate){
