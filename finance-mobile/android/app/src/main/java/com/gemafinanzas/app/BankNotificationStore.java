@@ -50,6 +50,11 @@ final class BankNotificationStore {
     static synchronized void ack(Context c,JSONArray ids) throws Exception {
         JSONObject state=read(c);JSONArray queue=state.optJSONArray("queue"),kept=new JSONArray();
         java.util.Set<String> accepted=new java.util.HashSet<>();for(int i=0;i<ids.length();i++)accepted.add(ids.getString(i));
+        JSONArray delivered=state.optJSONArray("delivered_ids");if(delivered==null)delivered=new JSONArray();
+        java.util.Set<String> known=new java.util.HashSet<>();for(int i=0;i<delivered.length();i++)known.add(delivered.optString(i));
+        for(String id:accepted)if(known.add(id))delivered.put(id);
+        JSONArray recent=new JSONArray();for(int i=Math.max(0,delivered.length()-1000);i<delivered.length();i++)recent.put(delivered.getString(i));
+        state.put("delivered_ids",recent);
         if(queue!=null)for(int i=0;i<queue.length();i++){JSONObject e=queue.getJSONObject(i);if(!accepted.contains(e.getString("id")))kept.put(e);}
         state.put("queue",kept).put("last_upload",System.currentTimeMillis()).put("error","");write(c,state);
     }

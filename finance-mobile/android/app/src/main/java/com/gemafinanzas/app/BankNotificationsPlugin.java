@@ -41,9 +41,11 @@ public class BankNotificationsPlugin extends Plugin {
     }
     @PluginMethod public void status(PluginCall call){
         try{trusted();JSONObject state=BankNotificationStore.read(getContext());
+            if(state.optBoolean("enabled")&&state.has("token")&&allowed()){BankNotificationListener.recover(getContext());state=BankNotificationStore.read(getContext());}
             if(!state.has("client_id")){state.put("client_id",UUID.randomUUID().toString());BankNotificationStore.write(getContext(),state);}
             JSObject result=new JSObject();result.put("supported",true);result.put("permission",allowed());result.put("client_id",state.getString("client_id"));
             result.put("enabled",state.optBoolean("enabled"));result.put("paired",state.has("token"));result.put("device_id",state.optString("device_id"));result.put("owner_id",state.optInt("owner_id"));
+            result.put("reader_version",2);result.put("listener_connected",BankNotificationListener.isConnected());
             result.put("queued",state.optJSONArray("queue")==null?0:state.getJSONArray("queue").length());result.put("last_capture",state.optLong("last_capture"));result.put("last_upload",state.optLong("last_upload"));result.put("error",state.optString("error"));
             call.resolve(result);
         }catch(Exception ignored){call.reject("No se pudo consultar el acceso de Android");}
@@ -74,11 +76,11 @@ public class BankNotificationsPlugin extends Plugin {
                 BankNotificationStore.write(getContext(),state);
             }
             android.service.notification.NotificationListenerService.requestRebind(new ComponentName(getContext(),BankNotificationListener.class));
-            BankNotificationUpload.enqueue(getContext());call.resolve();
+            BankNotificationUpload.ensureMonitoring(getContext());BankNotificationListener.recover(getContext());BankNotificationUpload.enqueue(getContext());call.resolve();
         }catch(Exception ignored){call.reject("No se pudo conectar la lectura de bancos en este celular");}
     }
     @PluginMethod public void stop(PluginCall call){
-        try{trusted();BankNotificationStore.stop(getContext());androidx.work.WorkManager.getInstance(getContext()).cancelUniqueWork("gema-bank-upload");call.resolve();}
+        try{trusted();BankNotificationStore.stop(getContext());androidx.work.WorkManager.getInstance(getContext()).cancelUniqueWork("gema-bank-upload");androidx.work.WorkManager.getInstance(getContext()).cancelUniqueWork("gema-bank-keepalive");call.resolve();}
         catch(Exception ignored){call.reject("No se pudo detener el acceso bancario");}
     }
 }

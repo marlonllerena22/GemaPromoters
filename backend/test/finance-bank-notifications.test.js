@@ -8,6 +8,7 @@ import {
   ingestBankNotifications,
   applyBankNotification,
   parseBankNotification,
+  registerNotificationRoutes,
 } from "../src/finance-bank-notifications.js";
 import { putPrivateSetting } from "../src/finance-operations.js";
 import { importBank } from "../src/finance-service.js";
@@ -379,4 +380,19 @@ test("real email ingestion after Android with the same bank reference preserves 
     f.db.prepare("SELECT COUNT(*) n FROM finance_bank_transactions").get().n,
     1
   );
+});
+
+test('reader health is owner-scoped, sanitized, and cannot change financial balances',async(t)=>{
+  const f=fixture(t),handlers=new Map();
+  registerNotificationRoutes({get(){},post(path,fn){handlers.set(path,fn);} },f.db,{route:fn=>fn,owner:req=>{if(req.financeUser.role!=='owner')throw Object.assign(new Error('Owner only'),{status:403});},sessionToken:()=>''});
+  await Promise.resolve();
+  const report=handlers.get('/api/finance/bank-notification-devices/:id/health');
+  const member=f.db.prepare('SELECT member_id FROM finance_notification_devices WHERE id=?').get(f.device.id).member_id;
+  const req={params:{id:f.device.id},financeUser:{role:'owner',id:member},body:{reader_version:2,permission:true,enabled:true,paired:true,listener_connected:false,queued:3,last_capture:Date.now()-1000,last_upload:0,error:'upload_pending',token:'never-store-this'}};
+  let result;const before=f.balance();report(req,{json:r=>result=r});assert.equal(result.ok,true);
+  const stored=f.db.prepare('SELECT status_json FROM finance_notification_device_health').get().status_json;
+  assert.equal(JSON.parse(stored).listener_connected,false);assert.equal(JSON.parse(stored).queued,3);
+  assert.equal(stored.includes('never-store-this'),false);assert.equal(f.balance(),before);
+  assert.throws(()=>report({...req,financeUser:{role:'owner',id:member+100}},{json(){}}),e=>e.status===404);
+  assert.throws(()=>report({...req,financeUser:{role:'viewer',id:member}},{json(){}}),e=>e.status===403);
 });

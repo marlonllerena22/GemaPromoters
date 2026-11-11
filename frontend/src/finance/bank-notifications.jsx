@@ -48,12 +48,15 @@ export async function stopBankNotifications() {
   await Native.stop();
 }
 export function BankNotificationsBridge() {
-  const { user } = useFinance();
+  const { user,refresh } = useFinance();
   useEffect(() => {
     if (!available()) return;
-    let cancelled = false;
-    void (async () => {
-      const s = await Native.status();
+    let cancelled = false,running=false,first=true,lastUpload=0;
+    const check=async()=>{
+      if(cancelled||running||document.visibilityState==='hidden')return;
+      running=true;
+      try{
+      let s = await Native.status();
       if (!s.enabled) return;
       if (user.role !== "owner" || s.owner_id !== user.id) {
         await Native.stop();
@@ -73,14 +76,22 @@ export function BankNotificationsBridge() {
         return;
       }
       if (cancelled) return;
-      const paired = await financeApi("/bank-notification-devices", {
-        client_id: s.client_id,
-        apps: device.apps,
-      });
-      if (!cancelled) await Native.configure({ ...paired, owner_id: user.id });
-    })().catch(() => {});
+      if(first||!s.paired){
+        const paired = await financeApi("/bank-notification-devices", {client_id: s.client_id,apps: device.apps});
+        if(!cancelled){await Native.configure({ ...paired, owner_id: user.id });s=await Native.status();}
+      }
+      first=false;
+      if(cancelled)return;
+      await financeApi(`/bank-notification-devices/${device.id}/health`,{reader_version:s.reader_version,permission:s.permission,enabled:s.enabled,paired:s.paired,listener_connected:s.listener_connected,queued:s.queued,last_capture:s.last_capture,last_upload:s.last_upload,error:s.error||''},undefined,{interactive:false});
+      if(lastUpload&&s.last_upload>lastUpload)void refresh(true);
+      lastUpload=s.last_upload||lastUpload;
+      }catch{}finally{running=false;}
+    };
+    void check();const timer=setInterval(()=>void check(),30_000);
+    const wake=()=>void check();window.addEventListener('focus',wake);document.addEventListener('visibilitychange',wake);
     return () => {
       cancelled = true;
+      clearInterval(timer);window.removeEventListener('focus',wake);document.removeEventListener('visibilitychange',wake);
     };
   }, [user.id]);
   return null;
@@ -342,8 +353,10 @@ export function BankNotificationsPanel() {
   }
   const events = server?.events || [],
     pending = events.filter((e) => e.state === "review");
+  const updateReader=available()&&local&&(local.reader_version||1)<2;
   return (
     <section className="gf-bank-notifications gf-panel">
+      {updateReader&&<div className="gf-panel"><h3>Actualiza el lector bancario</h3><p>Esta actualización reconecta el lector y recupera avisos que sigan visibles en tu celular.</p><a className="gf-button" href="/finanzas/downloads/gema-finanzas-1.1.1.apk">Instalar actualización 1.1.1</a></div>}
       <div className="gf-bank-title">
         <Smartphone size={28} />
         <div>
@@ -354,12 +367,12 @@ export function BankNotificationsPanel() {
       {!available() ? (
         <div>
           <p>
-            Instala la APK 1.1.0 para conectar Deuna y tus apps bancarias. El
+            Instala la APK 1.1.1 para conectar Deuna y tus apps bancarias. El
             correo seguirá funcionando por separado.
           </p>
           <a
             className="gf-button"
-            href="/finanzas/downloads/gema-finanzas-1.1.0.apk"
+            href="/finanzas/downloads/gema-finanzas-1.1.1.apk"
           >
             Descargar APK actualizada
           </a>
@@ -377,7 +390,7 @@ export function BankNotificationsPanel() {
           <p>
             <strong>
               {local?.enabled && local?.permission && local?.paired
-                ? "Lectura conectada"
+                ? local.listener_connected===false?'Reconectando lector de Android…':(local.reader_version||1)<2?'Actualiza el lector para comprobar su conexión':'Lectura conectada'
                 : local?.enabled && !local?.permission
                 ? "Falta permitir el acceso en Android"
                 : "Conecta tus bancos"}

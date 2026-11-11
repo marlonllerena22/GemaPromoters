@@ -14,11 +14,11 @@ El servidor necesita `FINANCE_FCM_CREDENTIALS`, con una cuenta de servicio restr
 
 La primera instalación requiere iniciar sesión y permitir Notificaciones de Android. El botón **Probar aviso Android** envía una prueba a ese mismo dispositivo. Una respuesta aceptada por Firebase no demuestra por sí sola que Android haya mostrado el aviso; debe comprobarse en el teléfono. Los pagos pendientes permanecen en la bandeja aunque se descarte una notificación del sistema.
 
-## Avisos bancarios (APK 1.1.0)
+## Avisos bancarios (APK 1.1.1)
 
 Solo el propietario puede conectar apps desde **Inicio → Avisos de tus bancos**, o **Más → Fuentes y conexiones**. Selecciona las apps instaladas, asigna el banco y, si esa app tiene una sola cuenta, la cuenta receptora. El permiso de Android es general; Gema filtra los paquetes seleccionados antes de leer su texto y descarta códigos, claves y avisos de seguridad antes de enviarlos. No utiliza accesibilidad, SMS ni contraseñas bancarias. Android puede ocultar parte del contenido; una notificación incompleta queda para revisión.
 
-La selección queda fijada al certificado de la app instalada. Los avisos se capturan desde la conexión, sin recuperar notificaciones antiguas. Una cola local cifrada con Android Keystore conserva hasta 500 avisos; WorkManager reintenta por HTTPS cuando hay Internet. El sistema puede retrasar el trabajo por ahorro de batería o al detener la aplicación. La pantalla muestra permiso, cola, última captura/envío y errores. Hace falta comprobar una notificación real en el teléfono antes de considerar validada cada entidad.
+La selección queda fijada al certificado de la app instalada. Al reconectarse, el lector recupera avisos que todavía sigan visibles en Android y sean posteriores al inicio de la conexión. Los identificadores ya entregados y los controles del servidor evitan volver a registrarlos. Una cola local cifrada con Android Keystore conserva hasta 500 avisos; WorkManager reintenta por HTTPS y solicita ejecución prioritaria en Android 12 o superior. Un trabajo periódico revisa la conexión. El sistema puede retrasar el trabajo por ahorro de batería o al detener la aplicación. La pantalla y el servidor muestran permiso, conexión real del lector, cola, última captura/envío y errores. Hace falta comprobar una notificación real en el teléfono antes de considerar validada cada entidad.
 
 El token del dispositivo está cifrado en el teléfono, se almacena como hash en el servidor y solo permite enviar avisos. Depende de la sesión del propietario y deja de funcionar al cerrarla, expirar o revocar el dispositivo. Al cerrar sesión en la APK se elimina la cola y la conexión local. Una sesión nueva renueva el acceso si el propietario había mantenido la conexión activa.
 

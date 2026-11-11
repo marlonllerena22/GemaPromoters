@@ -39,6 +39,7 @@ export function initBankNotifications(db) {
     bank_transaction_id INTEGER REFERENCES finance_bank_transactions(id),created_at TEXT NOT NULL,
     UNIQUE(device_id,event_key));
     CREATE INDEX IF NOT EXISTS finance_notifications_bank ON finance_notification_events(bank_transaction_id);
+    CREATE TABLE IF NOT EXISTS finance_notification_device_health(device_id TEXT PRIMARY KEY REFERENCES finance_notification_devices(id),observed_at TEXT NOT NULL,status_json TEXT NOT NULL);
   `);
   if(!db.prepare('PRAGMA table_info(finance_notification_events)').all().some(c=>c.name==='archived_at'))db.exec('ALTER TABLE finance_notification_events ADD COLUMN archived_at TEXT');
 }
@@ -486,12 +487,25 @@ export function registerNotificationRoutes(
           "SELECT id,client_id,apps_json,last_seen,expires_at,revoked FROM finance_notification_devices WHERE member_id=? ORDER BY created_at DESC"
         )
         .all(req.financeUser.id)
-        .map(({ apps_json, ...d }) => ({ ...d, apps: JSON.parse(apps_json) }));
+        .map(({ apps_json, ...d }) => ({ ...d, apps: JSON.parse(apps_json),health:JSON.parse(db.prepare('SELECT status_json FROM finance_notification_device_health WHERE device_id=?').get(d.id)?.status_json||'null') }));
       res
         .set("Cache-Control", "no-store")
-        .json({ events, devices, banks: notificationBanks });
+        .json({ events, devices, banks: notificationBanks,reader_release:{version:'1.1.1',reader_version:2,url:'/finanzas/downloads/gema-finanzas-1.1.1.apk'} });
     })
   );
+  app.post('/api/finance/bank-notification-devices/:id/health',route((req,res)=>{
+    owner(req);
+    const device=db.prepare('SELECT id FROM finance_notification_devices WHERE id=? AND member_id=? AND revoked=0').get(req.params.id,req.financeUser.id);
+    if(!device)fail('Celular no disponible para este usuario',404);
+    const b=req.body;
+    const timestamp=value=>Number.isSafeInteger(value)&&value>0&&value<=Date.now()+120000?value:null;
+    const error=['','app_changed','queue_full','capture_error','upload_pending','reconnect','listener_reconnect'].includes(b.error)?b.error:'reader_error';
+    const health={reader_version:b.reader_version===2?2:1,permission:b.permission===true,enabled:b.enabled===true,paired:b.paired===true,listener_connected:typeof b.listener_connected==='boolean'?b.listener_connected:null,queued:Number.isInteger(b.queued)&&b.queued>=0&&b.queued<=500?b.queued:null,last_capture:timestamp(b.last_capture),last_upload:timestamp(b.last_upload),error,reported_at:new Date().toISOString()};
+    const old=JSON.parse(db.prepare('SELECT status_json FROM finance_notification_device_health WHERE device_id=?').get(device.id)?.status_json||'null');
+    db.prepare('INSERT INTO finance_notification_device_health VALUES (?,?,?) ON CONFLICT(device_id) DO UPDATE SET observed_at=excluded.observed_at,status_json=excluded.status_json').run(device.id,health.reported_at,JSON.stringify(health));
+    if(!old||['reader_version','permission','enabled','paired','listener_connected','queued','last_capture','last_upload','error'].some(k=>old[k]!==health[k]))console.info('[finance] Android bank reader health '+JSON.stringify(health));
+    res.json({ok:true});
+  }));
   app.post(
     "/api/finance/bank-notification-devices",
     route((req, res) => {
