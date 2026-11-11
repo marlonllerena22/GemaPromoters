@@ -2,6 +2,8 @@ import { audit, cents, validDay, financeDay } from "./finance-db.js";
 import { fail, scoped, text, reconcile } from "./finance-service.js";
 import { privateSetting } from "./finance-operations.js";
 import {acceptsBankNotification} from '../../shared/finance-notification-accounts.mjs';
+import {decryptDocument} from './finance-ai.js';
+import {matchingBankPerson} from './finance-bank-identity.js';
 
 const bankCode = (value) =>
   String(value || "")
@@ -22,7 +24,7 @@ export function suggestReceivingAccount(db, user, analysis) {
     /\s|-/g,
     ""
   );
-  if (!/^\d{3,20}$/.test(suffix))
+  if (!/^\d{2,20}$/.test(suffix)||suffix.length<3&&!analysis.receiving_bank)
     return { state: "unreadable", account_id: null };
   const registry = privateSetting(db, "own_account_registry") || {
     accounts: [],
@@ -139,6 +141,7 @@ export function editReceipt(db, user, id, body) {
       updated,
       row.business_id
     );
+    reconcileRecordedReceipt(db,updated.id);
     return { ok: true };
   })();
 }
@@ -148,17 +151,56 @@ export function queueReceiptNotice(db, id) {
     "INSERT OR IGNORE INTO finance_push_outbox(event_key,request_id) VALUES (?,?)"
   ).run("receipt-review:" + id, id);
 }
+function nativeReceiptBank(db,row){
+  if(privateSetting(db,'receipt_auto_confirm_from_notification')!==true||!db.prepare("SELECT 1 FROM sqlite_master WHERE name='finance_notification_events'").get())return null;
+  const peers=db.prepare("SELECT id,counterparty FROM finance_movements WHERE kind='income' AND account_id=? AND amount_cents=? AND day BETWEEN date(?,'-1 day') AND date(?,'+1 day') AND evidence_id IS NOT NULL AND hidden_at IS NULL AND status IN ('pending','reported','approved')").all(row.account_id,row.amount_cents,row.day,row.day).filter(p=>matchingBankPerson(p.counterparty,row.counterparty));
+  if(peers.length!==1)return null;
+  const candidates=new Map();
+  for(const n of db.prepare(`SELECT n.* FROM finance_notification_events n JOIN finance_bank_transactions b ON b.id=n.bank_transaction_id
+    WHERE n.state IN ('applied','matched') AND b.account_id=? AND b.amount_cents=? AND b.day BETWEEN date(?,'-1 day') AND date(?,'+1 day')
+    AND NOT EXISTS(SELECT 1 FROM finance_allocations a WHERE a.bank_transaction_id=b.id)`).all(row.account_id,row.amount_cents,row.day,row.day)){
+    let p;try{p=JSON.parse(decryptDocument(n.encrypted).toString());}catch{continue;}
+    if(p.blocked||p.credit||p.direction!=='incoming'||!matchingBankPerson(p.counterparty,row.counterparty)||(p.reference&&row.reference&&p.reference!==row.reference))continue;
+    candidates.set(n.bank_transaction_id,{id:n.bank_transaction_id,notification_id:n.id});
+  }
+  return candidates.size===1?[...candidates.values()][0]:null;
+}
 export function reconcileRecordedReceipt(db,id) {
   const row=db.prepare("SELECT * FROM finance_movements WHERE id=? AND kind='income' AND evidence_id IS NOT NULL AND hidden_at IS NULL AND status IN ('pending','reported','approved')").get(id);
-  if(!row?.account_id||!row.reference)return false;
+  if(!row?.account_id)return false;
   const peers=db.prepare("SELECT id FROM finance_movements WHERE kind='income' AND account_id=? AND reference=? AND amount_cents=? AND hidden_at IS NULL AND status!='rejected'").all(row.account_id,row.reference,row.amount_cents);
   if(peers.length!==1)return false;
-  const banks=db.prepare("SELECT * FROM finance_bank_transactions b WHERE account_id=? AND reference=? AND amount_cents=? AND day BETWEEN date(?,'-1 day') AND date(?,'+1 day') AND NOT EXISTS(SELECT 1 FROM finance_allocations a WHERE a.bank_transaction_id=b.id)").all(row.account_id,row.reference,row.amount_cents,row.day,row.day);
+  const banks=row.reference?db.prepare("SELECT * FROM finance_bank_transactions b WHERE account_id=? AND reference=? AND amount_cents=? AND day BETWEEN date(?,'-1 day') AND date(?,'+1 day') AND NOT EXISTS(SELECT 1 FROM finance_allocations a WHERE a.bank_transaction_id=b.id)").all(row.account_id,row.reference,row.amount_cents,row.day,row.day):[];
+  const native=banks.length===0?nativeReceiptBank(db,row):null;
+  if(native)banks.push(native);
   if(banks.length!==1)return false;
   reconcile(db,{role:'owner',username:'system:bank-evidence',business_ids:['producalza','marjorie','gemashow','personal'],unit_ids:[]},{movement_id:row.id,bank_transaction_id:banks[0].id,amount_cents:row.amount_cents});
   if(row.business_id==='marjorie'&&row.unit_id?.startsWith('marjorie-'))db.prepare("INSERT OR IGNORE INTO finance_store_confirmations(movement_id,actor,confirmed_at,mode) VALUES (?,'system:bank-evidence',?,'bank_verified')").run(row.id,new Date().toISOString());
   db.prepare("UPDATE finance_push_outbox SET state='skipped' WHERE request_id=? AND state='queued'").run(row.id);
+  if(native)audit(db,'system:bank-evidence','receipt.confirmed_with_notification','movement',row.id,null,{bank_transaction_id:native.id,notification_id:native.notification_id,bank_balance_unchanged:true},row.business_id);
   return true;
+}
+export function repairReceiptAccounts(db){
+  const owner={role:'owner'},result={assigned:0,reconciled:0};
+  return db.transaction(()=>{
+    const receipts=db.prepare(`SELECT m.*,e.analysis FROM finance_movements m JOIN finance_evidence e ON e.id=m.evidence_id
+      WHERE m.kind='income' AND m.is_payment_request=0 AND m.hidden_at IS NULL AND m.status IN ('pending','reported','approved')
+      AND NOT EXISTS(SELECT 1 FROM finance_allocations a WHERE a.movement_id=m.id)`).all();
+    for(const row of receipts){
+      if(!row.account_id){
+        let analysis;try{analysis=JSON.parse(row.analysis||'null');}catch{continue;}
+        if(!analysis||row.receiving_bank&&analysis.receiving_bank&&bankCode(row.receiving_bank)!==bankCode(analysis.receiving_bank))continue;
+        const suggestion=suggestReceivingAccount(db,owner,analysis);if(suggestion.state!=='matched')continue;
+        const account=receiptAccounts(db,owner).find(a=>a.id===suggestion.account_id);
+        if(row.unit_id&&db.prepare('SELECT 1 FROM finance_closings WHERE unit_id=? AND day=?').get(row.unit_id,row.day))continue;
+        db.prepare('UPDATE finance_movements SET account_id=?,receiving_bank=?,cross_account=?,updated_at=? WHERE id=?').run(account.id,account.bank,account.business_id&&account.business_id!==row.business_id?1:0,new Date().toISOString(),row.id);
+        audit(db,'system:bank-evidence','receipt.account_detected','movement',row.id,{account_id:null},{account_id:account.id,suffix:suggestion.suffix,bank_balance_unchanged:true},row.business_id);result.assigned++;
+      }
+      try{if(reconcileRecordedReceipt(db,row.id))result.reconciled++;}catch(error){if(!error.status)throw error;}
+    }
+    if(result.assigned||result.reconciled)console.info('[finance] Receipt accounts recovered '+JSON.stringify(result));
+    return result;
+  })();
 }
 export function registerReceiptRoutes(app, db, { route }) {
   db.prepare("UPDATE finance_movements SET receiving_bank=(SELECT bank FROM finance_accounts WHERE id=finance_movements.account_id) WHERE kind='income' AND evidence_id IS NOT NULL AND account_id IS NOT NULL AND COALESCE(receiving_bank,'')=''").run();

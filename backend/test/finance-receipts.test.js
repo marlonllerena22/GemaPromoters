@@ -10,10 +10,11 @@ import {
   receiptAccounts,
   suggestReceivingAccount,
   editReceipt,
+  repairReceiptAccounts,
 } from "../src/finance-receipts.js";
 import { applyNovemberCleanup, archiveNovemberTrialReceipt, clearCurrentActivity } from "../src/finance-start-clean.js";
 import {ingestBankMessages,mailDrafts,applyMailDraft,replayAutomaticBankMail} from '../src/finance-gmail.js';
-import {initBankNotifications,ingestBankNotifications} from '../src/finance-bank-notifications.js';
+import {initBankNotifications,ingestBankNotifications,applyBankNotification} from '../src/finance-bank-notifications.js';
 import {receivedWithoutAccount} from '../src/finance-bank-identity.js';
 import { putPrivateSetting } from "../src/finance-operations.js";
 import { recordedAccountBalance } from "../src/finance-check-ledger.js";
@@ -383,4 +384,28 @@ for(const [amount,legal,client]of [[5000,'PEREZ ANDRADE LUCIA ISABEL','Lucia Per
   const submitted=registerQuickEntry(f.db,f.norma,{...f.payload,overrides:{...f.payload.overrides,amount_cents:amount,counterparty:client,reference:'PROOF'+amount}});
   assert.equal(submitted.movement.status,'reconciled');assert.equal(f.balance(),10000+amount);
   assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,1);
+});
+
+test('two visible destination digits plus the destination bank select a unique account without crediting a historical receipt',t=>{
+  const f=fixture(t);f.db.prepare("UPDATE finance_accounts SET bank='Produbanco',last_four='2542' WHERE id=?").run(f.account);putPrivateSetting(f.db,'own_account_registry',{accounts:[{bank:'Produbanco',number:'20008832542',account_id:f.account}]});
+  const analysis={receiving_bank:'Banco Produbanco',origin_bank:'Banco del Austro',destination_account_suffix:'42',amount_cents:79852,reference:'46919'};
+  assert.equal(suggestReceivingAccount(f.db,f.owner,analysis).account_id,f.account);assert.equal(suggestReceivingAccount(f.db,f.owner,{destination_account_suffix:'42'}).state,'unreadable');
+  f.db.prepare('UPDATE finance_evidence SET analysis=? WHERE id=?').run(JSON.stringify(analysis),f.evidence);
+  const created=registerQuickEntry(f.db,f.norma,{...f.payload,overrides:{...f.payload.overrides,account_id:null,amount_cents:79852,reference:'46919'}});
+  f.db.prepare("UPDATE finance_movements SET status='approved' WHERE id=?").run(created.movement.id);
+  assert.deepEqual(repairReceiptAccounts(f.db),{assigned:1,reconciled:0});assert.equal(f.db.prepare('SELECT account_id FROM finance_movements WHERE id=?').get(created.movement.id).account_id,f.account);assert.equal(f.balance(),10000);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,0);
+  f.db.prepare("INSERT INTO finance_accounts(name,bank,kind,opening_cents,opening_date,last_four) VALUES ('Otra cuenta','Produbanco','bank',0,?,'9942')").run(financeDay());
+  assert.equal(suggestReceivingAccount(f.db,f.owner,analysis).state,'ambiguous');
+});
+
+test('a receipt arriving after an already-recorded reference-free notification reconciles by unique payer, account, date and amount',t=>{
+  const f=fixture(t);initBankNotifications(f.db);putPrivateSetting(f.db,'receipt_auto_confirm_from_notification',true);
+  const device={id:'recorded-phone',created_at:new Date(Date.now()-3600000).toISOString(),apps_json:JSON.stringify([{package_name:'bank.test',bank:'Pichincha',account_id:f.account,automatic:false}])};
+  f.db.prepare("INSERT INTO finance_notification_devices(id,client_id,member_id,session_hash,token_hash,apps_json,created_at,expires_at) VALUES (?,'recorded-client',?,'test','recorded-token',?,?,?)").run(device.id,f.owner.id,device.apps_json,device.created_at,Date.now()+3600000);
+  ingestBankNotifications(f.db,device,[{id:'received-26361',package_name:'bank.test',posted_at:new Date().toISOString(),title:'Recibiste $263.61',text:'Gomez del Valle Rafael Antonio te envió 263.61.'}]);
+  const event=f.db.prepare('SELECT id FROM finance_notification_events').get();applyBankNotification(f.db,f.owner,event.id,{account_id:f.account});assert.equal(f.balance(),36361);
+  const submitted=registerQuickEntry(f.db,f.norma,{...f.payload,overrides:{...f.payload.overrides,amount_cents:26361,counterparty:'Rafael Gomez',reference:'PROOF26361'}});
+  assert.equal(submitted.movement.status,'reconciled');assert.equal(f.balance(),36361);assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,1);
+  assert.deepEqual(repairReceiptAccounts(f.db),{assigned:0,reconciled:0});assert.equal(f.balance(),36361);
 });

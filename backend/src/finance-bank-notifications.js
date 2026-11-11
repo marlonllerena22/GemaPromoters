@@ -4,7 +4,7 @@ import { encryptDocument, decryptDocument } from "./finance-ai.js";
 import { privateSetting } from "./finance-operations.js";
 import { fail, importBank, reconcile } from "./finance-service.js";
 import {linkRecordedBankEvidence} from './finance-evidence-links.js';
-import {reconcileRecordedReceipt} from './finance-receipts.js';
+import {reconcileRecordedReceipt,repairReceiptAccounts} from './finance-receipts.js';
 import {matchingBankPerson,receivedWithoutAccount} from './finance-bank-identity.js';
 import {isBankPromotion} from '../../shared/finance-bank-promotions.mjs';
 import {archiveBankNotice} from './finance-bank-inbox.js';
@@ -222,6 +222,7 @@ export function reprocessBankNotifications(db){
     upgraded++;
   }
   const links=linkRecordedBankEvidence(db),confirmed=autoConfirmNotificationReceipts(db);
+  repairReceiptAccounts(db);
   if(upgraded||links.notifications||confirmed)console.info('[finance] Phone notices automatically matched '+JSON.stringify({upgraded,linked:links.notifications,confirmed}));
   return {upgraded,linked:links.notifications,confirmed};
 }

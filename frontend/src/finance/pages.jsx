@@ -830,7 +830,7 @@ export function MovementDetail({ movement, onClose }) {
         data.accounts.some(
           (a) =>
             a.id === b.account_id &&
-            (!a.business_id || a.business_id === m.business_id),
+            (!a.business_id || a.business_id === m.business_id || m.cross_account),
         ) && !allocations.some((a) => a.bank_transaction_id === b.id),
     )
     .filter(
@@ -840,6 +840,7 @@ export function MovementDetail({ movement, onClose }) {
           (m.kind === "income" || m.transfer_side === "incoming" ? 1 : -1) &&
         (!m.account_id || m.account_id === b.account_id),
     )
+    .filter(b=>!(m.kind==='income'&&m.evidence_id)||(m.account_id&&b.account_id===m.account_id&&Math.abs(b.amount_cents)-b.allocated_cents===m.amount_cents-m.allocated_cents&&Math.abs(Date.parse(b.day+'T12:00:00Z')-Date.parse(m.day+'T12:00:00Z'))<=86400000))
     .sort(
       (a, b) =>
         Number(b.reference === m.reference) -
@@ -847,6 +848,11 @@ export function MovementDetail({ movement, onClose }) {
         Math.abs(Math.abs(a.amount_cents) - m.amount_cents) -
           Math.abs(Math.abs(b.amount_cents) - m.amount_cents),
     );
+  const candidateKey=candidates.map(b=>b.id).join(',');
+  useEffect(()=>{
+    if(m.kind==='income'&&m.evidence_id&&candidates.length===1){setSelected(String(candidates[0].id));setValue(((m.amount_cents-m.allocated_cents)/100).toFixed(2));}
+    else if(selected&&!candidates.some(b=>String(b.id)===selected))setSelected('');
+  },[m.id,candidateKey]);
   async function action(path, body, method) {
     setBusy(true);
     setError("");
@@ -1081,9 +1087,7 @@ export function MovementDetail({ movement, onClose }) {
                 </>
               ) : (
                 <div className="gf-note">
-                  No hay movimientos bancarios disponibles de la dirección y
-                  cuenta correspondientes. Importa el archivo del banco desde
-                  Cuentas.
+                  {m.kind==='income'&&m.evidence_id?(m.account_id?'La cuenta receptora está identificada. Aún no hay un abono bancario disponible que coincida en cuenta, monto y fecha. Se relacionará al recibir evidencia bancaria coincidente.':'Falta identificar la cuenta receptora del comprobante para buscar su abono.'): 'No hay movimientos bancarios disponibles de la dirección y cuenta correspondientes. Importa el archivo del banco desde Cuentas.'}
                 </div>
               )}
             </section>
