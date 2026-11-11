@@ -70,6 +70,9 @@ export function initFinanceOperationsDb(db) {
     CREATE TABLE IF NOT EXISTS finance_mail_oauth (id TEXT PRIMARY KEY,encrypted BLOB NOT NULL,updated_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS finance_oauth_states (hash TEXT PRIMARY KEY,member_id INTEGER NOT NULL,verifier BLOB NOT NULL,expires_at INTEGER NOT NULL);
   `);
+  for (const table of ['finance_mail_messages','finance_incoming_notices'])
+    if (!db.prepare(`PRAGMA table_info(${table})`).all().some(c=>c.name==='archived_at'))
+      db.exec(`ALTER TABLE ${table} ADD COLUMN archived_at TEXT`);
   for (const name of [
     "manual_cleared_day",
     "cleared_by",

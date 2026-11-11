@@ -4,7 +4,7 @@ import {uploadConversationPhoto} from "./finance-conversation-photos.js";
 import {suggestOriginAccount} from "./finance-origin-account.js";
 import {marjorieIntegrationHealth} from "./finance-integration-health.js";
 import {registerReceiptRoutes,suggestReceivingAccount} from './finance-receipts.js';
-import {applyNovemberCleanup,archiveNovemberTrialReceipt} from './finance-start-clean.js';
+import {applyNovemberCleanup,archiveNovemberTrialReceipt,clearCurrentActivity} from './finance-start-clean.js';
 import {registerNotificationPublic,registerNotificationRoutes} from "./finance-bank-notifications.js";
 import { assistantFilters, sourcedAnswer } from "./finance-assistant.js";
 import { canUseFinanceAssistant } from "../../shared/finance-workflow.mjs";
@@ -85,6 +85,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
   applyFinanceBootstrap(db);
   applyNovemberCleanup(db);
   archiveNovemberTrialReceipt(db);
+  clearCurrentActivity(db);
   applyPrivateBankReview(db);
   financeSupportCheck(db);
   if(process.env.NODE_ENV!=="test")console.info("[finance] Marjorie integration health "+JSON.stringify(marjorieIntegrationHealth(db)));

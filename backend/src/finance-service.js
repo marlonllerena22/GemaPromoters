@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import {notificationBankMatch} from './finance-notification-match.js';
+import {linkRecordedBankEvidence} from './finance-evidence-links.js';
 import {
   recordedAccountBalance,
   matchReportedChecks,
@@ -237,6 +238,7 @@ export function importBank(db, user, body) {
       reference: text(row.reference),
       description: text(row.description, 500),
       external_id: text(row.external_id),
+      counterparty: text(row.counterparty,150),
     };
   });
   // Two identical rows without a stable bank identifier cannot be distinguished safely.
@@ -334,6 +336,7 @@ export function importBank(db, user, body) {
       transactionIds.push(Number(inserted.lastInsertRowid));
       imported++;
     });
+    linkRecordedBankEvidence(db);
     matchReportedChecks(db, user.username);
     const result = {
       imported,

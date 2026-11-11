@@ -22,7 +22,7 @@ export function importStatementImage(db, account, image) {
       const allocation=db.prepare("SELECT * FROM finance_allocations WHERE movement_id=? AND bank_transaction_id=?").get(m.id,id);
       if(!allocation) reconcile(db,owner,{movement_id:m.id,bank_transaction_id:id,amount_cents:m.amount_cents});
       linked++;
-      if(row.reference) for(const mail of db.prepare("SELECT * FROM finance_mail_messages WHERE state='draft' AND bank_transaction_id IS NULL AND (account_id=? OR account_id IS NULL) ORDER BY created_at DESC LIMIT 100").all(account.id)) {
+      if(row.reference) for(const mail of db.prepare("SELECT * FROM finance_mail_messages WHERE state='draft' AND archived_at IS NULL AND bank_transaction_id IS NULL AND (account_id=? OR account_id IS NULL) ORDER BY created_at DESC LIMIT 100").all(account.id)) {
         const draft=JSON.parse(decryptDocument(mail.encrypted).toString());
         if(draft.reference===row.reference && draft.amount_cents===m.amount_cents && (draft.origin_account_id===account.id || draft.account_id===account.id)) db.prepare("UPDATE finance_mail_messages SET state='applied',account_id=?,bank_transaction_id=?,movement_id=? WHERE id=?").run(account.id,id,m.id,mail.id);
       }

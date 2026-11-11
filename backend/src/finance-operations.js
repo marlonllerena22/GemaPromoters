@@ -218,7 +218,7 @@ export function storeReceipts(db, user) {
   if (!user.business_ids.includes("marjorie")) return [];
   return db
     .prepare(
-      "SELECT m.*,c.actor confirmed_by,c.confirmed_at,c.mode confirmation_mode,u.name creator_name FROM finance_movements m LEFT JOIN finance_store_confirmations c ON c.movement_id=m.id LEFT JOIN finance_members u ON u.username=m.created_by WHERE m.business_id='marjorie' AND m.kind='income' AND m.unit_id LIKE 'marjorie-%' AND m.is_payment_request=0 ORDER BY m.created_at DESC,m.id DESC",
+      "SELECT m.*,c.actor confirmed_by,c.confirmed_at,c.mode confirmation_mode,u.name creator_name FROM finance_movements m LEFT JOIN finance_store_confirmations c ON c.movement_id=m.id LEFT JOIN finance_members u ON u.username=m.created_by WHERE m.business_id='marjorie' AND m.kind='income' AND m.unit_id LIKE 'marjorie-%' AND m.is_payment_request=0 AND m.hidden_at IS NULL ORDER BY m.created_at DESC,m.id DESC",
     )
     .all()
     .filter((m) => !user.unit_ids.length || user.unit_ids.includes(m.unit_id))
@@ -246,7 +246,7 @@ export function attachOperations(db, user, data) {
   data.incoming_notices = incomingNotices(db, user);
   data.receipt_inbox=receiptInbox(db,user);
   data.receipt_accounts=receiptAccounts(db,user);
-  if(user.role==='owner')data.review_counts={mail:db.prepare("SELECT COUNT(*) n FROM finance_mail_messages WHERE state='draft'").get().n,bank_notifications:db.prepare("SELECT 1 FROM sqlite_master WHERE name='finance_notification_events'").get()?db.prepare("SELECT COUNT(*) n FROM finance_notification_events WHERE state='review'").get().n:0};
+  if(user.role==='owner')data.review_counts={mail:db.prepare("SELECT COUNT(*) n FROM finance_mail_messages WHERE state='draft' AND archived_at IS NULL").get().n,bank_notifications:db.prepare("SELECT 1 FROM sqlite_master WHERE name='finance_notification_events'").get()?db.prepare("SELECT COUNT(*) n FROM finance_notification_events WHERE state='review'").get().n:0};
   data.custody_funds = custodyFunds(db, user, scope);
   const registry = privateSetting(db, "own_account_registry");
   data.store_receipts = scope.includes("marjorie")
@@ -298,7 +298,7 @@ export function attachOperations(db, user, data) {
             null,
           draft_count: db
             .prepare(
-              "SELECT COUNT(*) n FROM finance_mail_messages WHERE state='draft'",
+              "SELECT COUNT(*) n FROM finance_mail_messages WHERE state='draft' AND archived_at IS NULL",
             )
             .get().n,
           auto_posting_after:

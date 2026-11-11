@@ -722,7 +722,9 @@ export function MailInbox({ onClose }) {
                     ? "Registrado"
                     : m.state === "statement"
                       ? "Total de tarjeta registrado"
-                      : "Por revisar"}
+                      : m.state === "pending"
+                        ? "En proceso en el banco"
+                        : "Por revisar"}
             </span>
             <h3>
               {m.amount_cents

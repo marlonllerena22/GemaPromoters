@@ -106,6 +106,30 @@ test("review first; encrypted storage, explicit confirmation and repeat delivery
     1
   );
 });
+
+test('pending transfer mail closes automatically only after the completed bank notification with the same reference',(t)=>{
+  const f=fixture(t,{automatic:true});
+  f.db.prepare("UPDATE finance_accounts SET bank='Pichincha' WHERE id=?").run(f.account);
+  f.device.apps_json=JSON.stringify([{package_name:'app.test.deuna',bank:'Pichincha',account_id:f.account,automatic:true}]);
+  putPrivateSetting(f.db,'own_account_registry',{accounts:[{account_id:f.account,bank:'Pichincha',number:'2200001234'}]});
+  const pending={id:'request-pending',internalDate:String(Date.now()-15000),payload:{headers:[{name:'From',value:'avisos@pichincha.com'},{name:'Subject',value:'Notificación Banco Pichincha'},{name:'Authentication-Results',value:'mx.google.com; dmarc=pass header.from=pichincha.com'}],body:{content:'La transferencia solicitada será debitada de su cuenta y acreditada en la cuenta destino en 1 hora. Cuenta de origen: ******1234 Cuenta acreditada: ******0052 Monto: USD 25.00 Número de documento: 12345678'}}};
+  ingestBankMessages(f.db,[pending]);
+  assert.equal(f.balance(),10000);
+  assert.equal(f.db.prepare('SELECT state FROM finance_mail_messages').get().state,'pending');
+  ingestBankNotifications(f.db,f.device,[f.event({text:'Enviaste $25. Cuenta origen: ****1234. Referencia 12345678'})]);
+  assert.equal(f.balance(),7500);
+  assert.equal(f.db.prepare('SELECT state FROM finance_mail_messages').get().state,'applied');
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,1);
+});
+
+test('a secondary phone notification matches an already imported bank entry even with review-only device policy',(t)=>{
+  const f=fixture(t);
+  importBank(f.db,owner,{source_system:'bank-email',account_id:f.account,rows:[{day:financeDay(),amount_cents:2500,reference:'12345678',external_id:'mail-first'}]});
+  ingestBankNotifications(f.db,f.device,[f.event()]);
+  assert.equal(f.balance(),12500);
+  assert.equal(f.db.prepare('SELECT state FROM finance_notification_events').get().state,'matched');
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,1);
+});
 test('a later email without reference can be explicitly linked to an Android entry without changing the balance',t=>{
   const f=fixture(t);f.db.prepare("UPDATE finance_accounts SET bank='Pichincha' WHERE id=?").run(f.account);
   f.device.apps_json=JSON.stringify([{package_name:'app.test.deuna',bank:'Pichincha',account_id:f.account,automatic:false}]);

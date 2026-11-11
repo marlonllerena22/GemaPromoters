@@ -2,7 +2,9 @@ import crypto from "node:crypto";
 import { audit, financeDay } from "./finance-db.js";
 import { encryptDocument, decryptDocument } from "./finance-ai.js";
 import { privateSetting } from "./finance-operations.js";
-import { fail, importBank } from "./finance-service.js";
+import { fail, importBank, reconcile } from "./finance-service.js";
+import {linkRecordedBankEvidence} from './finance-evidence-links.js';
+import {reconcileRecordedReceipt} from './finance-receipts.js';
 
 const digest = (v) =>
   crypto.createHash("sha256").update(String(v)).digest("hex");
@@ -38,6 +40,7 @@ export function initBankNotifications(db) {
     UNIQUE(device_id,event_key));
     CREATE INDEX IF NOT EXISTS finance_notifications_bank ON finance_notification_events(bank_transaction_id);
   `);
+  if(!db.prepare('PRAGMA table_info(finance_notification_events)').all().some(c=>c.name==='archived_at'))db.exec('ALTER TABLE finance_notification_events ADD COLUMN archived_at TEXT');
 }
 const bankCode = (v) => norm(v).replace(/banco|del|de|[^a-z]/g, "");
 function usableAccount(db, id, bank) {
@@ -117,11 +120,13 @@ export function parseBankNotification(
   if (!/\d/.test(reference)) reference = "";
   const direction =
     incoming !== outgoing ? (incoming ? "incoming" : "outgoing") : null;
+  const counterparty=(body.match(/(?:recibiste|has recibido|transferencia recibida)[\s\S]*?(?:\bde\s+)([\p{L}][\p{L}\s.'-]+?)(?=\s+(?:cuenta|referencia|banco|saldo|fecha|por|el)\b|[.\n]|$)/iu)?.[1]||'').trim();
   return {
     body,
     bank: policy.bank,
     amount_cents: amounts.length === 1 ? amounts[0] : null,
     direction,
+    counterparty,
     reference,
     account_id: conflict ? null : mapped,
     suffix,
@@ -157,6 +162,33 @@ export function parseBankNotification(
 function decode(row) {
   return JSON.parse(decryptDocument(row.encrypted).toString());
 }
+function notificationReceipt(db,row,p) {
+  if(p.blocked||p.credit||p.direction!=='incoming'||!row.account_id||!p.amount_cents)return null;
+  const name=v=>norm(v).replace(/[^a-z\s]/g,' ').split(/\s+/).filter(w=>w.length>1).sort().join(' ');
+  const candidates=db.prepare(`SELECT m.* FROM finance_movements m WHERE m.kind='income' AND m.is_payment_request=0
+    AND m.account_id=? AND m.amount_cents=? AND m.day=? AND m.evidence_id IS NOT NULL
+    AND m.hidden_at IS NULL AND m.status IN ('pending','reported','approved')`).all(row.account_id,p.amount_cents,financeDay(row.posted_at));
+  const matches=candidates.filter(m=>{
+    if(p.reference&&m.reference)return p.reference===m.reference;
+    const payer=name(p.counterparty),recipient=name(m.counterparty);
+    return payer.split(' ').length>=2 && payer===recipient;
+  });
+  return matches.length===1?matches[0]:null;
+}
+export function autoConfirmNotificationReceipts(db) {
+  if(privateSetting(db,'receipt_auto_confirm_from_notification')!==true)return 0;
+  if(!db.prepare("SELECT 1 FROM sqlite_master WHERE name='finance_notification_events'").get())return 0;
+  let confirmed=0;
+  for(const row of db.prepare("SELECT * FROM finance_notification_events WHERE state='review' AND archived_at IS NULL ORDER BY id").all()){
+    const receipt=notificationReceipt(db,row,decode(row));
+    if(!receipt)continue;
+    try {
+      applyBankNotification(db,{role:'owner',username:'system:bank-evidence'},row.id,{matched_receipt_id:receipt.id});
+      confirmed++;
+    }catch(error){if(!error.status)throw error;}
+  }
+  return confirmed;
+}
 export function applyBankNotification(db, user, id, body = {}) {
   if (user.role !== "owner")
     fail("Solo Marlon revisa los avisos bancarios", 403);
@@ -171,6 +203,9 @@ export function applyBankNotification(db, user, id, body = {}) {
     const p = decode(row);
     if (p.blocked || p.credit)
       fail("Este aviso no confirma un débito o abono bancario aplicable");
+    const receipt=body.matched_receipt_id?notificationReceipt(db,row,p):null;
+    if(body.matched_receipt_id&&receipt?.id!==Number(body.matched_receipt_id))fail('La notificación y el comprobante no identifican una transferencia única',409);
+    const reference=p.reference||receipt?.reference||'';
     const account = usableAccount(
       db,
       Number(body.account_id || row.account_id),
@@ -197,7 +232,7 @@ export function applyBankNotification(db, user, id, body = {}) {
       .prepare(
         "SELECT * FROM finance_bank_transactions WHERE account_id=? AND amount_cents=? AND (day=? OR (?!='' AND reference=?)) ORDER BY id DESC"
       )
-      .all(account.id, signed, day, p.reference, p.reference);
+      .all(account.id, signed, day, reference, reference);
     let bank = null;
     if (body.link_bank_id) {
       bank = candidates.find((r) => r.id === Number(body.link_bank_id));
@@ -205,7 +240,7 @@ export function applyBankNotification(db, user, id, body = {}) {
         fail("El movimiento elegido no coincide con cuenta, fecha y valor");
     } else {
       const exact = candidates.filter(
-        (r) => p.reference && r.reference === p.reference
+        (r) => reference && r.reference === reference
       );
       if (exact.length > 1)
         fail("Hay varias coincidencias con esa referencia", 409);
@@ -225,7 +260,7 @@ export function applyBankNotification(db, user, id, body = {}) {
             day,
             occurred_at: row.posted_at,
             amount_cents: signed,
-            reference: p.reference,
+            reference,
             description: "Aviso Android de " + row.bank,
             external_id: "android:" + row.device_id + ":" + row.event_key,
           },
@@ -236,13 +271,14 @@ export function applyBankNotification(db, user, id, body = {}) {
     const matched =
       !!body.link_bank_id || candidates.some((r) => r.id === bank.id);
     db.prepare(
-      "UPDATE finance_notification_events SET state=?,account_id=?,amount_cents=?,bank_transaction_id=?,reason=? WHERE id=?"
+      "UPDATE finance_notification_events SET state=?,account_id=?,amount_cents=?,bank_transaction_id=?,reason=?,reference=? WHERE id=?"
     ).run(
       matched ? "matched" : "applied",
       account.id,
       signed,
       bank.id,
       matched ? "Relacionado sin sumar de nuevo" : "Registrado en la cuenta",
+      reference,
       row.id
     );
     audit(
@@ -255,6 +291,11 @@ export function applyBankNotification(db, user, id, body = {}) {
       { account_id: account.id, bank_transaction_id: bank.id, matched },
       account.business_id
     );
+    if(receipt&&!reference){
+      reconcile(db,{role:'owner',username:'system:bank-evidence',business_ids:['producalza','marjorie','gemashow','personal'],unit_ids:[]},{movement_id:receipt.id,bank_transaction_id:bank.id,amount_cents:receipt.amount_cents});
+      if(receipt.business_id==='marjorie')db.prepare("INSERT OR IGNORE INTO finance_store_confirmations(movement_id,actor,confirmed_at,mode) VALUES (?,'system:bank-evidence',?,'bank_verified')").run(receipt.id,new Date().toISOString());
+      db.prepare("UPDATE finance_push_outbox SET state='skipped' WHERE request_id=? AND state='queued'").run(receipt.id);
+    }else for(const receipt of db.prepare("SELECT id FROM finance_movements WHERE account_id=? AND reference=? AND kind='income' AND evidence_id IS NOT NULL AND hidden_at IS NULL AND status IN ('pending','reported','approved')").all(account.id,reference))reconcileRecordedReceipt(db,receipt.id);
     return { ok: true, matched, bank_transaction_id: bank.id };
   })();
 }
@@ -272,6 +313,8 @@ export function ingestBankNotifications(db, device, events) {
     const policy = policies.find((p) => p.package_name === e.package_name);
     const at = Date.parse(e.posted_at),
       raw = `${e.title || ""}\n${e.text || ""}`;
+    const restart=privateSetting(db,'activity_restart_at');
+    if(restart&&Number.isFinite(at)&&at<=Date.parse(restart)){ack.push(e.id);continue;}
     if (
       !policy ||
       !Number.isFinite(at) ||
@@ -321,7 +364,9 @@ export function ingestBankNotifications(db, device, events) {
           parsed.reference,
           new Date().toISOString()
         );
-      if (policy.automatic && parsed.certain) {
+      linkRecordedBankEvidence(db);
+      autoConfirmNotificationReceipts(db);
+      if (policy.automatic && parsed.certain && db.prepare('SELECT state FROM finance_notification_events WHERE id=?').get(inserted.lastInsertRowid).state==='review') {
         try {
           applyBankNotification(
             db,
@@ -384,7 +429,7 @@ export function registerNotificationRoutes(
       owner(req);
       const events = db
         .prepare(
-          "SELECT * FROM finance_notification_events ORDER BY id DESC LIMIT 100"
+          "SELECT * FROM finance_notification_events WHERE archived_at IS NULL ORDER BY id DESC LIMIT 100"
         )
         .all()
         .map((r) => {

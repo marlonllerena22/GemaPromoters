@@ -1,5 +1,5 @@
 import { audit, cents, validDay, financeDay } from "./finance-db.js";
-import { fail, scoped, text } from "./finance-service.js";
+import { fail, scoped, text, reconcile } from "./finance-service.js";
 import { privateSetting } from "./finance-operations.js";
 
 const bankCode = (value) =>
@@ -142,9 +142,22 @@ export function editReceipt(db, user, id, body) {
   })();
 }
 export function queueReceiptNotice(db, id) {
+  if(db.prepare("SELECT 1 FROM finance_movements WHERE id=? AND (hidden_at IS NOT NULL OR status IN ('reconciled','rejected'))").get(id))return;
   db.prepare(
     "INSERT OR IGNORE INTO finance_push_outbox(event_key,request_id) VALUES (?,?)"
   ).run("receipt-review:" + id, id);
+}
+export function reconcileRecordedReceipt(db,id) {
+  const row=db.prepare("SELECT * FROM finance_movements WHERE id=? AND kind='income' AND evidence_id IS NOT NULL AND hidden_at IS NULL AND status IN ('pending','reported','approved')").get(id);
+  if(!row?.account_id||!row.reference)return false;
+  const peers=db.prepare("SELECT id FROM finance_movements WHERE kind='income' AND account_id=? AND reference=? AND amount_cents=? AND hidden_at IS NULL AND status!='rejected'").all(row.account_id,row.reference,row.amount_cents);
+  if(peers.length!==1)return false;
+  const banks=db.prepare("SELECT * FROM finance_bank_transactions b WHERE account_id=? AND reference=? AND amount_cents=? AND day BETWEEN date(?,'-1 day') AND date(?,'+1 day') AND NOT EXISTS(SELECT 1 FROM finance_allocations a WHERE a.bank_transaction_id=b.id)").all(row.account_id,row.reference,row.amount_cents,row.day,row.day);
+  if(banks.length!==1)return false;
+  reconcile(db,{role:'owner',username:'system:bank-evidence',business_ids:['producalza','marjorie','gemashow','personal'],unit_ids:[]},{movement_id:row.id,bank_transaction_id:banks[0].id,amount_cents:row.amount_cents});
+  if(row.business_id==='marjorie'&&row.unit_id?.startsWith('marjorie-'))db.prepare("INSERT OR IGNORE INTO finance_store_confirmations(movement_id,actor,confirmed_at,mode) VALUES (?,'system:bank-evidence',?,'bank_verified')").run(row.id,new Date().toISOString());
+  db.prepare("UPDATE finance_push_outbox SET state='skipped' WHERE request_id=? AND state='queued'").run(row.id);
+  return true;
 }
 export function registerReceiptRoutes(app, db, { route }) {
   db.prepare("UPDATE finance_movements SET receiving_bank=(SELECT bank FROM finance_accounts WHERE id=finance_movements.account_id) WHERE kind='income' AND evidence_id IS NOT NULL AND account_id IS NOT NULL AND COALESCE(receiving_bank,'')=''").run();

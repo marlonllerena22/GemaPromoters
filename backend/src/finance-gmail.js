@@ -1,4 +1,5 @@
 import { matchUnreferencedDeclaration } from "./finance-declared-bank.js";
+import {linkRecordedBankEvidence} from './finance-evidence-links.js';
 import { ensureCardCycles } from "./finance-funding.js";
 import crypto from "node:crypto";
 import {
@@ -158,21 +159,22 @@ export function parseBankMail(m, registry = { accounts: [] }) {
           "i",
         ).test(dmarc[1]),
     );
+  const debitCompleted=/\b(?:se (?:ha )?debito|(?:fue|ha sido) debitad[oa])\b/.test(plain);
   const rejected =
-      /fondos insuficientes|no se pudo procesar|rechazad|fallid|no fue realizad/.test(
+      /fondos insuficientes|no se pudo procesar|rechazad|fallid|no fue realizad|no (?:se (?:ha )?debito|(?:fue|ha sido) debitad)/.test(
         plain,
       ),
     pending =
-      /en proceso|pendiente de (confirmacion|aprobacion)|solicitud recibida|sera debitada|ser[aá] acreditad|acreditada.*en (?:1|una) hora/.test(
+      /en proceso|pendiente de (confirmacion|aprobacion)|solicitud recibida/.test(plain) || (!debitCompleted && /sera debitada|sera acreditad|acreditada.*en (?:1|una) hora/.test(
         plain,
-      );
+      ));
   const settlement =
       /pago (?:de la |de |a |realizado a |recibido en )?(?:tu )?tarjeta de credito|pago tarjeta de credito/.test(
         plain,
       ),
     isCard = /tarjeta de debito|tarjeta de credito/.test(plain) && !settlement;
   const outgoing =
-      settlement ||
+      settlement || debitCompleted || /transferencia solicitada sera debitada de su cuenta/.test(plain) ||
       /realizaste una transferencia|transferencia enviada|pago exitoso|pago realizado correctamente|pago con tu|consumo (con|de)/.test(
         plain,
       ),
@@ -240,7 +242,7 @@ export function parseBankMail(m, registry = { accounts: [] }) {
         ? destinationId
         : null;
   const sender =
-      body.match(/Te confirmamos que\s+(.+?)\s+ha realizado/i)?.[1] || "",
+      body.match(/Te confirmamos que\s+(.+?)\s+ha realizado/i)?.[1] || body.match(/Nombre del (?:ordenante|remitente)\s*:\s*(.+?)(?=\s+(?:Identificaci[oó]n|Cuenta|Banco|Fecha|Monto)\b|$)/i)?.[1] || "",
     ownerWords = normalize(registry.owner_name)
       .split(/\s+/)
       .filter((w) => w.length > 2),
@@ -385,9 +387,9 @@ export function ingestBankMessages(db, messages, { reprocess = false } = {}) {
         db.prepare("SELECT id FROM finance_mail_messages WHERE id=?").get(m.id)
       ) {
         const old = db
-          .prepare("SELECT state FROM finance_mail_messages WHERE id=?")
+          .prepare("SELECT state,archived_at FROM finance_mail_messages WHERE id=?")
           .get(m.id);
-        if (old.state === "applied" || !reprocess) {
+        if (old.archived_at || old.state === "applied" || !reprocess) {
           duplicates++;
           continue;
         }
@@ -436,7 +438,12 @@ export function ingestBankMessages(db, messages, { reprocess = false } = {}) {
         txKey,
         new Date().toISOString(),
       );
-      autoApplyBankMail(db, m.id);
+      const restart=privateSetting(db,'activity_restart_at');
+      if(restart && Date.parse(draft.received_at)<=Date.parse(restart))db.prepare('UPDATE finance_mail_messages SET archived_at=? WHERE id=?').run(restart,m.id);
+      else {
+        linkRecordedBankEvidence(db);
+        autoApplyBankMail(db, m.id);
+      }
       imported++;
     }
     putPrivateSetting(db, "mail_last_sync", new Date().toISOString());
@@ -447,7 +454,7 @@ export function ingestBankMessages(db, messages, { reprocess = false } = {}) {
 export function mailDrafts(db) {
   return db
     .prepare(
-      "SELECT id,state,account_id,movement_id,bank_transaction_id,encrypted FROM finance_mail_messages ORDER BY received_at DESC LIMIT 250",
+      "SELECT id,state,account_id,movement_id,bank_transaction_id,encrypted FROM finance_mail_messages WHERE archived_at IS NULL ORDER BY received_at DESC LIMIT 250",
     )
     .all()
     .map((r) => ({
@@ -463,7 +470,7 @@ export function applyMailDraft(db, user, id, body) {
     const row = db
       .prepare("SELECT * FROM finance_mail_messages WHERE id=?")
       .get(id);
-    if (!row) fail("Aviso no encontrado", 404);
+    if (!row || row.archived_at) fail("Aviso no encontrado", 404);
     const alreadyApplied = row.state === "applied";
     if (alreadyApplied && (row.movement_id || !body.business_id))
       return { ok: true, duplicate: true };
@@ -535,7 +542,7 @@ export function applyMailDraft(db, user, id, body) {
     const existing = p.reference
       ? db
           .prepare(
-            "SELECT * FROM finance_movements WHERE account_id=? AND reference=? AND amount_cents=? AND kind=? AND is_payment_request=0 AND status!='rejected'",
+            "SELECT * FROM finance_movements WHERE account_id=? AND reference=? AND amount_cents=? AND kind=? AND is_payment_request=0 AND status!='rejected' AND hidden_at IS NULL",
           )
           .all(account.id, p.reference, p.amount_cents, kind)
       : [];
@@ -576,11 +583,13 @@ export function applyMailDraft(db, user, id, body) {
                 p.amount_cents * (direction === "outgoing" ? -1 : 1),
               reference: p.reference,
               description: "Aviso bancario revisado",
+              counterparty:p.counterparty,
               external_id: key || `mail:${id}:${account.id}:${direction}`,
             },
           ],
         });
     const bank = { id: importedBank.transaction_ids[0] };
+    if(p.reference)db.prepare("UPDATE finance_bank_transactions SET reference=? WHERE id=? AND COALESCE(reference,'')=''").run(p.reference,bank.id);
     let movement = existing[0] || (declaredBank ? db.prepare("SELECT m.* FROM finance_allocations a JOIN finance_movements m ON m.id=a.movement_id WHERE a.bank_transaction_id=?").get(declaredBank.id) : null) || null;
     if (
       !movement &&
@@ -1005,7 +1014,7 @@ export function replayAutomaticBankMail(db) {
   const saved = privateSetting(db, "mail_auto_replay_cursor");
   const cursor = saved?.after === after ? saved : null;
   const rows = db.prepare(`SELECT id,received_at,state FROM finance_mail_messages
-    WHERE state IN ('draft','applied') AND received_at>=? AND
+    WHERE state IN ('draft','applied') AND archived_at IS NULL AND received_at>=? AND
       (? IS NULL OR received_at>? OR (received_at=? AND id>?))
     ORDER BY received_at,id LIMIT 40`).all(after, cursor?.received_at || null, cursor?.received_at || null, cursor?.received_at || null, cursor?.id || "");
   let applied = 0, taxes = 0;
@@ -1191,7 +1200,7 @@ export function autoApplyBankMail(db, id) {
   const row = db
     .prepare("SELECT * FROM finance_mail_messages WHERE id=?")
     .get(id);
-  if (!row) return;
+  if (!row || row.archived_at) return;
   const p = JSON.parse(decryptDocument(row.encrypted).toString());
   if (!mailAutoPostingAllowed(p)) return;
   if (!p.trusted || p.pending || p.rejected) return;

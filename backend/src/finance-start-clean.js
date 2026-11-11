@@ -2,6 +2,42 @@ import { audit } from "./finance-db.js";
 import { privateSetting, putPrivateSetting } from "./finance-operations.js";
 import { queueReceiptNotice } from "./finance-receipts.js";
 
+export function clearCurrentActivity(db) {
+  const key='owner-clear-activity-2026-11-11-v1';
+  if(privateSetting(db,key))return;
+  return db.transaction(()=>{
+    const now=new Date().toISOString();
+    const moneySnapshot=()=>JSON.stringify(['finance_accounts','finance_bank_transactions','finance_balance_checkpoints','finance_custody_balances','finance_provider_receipts','finance_checks','finance_loan_installments','finance_card_statements'].map(table=>db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()));
+    const before=moneySnapshot();
+    // Visibility reset only. No ledger, account balance, loan, check or card writes.
+    const result={
+      mail:db.prepare('UPDATE finance_mail_messages SET archived_at=? WHERE archived_at IS NULL').run(now).changes,
+      notices:db.prepare('UPDATE finance_incoming_notices SET archived_at=? WHERE archived_at IS NULL').run(now).changes,
+      movements:db.prepare(`UPDATE finance_movements SET hidden_at=?,updated_at=? WHERE hidden_at IS NULL
+        AND status IN ('pending','approved','reported')
+        AND NOT EXISTS(SELECT 1 FROM finance_allocations a WHERE a.movement_id=finance_movements.id)
+        AND NOT EXISTS(SELECT 1 FROM finance_payments p WHERE p.request_id=finance_movements.id AND p.voided_at IS NULL)
+        AND NOT EXISTS(SELECT 1 FROM finance_store_confirmations c WHERE c.movement_id=finance_movements.id)`).run(now,now).changes,
+      push:db.prepare("UPDATE finance_push_outbox SET state='skipped' WHERE state IN ('queued','failed')").run().changes,
+      drafts:db.prepare('DELETE FROM finance_assistant_drafts WHERE result_json IS NULL').run().changes,
+      notifications:0,
+    };
+    if(db.prepare("SELECT 1 FROM sqlite_master WHERE name='finance_notification_events'").get()){
+      if(!db.prepare('PRAGMA table_info(finance_notification_events)').all().some(c=>c.name==='archived_at'))db.exec('ALTER TABLE finance_notification_events ADD COLUMN archived_at TEXT');
+      result.notifications=db.prepare("UPDATE finance_notification_events SET archived_at=?,state=CASE WHEN state='review' THEN 'dismissed' ELSE state END WHERE archived_at IS NULL").run(now).changes;
+    }
+    putPrivateSetting(db,'activity_restart_at',now);
+    putPrivateSetting(db,'receipt_auto_confirm_from_notification',true);
+    putPrivateSetting(db,'mail_auto_replay_cursor',null);
+    if(before!==moneySnapshot())throw new Error('Activity reset attempted to change protected financial records');
+    result.financial_records_unchanged=true;
+    putPrivateSetting(db,key,{...result,at:now});
+    audit(db,'marlon','workspace.activity_archived','workspace','2026-11-11',null,{...result,at:now});
+    console.info('[finance] Current activity cleared '+JSON.stringify(result));
+    return result;
+  })();
+}
+
 // Explicit follow-up from Marlon: remove Norma's $1,243 trial, preserving bank money.
 export function archiveNovemberTrialReceipt(db) {
   const key = "owner-remove-1243-trial-2026-11-11-v1";

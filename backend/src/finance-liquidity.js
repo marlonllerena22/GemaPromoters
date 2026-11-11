@@ -159,7 +159,7 @@ export function liquidityView(db, user, data, registry, now = new Date()) {
     });
   const paidPending = db
     .prepare(
-      "SELECT m.*,COALESCE((SELECT SUM(x.amount_cents) FROM finance_allocations x WHERE x.movement_id=m.id),0) allocated FROM finance_movements m WHERE m.kind='expense' AND m.is_payment_request=0 AND m.status='reported' AND m.day<=? AND (m.source_system IN ('quick','bank-email') OR EXISTS(SELECT 1 FROM finance_payments p WHERE p.movement_id=m.id AND p.voided_at IS NULL))",
+      "SELECT m.*,COALESCE((SELECT SUM(x.amount_cents) FROM finance_allocations x WHERE x.movement_id=m.id),0) allocated FROM finance_movements m WHERE m.kind='expense' AND m.is_payment_request=0 AND m.hidden_at IS NULL AND m.status='reported' AND m.day<=? AND (m.source_system IN ('quick','bank-email') OR EXISTS(SELECT 1 FROM finance_payments p WHERE p.movement_id=m.id AND p.voided_at IS NULL))",
     )
     .all(day)
     .filter(

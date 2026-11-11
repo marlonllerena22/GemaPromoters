@@ -11,7 +11,9 @@ import {
   suggestReceivingAccount,
   editReceipt,
 } from "../src/finance-receipts.js";
-import { applyNovemberCleanup, archiveNovemberTrialReceipt } from "../src/finance-start-clean.js";
+import { applyNovemberCleanup, archiveNovemberTrialReceipt, clearCurrentActivity } from "../src/finance-start-clean.js";
+import {ingestBankMessages,mailDrafts,applyMailDraft,replayAutomaticBankMail} from '../src/finance-gmail.js';
+import {initBankNotifications,ingestBankNotifications} from '../src/finance-bank-notifications.js';
 import { putPrivateSetting } from "../src/finance-operations.js";
 import { recordedAccountBalance } from "../src/finance-check-ledger.js";
 import { flushPaymentPush } from "../src/finance-push.js";
@@ -301,4 +303,71 @@ test("1243 cleanup refuses ambiguous receipts and leaves future receipts untouch
   assert.deepEqual(result.ambiguous,[first.id,second]);
   assert.equal(result.archived.length,0);
   assert.equal(f.db.prepare("SELECT count(*) n FROM finance_movements WHERE hidden_at IS NOT NULL").get().n,0);
+});
+
+test('activity reset clears old inboxes, survives resync and preserves balances, checks, loans and card bills',(t)=>{
+  const f=fixture(t);
+  registerQuickEntry(f.db,f.norma,f.payload);
+  const before=f.balance();
+  f.db.prepare("INSERT INTO finance_checks(id,account_id,number,payee,amount_cents,due_day,fund_day,created_by,created_at,updated_at) VALUES ('keep-check',?,'900','Proveedor',2000,'2026-12-15','2026-12-13','marlon','now','now')").run(f.account);
+  f.db.prepare("INSERT INTO finance_loans(id,name,bank,account_id,principal_cents,as_of,source_hash) VALUES ('keep-loan','Préstamo','Pichincha',?,10000,'2026-11-10','keep')").run(f.account);
+  f.db.prepare("INSERT INTO finance_credit_cards VALUES ('keep-card','Tarjeta','Pichincha',?,24,9)").run(f.account);
+  f.db.prepare("INSERT INTO finance_card_statements(id,card_id,cut_date,due_date,total_cents) VALUES ('keep-bill','keep-card','2026-11-24','2026-12-09',5500)").run();
+  const snapshot=()=>['finance_accounts','finance_bank_transactions','finance_checks','finance_loans','finance_card_statements'].map(table=>f.db.prepare(`SELECT * FROM ${table}`).all());
+  const preserved=snapshot();
+  const old={id:'old-notice',internalDate:String(Date.now()-60000),payload:{headers:[{name:'From',value:'avisos@pichincha.com'},{name:'Subject',value:'Transferencia'},{name:'Authentication-Results',value:'mx.google.com; dmarc=pass header.from=pichincha.com'}],body:{content:'La transferencia solicitada será debitada de su cuenta y acreditada en 1 hora. Cuenta de origen: ****0043 Cuenta acreditada: ****0052 Monto: USD 64.00 Número de documento: 29384633'}}};
+  putPrivateSetting(f.db,'own_account_registry',{accounts:[{account_id:f.account,bank:'Pichincha',number:'2200000043'}]});
+  ingestBankMessages(f.db,[old]);
+  assert.equal(mailDrafts(f.db).length,1);
+  assert.equal(clearCurrentActivity(f.db).mail,1);
+  assert.equal(f.balance(),before);
+  assert.deepEqual(snapshot(),preserved);
+  assert.equal(mailDrafts(f.db).length,0);
+  assert.equal(receiptInbox(f.db,f.norma).length,0);
+  assert.equal(f.db.prepare("SELECT count(*) n FROM finance_push_outbox WHERE state='queued'").get().n,0);
+  ingestBankMessages(f.db,[old],{reprocess:true});
+  ingestBankMessages(f.db,[{...old,id:'late-old-notice'}]);
+  replayAutomaticBankMail(f.db);
+  assert.equal(mailDrafts(f.db).length,0);
+  assert.equal(f.balance(),before);
+  assert.throws(()=>applyMailDraft(f.db,f.owner,old.id,{account_id:f.account,direction:'outgoing'}),e=>e.status===404);
+  assert.equal(clearCurrentActivity(f.db),undefined);
+});
+
+test('a newly uploaded receipt with an already recorded exact bank reference confirms without another credit',(t)=>{
+  const f=fixture(t);
+  f.db.prepare("INSERT INTO finance_bank_transactions(account_id,day,amount_cents,reference,description,fingerprint,batch_id,created_by) VALUES (?,?,124300,'RECEIPT1243','Bank payment','confirmed1243','real','marlon')").run(f.account,financeDay());
+  const before=f.balance(),registered=registerQuickEntry(f.db,f.norma,f.payload);
+  assert.equal(registered.movement.status,'reconciled');
+  assert.equal(receiptInbox(f.db,f.norma)[0].can_edit,false);
+  assert.equal(f.balance(),before);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_allocations').get().n,1);
+  assert.equal(f.db.prepare("SELECT count(*) n FROM finance_push_outbox WHERE state='queued'").get().n,0);
+});
+
+for(const notificationFirst of [true,false])test(`a received-money phone notification auto-confirms the matching receipt, notification first: ${notificationFirst}`,(t)=>{
+  const f=fixture(t);initBankNotifications(f.db);
+  putPrivateSetting(f.db,'receipt_auto_confirm_from_notification',true);
+  putPrivateSetting(f.db,'own_account_registry',{accounts:[{account_id:f.account,bank:'Pichincha',number:'2200000043'}]});
+  const device={id:'test-phone',created_at:new Date(Date.now()-3600000).toISOString(),apps_json:JSON.stringify([{package_name:'bank.test',bank:'Pichincha',account_id:f.account,automatic:false}])};
+  f.db.prepare("INSERT INTO finance_notification_devices(id,client_id,member_id,session_hash,token_hash,apps_json,created_at,expires_at) VALUES (?, 'fixture',?,'test','token',?,?,?)").run(device.id,f.owner.id,device.apps_json,device.created_at,Date.now()+3600000);
+  const event={id:'receive-1243',package_name:'bank.test',posted_at:new Date(Date.now()-1000).toISOString(),text:'Recibiste $1.243,00 de Ana Perez. Cuenta destino: ****0043'};
+  const upload=()=>registerQuickEntry(f.db,f.norma,{...f.payload,overrides:{...f.payload.overrides,counterparty:'Ana Perez',reference:null}});
+  let registered;
+  if(notificationFirst){ingestBankNotifications(f.db,device,[event]);assert.equal(f.balance(),10000);registered=upload();}
+  else {registered=upload();assert.equal(f.balance(),10000);ingestBankNotifications(f.db,device,[event]);}
+  assert.equal(f.db.prepare('SELECT status FROM finance_movements WHERE id=?').get(registered.movement.id).status,'reconciled');
+  assert.equal(f.balance(),134300);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,1);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_allocations').get().n,1);
+  ingestBankNotifications(f.db,device,[event]);
+  assert.equal(f.balance(),134300);
+  ingestBankMessages(f.db,[{id:'corroborating-mail',internalDate:String(Date.now()),payload:{headers:[{name:'From',value:'avisos@pichincha.com'},{name:'Subject',value:'Transferencia recibida'},{name:'Authentication-Results',value:'mx.google.com; dmarc=pass header.from=pichincha.com'}],body:{content:'Te confirmamos que Ana Perez ha realizado una transferencia. Transferencia recibida. Cuenta destino: ****0043 Monto: USD 1243.00 Número de documento: 123456789'}}}]);
+  assert.equal(f.db.prepare('SELECT state FROM finance_mail_messages').get().state,'applied');
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,1);
+  assert.equal(f.balance(),134300);
+  for(let i=0;i<2;i++)f.db.prepare("INSERT INTO finance_movements(business_id,unit_id,account_id,kind,amount_cents,day,category,counterparty,description,evidence_id,created_by) VALUES ('producalza','producalza-fabrica',?,'income',100,?,'Abono','Ana Perez','Comprobante parecido',?,'norma')").run(f.account,financeDay(),f.evidence);
+  ingestBankNotifications(f.db,device,[{...event,id:'ambiguous-small-receipt',text:'Recibiste $1,00 de Ana Perez. Cuenta destino: ****0043'}]);
+  assert.equal(f.balance(),134300);
+  assert.equal(f.db.prepare("SELECT count(*) n FROM finance_movements WHERE amount_cents=100 AND status='pending'").get().n,2);
 });

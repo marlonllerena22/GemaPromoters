@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
-import {receiptAccounts,queueReceiptNotice} from './finance-receipts.js';
+import {autoConfirmNotificationReceipts} from './finance-bank-notifications.js';
+import {receiptAccounts,queueReceiptNotice,reconcileRecordedReceipt} from './finance-receipts.js';
 import { audit, financeDay } from "./finance-db.js";
 import {
   createMovement,
@@ -133,6 +134,8 @@ export function registerQuickEntry(db, user, body) {
     if (parsed.is_request) queuePaymentNotice(db, created.id);
     if (isReceipt) {
       if(parsed.draft.account_id)db.prepare('UPDATE finance_movements SET receiving_bank=(SELECT bank FROM finance_accounts WHERE id=?) WHERE id=?').run(parsed.draft.account_id,created.id);
+      autoConfirmNotificationReceipts(db);
+      reconcileRecordedReceipt(db,created.id);
       queueReceiptNotice(db, created.id);
     }
     const movement = db
