@@ -434,8 +434,8 @@ export function SpacePanel({ id, onClose }) {
     payments = w.payments.filter((p) => requestIds.has(p.request_id));
   const member = space.members?.find((m) => m.member_id === user.id);
   const canRequest =
-    user.role === "owner" ||
-    (user.role !== "viewer" && member && member.role !== "observer");
+    user.request_payments && (user.role === "owner" ||
+    (member && member.role !== "observer"));
   return (
     <Modal
       title={space.name}
@@ -1513,7 +1513,7 @@ export function NewSpace({ onClose }) {
 export function PushEnrollment() {
   if (isNativeFinance()) return <NativePushEnrollment />;
   const { data, user, notify } = useFinance();
-  const allowed = user.role === "owner" || user.checks_manage;
+  const allowed = user.role === "owner" || user.checks_manage || user.review_unit_ids?.length>0;
   const [busy, setBusy] = useState(false),
     [enabled, setEnabled] = useState(false);
   const [config, setConfig] = useState(null),

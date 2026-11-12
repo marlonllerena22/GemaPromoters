@@ -144,13 +144,13 @@ export function OwnerHome() {
           <strong>Hablar con Gema</strong>
           <small>Registrar o consultar</small>
         </button>
-        <button onClick={() => open("quick", { mode: "request" })}>
+        {user.request_payments&&<button onClick={() => open("quick", { mode: "request" })}>
           <span>
             <ArrowUpRight size={24} />
           </span>
           <strong>Pedir pago</strong>
           <small>Contacto y monto</small>
-        </button>
+        </button>}
       </section>
       <section className="gf-home-pending" id="gf-home-pending">
         <div className="gf-between">

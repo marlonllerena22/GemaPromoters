@@ -44,10 +44,10 @@ export function QuickAccess() {
         <Mic size={22} />
         <span>Registrar gasto</span>
       </button>
-      <button onClick={() => open("quick", { mode: "request" })}>
+      {user.request_payments&&<button onClick={() => open("quick", { mode: "request" })}>
         <ArrowUpRight size={22} />
         <span>Pedir pago</span>
-      </button>
+      </button>}
       {canUseFinanceAssistant(user) && (
         <button onClick={() => navigate("asistente")}>
           <AssistantAvatar size={27} />
@@ -118,7 +118,7 @@ export function CollaboratorHome() {
             <ArrowRight size={20} />
           </button>
         )}
-        <button onClick={() => open("quick", { mode: "request" })}>
+        {user.request_payments&&<button onClick={() => open("quick", { mode: "request" })}>
           <span className="gf-simple-action-icon amber">
             <ArrowUpRight size={27} />
           </span>
@@ -127,7 +127,7 @@ export function CollaboratorHome() {
             <p>Contacto, valor y motivo.</p>
           </div>
           <ArrowRight size={20} />
-        </button>
+        </button>}
         {Boolean(user.review_unit_ids?.length) && (
           <button onClick={() => navigate("confirmaciones")}>
             <span className="gf-simple-action-icon lilac">
@@ -155,6 +155,8 @@ export function CollaboratorHome() {
         </button>
       )}
       {["norma","normita"].includes(user.username)&&<Button variant="secondary" icon={FileText} onClick={()=>open('quick',{mode:'request',business_id:'producalza',space_id:'producalza-pagos',description:'Servicios básicos',category:'Servicios'})}>Pedir pago de servicios básicos</Button>}
+      {user.checks_manage&&<Button onClick={()=>navigate('cheques')}>Agregar / revisar cheques</Button>}
+      {user.username==='morelia'&&<Button onClick={()=>navigate('cuentas')}>Cuentas de Liliana y MORE Local SUR</Button>}
       <ReceiptList/>
       <section className="gf-collaborator-spaces">
         <h2>Mis espacios</h2>
@@ -549,9 +551,9 @@ function QuickCaptureForm({ initial = {}, onClose }) {
             aria-label="Forma de registro"
           >
             {[
-              ["message", "Escribir o hablar", Mic],
-              ["receipt", "Comprobante", Camera],
-              ["request", "Pedir pago", ArrowUpRight],
+              ...(!user.warehouse_only?[["message", "Escribir o hablar", Mic],
+              ["receipt", "Comprobante", Camera]]:[]),
+              ...(user.request_payments?[["request", "Pedir pago", ArrowUpRight]]:[]),
             ].map(([id, label, Icon]) => (
               <button
                 type="button"

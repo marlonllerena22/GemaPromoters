@@ -1,3 +1,4 @@
+import {isLili} from '../../shared/finance-access.mjs';
 import crypto from "node:crypto";
 import {storeReceiptRoute} from '../../shared/finance-store-receipts.mjs';
 import { nativePushConfiguration, validateNativeSubscription, sendFinancePush } from "./finance-native-push.js";
@@ -77,7 +78,7 @@ export async function flushPaymentPush(
     if (!db.open) return;
     const request = db
       .prepare(
-        "SELECT * FROM finance_movements WHERE id=?"
+        "SELECT m.*,(SELECT COALESCE(holder_key,'owner') FROM finance_accounts WHERE id=m.account_id) account_holder FROM finance_movements m WHERE m.id=?"
       )
       .get(event.request_id);
     const receipt=event.event_key.startsWith('receipt-review:');
@@ -98,7 +99,7 @@ export async function flushPaymentPush(
       .prepare(
         "SELECT p.*,m.role member_role,m.username member_username FROM finance_push_subscriptions p JOIN finance_members m ON m.id=p.member_id WHERE m.active=1"
       )
-      .all().filter(s=>recipient?.role==='local-reviewer'?s.member_username==='morelia':s.member_role==='owner');
+      .all().filter(s=>receipt?(recipient?.role==='local-reviewer'?(recipient.name==='Liliana'?['lili','liliana'].includes(s.member_username):s.member_username==='morelia'):s.member_role==='owner'):(s.member_role==='owner'||(['norma','normita','morelia'].includes(request.created_by)&&s.member_username==='german')));
     if (!subscriptions.length) continue;
     let failed = false, delivered = 0;
     for (const subscription of subscriptions) {
@@ -106,13 +107,14 @@ export async function flushPaymentPush(
         const value = validatePushSubscription(
           JSON.parse(decryptDocument(subscription.encrypted).toString("utf8"))
         );
+        const informational=!receipt&&subscription.member_username==='german';
         await send(
           value,
           JSON.stringify({
-            title: receipt?"Depósito por confirmar":"Te pidieron una transferencia",
-            body: receipt?'Recibiste un comprobante de cliente. Toca para revisarlo.':'Toca para ver los datos y subir el comprobante del pago.',
-            url: receipt?"/finanzas/confirmaciones":"/finanzas/pagos",
-            ...(receipt?{receipt_id:String(request.id)}:{request_id:String(request.id)}),
+            title: informational?"Solicitud de transferencia · informativo":receipt?"Depósito por confirmar":"Te pidieron una transferencia",
+            body: informational?`$${(request.amount_cents/100).toFixed(2)} para ${request.counterparty}`:receipt?'Recibiste un comprobante de cliente. Toca para revisarlo.':'Toca para ver los datos y subir el comprobante del pago.',
+            url: informational?"/finanzas/":receipt?"/finanzas/confirmaciones":"/finanzas/pagos",
+            ...(informational?{}:receipt?{receipt_id:String(request.id)}:{request_id:String(request.id)}),
             tag: `${receipt?'gema-receipt':'gema-payment'}-${request.id}`,
           }),
           {
@@ -156,7 +158,7 @@ export function registerPaymentPush(app, db, { route, owner, send = sendFinanceP
     failed: db.prepare("SELECT COUNT(*) n FROM finance_push_outbox WHERE state='failed'").get().n,
   });
   const authorized = (req) => {
-    if (req.financeUser.role !== "owner" && !req.financeUser.checks_manage) fail("Tu perfil no recibe estos avisos", 403);
+    if (req.financeUser.role !== "owner" && !req.financeUser.checks_manage && !isLili(req.financeUser)) fail("Tu perfil no recibe estos avisos", 403);
   };
   app.get(
     "/api/finance/push/config",

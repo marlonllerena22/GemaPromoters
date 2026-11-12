@@ -87,9 +87,8 @@ test("manual Diners balances separate available and pending funds without creati
   assert.equal(snapshot.summary.balance_cents, before);
   assert.equal(snapshot.settlement_funds[0].pending_cents, 65432);
   assert.equal(
-    (await f.req("/snapshot", "reader")).body.settlement_funds[0]
-      .available_cents,
-    123456
+    (await f.req("/snapshot", "reader")).body.settlement_funds.length,
+    0
   );
   assert.equal(
     (await f.req("/snapshot", "normita")).body.settlement_funds.length,
@@ -383,8 +382,9 @@ test("workspaces authorize named participants without exposing peer financial ac
 test("payable reminders survive reads and approval, resolve on evidenced payments and reopen on correction", async (t) => {
   const f = await fixture(t);
   await f.login();
+  await f.login("normita");
   const account = await f.account("producalza");
-  const created = await f.req("/quick/register", "owner", {
+  const created = await f.req("/quick/register", "normita", {
     request_id: crypto.randomUUID(),
     text: "Solicito pagar Producalza $300 de materiales",
   });
@@ -639,11 +639,7 @@ test("quick collaborators have assigned units, pending submissions and no cross-
     request_id: crypto.randomUUID(),
     text: "Solicito pagar $80 en materiales",
   });
-  assert.equal(r.status, 201);
-  assert.equal(r.body.movement.business_id, "marjorie");
-  assert.equal(r.body.movement.unit_id, "marjorie-norte");
-  assert.equal(r.body.movement.created_by, "north");
-  assert.equal(r.body.movement.status, "pending");
+  assert.equal(r.status, 403);
   assert.equal(
     (
       await f.req("/quick/register", "north", {
@@ -652,7 +648,7 @@ test("quick collaborators have assigned units, pending submissions and no cross-
         overrides: { unit_id: "marjorie-norte" },
       })
     ).status,
-    400
+    403
   );
   assert.equal(
     (
@@ -679,7 +675,7 @@ test("quick collaborators have assigned units, pending submissions and no cross-
   assert.equal(missing.status, 400);
   assert.equal(
     f.db.prepare("SELECT COUNT(*) n FROM finance_movements").get().n,
-    1
+    0
   );
 });
 process.env.FINANCE_DOCUMENT_KEY ||=
@@ -1954,12 +1950,12 @@ test("Sur routes recipient-bank receipts to Marlon or Morelia and enforces the r
   const moreList = (await f.req("/store-receipts", "morelia")).body.receipts;
   assert.equal(moreList.find((r) => r.id === pich.body.id).assigned_to_me, true);
   const pichAccount=await f.account(null,'Pichincha destino'),guayAccount=await f.account(null,'Guayaquil destino');
-  f.db.prepare("UPDATE finance_accounts SET bank='Pichincha' WHERE id=?").run(pichAccount);f.db.prepare("UPDATE finance_accounts SET bank='Guayaquil' WHERE id=?").run(guayAccount);
+  f.db.prepare("UPDATE finance_accounts SET bank='Pichincha',holder_key='more-sur' WHERE id=?").run(pichAccount);f.db.prepare("UPDATE finance_accounts SET bank='Guayaquil' WHERE id=?").run(guayAccount);
   assert.equal((await f.req(`/store-receipts/${pich.body.id}/confirm`, "morelia", {account_id:guayAccount})).status,403);
   assert.equal((await f.req(`/store-receipts/${pich.body.id}/confirm`, "morelia", {account_id:pichAccount})).status, 200);
   assert.equal((await f.req(`/store-receipts/${guay.body.id}/confirm`, "owner", {account_id:guayAccount,already_in_balance:true})).status, 200);
   assert.equal(f.db.prepare("SELECT count(*) n FROM finance_bank_transactions").get().n, 2);
-  const accounts=(await f.req('/snapshot')).body.accounts;assert.equal(accounts.find(a=>a.id===pichAccount).balance_cents,2000);assert.equal(accounts.find(a=>a.id===guayAccount).balance_cents,0);
+  const accounts=(await f.req('/snapshot')).body.accounts;assert.equal(f.db.prepare('SELECT SUM(amount_cents) n FROM finance_bank_transactions WHERE account_id=?').get(pichAccount).n,2000);assert.equal(accounts.find(a=>a.id===guayAccount).balance_cents,0);
 });
 
 test("full account numbers are owner-managed, encrypted and never exposed to other readers", async (t) => {
@@ -1988,8 +1984,7 @@ test("full account numbers are owner-managed, encrypted and never exposed to oth
     "0000001234",
   );
   assert.equal(
-    (await f.req("/snapshot", "reader")).body.accounts.find((a) => a.id === id)
-      .account_number,
+    (await f.req("/snapshot", "reader")).body.accounts.find((a) => a.id === id),
     undefined,
   );
   assert.equal(
@@ -2090,4 +2085,24 @@ test('a normal clarification conversation can exceed six replies and cancellatio
   const cancel=await f.req('/quick/conversation','owner',{messages:[{role:'user',content:'Ya basta'}]});
   assert.equal(cancel.status,200);assert.equal(cancel.body.cancelled,true);assert.equal(calls,18);
   assert.equal(f.db.prepare('SELECT COUNT(*) n FROM finance_bank_transactions').get().n,0);
+});
+
+
+test('Lili uploads auto-credit her account once; Sur cash deposits reduce cash without becoming another sale',async t=>{
+ const f=await fixture(t);await f.login();
+ for(const [username,unit] of [['lili','marjorie-norte'],['selena','marjorie-sur']]){f.db.prepare("INSERT INTO finance_members(name,username,password_hash,role,business_ids,unit_ids) VALUES (?,?,?,'collector','[\"marjorie\"]',?)").run(username,username,passwordHash(password),JSON.stringify([unit]));await f.login(username);}
+ const lili=await f.account('marjorie','Liliana Pichincha'),more=await f.account('marjorie','MORE Local SUR');
+ f.db.prepare("UPDATE finance_accounts SET bank='Pichincha',holder_key='lili' WHERE id=?").run(lili);f.db.prepare("UPDATE finance_accounts SET bank='Pichincha',holder_key='more-sur' WHERE id=?").run(more);
+ const proof=(username,unit)=>Number(f.db.prepare("INSERT INTO finance_evidence(business_id,unit_id,name,mime,bytes,sha256,encrypted,created_by) VALUES ('marjorie',?,'fixture.png','image/png',1,?,?,?)").run(unit,crypto.randomUUID(),encryptDocument(Buffer.from('test')),username).lastInsertRowid);
+ const body={unit_id:'marjorie-norte',receiving_bank:'Pichincha',amount_cents:4200,evidence_id:proof('lili','marjorie-norte'),day:f.day};
+ const first=await f.req('/store-receipts','lili',body);assert.equal(first.status,201);assert.equal(first.body.confirmed,true);assert.equal((await f.req('/store-receipts','lili',body)).body.duplicate,true);
+ assert.equal(f.db.prepare('SELECT SUM(amount_cents) n FROM finance_bank_transactions WHERE account_id=?').get(lili).n,4200);
+ assert.equal((await f.req('/snapshot','lili')).body.accounts.length,0);
+ const deposit={unit_id:'marjorie-sur',receiving_bank:'Pichincha',amount_cents:5000,evidence_id:proof('selena','marjorie-sur'),day:f.day,purpose:'cash_remittance'};
+ const receipt=await f.req('/store-receipts','selena',deposit);assert.equal(receipt.status,201);assert.equal((await f.req('/store-receipts','selena',deposit)).body.duplicate,true);
+ assert.equal((await f.req('/store-receipts','selena',{...deposit,purpose:'client'})).status,409);
+ assert.equal((await f.req(`/store-receipts/${receipt.body.id}/confirm`,'owner',{})).status,200);
+ assert.equal(f.db.prepare("SELECT SUM(amount_cents) n FROM finance_retail_entries WHERE kind='remittance'").get().n,5000);
+ const report=(await f.req('/retail/report?mode=day&unit_id=marjorie-sur&day='+f.day)).body;
+ assert.equal(report.stores[0].collection_control.more_cash_cents,5000);assert.equal(report.stores[0].collection_control.more_client_cents,0);assert.equal(report.stores[0].sales.net_cents,0);
 });

@@ -1,3 +1,4 @@
+import {canRequestPayments,canSeeAllBalances} from '../../shared/finance-access.mjs';
 import crypto from "node:crypto";
 import { decryptDocument } from "./finance-ai.js";
 import { audit, financeDay, validDay, cents } from "./finance-db.js";
@@ -68,7 +69,7 @@ export function financialWorkflow(db, user) {
 export function attachWorkflow(db, user, data) {
   data.workflow = financialWorkflow(db, user);
   data.settlement_funds =
-    user.role !== "collector" &&
+    canSeeAllBalances(user) &&
     data.businesses.some((b) => b.id === "marjorie")
       ? db
           .prepare(
@@ -91,6 +92,7 @@ export function requireSpace(db, user, id, { write = false } = {}) {
   if (!space || !canSeeSpace(space, user, source.members))
     fail("Espacio no disponible para tu acceso", 403);
   if (write) {
+    if(!canRequestPayments(user))fail("Tu perfil no solicita transferencias",403);
     const membership = source.members.find(
       (m) => m.space_id === id && Number(m.member_id) === Number(user.id),
     );

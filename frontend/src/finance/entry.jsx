@@ -496,6 +496,7 @@ function FinanceApp() {
         );
         if (id === loadId.current) {
           setData(result);
+          if(result.user)setUser(previous=>JSON.stringify(previous)===JSON.stringify(result.user)?previous:result.user);
           setFatal("");
         }
         return result;
@@ -719,6 +720,8 @@ function FinanceApp() {
   }
   const visiblePages = pages.filter(
     (p) =>
+      (!user?.warehouse_only||["inicio","mi-acceso"].includes(p.id)) &&
+      (!user?.store_staff||["inicio","locales","confirmaciones","mi-acceso"].includes(p.id)) &&
       (!p.ownerOnly || user?.role === "owner") &&
       (!p.retailOnly || retailAccess(user)) &&
       (!p.assistantOnly || canUseFinanceAssistant(user)) &&
@@ -737,6 +740,7 @@ function FinanceApp() {
           "espacios",
           "mi-acceso",
           "confirmaciones",
+          ...(user.username==="morelia"?["cuentas"]:[]),
           ...(retailAccess(user)?['locales']:[]),
           ...(user.checks_manage ? ["cheques"] : []),
           ...(canUseFinanceAssistant(user) ? ["asistente"] : []),
@@ -755,7 +759,7 @@ function FinanceApp() {
           "tarjetas",
           ...(canUseFinanceAssistant(user) ? ["asistente"] : []),
         ].includes(p.id)) &&
-      (!p.hideCollector || user?.role !== "collector")
+      (!p.hideCollector || user?.role !== "collector" || (p.id==="cuentas"&&user.username==="morelia"))
   );
   const current = visiblePages.find((p) => p.id === page) || visiblePages[0];
   const Page = current?.component;
@@ -1147,14 +1151,14 @@ function FinanceApp() {
               <Home size={22} />
               <span>Inicio</span>
             </button>
-            <button onClick={() => open("quick", { mode: "request" })}>
+            {user.request_payments&&<button onClick={() => open("quick", { mode: "request" })}>
               <ArrowUpRight size={22} />
               <span>Pedir pago</span>
-            </button>
-            <button onClick={() => navigate("espacios")}>
+            </button>}
+            {!user.store_staff&&!user.warehouse_only&&<button onClick={() => navigate("espacios")}>
               <Users size={22} />
               <span>Espacios</span>
-            </button>
+            </button>}
             {Boolean(user.review_unit_ids?.length) && (
               <button onClick={() => navigate("confirmaciones")}>
                 <FileCheck2 size={22} />
@@ -1267,7 +1271,7 @@ function FinanceApp() {
         {modal?.type==='upload-payment'&&<PaymentUploadPicker onClose={close}/>}
         {modal?.type==='receipt-review'&&<ReceiptReview id={modal.initial.id} onClose={close}/>}
         {modal?.type==='receipt-edit'&&<ReceiptComposer initial={modal.initial} onClose={close}/>}
-        {modal?.type === "quick" && modal.initial?.mode === "request" && (
+        {modal?.type === "quick" && modal.initial?.mode === "request" && user.request_payments && (
           <RequestComposer
             initial={modal.initial}
             onClose={

@@ -1,3 +1,4 @@
+import {canSeeAccountBalance,canSeeAllBalances,isWarehouse,isStoreStaff} from '../../shared/finance-access.mjs';
 import crypto from "node:crypto";
 import {notificationBankMatch} from './finance-notification-match.js';
 import {linkRecordedBankEvidence} from './finance-evidence-links.js';
@@ -66,20 +67,24 @@ export function requireRow(db, table, id, user) {
     fail("Recurso inválido");
   const row = db.prepare(`SELECT * FROM ${table} WHERE id=?`).get(id);
   const ownLegacyReceipt=row&&row.unit_id===null&&row.created_by===user.username&&user.business_ids.includes(row.business_id)&&(table==='finance_evidence'||(table==='finance_movements'&&row.kind==='income'&&row.evidence_id));
+  if(row&&isWarehouse(user)){
+    const ownRequest=table==='finance_movements'?row.is_payment_request&&row.created_by===user.username:row.created_by===user.username||db.prepare('SELECT 1 FROM finance_payments p JOIN finance_movements m ON m.id=p.request_id WHERE p.evidence_id=? AND m.created_by=?').get(row.id,user.username);
+    if(!ownRequest)fail('Registro no encontrado',404);
+  }
   if (!row || (!scoped(user, row)&&!ownLegacyReceipt)) fail("Registro no encontrado", 404);
   return row;
 }
 
 export function visibleAccounts(db, user) {
-  if (user.role === "collector") return [];
+  if (!canSeeAllBalances(user)&&user.username!=="morelia") return [];
   return db
     .prepare("SELECT * FROM finance_accounts WHERE active=1 ORDER BY id")
     .all()
     .filter(
       (a) =>
-        user.role === "owner" ||
+        canSeeAccountBalance(user,a) && (user.role === "owner" || user.username==="morelia" ||
         (user.work_view && !a.business_id && !user.unit_ids.length) ||
-        (user.business_ids.includes(a.business_id) && !user.unit_ids.length),
+        (user.business_ids.includes(a.business_id) && !user.unit_ids.length)),
     );
 }
 
@@ -678,6 +683,7 @@ export function snapshot(db, user, filters = {}) {
       : user.business_ids;
   const permitted = (row) =>
     scoped(user, row) &&
+    (!isWarehouse(user)||Boolean(row.is_payment_request)) &&
     businessIds.includes(row.business_id) &&
     (user.role !== "collector" || row.created_by === user.username);
   const allMovements = db
@@ -762,7 +768,8 @@ export function snapshot(db, user, filters = {}) {
         ...(user.work_view && !a.business_id
           ? { name: "Cuenta compartida", personal_details_private: true }
           : {}),
-        balance_cents: balance,
+        balance_cents: ['lili','more-sur'].includes(a.holder_key)&&!a.verified_at?null:balance,
+        balance_unconfirmed:['lili','more-sur'].includes(a.holder_key)&&!a.verified_at,
         opening_allocations: user.work_view
           ? openingAllocations.filter((p) =>
               user.business_ids.includes(p.business_id),
@@ -802,7 +809,7 @@ export function snapshot(db, user, filters = {}) {
       ["approved", "reconciled", "reported"].includes(m.status),
   );
   const summary = {
-    balances_visible: user.role !== "collector" && !user.unit_ids.length,
+    balances_visible: canSeeAllBalances(user)||user.username==="morelia",
     balance_cents: accounts
       .filter((a) => ["bank", "wallet"].includes(a.kind))
       .reduce((s, a) => s + positionAmount(a), 0),
@@ -955,7 +962,7 @@ export function snapshot(db, user, filters = {}) {
                 )
                 .reduce((s, m) => s + m.amount_cents, 0),
             })),
-    closings: db
+    closings: isStoreStaff(user)||isWarehouse(user)?[]:db
       .prepare(
         "SELECT c.*,u.business_id,u.name unit_name FROM finance_closings c JOIN finance_units u ON u.id=c.unit_id ORDER BY day DESC",
       )
@@ -991,7 +998,7 @@ export function snapshot(db, user, filters = {}) {
             wallet_auto_updated: false,
           }
         : null,
-    integrations: db.prepare("SELECT * FROM finance_sync_log").all(),
+    integrations: user.role==="owner"?db.prepare("SELECT * FROM finance_sync_log").all():[],
     capabilities: {
       ai: Boolean(process.env.OPENAI_API_KEY),
       webhook: Boolean(process.env.FINANCE_SALES_WEBHOOK_SECRET),

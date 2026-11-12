@@ -1,3 +1,4 @@
+import {canSeeAllBalances} from '../../shared/finance-access.mjs';
 import crypto from "node:crypto";
 import {
   recordedAccountBalance,
@@ -56,7 +57,7 @@ export function fundingOverview(db, user, now = new Date()) {
         amount_cents: amount,
         total_cents: all.reduce((n, c) => n + c.amount_cents, 0),
         cumulative_cents: cumulative,
-        shortfall_cents: Math.max(0, cumulative - balance),
+        shortfall_cents: canSeeAllBalances(user)?Math.max(0, cumulative - balance):null,
         count: all.length,
         pending_count: pending.length,
         cleared_count: all.length - pending.length,
@@ -72,9 +73,9 @@ export function fundingOverview(db, user, now = new Date()) {
       id,
       name: a.account_name,
       last_four: a.last_four,
-      balance_cents: balance,
+      balance_cents: canSeeAllBalances(user)?balance:null,
       needed_now_cents: needed,
-      shortfall_now_cents: Math.max(0, needed - balance),
+      shortfall_now_cents: canSeeAllBalances(user)?Math.max(0, needed - balance):null,
       groups,
     });
   }

@@ -1,3 +1,4 @@
+import {canRequestPayments,isWarehouse} from '../../shared/finance-access.mjs';
 import crypto from "node:crypto";
 import {autoConfirmNotificationReceipts} from './finance-bank-notifications.js';
 import {receiptAccounts,queueReceiptNotice,reconcileRecordedReceipt} from './finance-receipts.js';
@@ -91,6 +92,8 @@ export function registerQuickEntry(db, user, body) {
       overrides,
       request: payload.request,
     });
+    if(parsed.is_request&&!canRequestPayments(user))fail('Tu perfil no solicita transferencias. Puedes enviar depósitos de clientes o registrar gastos de caja.',403);
+    if(isWarehouse(user)&&!parsed.is_request)fail('Bodega solo puede solicitar transferencias',403);
     if (!parsed.ready)
       fail(
         parsed.error ||

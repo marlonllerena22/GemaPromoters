@@ -1,3 +1,5 @@
+import {registerStaffCalendar} from './finance-staff-calendar.js';
+import {initProfileAccess,effectiveMember,restrictProfileRoute} from './finance-profile-access.js';
 import { applyPrivateBankReview } from "./finance-bank-review.js";
 import {registerRetailRoutes} from './finance-retail.js';
 import { financeSupportCheck } from "./finance-support-check.js";
@@ -89,6 +91,7 @@ const localHost = (req) =>
 export function registerFinanceRoutes(app, db, bridges = {}) {
   initFinanceDb(db);
   applyFinanceBootstrap(db);
+  initProfileAccess(db);
   activateReceiptCredits(db);
   applyNovemberCleanup(db);
   archiveNovemberTrialReceipt(db);
@@ -169,7 +172,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
       ...cookieOptions,
       maxAge: duration,
     });
-    return safeMember(member);
+    return effectiveMember(db,member);
   };
   app.use(
     "/api/finance",
@@ -215,7 +218,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
           )
           .get(hashToken(token), Date.now());
       res.json({
-        user: member ? safeMember(member) : null,
+        user: member ? effectiveMember(db,member) : null,
         remember_device: Boolean(member?.remembered),
         configured: Boolean(
           db.prepare("SELECT id FROM finance_members WHERE role='owner'").get(),
@@ -338,7 +341,8 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
         db.prepare(
           "UPDATE finance_sessions SET last_seen=? WHERE token_hash=?",
         ).run(Date.now(), hashToken(token));
-      req.financeUser = safeMember(member);
+      req.financeUser = effectiveMember(db,member);
+      if(!restrictProfileRoute(req.financeUser,req.path,req.method))fail("Tu acceso es solo para tus solicitudes de transferencia",403);
       if (
         req.financeUser.password_change_required &&
         !["/security/password", "/logout", "/remember-device"].includes(
@@ -419,6 +423,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
   registerOperationsRoutes(app, db, { route, owner });
   registerReceiptRoutes(app,db,{route});
   registerRetailRoutes(app,db,{route});
+  registerStaffCalendar(app,db,{route});
   registerInviteManagement(app, db, { route, owner });
   registerGmailRoutes(app, db, { route, owner });
   registerNotificationRoutes(app, db, { route, owner, sessionToken,requestMailCorroboration });
@@ -1621,7 +1626,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
           "member.permissions_changed",
           "member",
           member.id,
-          safeMember(member),
+          effectiveMember(db,member),
           safeMember(
             db
               .prepare("SELECT * FROM finance_members WHERE id=?")

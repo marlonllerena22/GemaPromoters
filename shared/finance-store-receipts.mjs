@@ -8,10 +8,15 @@ export function receivingBank(value) {
 }
 
 export function storeReceiptRoute(receipt) {
+  if(['marjorie-valle','marjorie-bosque'].includes(receipt.unit_id))return {role:'owner',name:'Marlon'};
+  if(receipt.unit_id==='marjorie-norte')return {role:'local-reviewer',name:'Liliana'};
   if (receipt.unit_id !== "marjorie-sur") return null;
   const bank = receivingBank(receipt.receiving_bank);
-  if (!bank) return null; // Older receipts without a destination bank retain their existing review flow.
-  return bank === "Guayaquil"
+  if (!bank) return {role:"local-reviewer",name:"Morelia"};
+  if(receipt.account_holder==='owner')return {role:'owner',name:'Marlon'};
+  if(receipt.account_holder==='more-sur')return {role:'local-reviewer',name:'Morelia'};
+  if(receipt.account_holder==='lili')return {role:'local-reviewer',name:'Liliana'};
+  return ["Guayaquil","Produbanco"].includes(bank)
     ? { role: "owner", name: "Marlon" }
     : { role: "local-reviewer", name: "Morelia" };
 }

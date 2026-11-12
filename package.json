@@ -10,7 +10,7 @@
     "seed": "npm run seed --prefix backend",
     "finance:preview": "node backend/scripts/finance-preview.mjs",
     "finance:mobile-preview": "node backend/scripts/finance-mobile-preview.mjs",
-    "finance:test": "node --test backend/test/finance-retail.test.js backend/test/finance-bank-mail-corroboration.test.js backend/test/finance-own-transfers.test.js backend/test/finance-receipts.test.js backend/test/finance-bank-notifications.test.js backend/test/finance.test.js backend/test/finance-conversation.test.js backend/test/finance-sources.test.js backend/test/finance-operations.test.js backend/test/finance-quick.test.js backend/test/finance-workflow.test.js backend/test/finance-native-push.test.js backend/test/finance-mobile-preview.test.js backend/test/marjorie-promoters.test.js backend/test/ticketing-transfer.test.js",
+    "finance:test": "node --test backend/test/finance-profile-access.test.js backend/test/finance-retail.test.js backend/test/finance-bank-mail-corroboration.test.js backend/test/finance-own-transfers.test.js backend/test/finance-receipts.test.js backend/test/finance-bank-notifications.test.js backend/test/finance.test.js backend/test/finance-conversation.test.js backend/test/finance-sources.test.js backend/test/finance-operations.test.js backend/test/finance-quick.test.js backend/test/finance-workflow.test.js backend/test/finance-native-push.test.js backend/test/finance-mobile-preview.test.js backend/test/marjorie-promoters.test.js backend/test/ticketing-transfer.test.js",
     "finance:backup": "node backend/scripts/finance-backup.mjs",
     "finance:smoke": "node backend/scripts/finance-smoke.mjs"
   },

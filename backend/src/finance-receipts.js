@@ -68,7 +68,7 @@ export function receiptAccounts(db, user) {
   if (!["owner", "manager", "collector"].includes(user.role)) return [];
   return db
     .prepare(
-      "SELECT id,name,bank,kind,last_four,business_id FROM finance_accounts WHERE active=1 AND kind IN ('bank','wallet') ORDER BY bank,name"
+      "SELECT id,name,bank,kind,last_four,business_id,holder_key FROM finance_accounts WHERE active=1 AND kind IN ('bank','wallet') ORDER BY bank,name"
     )
     .all().filter(a=>a.kind==='bank'||acceptsBankNotification(a,'Deuna'));
 }

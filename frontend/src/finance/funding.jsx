@@ -77,11 +77,11 @@ export function Checks() {
             <BankLogo bank="Guayaquil" />
             <div>
               <h3>{a.name}</h3>
-              <p>Dinero apartado en corriente</p>
+              <p>{a.balance_cents===null?"Registro de cheques":"Dinero apartado en corriente"}</p>
             </div>
-            <strong>{money(a.balance_cents)}</strong>
+            {a.balance_cents!==null&&<strong>{money(a.balance_cents)}</strong>}
           </header>
-          <div className="gf-funding-shortfall">
+          {a.shortfall_now_cents!==null&&<div className="gf-funding-shortfall">
             <span>
               Falta depositar para los cheques que ya necesitan fondos
             </span>
@@ -90,7 +90,7 @@ export function Checks() {
               Los cheques pendientes mantienen su reserva. Corriente no se suma
               al disponible para gastar.
             </small>
-          </div>
+          </div>}
           <div className="gf-cheque-groups">
             {a.groups.map((g) => (
               <details key={g.due_day} className="gf-cheque-group">

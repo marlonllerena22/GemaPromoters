@@ -1,3 +1,4 @@
+import {isWarehouse,isStoreStaff,canRequestPayments} from './finance-access.mjs';
 export const WORK_BUSINESSES = ["producalza", "marjorie", "gemashow"];
 export const SPACE_TEMPLATES = [
   {
@@ -135,8 +136,8 @@ PROFILE_TEMPLATES.push(
     label: "Locales · Marjorie",
     role: "collector",
     business_ids: ["marjorie"],
-    spaces: ["marjorie-pagos"],
-    description: "Pide pagos y registra transferencias de sus locales.",
+    spaces: [],
+    description: "Registra gastos de caja y envía depósitos de clientes para confirmar.",
   })),
 );
 SPACE_TEMPLATES.push({
@@ -175,6 +176,7 @@ export function paymentProgress(request, payments = []) {
   };
 }
 export function canSeeSpace(space, user, members = []) {
+  if(isStoreStaff(user))return false;
   const scope = space.business_ids.filter((id) =>
     user.business_ids.includes(id),
   );
@@ -189,6 +191,8 @@ export function canSeeSpace(space, user, members = []) {
   );
 }
 export function canSeePaymentRequest(request, user, spaces = [], members = []) {
+  if(isStoreStaff(user))return false;
+  if(isWarehouse(user)&&request.created_by!==user.username)return false;
   if (!user.business_ids.includes(request.business_id)) return false;
   if (user.unit_ids?.length && !user.unit_ids.includes(request.unit_id))
     return false;
@@ -258,3 +262,5 @@ export const canUseFinanceAssistant = (user) =>
       (user.role === "owner" ||
         ["german", "morelia", "norma", "normita"].includes(user.username)),
   );
+
+PROFILE_TEMPLATES.forEach(p=>{p.request_payments=canRequestPayments({username:p.id});if(p.id==="norma")p.checks_manage=true;if(p.id==="morelia")p.review_unit_ids=["marjorie-sur"];});

@@ -1,3 +1,4 @@
+import {canSeeStoreCash} from '../../shared/finance-access.mjs';
 import {audit, cents, financeDay, validDay} from './finance-db.js';
 import {fail, unitAccess, createMovement, text} from './finance-service.js';
 import {retailNotebook} from './finance-retail-notebook.js';
@@ -93,10 +94,11 @@ export function retailEntry(db,u,body) {
   const description=text(body.description,1000),counterparty=text(body.counterparty)||u.name;
   if(!description)fail('Escribe una descripción');
   if(!['expense','funding','remittance','opening','count'].includes(body.kind))fail('Tipo no válido');
-  if(['opening','funding'].includes(body.kind)&&!retailEditor(u))fail('Solo Marlon y Morelia pueden asignar fondos iniciales',403);
+  if(['opening','funding','count'].includes(body.kind)&&!retailEditor(u)&&u.username!=='german')fail('Solo Marlon, Germán y Morelia pueden administrar el saldo de caja',403);
   if(body.kind==='expense'&&!RETAIL_CATEGORIES.some(([id])=>id===body.category))fail('Selecciona el concepto del gasto');
+  if(body.evidence_id){const proof=db.prepare('SELECT * FROM finance_evidence WHERE id=?').get(body.evidence_id);if(!proof||proof.business_id!=='marjorie'||proof.unit_id!==body.unit_id||(u.role!=='owner'&&proof.created_by!==u.username))fail('Comprobante fuera de tu local o acceso',403);}
   const id=text(body.request_id,100);if(!id)fail('Falta el identificador de guardado');
-  const fp=JSON.stringify([body.unit_id,day,body.kind,amount,description,counterparty,body.category||null]);
+  const fp=JSON.stringify([body.unit_id,day,body.kind,amount,description,counterparty,body.category||null,body.evidence_id||null]);
   return db.transaction(()=>{
     const prior=db.prepare('SELECT * FROM finance_retail_entries WHERE request_id=?').get(id);if(prior){if(prior.fingerprint!==fp)fail('Esta solicitud ya se guardó con otros datos',409);return {id:prior.id,duplicate:true};}
     let movement=null;
@@ -109,7 +111,7 @@ export function retailEntry(db,u,body) {
       db.prepare('INSERT INTO finance_retail_counts VALUES (?,?,?,?,?) ON CONFLICT(unit_id,day) DO UPDATE SET amount_cents=excluded.amount_cents,note=excluded.note,updated_by=excluded.updated_by').run(body.unit_id,day,amount,description,u.username);
       audit(db,u.username,'retail.cash_count','retail_count',body.unit_id+day,before,body,'marjorie');
     }else if(body.kind==='expense'){
-      movement=createMovement(db,u,{business_id:'marjorie',unit_id:body.unit_id,kind:'expense',amount_cents:amount,day,category:RETAIL_CATEGORIES.find(([id])=>id===body.category)[1],counterparty,description,payment_method:'cash'});
+      movement=createMovement(db,u,{business_id:'marjorie',unit_id:body.unit_id,kind:'expense',amount_cents:amount,day,category:RETAIL_CATEGORIES.find(([id])=>id===body.category)[1],counterparty,description,payment_method:'cash',evidence_id:body.evidence_id||null});
       // Explicit cash already spent, not a request for a bank transfer.
       db.prepare("UPDATE finance_movements SET status='reconciled',reviewed_by=?,review_note='Gasto pagado desde caja del local' WHERE id=?").run(u.username,movement.id);
     }
@@ -205,6 +207,14 @@ export function retailReport(db,u,q={}) {
       warnings};
     if(management)result.management={card_fee_cents:fees,card_fee_estimated:true,producalza_cents:producalza,other_products_cents:cost-producalza,salary_cents:salaries,commission_cents:commissions,operating_cents:operational,fixed_pending_cents:fixedPending,fixed,personnel,net_provisional_cents:net-fees-cost-salaries-commissions-operational-fixedPending,complete:warnings.length===0,net_cents:warnings.length?null:net-fees-cost-salaries-commissions-operational-fixedPending};
     result.notebook=retailNotebook(result.sales.entries,thresholds,settings,unit,management,result.expenses.flatMap(c=>c.entries),period);
+    if(management&&unit==='marjorie-sur'){
+      const received=accepted.filter(m=>selected(m.day)&&m.kind==='income'&&m.status==='reconciled');
+      const client=received.filter(m=>m.category!=='Depósito desde caja');
+      const cashDeposits=received.filter(m=>m.category==='Depósito desde caja');
+      const more=db.prepare("SELECT id FROM finance_accounts WHERE holder_key='more-sur'").get();
+      result.collection_control={transfer_sales_cents:breakdown.transfer,client_receipts_cents:sum(client,m=>m.amount_cents),difference_cents:breakdown.transfer-sum(client,m=>m.amount_cents),more_client_cents:sum(client.filter(m=>m.account_id===more?.id),m=>m.amount_cents),cash_deposits_cents:sum(cashDeposits,m=>m.amount_cents),more_cash_cents:sum(cashDeposits.filter(m=>m.account_id===more?.id),m=>m.amount_cents),informational:true};
+    }
+    if(!canSeeStoreCash(u))result.cash={hidden:true,opening_cents:null,balance_cents:null,counted_cents:null,counted_day:null,difference_cents:null,entries:[]};
     return result;
   });
   return {period,stores,can_manage:management,can_edit:retailEditor(u),can_operate:u.role!=='viewer',categories:RETAIL_CATEGORIES,staff:RETAIL_STAFF,

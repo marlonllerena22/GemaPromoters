@@ -1,3 +1,4 @@
+import {canSeeAllBalances} from '../../shared/finance-access.mjs';
 import { financeDay } from "./finance-db.js";
 import { recordedAccountBalance } from "./finance-check-ledger.js";
 import { shiftDay } from "./finance-funding.js";
@@ -66,7 +67,7 @@ export function accountPresentation(db, user, data, registry) {
   data.accounts = result;
 }
 export function liquidityView(db, user, data, registry, now = new Date()) {
-  if (user.role === "collector" || user.unit_ids.length) return null;
+  if (!canSeeAllBalances(user) || user.unit_ids.length) return null;
   const day = financeDay(now),
     horizon = shiftDay(day, 3),
     own = new Map((registry?.accounts || []).map((a) => [a.account_id, a]));

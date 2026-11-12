@@ -1,3 +1,5 @@
+import {retailEntry} from './finance-retail.js';
+import {canSeeAllBalances,isWarehouse,isLili} from '../../shared/finance-access.mjs';
 import { incomingNotices } from "./finance-bank-review.js";
 import {receivedWithoutAccount} from './finance-bank-identity.js';
 import {receiptAccounts,receiptInbox,queueReceiptNotice,confirmReceiptDeposit,resolveReceiptAccount,suggestReceivingAccount} from './finance-receipts.js';
@@ -35,7 +37,7 @@ export function privateSetting(db, key) {
 export const canAdjustPhysicalCash = (user) =>
   user.role === "owner" || (user.username === "german" && user.work_view);
 export function custodyFunds(db, user, scope = null) {
-  if (user.role === "collector") return [];
+  if (!canSeeAllBalances(user)) return [];
   const numbers = privateSetting(db, "custody_account_numbers") || {};
   return db
     .prepare("SELECT * FROM finance_custody_balances")
@@ -156,15 +158,16 @@ export function canConfirmStore(user, m) {
     !m.is_payment_request &&
     user.business_ids.includes("marjorie") &&
     (user.role === "owner" ||
-      (target?.role !== "owner" && (user.review_unit_ids || []).includes(m.unit_id)))
+      (target?.role === "local-reviewer" && (target.name==="Liliana"?isLili(user):user.username==="morelia")))
   );
 }
 export function confirmStoreReceipt(db, user, id, mode = "review",body={}) {
   return db.transaction(() => {
     const m = db.prepare("SELECT * FROM finance_movements WHERE id=?").get(id);
+    if(mode==='on_upload'&&m?.created_by!==user.username)fail("Solo se autoconfirman los comprobantes que sube la titular",403);
     const active=privateSetting(db,'receipt_confirmation_credits_v1');
-    const destination=m&&active&&mode!=='on_upload'?resolveReceiptAccount(db,m,body.account_id):null;
-    const routed=destination?{...m,receiving_bank:destination.bank}:m;
+    const destination=m&&active?resolveReceiptAccount(db,m,body.account_id):null;
+    const routed=destination?{...m,receiving_bank:destination.bank,account_holder:destination.holder_key||'owner'}:m;
     if (
       !m ||
       m.business_id !== "marjorie" ||
@@ -182,7 +185,7 @@ export function confirmStoreReceipt(db, user, id, mode = "review",body={}) {
       .prepare("SELECT * FROM finance_store_confirmations WHERE movement_id=?")
       .get(id);
     if (old) return { confirmation: old, duplicate: true };
-    if(active&&mode!=='on_upload'){
+    if(active&&(mode!=='on_upload'||destination?.holder_key==='lili')){
       const ledger=confirmReceiptDeposit(db,{...user,role:'owner',business_ids:[m.business_id],unit_ids:[]},m.id,body);
       const confirmation={movement_id:m.id,actor:user.username,confirmed_at:new Date().toISOString(),mode:ledger.disposition==='included'?'included':mode};
       db.prepare('INSERT OR IGNORE INTO finance_store_confirmations VALUES (?,?,?,?)').run(m.id,user.username,confirmation.confirmed_at,confirmation.mode);
@@ -228,10 +231,10 @@ export function storeReceipts(db, user) {
   if (!user.business_ids.includes("marjorie")) return [];
   return db
     .prepare(
-      "SELECT m.*,c.actor confirmed_by,c.confirmed_at,c.mode confirmation_mode,u.name creator_name FROM finance_movements m LEFT JOIN finance_store_confirmations c ON c.movement_id=m.id LEFT JOIN finance_members u ON u.username=m.created_by WHERE m.business_id='marjorie' AND m.kind='income' AND m.unit_id LIKE 'marjorie-%' AND m.is_payment_request=0 AND m.hidden_at IS NULL ORDER BY m.created_at DESC,m.id DESC",
+      "SELECT m.*,(SELECT COALESCE(holder_key,'owner') FROM finance_accounts WHERE id=m.account_id) account_holder,c.actor confirmed_by,c.confirmed_at,c.mode confirmation_mode,u.name creator_name FROM finance_movements m LEFT JOIN finance_store_confirmations c ON c.movement_id=m.id LEFT JOIN finance_members u ON u.username=m.created_by WHERE m.business_id='marjorie' AND m.kind='income' AND m.unit_id LIKE 'marjorie-%' AND m.is_payment_request=0 AND m.hidden_at IS NULL ORDER BY m.created_at DESC,m.id DESC",
     )
     .all()
-    .filter((m) => !user.unit_ids.length || user.unit_ids.includes(m.unit_id))
+    .filter((m) => !user.unit_ids.length || user.unit_ids.includes(m.unit_id)||canConfirmStore(user,m))
     .filter(
       (m) =>
         user.role === "owner" ||
@@ -252,11 +255,12 @@ export function storeReceipts(db, user) {
     });
 }
 export function attachOperations(db, user, data) {
+  data.user=user;
   const scope = data.businesses.map((b) => b.id);
   data.incoming_notices = incomingNotices(db, user);
-  data.receipt_inbox=receiptInbox(db,user);
-  data.receipt_accounts=receiptAccounts(db,user);
-  data.receipt_confirmation_policy=privateSetting(db,'receipt_confirmation_credits_v1');
+  data.receipt_inbox=isWarehouse(user)?[]:receiptInbox(db,user);
+  data.receipt_accounts=isWarehouse(user)?[]:receiptAccounts(db,user);
+  data.receipt_confirmation_policy=user.role==='owner'?privateSetting(db,'receipt_confirmation_credits_v1'):null;
   if(user.role==='owner'){
     const notices=db.prepare("SELECT 1 FROM sqlite_master WHERE name='finance_notification_events'").get()?db.prepare("SELECT * FROM finance_notification_events WHERE state='review' AND archived_at IS NULL").all():[];
     data.bank_received_unassigned=[];
@@ -466,7 +470,7 @@ export function registerOperationsRoutes(app, db, { route, owner }) {
       let analysis = {};
       try { analysis = JSON.parse(e.analysis || "{}"); } catch {}
       const bank = receivingBank(b.receiving_bank || analysis.receiving_bank);
-      if (b.unit_id === "marjorie-sur" && !bank)
+      if ((b.unit_id === "marjorie-sur" || isLili(u)) && !bank)
         fail("Selecciona el banco que recibió la transferencia para enviarla a Marlon o Morelia");
       const existing = db
         .prepare(
@@ -478,7 +482,8 @@ export function registerOperationsRoutes(app, db, { route, owner }) {
           existing.created_by === u.username &&
           existing.unit_id === b.unit_id &&
           existing.amount_cents === b.amount_cents &&
-          existing.receiving_bank === bank
+          existing.receiving_bank === bank &&
+          existing.category === (b.purpose==='cash_remittance'?"Depósito desde caja":"Ventas de local")
         )
           return res.json({
             id: existing.id,
@@ -496,14 +501,14 @@ export function registerOperationsRoutes(app, db, { route, owner }) {
       const result = db.transaction(() => {
         const m = createMovement(db, u, {
           business_id: "marjorie",
-          account_id:suggestReceivingAccount(db,u,analysis).account_id,
+          account_id:suggestReceivingAccount(db,u,analysis).account_id||(isLili(u)?db.prepare("SELECT id FROM finance_accounts WHERE holder_key='lili' AND bank=? AND active=1").get(bank)?.id:b.unit_id==='marjorie-sur'&&bank==='Pichincha'?db.prepare("SELECT id FROM finance_accounts WHERE holder_key='more-sur'").get()?.id:null),
           unit_id: b.unit_id,
           kind: "income",
           amount_cents: cents(b.amount_cents),
           day: b.day || financeDay(),
-          category: "Ventas de local",
+          category: b.purpose==='cash_remittance'?"Depósito desde caja":"Ventas de local",
           counterparty: text(b.customer, 150) || "Transferencia de cliente",
-          description: "Transferencia recibida en local",
+          description: b.purpose==='cash_remittance'?"Depósito de efectivo del local a su responsable":"Transferencia recibida en local",
           payment_method: "transfer",
           evidence_id: e.id,
           reference: text(b.reference, 200),
@@ -513,7 +518,8 @@ export function registerOperationsRoutes(app, db, { route, owner }) {
         ).run(bank, m.id);
         audit(db, u.username, "store.receipt_routed", "movement", m.id, null,
           { receiving_bank: bank, responsible: storeReceiptRoute({ unit_id: b.unit_id, receiving_bank: bank })?.name || null }, "marjorie");
-        const auto = (u.auto_confirm_unit_ids || []).includes(b.unit_id);
+        if(b.purpose==='cash_remittance')retailEntry(db,u,{request_id:'receipt-cash-'+m.id,unit_id:b.unit_id,day:m.day,kind:'remittance',amount_cents:m.amount_cents,counterparty:b.unit_id==='marjorie-sur'?'MORE Local SUR':'Responsable de cuenta',description:'Depósito desde caja · comprobante '+m.id});
+        const auto = isLili(u)&&(!m.account_id||db.prepare('SELECT holder_key FROM finance_accounts WHERE id=?').get(m.account_id)?.holder_key==='lili');
         if (auto) confirmStoreReceipt(db, u, m.id, "on_upload");
         else queueReceiptNotice(db,m.id);
         return { id: m.id, confirmed: auto, responsible: storeReceiptRoute({ unit_id: b.unit_id, receiving_bank: bank })?.name || null };

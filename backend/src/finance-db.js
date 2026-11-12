@@ -1,3 +1,4 @@
+import {profilePermissions} from '../../shared/finance-access.mjs';
 import crypto from "node:crypto";
 import { passwordChangePolicy } from "./finance-password-policy.js";
 import { initFinanceWorkflowDb } from "./finance-workflow-db.js";
@@ -107,7 +108,7 @@ export function initFinanceDb(db) {
     CREATE TABLE IF NOT EXISTS finance_accounts (
       id INTEGER PRIMARY KEY, business_id TEXT REFERENCES finance_businesses(id), name TEXT NOT NULL, bank TEXT NOT NULL,
       kind TEXT NOT NULL CHECK(kind IN ('bank','cash','wallet','card','custody')), last_four TEXT NOT NULL DEFAULT '',
-      custodian TEXT NOT NULL DEFAULT '', opening_cents INTEGER NOT NULL DEFAULT 0 CHECK(typeof(opening_cents)='integer'),
+      custodian TEXT NOT NULL DEFAULT '', holder_key TEXT, opening_cents INTEGER NOT NULL DEFAULT 0 CHECK(typeof(opening_cents)='integer'),
       opening_date TEXT NOT NULL, verified_cents INTEGER, verified_at TEXT,
       active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
@@ -312,7 +313,7 @@ export function audit(
 }
 
 export function safeMember(member) {
-  return {
+  return profilePermissions({
     id: member.id,
     name: member.name,
     username: member.username,
@@ -330,5 +331,5 @@ export function safeMember(member) {
     custody_adjust: Boolean(member.custody_adjust),
     checks_manage: member.role === "owner" || Boolean(member.checks_manage),
     checks_clear: member.role === "owner" || Boolean(member.checks_clear),
-  };
+  });
 }

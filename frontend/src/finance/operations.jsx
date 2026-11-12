@@ -227,6 +227,7 @@ export function StoreReceiptForm({ onClose }) {
     );
   const [unit, setUnit] = useState(units.length === 1 ? units[0].id : ""),
     [bank, setBank] = useState(""),
+    [purpose,setPurpose]=useState("client"),
     [value, setValue] = useState(""),
     [evidence, setEvidence] = useState(null),
     [busy, setBusy] = useState(false),
@@ -270,6 +271,7 @@ export function StoreReceiptForm({ onClose }) {
         evidence_id: evidence.id,
         day: data.period.today,
         receiving_bank: bank,
+        purpose,
       });
       await refresh();
       setDone(r);
@@ -286,6 +288,7 @@ export function StoreReceiptForm({ onClose }) {
       onClose={onClose}
     >
       <RetailBrand />
+      {!done&&<label className="gr-field">Este comprobante corresponde a<select value={purpose} onChange={e=>setPurpose(e.target.value)}><option value="client">Transferencia de un cliente</option><option value="cash_remittance">Depósito desde la caja del local</option></select></label>}
       {done ? (
         <div className="gf-transfer-request-done">
           <CheckCircle2 size={44} />
@@ -355,7 +358,7 @@ export function StoreReceiptForm({ onClose }) {
                 : "Subir comprobante del cliente"}
           </Button>
           <Field label="Banco que recibió el dinero">
-            <select value={bank} onChange={(e) => setBank(e.target.value)} required={unit === "marjorie-sur"} disabled={busy}>
+            <select value={bank} onChange={(e) => setBank(e.target.value)} required={unit === "marjorie-sur" || auto} disabled={busy}>
               <option value="">Selecciona el banco receptor</option>
               {payeeBanks.map((name) => <option key={name} value={name}>{name}</option>)}
             </select>
@@ -383,7 +386,7 @@ export function StoreReceiptForm({ onClose }) {
             disabled={
               !unit ||
               !evidence ||
-              (unit === "marjorie-sur" && !bank) ||
+              ((unit === "marjorie-sur" || auto) && !bank) ||
               !Number.isSafeInteger(amount(value)) ||
               amount(value) <= 0
             }

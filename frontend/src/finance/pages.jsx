@@ -1,3 +1,4 @@
+import {StoreStaffHome,WarehouseHome} from './profile-home.jsx';
 import {RetailShortcut} from './retail.jsx';
 import {
   AccountTiles,
@@ -88,7 +89,7 @@ import { WorkSummary, AssistantAvatar, PushEnrollment } from "./workflows.jsx";
 import {BankNotificationsPanel,BankNotificationsShortcut} from './bank-notifications.jsx';
 import {OwnerHome} from './home-action-center.jsx';
 
-export function Overview() {return <><RetailShortcut/><OverviewContent/></>;}
+export function Overview() {const {user}=useFinance();if(user.store_staff)return <StoreStaffHome/>;if(user.warehouse_only)return <WarehouseHome/>;return <><RetailShortcut/><OverviewContent/></>;}
 function OverviewContent() {
   const { data, user, open, navigate, selectMovement, filters } = useFinance();
   const s = data.summary;
@@ -561,7 +562,7 @@ export function Accounts() {
       <LiquidityPlan />
       <CardPaymentsPreview />
       <AccountTiles custodyOnly />
-      <div className="gf-stats three">
+      {user.balances_visible&&<div className="gf-stats three">
         <Stat
           label="Fondos sin corriente"
           value={
@@ -592,7 +593,7 @@ export function Accounts() {
           detail="Se muestra separada de tus fondos"
           icon={CreditCard}
         />
-      </div>
+      </div>}
       <div className="gf-tabs">
         {[
           ["all", "Todas las cuentas"],
@@ -641,10 +642,10 @@ export function Accounts() {
                 </small>
               </p>
               <strong className="gf-account-balance">
-                {money(a.balance_cents)}
+                {a.balance_cents === null ? "Por indicar" : money(a.balance_cents)}
               </strong>
               <small>
-                {a.provider_auto_receipts
+                {a.balance_unconfirmed ? "Saldo inicial pendiente de indicar" : a.provider_auto_receipts
                   ? "Saldo calculado · cobros menos comisión PayPhone"
                   : a.manual_provider
                   ? "Informado por Marlon · conexión pendiente"
@@ -1623,7 +1624,7 @@ export function Reports() {
                     {a.bank} · {a.name}
                   </td>
                   <td className="gf-right gf-amount">
-                    {money(a.balance_cents)}
+                    {a.balance_cents === null ? "Por indicar" : money(a.balance_cents)}
                   </td>
                   <td>
                     {a.verified_at ? dateLabel(a.verified_at) : "Pendiente"}

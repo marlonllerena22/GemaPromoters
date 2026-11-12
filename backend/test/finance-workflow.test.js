@@ -358,3 +358,19 @@ test("push tests target only this member's device and record browser receipt sep
   member={...f.user,role:"collector",checks_manage:false};assert.equal((await post("/status",{endpoint:sub.endpoint})).status,403);
   member={...f.user,role:"manager",checks_manage:true};assert.equal((await post("/status",{endpoint:sub.endpoint})).status,200);
 });
+
+
+test("German receives only informational amount and recipient for Norma/More requests", async t=>{
+ const f=fixture(t),db=f.db;
+ db.prepare("UPDATE finance_movements SET created_by='normita',counterparty='Empleado prueba' WHERE id=?").run(f.request.id);
+ for(const username of ['german','morelia','lili','ana']){
+  const id=Number(db.prepare("INSERT INTO finance_members(name,username,password_hash,role,business_ids) VALUES (?,?,'unused','collector','[\"marjorie\"]')").run(username,username).lastInsertRowid);
+  const sub={...subscription(),endpoint:'https://fcm.googleapis.com/fcm/send/'+username};
+  db.prepare('INSERT INTO finance_push_subscriptions(endpoint_hash,member_id,encrypted) VALUES (?,?,?)').run(username,id,encryptDocument(Buffer.from(JSON.stringify(sub))));
+ }
+ const sent=[];await flushPaymentPush(db,{config:{enabled:true,publicKey:'test',privateKey:'test',subject:'mailto:test@example.invalid'},send:async(sub,payload)=>sent.push({endpoint:sub.endpoint,payload:JSON.parse(payload)})});
+ assert.equal(sent.length,2);const german=sent.find(x=>x.endpoint.endsWith('/german')).payload;
+ assert.equal(german.body,'$80.00 para Empleado prueba');assert.match(german.title,/informativo/);assert.equal(german.url,'/finanzas/');assert.equal(german.request_id,undefined);
+ db.prepare("UPDATE finance_movements SET created_by='ana' WHERE id=?").run(f.request.id);db.prepare("UPDATE finance_push_outbox SET state='queued',next_attempt=0").run();sent.length=0;
+ await flushPaymentPush(db,{config:{enabled:true},send:async(sub,payload)=>sent.push(sub.endpoint)});assert.equal(sent.length,1);assert.ok(!sent[0].endsWith('/german'));
+});
