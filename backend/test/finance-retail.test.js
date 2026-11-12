@@ -6,6 +6,7 @@ import {importSale} from '../src/finance-service.js';
 import {initRetail,retailReport,retailPeriod,retailSettings,saveRetailDetails,saveRetailSettings,retailAttendance,retailEntry,editRetailExpense} from '../src/finance-retail.js';
 import {normalizeAlfaBusinessSale} from '../src/finance-alfabusiness.js';
 import {defaultRetailSettings,tierCommission,allocateCents} from '../../shared/finance-retail.mjs';
+import {retailMonthlyPdf} from '../src/finance-retail-pdf.js';
 const owner={username:'marlon',name:'Marlon',role:'owner',business_ids:['marjorie'],unit_ids:[]};
 const more={...owner,username:'morelia',role:'collector'},staff={...owner,username:'selena',role:'collector',unit_ids:['marjorie-sur']};
 const day='2026-10-10';
@@ -25,3 +26,23 @@ test('correcting a cash expense updates it once, does not create another bank en
 test('new cash baselines do not erase historical opening balances',t=>{const f=fixture(t);for(const [d,v] of [['2026-09-01',1000],['2026-10-01',2000]])retailEntry(f.db,owner,{request_id:d,unit_id:'marjorie-sur',day:d,kind:'opening',amount_cents:v,description:'Fondo inicial'});const report=d=>retailReport(f.db,owner,{day:d,mode:'day',unit_id:'marjorie-sur'}).stores[0].cash.balance_cents;assert.equal(report('2026-09-10'),1000);assert.equal(report('2026-10-10'),2000);});
 test('extras increase earned salary; deductions and advances only reduce payable',t=>{const f=fixture(t),s=defaultRetailSettings();s.staff=s.staff.map(p=>({...p,salary_cents:p.name==='Selena'?50000:0,extras_cents:p.name==='Selena'?3000:0,deductions_cents:p.name==='Selena'?1000:0}));saveRetailSettings(f.db,owner,{month:'2026-10',settings:s});retailAttendance(f.db,owner,{day,unit_id:'marjorie-sur',employee:'Selena',weight:1});retailEntry(f.db,owner,{request_id:'advance-selena',unit_id:'marjorie-sur',day,kind:'expense',amount_cents:10000,category:'adelantos',counterparty:'Selena',description:'Adelanto de sueldo'});const p=f.report().stores[0].management.personnel.find(p=>p.name==='Selena');assert.equal(p.salary_cents,53000);assert.equal(p.payable_cents,42000);assert.equal(f.report().stores[0].management.operating_cents,0);});
 test('next month inherits base salary but not variable extras or deductions',t=>{const f=fixture(t),s=defaultRetailSettings();s.staff[0]={...s.staff[0],salary_cents:55000,extras_cents:3000,deductions_cents:1000};s.attendance_complete=true;saveRetailSettings(f.db,owner,{month:'2026-10',settings:s});const next=retailSettings(f.db,'2026-11');assert.equal(next.staff[0].salary_cents,55000);assert.equal(next.staff[0].extras_cents,0);assert.equal(next.staff[0].deductions_cents,0);assert.equal(next.attendance_complete,false);assert.equal(retailSettings(f.db,'2026-10').staff[0].extras_cents,3000);});
+
+test('notebook mixed payments preserve row and column cents, with costs only for management',t=>{
+ const f=fixture(t),s=f.sale(3,4001,'marjorie-sur',{payments:[{method:'cash',amount_cents:4000},{method:'transfer',amount_cents:4000},{method:'card',amount_cents:4003}]});
+ saveRetailDetails(f.db,owner,s.id,{items:[0,1,2].map(i=>({product:'Par '+i,size:'37',quantity:1,unit_price_cents:4001,seller:'Selena',producalza:true}))});
+ const n=f.report().stores[0].notebook;for(const r of n.rows)assert.equal(r.cash+r.transfer+r.card+r.unpaid_cents,r.total_cents);
+ assert.equal(n.totals.cash,4000);assert.equal(n.totals.transfer,4000);assert.equal(n.totals.card,4003);assert.equal(n.totals.card_fee_cents,348);assert.equal(n.totals.cost_cents,11400);assert.equal(n.totals.margin_cents,255);
+ const privateKeys=['cost_cents','unit_cost_cents','margin_cents','card_fee_cents'];const publicN=f.report(staff).stores[0].notebook;for(const key of privateKeys){assert.ok(publicN.rows.every(r=>!(key in r)));assert.equal(key in publicN.totals,false);}
+});
+
+test('daily and weekly include only real expenses, never owner remittances; seven dates including zeros',t=>{
+ const f=fixture(t),s=f.sale(1,10000);f.detail(s,1,10000);for(const [kind,value] of [['expense',500],['remittance',4000]])retailEntry(f.db,owner,{request_id:kind,unit_id:'marjorie-sur',day,kind,amount_cents:value,category:'servientrega',description:kind});
+ const d=f.report(owner,'day').stores[0].notebook;assert.equal(d.after_expenses_cents,9500);
+ const w=f.report(owner,'week').stores[0].notebook;assert.equal(w.days.length,7);assert.equal(w.days.reduce((n,x)=>n+x.sales_cents,0),10000);assert.equal(w.days.reduce((n,x)=>n+x.expenses_cents,0),500);assert.equal(w.days.find(x=>x.day===day).after_expenses_cents,9500);
+});
+
+test('rents carry forward by store while keeping earlier configuration and PDF uses report data',async t=>{
+ const f=fixture(t),s=defaultRetailSettings();s.fixed=[{unit_id:'marjorie-sur',category:'arriendo',amount_cents:28750,description:'Arriendo mensual'}];saveRetailSettings(f.db,owner,{month:'2026-10',settings:s});
+ assert.equal(retailSettings(f.db,'2026-11').fixed[0].amount_cents,28750);s.fixed[0].amount_cents=30000;saveRetailSettings(f.db,owner,{month:'2026-11',settings:s});assert.equal(retailSettings(f.db,'2026-10').fixed[0].amount_cents,28750);assert.equal(retailSettings(f.db,'2027-01').fixed[0].amount_cents,30000);
+ const pdf=await retailMonthlyPdf(f.report());assert.equal(pdf.subarray(0,4).toString(),'%PDF');assert.ok(pdf.length>2000);
+});

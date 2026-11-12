@@ -1,5 +1,7 @@
 import {audit, cents, financeDay, validDay} from './finance-db.js';
 import {fail, unitAccess, createMovement, text} from './finance-service.js';
+import {retailNotebook} from './finance-retail-notebook.js';
+import {retailMonthlyPdf} from './finance-retail-pdf.js';
 import {RETAIL_STORES, RETAIL_STAFF, RETAIL_CATEGORIES, retailAccess, retailManagement, retailEditor, retailCategory, tierCommission, allocateCents, defaultRetailSettings, normRetail} from '../../shared/finance-retail.mjs';
 
 export function initRetail(db) {
@@ -202,6 +204,7 @@ export function retailReport(db,u,q={}) {
       remittances:allEntries.filter(e=>e.unit_id===unit&&e.kind==='remittance'&&selected(e.day)),direct_deposits:accepted.filter(m=>m.kind==='income'&&m.status==='reconciled'&&m.payment_method!=='cash'&&selected(m.day)).map(m=>({id:m.id,day:m.day,description:m.description,counterparty:m.counterparty,amount_cents:m.amount_cents,account_name:db.prepare('SELECT name FROM finance_accounts WHERE id=?').get(m.account_id)?.name||'Cuenta por identificar'})),pending_expenses:movements.filter(m=>selected(m.day)&&m.kind==='expense'&&['pending','reported'].includes(m.status)).length,
       warnings};
     if(management)result.management={card_fee_cents:fees,card_fee_estimated:true,producalza_cents:producalza,other_products_cents:cost-producalza,salary_cents:salaries,commission_cents:commissions,operating_cents:operational,fixed_pending_cents:fixedPending,fixed,personnel,net_provisional_cents:net-fees-cost-salaries-commissions-operational-fixedPending,complete:warnings.length===0,net_cents:warnings.length?null:net-fees-cost-salaries-commissions-operational-fixedPending};
+    result.notebook=retailNotebook(result.sales.entries,thresholds,settings,unit,management,result.expenses.flatMap(c=>c.entries),period);
     return result;
   });
   return {period,stores,can_manage:management,can_edit:retailEditor(u),can_operate:u.role!=='viewer',categories:RETAIL_CATEGORIES,staff:RETAIL_STAFF,
@@ -212,6 +215,9 @@ export function retailReport(db,u,q={}) {
 export function registerRetailRoutes(app,db,{route}) {
   initRetail(db);
   app.get('/api/finance/retail/report',route((req,res)=>res.json(retailReport(db,req.financeUser,req.query))));
+  app.get('/api/finance/retail/configuration',route((req,res)=>{access(db,req.financeUser,null,true);const month=financeDay().slice(0,7);res.json({settings:retailSettings(db,month),settings_month:month,stores:Object.entries(RETAIL_STORES).map(([unit_id,name])=>({unit_id,name}))});}));
+  app.post('/api/finance/retail/configuration',route((req,res)=>res.json(saveRetailSettings(db,req.financeUser,{...req.body,month:financeDay().slice(0,7)}))));
+  app.get('/api/finance/retail/monthly.pdf',route(async(req,res)=>{if(!retailManagement(req.financeUser))fail('Reporte de gerencia',403);const report=retailReport(db,req.financeUser,{...req.query,mode:'month'}),buffer=await retailMonthlyPdf(report);res.set('Content-Type','application/pdf').set('Content-Disposition',`attachment; filename="reporte-locales-${report.period.from.slice(0,7)}.pdf"`).send(buffer);}));
   app.post('/api/finance/retail/settings',route((req,res)=>res.json(saveRetailSettings(db,req.financeUser,req.body))));
   app.post('/api/finance/retail/sales/:id/details',route((req,res)=>res.json(saveRetailDetails(db,req.financeUser,Number(req.params.id),req.body))));
   app.post('/api/finance/retail/attendance',route((req,res)=>res.json(retailAttendance(db,req.financeUser,req.body))));

@@ -2,6 +2,20 @@
 
 Ruta: `/finanzas/locales`. Acceso directo «Mis locales» en Inicio. Día, semana de lunes a domingo, mes y consolidado de locales autorizados. Zona horaria Ecuador; importes enteros en centavos.
 
+## Flujo de consulta desde el celular
+
+Al entrar se elige uno de los cuatro locales o el consolidado. La vista inicial es **Diario**, como el cuaderno. Presenta producto/talla, pares, efectivo, transferencia, tarjeta, total y comisión; gerencia también ve costo, descuento bancario estimado y margen. Los pagos mixtos se distribuyen conservando exactamente los totales de filas y columnas. Si falta el detalle original, se muestra «Por completar» y no se inventan pares o costos.
+
+En vertical se muestra producto, venta y comisión; al tocar la fila se abre el detalle con medios de pago y valores por par. Al girar el celular aparecen las columnas completas. El botón **Ampliar reporte** ocupa la pantalla sin navegación exterior. La tabla mantiene cabeceras y totales visibles y desplaza sus filas dentro del cuadro. No se necesita otra APK: Gema Finanzas permite orientación automática.
+
+Debajo del diario están los gastos y las entregas, agrupados y plegados, y los subtotales. «Venta menos gastos registrados» es un subtotal operativo, no utilidad; el efectivo de caja se muestra aparte. Las entregas a propietarios nunca reducen las ventas ni se descuentan dos veces del resultado.
+
+**Semanal** es una tabla con las siete fechas y sus ventas, incluyendo fechas sin registros. El interruptor «Incluir gastos» añade gastos y venta menos gastos. **Mensual** conserva los bloques del formato de las hojas y permite generar un PDF privado para gerencia: resumen por local y anexos de gastos, nómina, entregas y datos pendientes. Los permisos de acceso se verifican antes de generar el PDF.
+
+**Configuración general** se abre independientemente de la fecha consultada. Guarda desde el mes actual y se hereda hacia adelante; conserva meses anteriores. Los cuatro arriendos se editan juntos, igual que los seis sueldos. Extras, descuentos y confirmación de jornadas son propios del mes y no se arrastran. Las referencias de octubre no se aplican automáticamente.
+
+Endpoints nuevos: `GET/POST /api/finance/retail/configuration` (Marlon y Morelia), `GET /api/finance/retail/monthly.pdf?day=YYYY-MM-DD&unit_id=...` (gerencia). El POST de configuración fija la vigencia al mes actual en servidor, aunque el usuario esté consultando un mes histórico.
+
 ## Reglas confirmadas por Marlon
 
 - Comisión por **par**, sobre su precio después de descuentos. Meta de 60 pares por local/mes; al alcanzarla se pagan todas las comisiones del mes. También aplica a tarjeta. Escalas diferentes para Bosque/Sebastián’s y Marjorie.
