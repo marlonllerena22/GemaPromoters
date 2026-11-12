@@ -29,6 +29,8 @@ export function retailSettings(db,month) {
   monthKey(month);
   const row=db.prepare('SELECT * FROM finance_retail_settings WHERE month<=? ORDER BY month DESC LIMIT 1').get(month);
   const saved=row?JSON.parse(row.data_json):{};
+  // Monthly extras and deductions are variable; only base salaries carry forward.
+  if(row&&row.month!==month)saved.staff=saved.staff.map(p=>({...p,extras_cents:0,deductions_cents:0}));
   return {...defaultRetailSettings(),...saved,attendance_complete:row?.month===month&&saved.attendance_complete===true,inherited_from:row?.month||null};
 }
 export function saveRetailSettings(db,u,body) {
