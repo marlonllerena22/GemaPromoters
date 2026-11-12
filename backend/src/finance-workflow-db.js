@@ -20,6 +20,11 @@ export function initFinanceWorkflowDb(db) {
   );
   CREATE UNIQUE INDEX IF NOT EXISTS finance_payment_evidence_once ON finance_payments(evidence_id) WHERE voided_at IS NULL;
   CREATE INDEX IF NOT EXISTS finance_payments_request ON finance_payments(request_id,voided_at);
+  CREATE TABLE IF NOT EXISTS finance_iess_requests (
+    request_id INTEGER PRIMARY KEY REFERENCES finance_movements(id), encrypted BLOB NOT NULL,
+    identity TEXT NOT NULL UNIQUE, bank_transaction_id INTEGER UNIQUE REFERENCES finance_bank_transactions(id),
+    movement_id INTEGER REFERENCES finance_movements(id), matched_at TEXT
+  );
   CREATE TABLE IF NOT EXISTS finance_space_notes (
     id INTEGER PRIMARY KEY,request_id INTEGER NOT NULL REFERENCES finance_movements(id),actor TEXT NOT NULL,body TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))

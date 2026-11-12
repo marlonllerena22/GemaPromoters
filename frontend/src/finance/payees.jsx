@@ -1,3 +1,4 @@
+import {IessRequestForm} from './iess.jsx';
 import React, { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
@@ -194,7 +195,7 @@ function EmployeeRequestForm({business,spaceId,unit,spaces,allowedBusinesses,uni
 }
 export function RequestComposer({ initial = {}, onClose }) {
   const { data, user, refresh, open } = useFinance();
-  const [requestType,setRequestType]=useState('bank');
+  const [requestType,setRequestType]=useState(initial.request_kind==='iess'?'iess':'bank');
   const preview = data.capabilities.public_preview;
   const writable = (data.workflow?.spaces || []).filter(
     (s) =>
@@ -382,18 +383,18 @@ export function RequestComposer({ initial = {}, onClose }) {
           ? "Solicitud enviada"
           : editing
           ? "Nuevo contacto"
-          : requestType==='employee'?'Pago a empleados':"Pedir una transferencia"
+          : requestType==='iess'?'Pagar planilla IESS':requestType==='employee'?'Pago a empleados':"Pedir una transferencia"
       }
       subtitle={
         done
           ? undefined
           : editing
           ? "Guárdalo una vez y vuelve a elegirlo cuando lo necesites."
-          : requestType==='employee'?'Nombre completo, monto y observaciones.':"Contacto, monto y motivo. Listo."
+          : requestType==='iess'?'Sube la planilla y revisa los datos leídos.':requestType==='employee'?'Nombre completo, monto y observaciones.':"Contacto, monto y motivo. Listo."
       }
       onClose={busy ? () => {} : onClose}
     >
-      {!done&&<div className="gf-tabs"><button type="button" className={requestType==='bank'?'active':''} onClick={()=>{setRequestType('bank');setEditing(false);}}>Transferencia</button><button type="button" className={requestType==='employee'?'active':''} onClick={()=>{setRequestType('employee');setEditing(false);}}>Pago a empleados</button></div>}
+      {!done&&!busy&&<div className="gf-tabs"><button type="button" className={requestType==='bank'?'active':''} onClick={()=>{setRequestType('bank');setEditing(false);}}>Transferencia</button><button type="button" className={requestType==='employee'?'active':''} onClick={()=>{setRequestType('employee');setEditing(false);}}>Pago a empleados</button><button type="button" className={requestType==='iess'?'active':''} onClick={()=>{setRequestType('iess');setEditing(false);}}>Planilla IESS</button></div>}
       {done ? (
         <div className="gf-transfer-request-done">
           <CheckCircle2 size={46} />
@@ -416,6 +417,8 @@ export function RequestComposer({ initial = {}, onClose }) {
             Ver mi petición
           </Button>
         </div>
+       ) : requestType==='iess'?(
+        <IessRequestForm key={`${business}:${spaceId}:${chosenUnit}`} business={business} spaceId={spaceId} unit={chosenUnit} spaces={writable} allowedBusinesses={allowedBusinesses} units={units} changeSpace={changeSpace} setBusiness={setBusiness} setUnit={setUnitChoice} onBusy={setBusy} onSent={(result,name,amountValue)=>{setContact({name});setValue(amountValue);setDone(result);setBusy(false);}}/>
       ) : requestType==='employee'?(
         <EmployeeRequestForm business={business} spaceId={spaceId} unit={chosenUnit} spaces={writable} allowedBusinesses={allowedBusinesses} units={units} changeSpace={changeSpace} setBusiness={setBusiness} setUnit={setUnitChoice} onSent={(result,name,amountValue)=>{setContact({name});setValue(amountValue);setDone(result);}}/>
       ) : editing ? (

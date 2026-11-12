@@ -1,3 +1,4 @@
+import {createIessRequest,iessDetails,matchIessPayments} from './finance-iess.js';
 import crypto from "node:crypto";
 import { validDay, financeDay } from "./finance-db.js";
 import { audit } from "./finance-db.js";
@@ -43,6 +44,11 @@ export function assignSpaceMemberships(db, memberId, ids, role, businessIds) {
   for (const id of new Set(ids)) add.run(id, memberId, role);
 }
 export function registerWorkflowRoutes(app, db, { route, owner }) {
+  app.post('/api/finance/payment-requests/iess',route((req,res)=>{const result=createIessRequest(db,req.financeUser,req.body);res.status(result.duplicate?200:201).json(result);}));
+  if(process.env.FINANCE_DEMO!=='1'){
+    const timer=setInterval(()=>{try{matchIessPayments(db);}catch(e){console.error('[finance] IESS matching needs attention: '+(e.code||e.name));}},60000);timer.unref();
+  }
+
   app.post(
     "/api/finance/settlement-funds/diners",
     route((req, res) => {
@@ -268,6 +274,7 @@ export function registerWorkflowRoutes(app, db, { route, owner }) {
       res.json({
         request,
         beneficiary: requestPayee(db, request.id),
+        iess: iessDetails(db,request.id),
         space,
         payments: financialWorkflow(db, req.financeUser).payments.filter(
           (p) => p.request_id === request.id

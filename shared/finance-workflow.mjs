@@ -161,7 +161,7 @@ SPACE_TEMPLATES.push({
 export function paymentProgress(request, payments = []) {
   const paid = payments
     .filter((p) => Number(p.request_id) === Number(request.id) && !p.voided_at)
-    .reduce((s, p) => s + p.amount_cents, 0);
+    .reduce((s, p) => s + p.amount_cents, Number(request.bank_paid_cents || 0));
   const cancelled = request.status === "rejected";
   return {
     paid_cents: paid,

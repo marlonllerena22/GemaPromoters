@@ -1,3 +1,4 @@
+import {settleIessProof} from './finance-iess.js';
 import {canRequestPayments,canSeeAllBalances} from '../../shared/finance-access.mjs';
 import crypto from "node:crypto";
 import { decryptDocument } from "./finance-ai.js";
@@ -31,7 +32,7 @@ export function workflowSource(db) {
       .all(),
     requests: db
       .prepare(
-        "SELECT m.*,u.name requester_name,e.name evidence_name FROM finance_movements m LEFT JOIN finance_members u ON u.username=m.created_by LEFT JOIN finance_evidence e ON e.id=m.evidence_id WHERE is_payment_request=1 AND hidden_at IS NULL ORDER BY m.created_at DESC,m.id DESC",
+        "SELECT m.*,CASE WHEN i.request_id IS NOT NULL THEN 'iess' END request_kind,CASE WHEN i.bank_transaction_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM finance_payments pp WHERE pp.request_id=m.id AND pp.voided_at IS NULL) THEN m.amount_cents ELSE 0 END bank_paid_cents,u.name requester_name,e.name evidence_name FROM finance_movements m LEFT JOIN finance_iess_requests i ON i.request_id=m.id LEFT JOIN finance_members u ON u.username=m.created_by LEFT JOIN finance_evidence e ON e.id=m.evidence_id WHERE is_payment_request=1 AND hidden_at IS NULL ORDER BY m.created_at DESC,m.id DESC",
       )
       .all(),
     payments: db
@@ -279,6 +280,7 @@ export function recordRequestPayment(db, user, id, body) {
       },
       request.business_id,
     );
+    settleIessProof(db, user, request, payment);
     return { payment, duplicate: false, remaining_cents: remaining };
   })();
 }

@@ -1,3 +1,4 @@
+import {IessLogo} from './iess.jsx';
 import React, { useState } from "react";
 import {
   ArrowRight,
@@ -36,7 +37,7 @@ export function PaymentUploadPicker({ onClose }) {
         {requests.map((r) => (
           <article key={r.id}>
             <div>
-              <strong>{r.counterparty}</strong>
+              {r.request_kind==='iess'&&<IessLogo/>}<strong>{r.counterparty}</strong>
               <b>{money(r.remaining_cents)}</b>
               <span>{r.description}</span>
             </div>
@@ -210,7 +211,7 @@ export function OwnerHome() {
                       ? "Transferencia solicitada"
                       : "Depósito por confirmar"}
                   </small>
-                  <strong>{r.counterparty}</strong>
+                  {r.request_kind==='iess'&&<IessLogo/>}<strong>{r.counterparty}</strong>
                   <span>
                     {kind === "payment"
                       ? r.description

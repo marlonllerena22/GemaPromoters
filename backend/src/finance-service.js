@@ -689,7 +689,7 @@ export function snapshot(db, user, filters = {}) {
   const allMovements = db
     .prepare(
       `SELECT m.*,COALESCE((SELECT SUM(a.amount_cents) FROM finance_allocations a WHERE a.movement_id=m.id),0) allocated_cents,
-      COALESCE((SELECT SUM(p.amount_cents) FROM finance_payments p WHERE p.request_id=m.id AND p.voided_at IS NULL),0) paid_total_cents,
+      CASE WHEN EXISTS(SELECT 1 FROM finance_iess_requests i WHERE i.request_id=m.id AND i.bank_transaction_id IS NOT NULL) THEN m.amount_cents ELSE COALESCE((SELECT SUM(p.amount_cents) FROM finance_payments p WHERE p.request_id=m.id AND p.voided_at IS NULL),0) END paid_total_cents,
     e.name evidence_name FROM finance_movements m LEFT JOIN finance_evidence e ON e.id=m.evidence_id WHERE m.hidden_at IS NULL ORDER BY m.day DESC,m.id DESC`,
     )
     .all()

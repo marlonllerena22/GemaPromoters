@@ -1,3 +1,4 @@
+import {matchIessPayments} from './finance-iess.js';
 import { matchUnreferencedDeclaration,matchConfirmedReceiptDeclaration } from "./finance-declared-bank.js";
 import {isBankPromotion} from '../../shared/finance-bank-promotions.mjs';
 import {archiveBankNotice} from './finance-bank-inbox.js';
@@ -704,6 +705,7 @@ export function applyMailDraft(db, user, id, body) {
     });
     const taxes = applyDigitalServiceTaxes(db, p, account, bank.id, user.username);
     linkRecordedBankEvidence(db);
+    try{matchIessPayments(db);}catch(e){console.error('[finance] IESS association deferred: '+(e.code||e.name));}
     return { ok: true, taxes };
   })();
 }

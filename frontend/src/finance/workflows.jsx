@@ -1,3 +1,4 @@
+import {IessDetails,IessLogo} from './iess.jsx';
 import {
   AccountTiles,
   LiquidityPlan,
@@ -230,7 +231,7 @@ export function RequestCard({ request, returnSpace = null }) {
         </div>
         <div className="gf-pay-request-main">
           <div>
-            <h3>{request.counterparty}</h3>
+            {request.request_kind==='iess'&&<IessLogo/>}<h3>{request.counterparty}</h3>
             <p>{request.description}</p>
             <small>
               {request.requester_name || request.created_by}
@@ -627,7 +628,7 @@ export function RequestDetails({ id, onClose }) {
         <p>Consultando solicitud…</p>
       ) : (
         <>
-          <div className="gf-request-detail-summary">
+          {detail.iess?<IessDetails details={detail.iess} value={r.amount_cents}/>:<div className="gf-request-detail-summary">
             <span>{detail.space?.name || businessNames[r.business_id]}</span>
             <h3>{r.counterparty}</h3>
             <strong>{money(r.amount_cents)}</strong>
@@ -638,6 +639,7 @@ export function RequestDetails({ id, onClose }) {
               {dateLabel(r.day)}
             </small>
           </div>
+          }
           {detail.payments.filter((p) => !p.voided_at).length > 0 && (
             <div className="gf-request-proof-first">
               {detail.payments

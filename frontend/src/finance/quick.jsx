@@ -155,6 +155,7 @@ export function CollaboratorHome() {
         </button>
       )}
       {["norma","normita"].includes(user.username)&&<Button variant="secondary" icon={FileText} onClick={()=>open('quick',{mode:'request',business_id:'producalza',space_id:'producalza-pagos',description:'Servicios básicos',category:'Servicios'})}>Pedir pago de servicios básicos</Button>}
+      {["norma","normita"].includes(user.username)&&<Button variant="secondary" icon={FileText} onClick={()=>open('quick',{mode:'request',request_kind:'iess',business_id:'producalza',space_id:'producalza-pagos'})}>Subir planilla IESS</Button>}
       {user.checks_manage&&<Button onClick={()=>navigate('cheques')}>Agregar / revisar cheques</Button>}
       {user.username==='morelia'&&<Button onClick={()=>navigate('cuentas')}>Cuentas de Liliana y MORE Local SUR</Button>}
       <ReceiptList/>

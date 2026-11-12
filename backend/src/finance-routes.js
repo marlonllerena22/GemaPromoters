@@ -1,3 +1,4 @@
+import {analyzeIess} from './finance-iess.js';
 import {registerStaffCalendar} from './finance-staff-calendar.js';
 import {registerStaffClock} from './finance-staff-clock.js';
 import {initProfileAccess,effectiveMember,restrictProfileRoute} from './finance-profile-access.js';
@@ -1047,6 +1048,12 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
   }));
   app.delete("/api/finance/quick/conversation/:id", route((req, res) => {
     res.json(cancelConversation(db, req.financeUser, req.params.id));
+  }));
+  app.post('/api/finance/evidence/:id/iess',route(async(req,res)=>{
+    writer(req);aiLimit(req);const evidence=evidenceAccess(req);
+    const analysis=await analyzeIess(evidence);
+    audit(db,req.financeUser.username,'iess.document_analyzed','evidence',evidence.id,null,{draft:true},evidence.business_id);
+    res.json({analysis});
   }));
   app.post(
     "/api/finance/evidence/:id/analyze",

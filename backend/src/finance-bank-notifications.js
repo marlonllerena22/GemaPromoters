@@ -1,3 +1,4 @@
+import {matchIessPayments} from './finance-iess.js';
 import crypto from "node:crypto";
 import { audit, financeDay } from "./finance-db.js";
 import { encryptDocument, decryptDocument } from "./finance-ai.js";
@@ -340,6 +341,7 @@ export function applyBankNotification(db, user, id, body = {}) {
       if(receipt.business_id==='marjorie')db.prepare("INSERT OR IGNORE INTO finance_store_confirmations(movement_id,actor,confirmed_at,mode) VALUES (?,'system:bank-evidence',?,'bank_verified')").run(receipt.id,new Date().toISOString());
       db.prepare("UPDATE finance_push_outbox SET state='skipped' WHERE request_id=? AND state='queued'").run(receipt.id);
     }else for(const receipt of db.prepare("SELECT id FROM finance_movements WHERE account_id=? AND reference=? AND kind='income' AND evidence_id IS NOT NULL AND hidden_at IS NULL AND status IN ('pending','reported','approved')").all(account.id,reference))reconcileRecordedReceipt(db,receipt.id);
+    try{matchIessPayments(db);}catch(e){console.error('[finance] IESS association deferred: '+(e.code||e.name));}
     return { ok: true, matched, bank_transaction_id: bank.id };
   })();
 }
