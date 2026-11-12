@@ -9,6 +9,7 @@ import {matchingBankPerson,receivedWithoutAccount} from './finance-bank-identity
 import {isBankPromotion} from '../../shared/finance-bank-promotions.mjs';
 import {archiveBankNotice} from './finance-bank-inbox.js';
 import {acceptsBankNotification,soleDeunaAccount} from '../../shared/finance-notification-accounts.mjs';
+import {bankPartyConflicts} from './finance-bank-evidence-person.js';
 
 const digest = (v) =>
   crypto.createHash("sha256").update(String(v)).digest("hex");
@@ -140,9 +141,9 @@ export function parseBankNotification(
   if (!/\d/.test(reference)) reference = "";
   const direction =
     incoming !== outgoing ? (incoming ? "incoming" : "outgoing") : null;
-  const counterparty=(body.match(/(?:recibiste|has recibido|transferencia recibida|te pagaron|te depositaron|te transfirieron)[\s\S]*?(?:\bde\s+)([\p{L}][\p{L}\s.'-]+?)(?=\s+(?:cuenta|referencia|banco|saldo|fecha|por|el)\b|[.\n]|$)/iu)?.[1]||body.match(/(?:^|[\n!.])\s*([\p{L}][\p{L}\s.'-]+?)\s+te (?:ha[n]? )?(?:envi[oó]|enviado|pag[oó]|pagado|deposit[oó]|depositado|transfiri[oó]|transferido)\s*(?:USD\s*|\$\s*)?[\d.,]+/iu)?.[1]||'').trim();
+  const counterparty=(body.match(/(?:recibiste|has recibido|transferencia recibida|te pagaron|te depositaron|te transfirieron)[\s\S]*?(?:\bde\s+)([\p{L}][\p{L}\s.'-]+?)(?=\s+(?:cuenta|referencia|banco|saldo|fecha|por|el)\b|[.\n]|$)/iu)?.[1]||body.match(/(?:^|[\n!.])\s*([\p{L}][\p{L}\s.'-]+?)\s+te (?:ha[n]? )?(?:envi[oó]|enviado|pag[oó]|pagado|deposit[oó]|depositado|transfiri[oó]|transferido)\s*(?:USD\s*|\$\s*)?[\d.,]+/iu)?.[1]||body.match(/(?:pagaste|enviaste|transferiste)\s+(?:a\s+)([\p{L}][\p{L}\s.'-]+?)(?=\s+(?:por|usd|el|a la cuenta)\b|[.$\n]|$)/iu)?.[1]||'').trim();
   return {
-    parser_version:4,
+    parser_version:5,
     body,
     bank: policy.bank,
     amount_cents: amounts.length === 1 ? amounts[0] : null,
@@ -212,9 +213,9 @@ export function autoConfirmNotificationReceipts(db) {
 }
 export function reprocessBankNotifications(db){
   const registry=notificationRegistry(db);
-  let upgraded=0;
+  let upgraded=0,applied=0;
   for(const row of db.prepare("SELECT * FROM finance_notification_events WHERE state='review' AND archived_at IS NULL").all()){
-    const prior=decode(row);if(prior.parser_version===4)continue;
+    const prior=decode(row);if(prior.parser_version===5&&row.account_id)continue;
     const device=db.prepare('SELECT apps_json FROM finance_notification_devices WHERE id=?').get(row.device_id);
     const policy=device&&JSON.parse(device.apps_json).find(a=>a.package_name===row.package_name);
     if(!policy)continue;
@@ -223,9 +224,13 @@ export function reprocessBankNotifications(db){
     upgraded++;
   }
   const links=linkRecordedBankEvidence(db),confirmed=autoConfirmNotificationReceipts(db);
+  for(const row of db.prepare("SELECT * FROM finance_notification_events WHERE state='review' AND archived_at IS NULL ORDER BY posted_at,id").all()){
+    automaticBankNotice(db,row.id,decode(row));
+    if(db.prepare('SELECT state FROM finance_notification_events WHERE id=?').get(row.id).state!=='review')applied++;
+  }
   repairReceiptAccounts(db);
-  if(upgraded||links.notifications||confirmed)console.info('[finance] Phone notices automatically matched '+JSON.stringify({upgraded,linked:links.notifications,confirmed}));
-  return {upgraded,linked:links.notifications,confirmed};
+  if(upgraded||links.notifications||confirmed||applied)console.info('[finance] Phone notices automatically matched '+JSON.stringify({upgraded,linked:links.notifications,confirmed,applied}));
+  return {upgraded,linked:links.notifications,confirmed,applied};
 }
 export function applyBankNotification(db, user, id, body = {}) {
   if (user.role !== "owner")
@@ -236,7 +241,7 @@ export function applyBankNotification(db, user, id, body = {}) {
       .get(id);
     if (!row) fail("Aviso no encontrado", 404);
     if (["applied", "matched"].includes(row.state))
-      return { ok: true, duplicate: true };
+      return { ok: true, duplicate: true, matched:row.state==='matched', bank_transaction_id:row.bank_transaction_id };
     if (row.state !== "review") fail("Este aviso ya fue descartado", 409);
     const p = decode(row);
     if (p.blocked || p.credit)
@@ -289,6 +294,7 @@ export function applyBankNotification(db, user, id, body = {}) {
           409
         );
     }
+    if(bank&&bankPartyConflicts(db,bank.id,p.counterparty))fail('El nombre no coincide con el movimiento existente; revisa antes de asociarlo',409);
     if (!bank) {
       const result = importBank(db, user, {
         account_id: account.id,
@@ -337,22 +343,35 @@ export function applyBankNotification(db, user, id, body = {}) {
     return { ok: true, matched, bank_transaction_id: bank.id };
   })();
 }
-// Marlon authorized completed Deuna expenses to debit his sole Deuna account.
-// Apply only newly delivered events; historical reviews may already be in a
-// manually corrected balance. Other banks and incoming payments keep their policy.
-function automaticDeunaExpense(db, id, parsed) {
-  const sole=soleDeunaAccount(db.prepare('SELECT id,bank,kind,active FROM finance_accounts WHERE active=1').all());
-  if(bankCode(parsed.bank)!==bankCode('Deuna')||!sole||parsed.account_id!==sole.id||parsed.direction!=='outgoing'||!parsed.amount_cents||parsed.blocked||parsed.credit)return false;
+// Completed notices from the owner's selected banking apps are authoritative
+// once the account, amount and direction are unambiguous. Original timestamps
+// and the account's opening/checkpoints protect manually corrected balances.
+function automaticBankNotice(db, id, parsed) {
+  if(sensitiveNotification(parsed.body)||isBankPromotion('',parsed.body))return false;
+  if(!notificationBanks.some(bank=>bankCode(bank)===bankCode(parsed.bank))||!parsed.account_id||!['incoming','outgoing'].includes(parsed.direction)||!parsed.amount_cents||parsed.blocked||parsed.credit)return false;
   const row=db.prepare('SELECT * FROM finance_notification_events WHERE id=?').get(id);
-  if(row.state!=='review')return true;
-  // Android can redeliver identical content under another notification key or
-  // device. Link that evidence rather than manufacture a second debit.
-  const duplicates=db.prepare("SELECT * FROM finance_notification_events WHERE id<>? AND account_id=? AND content_hash=? AND bank_transaction_id IS NOT NULL AND state IN ('applied','matched')").all(id,sole.id,row.content_hash)
-    .filter(other=>Math.abs(Date.parse(other.posted_at)-Date.parse(row.posted_at))<=120000);
+  if(row.state!=='review'||row.archived_at)return true;
+  const restart=privateSetting(db,'activity_restart_at');
+  if(restart&&Date.parse(row.posted_at)<=Date.parse(restart))return true;
+  const signed=parsed.amount_cents*(parsed.direction==='outgoing'?-1:1);
+  const duplicates=db.prepare("SELECT * FROM finance_notification_events WHERE id<>? AND account_id=? AND amount_cents=? AND bank_transaction_id IS NOT NULL AND state IN ('applied','matched')").all(id,parsed.account_id,signed)
+    .filter(other=>{
+      if(parsed.reference&&other.reference&&parsed.reference!==other.reference)return false;
+      // Without a bank reference, only the same original timestamp/content is
+      // a duplicate delivery. Equal payments by one person can be distinct.
+      if(Math.abs(Date.parse(other.posted_at)-Date.parse(row.posted_at))>2000)return false;
+      return other.content_hash===row.content_hash;
+    });
   const bankIds=[...new Set(duplicates.map(other=>other.bank_transaction_id))];
   try{
-    if(bankIds.length>1)fail('Hay varios pagos coincidentes; no se descontará otra vez',409);
-    applyBankNotification(db,{role:'owner',username:'system:deuna-expense'},id,bankIds.length?{link_bank_id:bankIds[0]}:{});
+    if(bankIds.length>1)fail('Hay varios movimientos coincidentes; no se registrará otra vez',409);
+    // Distinct explicit references are separate operations even at equal values.
+    // Without references, existing unrelated/ambiguous entries still block a new
+    // posting rather than silently duplicate manually entered money.
+    const sameValue=db.prepare('SELECT reference FROM finance_bank_transactions WHERE account_id=? AND amount_cents=? AND day=?').all(parsed.account_id,signed,financeDay(row.posted_at));
+    const distinct=Boolean(parsed.reference&&sameValue.length&&sameValue.every(b=>b.reference&&b.reference!==parsed.reference));
+    const result=applyBankNotification(db,{role:'owner',username:'system:android-bank'},id,bankIds.length?{link_bank_id:bankIds[0]}:{new_operation:distinct});
+    console.info('[finance] Bank notice auto-confirmed '+JSON.stringify({event_id:id,bank:row.bank,account_id:parsed.account_id,amount_cents:signed,bank_transaction_id:result.bank_transaction_id,matched:result.matched}));
   }catch(error){
     if(!error.status)throw error;
     db.prepare('UPDATE finance_notification_events SET reason=? WHERE id=?').run(error.message,id);
@@ -424,8 +443,8 @@ export function ingestBankNotifications(db, device, events) {
         );
       linkRecordedBankEvidence(db);
       autoConfirmNotificationReceipts(db);
-      const deunaHandled=automaticDeunaExpense(db,Number(inserted.lastInsertRowid),parsed);
-      if (!deunaHandled && policy.automatic && parsed.certain && db.prepare('SELECT state FROM finance_notification_events WHERE id=?').get(inserted.lastInsertRowid).state==='review') {
+      const automaticallyHandled=automaticBankNotice(db,Number(inserted.lastInsertRowid),parsed);
+      if (!automaticallyHandled && policy.automatic && parsed.certain && db.prepare('SELECT state FROM finance_notification_events WHERE id=?').get(inserted.lastInsertRowid).state==='review') {
         try {
           applyBankNotification(
             db,

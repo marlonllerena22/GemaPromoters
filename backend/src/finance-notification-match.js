@@ -1,5 +1,6 @@
 import { fail } from "./finance-service.js";
 import {decryptDocument} from './finance-ai.js';
+import {bankPartyConflicts} from './finance-bank-evidence-person.js';
 
 // Shared by email and Android ingestion. Equal amounts alone never prove identity.
 export function notificationBankMatch(
@@ -24,7 +25,10 @@ export function notificationBankMatch(
     .all(account_id, amount_cents, reference, reference, day, reference);
   const unique=[...new Map(rows.map(r=>[r.id,r])).values()];
   const exact = unique.filter((r) => reference && r.reference === reference);
-  if (exact.length === 1 && unique.length === 1) return exact[0];
+  if (exact.length === 1 && unique.length === 1){
+    if(bankPartyConflicts(db,exact[0].id,counterparty))fail('El nombre del aviso no coincide con el movimiento registrado',409);
+    return exact[0];
+  }
   const name=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z\s]/g,' ').split(/\s+/).filter(w=>w.length>1).sort().join(' ');
   if(unique.length===1&&name(counterparty).split(' ').length>=2){
     const row=unique[0],p=JSON.parse(decryptDocument(row.notification_payload).toString());

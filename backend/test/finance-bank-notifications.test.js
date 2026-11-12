@@ -96,15 +96,15 @@ function fixture(t, { automatic = false } = {}) {
     );
   return { db, account, device, event, balance };
 }
-test("review first; encrypted storage, explicit confirmation and repeat delivery change the bank balance once", (t) => {
+test("automatic confirmation keeps encrypted storage, owner-only overrides and one posting on repeat delivery", (t) => {
   const f = fixture(t),
     event = f.event();
   assert.deepEqual(ingestBankNotifications(f.db, f.device, [event]).ack, [
     event.id,
   ]);
-  assert.equal(f.balance(), 10000);
+  assert.equal(f.balance(), 12500);
   const row = f.db.prepare("SELECT * FROM finance_notification_events").get();
-  assert.equal(row.state, "review");
+  assert.equal(row.state, "applied");
   assert.equal(row.encrypted.includes(Buffer.from("Recibiste")), false);
   assert.throws(
     () => applyBankNotification(f.db, { role: "viewer" }, row.id),
@@ -130,10 +130,10 @@ test('completed Deuna expenses debit the sole wallet automatically without refer
   ingestBankNotifications(f.db,f.device,[e,{...e,id:'duplicate-key'}]);assert.equal(f.balance(),8500);
   assert.equal(f.db.prepare('SELECT COUNT(*) n FROM finance_bank_transactions').get().n,1);
   assert.equal(f.db.prepare("SELECT state FROM finance_notification_events WHERE event_key='duplicate-key'").get().state,'matched');
-  ingestBankNotifications(f.db,f.device,[f.event({text:'Recibiste $48. Monica te pagó $48'})]);assert.equal(f.balance(),8500);
+  ingestBankNotifications(f.db,f.device,[f.event({text:'Recibiste $48. Monica te pagó $48'})]);assert.equal(f.balance(),13300);
 });
 
-test('Deuna automation excludes failed, promotional, ambiguous and pre-balance notices and other banks',t=>{
+test('automation excludes failed, ambiguous and pre-balance notices and includes known accounts at other banks',t=>{
   const f=fixture(t);
   for(const text of ['Pagaste $15. Operación pendiente','Pago rechazado por $15','Pagaste $15. Operación anulada','Recibiste $15 y pagaste $15','Pagaste $15. Saldo $85']){
     ingestBankNotifications(f.db,f.device,[f.event({text})]);assert.equal(f.balance(),10000,text);
@@ -142,7 +142,7 @@ test('Deuna automation excludes failed, promotional, ambiguous and pre-balance n
   ingestBankNotifications(f.db,f.device,[f.event({text:'Pagaste $7'})]);assert.equal(f.balance(),10000);
   f.db.prepare("UPDATE finance_accounts SET opening_at=NULL,bank='Pichincha' WHERE id=?").run(f.account);
   f.device.apps_json=JSON.stringify([{package_name:'app.test.deuna',bank:'Pichincha',account_id:f.account,automatic:false}]);
-  ingestBankNotifications(f.db,f.device,[f.event({text:'Pagaste $9'})]);assert.equal(f.balance(),10000);
+  ingestBankNotifications(f.db,f.device,[f.event({text:'Pagaste $9'})]);assert.equal(f.balance(),9100);
 });
 
 test('Deuna automation links an existing referenced debit and does not guess a reference-free existing expense',t=>{
@@ -155,6 +155,7 @@ test('Deuna automation links an existing referenced debit and does not guess a r
 
 test('Deuna expenses do not infer an account when two Deuna accounts are active',t=>{
   const f=fixture(t);f.db.prepare("INSERT INTO finance_accounts(name,bank,kind,opening_cents,opening_date) VALUES ('Otra Deuna','Deuna','wallet',0,?)").run(financeDay());
+  f.device.apps_json=JSON.stringify([{package_name:'app.test.deuna',bank:'Deuna',automatic:false}]);
   ingestBankNotifications(f.db,f.device,[f.event({text:'Pagaste $15'})]);assert.equal(f.balance(),10000);
 });
 
@@ -212,7 +213,7 @@ test("selected app only; security codes and old, oversized or future events are 
   );
   assert.equal(f.balance(), 10000);
 });
-test("automatic posting requires a completed operation, clear amount, account and actual numeric reference", (t) => {
+test("automatic posting requires a completed operation, clear amount and account but not a reference", (t) => {
   const f = fixture(t, { automatic: true });
   ingestBankNotifications(f.db, f.device, [
     f.event(),
@@ -222,14 +223,14 @@ test("automatic posting requires a completed operation, clear amount, account an
     f.event({ text: "Consumo de tarjeta de crédito $80. Referencia 44444444" }),
     f.event({ text: "Recibiste $25. Saldo $150. Referencia 33333333" }),
   ]);
-  assert.equal(f.balance(), 11300);
+  assert.equal(f.balance(), 14300);
   assert.equal(
     f.db
       .prepare(
         "SELECT COUNT(*) n FROM finance_notification_events WHERE state='review'"
       )
       .get().n,
-    4
+    3
   );
 });
 test("ambiguous account and conflicting account suffix always stay in review", (t) => {
@@ -333,7 +334,7 @@ test("missing reference holds email and Android overlap for manual linking, pres
   );
   assert.equal(f.balance(), 12500);
   ingestBankNotifications(f.db, f.device, [
-    f.event({ text: "Recibiste $25 de Ana" }),
+    f.event({ text: "Recibiste $25 de Ana",posted_at:new Date().toISOString() }),
   ]);
   const second = f.db
     .prepare("SELECT id FROM finance_notification_events ORDER BY id DESC")
@@ -489,7 +490,7 @@ test('phone marketing is acknowledged without storage, bank postings or repeated
 });
 
 test('existing pending promotions are archived automatically without touching registered money',t=>{
-  const f=fixture(t),e=f.event();ingestBankNotifications(f.db,f.device,[e]);
+  const f=fixture(t),e=f.event();f.device.apps_json=JSON.stringify([{package_name:'app.test.deuna',bank:'Pichincha',automatic:false}]);ingestBankNotifications(f.db,f.device,[e]);
   const payload={subject:'Gana $500',body:'Participa en el sorteo, paga con tu tarjeta'};
   f.db.prepare('UPDATE finance_notification_events SET encrypted=?').run(encryptDocument(Buffer.from(JSON.stringify(payload))));
   f.db.prepare("INSERT INTO finance_mail_messages(id,received_at,encrypted,state,created_at) VALUES ('old-promo',?,?,'draft',?)").run(new Date().toISOString(),encryptDocument(Buffer.from(JSON.stringify(payload))),new Date().toISOString());
@@ -526,7 +527,7 @@ test('the single Deuna digital account receives incoming notices without confusi
   const incoming=f.event({title:'Recibiste $48',text:'Perez Andrade Lucia Isabel te pagó $48 desde la cta. ******0822 el 11 nov 2026'}),outgoing=f.event({title:'¡Listo! Pagaste $15,00',text:'Pagaste a Carlos Perez por $15,00'});
   ingestBankNotifications(f.db,f.device,[incoming,outgoing]);
   const rows=f.db.prepare('SELECT account_id,amount_cents,state FROM finance_notification_events ORDER BY id').all();
-  assert.equal(rows[0].account_id,f.account);assert.equal(rows[0].amount_cents,4800);assert.equal(rows[1].account_id,f.account);assert.equal(rows[1].amount_cents,-1500);assert.equal(rows[1].state,'applied');assert.equal(f.balance(),8500);
+  assert.equal(rows[0].account_id,f.account);assert.equal(rows[0].amount_cents,4800);assert.equal(rows[1].account_id,f.account);assert.equal(rows[1].amount_cents,-1500);assert.equal(rows[1].state,'applied');assert.equal(rows[0].state,'applied');assert.equal(f.balance(),13300);
   assert.ok(receiptAccounts(f.db,owner).some(a=>a.id===f.account));
   const own=soleDeunaAccount([{id:f.account,kind:'wallet',bank:'Deuna',active:1}]);assert.equal(own.id,f.account);
   assert.equal(acceptsBankNotification({kind:'wallet',bank:'Deuna'},'Deuna'),true);assert.equal(acceptsBankNotification({kind:'wallet',bank:'PayPhone'},'Deuna'),false);
@@ -534,12 +535,61 @@ test('the single Deuna digital account receives incoming notices without confusi
   applyBankNotification(f.db,owner,1,{account_id:f.account});assert.equal(f.balance(),13300);applyBankNotification(f.db,owner,1,{account_id:f.account});assert.equal(f.balance(),13300);
 });
 
-test('legacy unassigned Deuna notices are remapped without posting money or changing other banks',t=>{
+test('pending Deuna notices are remapped and confirmed once when the account becomes unambiguous',t=>{
   const f=fixture(t);f.db.prepare("UPDATE finance_accounts SET kind='wallet' WHERE id=?").run(f.account);
   f.device.apps_json=JSON.stringify([{package_name:'app.test.deuna',bank:'Deuna',account_id:null,automatic:false}]);f.db.prepare('UPDATE finance_notification_devices SET apps_json=? WHERE id=?').run(f.device.apps_json,f.device.id);
+  const extra=f.db.prepare("INSERT INTO finance_accounts(name,bank,kind,opening_cents,opening_date) VALUES ('Other','Deuna','wallet',0,?)").run(financeDay()).lastInsertRowid;
   const e=f.event({text:'Recibiste $48 de Lucia Perez.'});ingestBankNotifications(f.db,f.device,[e]);
   const p={...parseBankNotification(e,{bank:'Deuna'}),parser_version:3,account_id:null};f.db.prepare('UPDATE finance_notification_events SET encrypted=?,account_id=NULL').run(encryptDocument(Buffer.from(JSON.stringify(p))));
-  reprocessBankNotifications(f.db);assert.equal(f.db.prepare('SELECT account_id FROM finance_notification_events').get().account_id,f.account);assert.equal(f.balance(),10000);assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,0);
+  f.db.prepare('UPDATE finance_accounts SET active=0 WHERE id=?').run(extra);reprocessBankNotifications(f.db);assert.equal(f.db.prepare('SELECT account_id FROM finance_notification_events').get().account_id,f.account);assert.equal(f.balance(),14800);assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,1);
   assert.equal(soleDeunaAccount([{id:1,kind:'wallet',bank:'Deuna'},{id:2,kind:'bank',bank:'Deuna'}]),null);
   assert.equal(parseBankNotification(e,{bank:'Pichincha'},{accounts:[],single_deuna_account_id:f.account}).account_id,null);
+});
+
+test('the reported 15-cent Deuna receipt confirms automatically and repeated delivery keeps one credit',t=>{
+  const f=fixture(t);f.db.prepare("UPDATE finance_accounts SET kind='wallet' WHERE id=?").run(f.account);
+  f.device.apps_json=JSON.stringify([{package_name:'app.test.deuna',bank:'Deuna',automatic:false}]);
+  const e=f.event({title:'🤑 Recibiste $0,15',text:'Yolanda Lizeth Garces Guato te pagó $0,15 desde la cta. ******4185 el 11 nov 2026'});
+  const p=parseBankNotification(e,{bank:'Deuna'},{accounts:[],single_deuna_account_id:f.account});
+  assert.equal(p.counterparty,'Yolanda Lizeth Garces Guato');assert.equal(p.account_id,f.account);assert.equal(p.amount_cents,15);
+  ingestBankNotifications(f.db,f.device,[e,{...e,id:'repeat-delivery'}]);
+  reprocessBankNotifications(f.db);reprocessBankNotifications(f.db);
+  assert.equal(f.balance(),10015);assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,1);
+  assert.equal(f.db.prepare("SELECT count(*) n FROM finance_notification_events WHERE state='review'").get().n,0);
+});
+
+for(const bank of ['Pichincha','Guayaquil','Pacífico','Produbanco','Solidario'])test(`official completed ${bank} notices with a known account post automatically with review-only legacy policy`,t=>{
+  const f=fixture(t);f.db.prepare('UPDATE finance_accounts SET bank=? WHERE id=?').run(bank,f.account);
+  f.device.apps_json=JSON.stringify([{package_name:'app.test.deuna',bank,account_id:f.account,automatic:false}]);
+  ingestBankNotifications(f.db,f.device,[f.event({text:'Recibiste $8 de Ana Perez.'}),f.event({text:'Pagaste a Luis Perez por $3.00'})]);
+  assert.equal(f.balance(),10500);assert.equal(f.db.prepare("SELECT count(*) n FROM finance_notification_events WHERE state='review'").get().n,0);
+});
+
+test('equal payments with different explicit references stay separate and a conflicting payer stays in review',t=>{
+  const f=fixture(t);
+  for(const ref of ['BANK11111','BANK22222'])ingestBankNotifications(f.db,f.device,[f.event({text:`Recibiste $25 de Ana Perez. Referencia ${ref}`})]);
+  assert.equal(f.balance(),15000);
+  ingestBankNotifications(f.db,f.device,[f.event({text:'Recibiste $25 de Carlos Andrade. Referencia BANK11111'})]);
+  assert.equal(f.balance(),15000);assert.equal(f.db.prepare('SELECT state FROM finance_notification_events ORDER BY id DESC').get().state,'review');
+  assert.throws(()=>importBank(f.db,owner,{source_system:'bank-email',account_id:f.account,rows:[{day:financeDay(),amount_cents:2500,reference:'BANK11111',counterparty:'Carlos Andrade',external_id:'contradiction'}]}),e=>e.status===409);
+  assert.equal(f.balance(),15000);
+});
+
+test('a later bank source with matching payer and amount corroborates a reference-free phone credit once',t=>{
+  const f=fixture(t),e=f.event({text:'Recibiste $25 de Ana Perez.'});ingestBankNotifications(f.db,f.device,[e]);
+  const bank=importBank(f.db,owner,{source_system:'bank-email',account_id:f.account,rows:[{day:financeDay(),occurred_at:e.posted_at,amount_cents:2500,reference:'BANK12345',counterparty:'Ana Perez',external_id:'mail-corroboration'}]});
+  assert.equal(bank.imported,0);assert.equal(f.balance(),12500);assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,1);
+});
+
+test('replaying pending phone credits respects manual balance checkpoints',t=>{
+  const f=fixture(t),e=f.event({text:'Recibiste $0.15 de Ana Perez.'});
+  f.device.apps_json=JSON.stringify([{package_name:'app.test.deuna',bank:'Pichincha',automatic:false}]);
+  ingestBankNotifications(f.db,f.device,[e]);
+  f.device.apps_json=JSON.stringify([{package_name:'app.test.deuna',bank:'Deuna',account_id:f.account,automatic:false}]);
+  f.db.prepare('UPDATE finance_notification_devices SET apps_json=? WHERE id=?').run(f.device.apps_json,f.device.id);
+  f.db.prepare("UPDATE finance_notification_events SET bank='Deuna'").run();
+  f.db.prepare("INSERT INTO finance_balance_checkpoints(account_id,as_of_at,balance_cents,source_hash,created_by,created_at) VALUES (?,?,?,'checkpoint-test','marlon',datetime('now'))").run(f.account,new Date().toISOString(),10015);
+  reprocessBankNotifications(f.db);assert.equal(f.balance(),10015);
+  const count=f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n;
+  reprocessBankNotifications(f.db);assert.equal(f.balance(),10015);assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,count);
 });

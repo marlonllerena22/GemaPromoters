@@ -34,7 +34,7 @@ test('Android bank collection is owner-only, uses a submit-only device token and
   const events=[{id:'native-event-one',package_name:'test.deuna.app',posted_at:new Date().toISOString(),title:'Deuna',text:'Recibiste $25. Referencia 12345678'}];
   assert.equal((await f.req('/android-bank-events','nobody',{events},'POST')).status,401);
   assert.equal((await f.req('/android-bank-events','nobody',{events},'POST',headers)).status,200);
-  const inbox=await f.req('/bank-notifications');assert.equal(inbox.body.events.length,1);assert.equal(inbox.body.events[0].state,'review');assert.equal(JSON.stringify(inbox.body).includes(paired.body.token),false);
+  const inbox=await f.req('/bank-notifications');assert.equal(inbox.body.events.length,1);assert.equal(inbox.body.events[0].state,'applied');assert.equal(JSON.stringify(inbox.body).includes(paired.body.token),false);
   assert.equal((await f.req('/bank-notifications/1/apply','reader',{})).status,403);
   await f.req(`/bank-notification-devices/${paired.body.device_id}/revoke`,'owner',{});
   assert.equal((await f.req('/android-bank-events','nobody',{events},'POST',headers)).status,401);

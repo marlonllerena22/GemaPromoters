@@ -3,6 +3,7 @@ import {audit,financeDay} from './finance-db.js';
 import {matchOwnTransferCredit} from './finance-own-transfers.js';
 import {matchingBankPerson} from './finance-bank-identity.js';
 import {notificationBankCode} from '../../shared/finance-notification-accounts.mjs';
+import {bankPartyConflicts} from './finance-bank-evidence-person.js';
 
 // Attach corroborating evidence to the existing ledger entry, without moving money.
 export function linkRecordedBankEvidence(db) {
@@ -52,6 +53,7 @@ export function linkRecordedBankEvidence(db) {
         catch(error){if(!error.status)throw error;}
       }
       if(!bank)continue;
+      if(bankPartyConflicts(db,bank.id,p.counterparty))continue;
       db.prepare("UPDATE finance_notification_events SET state='matched',bank_transaction_id=?,account_id=?,amount_cents=?,reason='Confirmado con el movimiento bancario; sin duplicar el importe' WHERE id=?").run(bank.id,bank.account_id,bank.amount_cents,row.id);
       audit(db,'system:bank-evidence','bank.evidence_linked','notification',row.id,null,{bank_transaction_id:bank.id});
       notifications++;

@@ -372,7 +372,8 @@ for(const notificationFirst of [true,false])test(`a received-money phone notific
   assert.equal(f.balance(),134300);
   for(let i=0;i<2;i++)f.db.prepare("INSERT INTO finance_movements(business_id,unit_id,account_id,kind,amount_cents,day,category,counterparty,description,evidence_id,created_by) VALUES ('producalza','producalza-fabrica',?,'income',100,?,'Abono','Ana Perez','Comprobante parecido',?,'norma')").run(f.account,financeDay(),f.evidence);
   ingestBankNotifications(f.db,device,[{...event,id:'ambiguous-small-receipt',text:'Recibiste $1,00 de Ana Perez. Cuenta destino: ****0043'}]);
-  assert.equal(f.balance(),134300);
+  // The bank credit is certain; only the choice between two receipts stays pending.
+  assert.equal(f.balance(),134400);
   assert.equal(f.db.prepare("SELECT count(*) n FROM finance_movements WHERE amount_cents=100 AND status='pending'").get().n,2);
 });
 
