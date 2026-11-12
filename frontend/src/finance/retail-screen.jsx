@@ -15,7 +15,7 @@ export function RetailReports(){
  const save=async(path,body)=>{setBusy(true);try{await financeApi('/retail/'+path,body);setForm(null);setConfig(null);setRefresh(v=>v+1);notify('Guardado. Reporte actualizado.');}catch(e){setError(e.message);}finally{setBusy(false);}};
  const configuration=async()=>{try{setConfig(await financeApi('/retail/configuration'));}catch(e){setError(e.message);}};
  const pdf=async()=>{setBusy(true);try{const r=await fetch('/api/finance/retail/monthly.pdf?'+new URLSearchParams({day,unit_id:unit||'all'}),{credentials:'same-origin'});if(!r.ok){let msg='No se pudo generar el reporte';try{msg=(await r.json()).message||msg;}catch{}throw new Error(msg);}await saveBlob(await r.blob(),`reporte-${unit||'locales'}-${day.slice(0,7)}.pdf`);}catch(e){setError(e.message);}finally{setBusy(false);}};
- const choose=id=>{setUnit(id);setForm(null);setConfig(null);setWide(false);};
+ const choose=id=>{setUnit(id);setForm(null);setConfig(null);setWide(false);if(!id){setMode('day');setDay(today());}};
  const editSale=(s,id)=>setForm({type:'sale',sale:s.sales.entries.find(x=>x.id===id)});
  return <div className={`gr-report gr-notebook ${wide?'gr-expanded':''}`}>
   <header className="gr-heading gr-compact-heading"><div><span className="gf-eyebrow">REPORTES DE LOCALES</span><h1>{unit?(unit==='all'?'Todos los locales':data?.stores[0]?.name||'Reporte del local'):'Elige tu local'}</h1></div>{unit&&<button onClick={()=>choose(null)}><ArrowLeft size={16}/> Locales</button>}{data?.can_edit&&<button aria-label="Configuración general" onClick={configuration}><SlidersHorizontal size={18}/><span>Configurar</span></button>}</header>
