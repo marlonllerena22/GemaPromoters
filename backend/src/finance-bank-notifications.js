@@ -337,6 +337,28 @@ export function applyBankNotification(db, user, id, body = {}) {
     return { ok: true, matched, bank_transaction_id: bank.id };
   })();
 }
+// Marlon authorized completed Deuna expenses to debit his sole Deuna account.
+// Apply only newly delivered events; historical reviews may already be in a
+// manually corrected balance. Other banks and incoming payments keep their policy.
+function automaticDeunaExpense(db, id, parsed) {
+  const sole=soleDeunaAccount(db.prepare('SELECT id,bank,kind,active FROM finance_accounts WHERE active=1').all());
+  if(bankCode(parsed.bank)!==bankCode('Deuna')||!sole||parsed.account_id!==sole.id||parsed.direction!=='outgoing'||!parsed.amount_cents||parsed.blocked||parsed.credit)return false;
+  const row=db.prepare('SELECT * FROM finance_notification_events WHERE id=?').get(id);
+  if(row.state!=='review')return true;
+  // Android can redeliver identical content under another notification key or
+  // device. Link that evidence rather than manufacture a second debit.
+  const duplicates=db.prepare("SELECT * FROM finance_notification_events WHERE id<>? AND account_id=? AND content_hash=? AND bank_transaction_id IS NOT NULL AND state IN ('applied','matched')").all(id,sole.id,row.content_hash)
+    .filter(other=>Math.abs(Date.parse(other.posted_at)-Date.parse(row.posted_at))<=120000);
+  const bankIds=[...new Set(duplicates.map(other=>other.bank_transaction_id))];
+  try{
+    if(bankIds.length>1)fail('Hay varios pagos coincidentes; no se descontará otra vez',409);
+    applyBankNotification(db,{role:'owner',username:'system:deuna-expense'},id,bankIds.length?{link_bank_id:bankIds[0]}:{});
+  }catch(error){
+    if(!error.status)throw error;
+    db.prepare('UPDATE finance_notification_events SET reason=? WHERE id=?').run(error.message,id);
+  }
+  return true;
+}
 export function ingestBankNotifications(db, device, events) {
   if (!Array.isArray(events) || !events.length || events.length > 50)
     fail("Envía entre 1 y 50 avisos");
@@ -402,7 +424,8 @@ export function ingestBankNotifications(db, device, events) {
         );
       linkRecordedBankEvidence(db);
       autoConfirmNotificationReceipts(db);
-      if (policy.automatic && parsed.certain && db.prepare('SELECT state FROM finance_notification_events WHERE id=?').get(inserted.lastInsertRowid).state==='review') {
+      const deunaHandled=automaticDeunaExpense(db,Number(inserted.lastInsertRowid),parsed);
+      if (!deunaHandled && policy.automatic && parsed.certain && db.prepare('SELECT state FROM finance_notification_events WHERE id=?').get(inserted.lastInsertRowid).state==='review') {
         try {
           applyBankNotification(
             db,
