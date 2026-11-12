@@ -1,4 +1,5 @@
 import {registerStaffCalendar} from './finance-staff-calendar.js';
+import {registerStaffClock} from './finance-staff-clock.js';
 import {initProfileAccess,effectiveMember,restrictProfileRoute} from './finance-profile-access.js';
 import { applyPrivateBankReview } from "./finance-bank-review.js";
 import {registerRetailRoutes} from './finance-retail.js';
@@ -423,6 +424,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
   registerOperationsRoutes(app, db, { route, owner });
   registerReceiptRoutes(app,db,{route});
   registerRetailRoutes(app,db,{route});
+  registerStaffClock(app,db,{route});
   registerStaffCalendar(app,db,{route});
   registerInviteManagement(app, db, { route, owner });
   registerGmailRoutes(app, db, { route, owner });

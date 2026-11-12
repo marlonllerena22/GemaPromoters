@@ -1,3 +1,4 @@
+import {clockRange} from './finance-staff-clock.js';
 import {canSeeStoreCash} from '../../shared/finance-access.mjs';
 import {audit, cents, financeDay, validDay} from './finance-db.js';
 import {fail, unitAccess, createMovement, text} from './finance-service.js';
@@ -68,6 +69,7 @@ export function saveRetailDetails(db,u,id,body) {
 export function retailAttendance(db,u,body) {
   access(db,u,body.unit_id,true);const day=validDay(body.day);if(day>financeDay())fail('Registra solo días ya trabajados');
   if(!RETAIL_STAFF.includes(body.employee))fail('Empleada no válida');
+  if(db.prepare("SELECT 1 FROM sqlite_master WHERE name='finance_staff_clock'").get()&&db.prepare('SELECT 1 FROM finance_staff_clock WHERE day=? AND employee=?').get(day,body.employee))fail('Esta jornada tiene marcaciones. Corrígela desde Revisar asistencia.',409);
   const weight=Number(body.weight);if(![0,0.5,1].includes(weight))fail('Elige día completo, medio día o quitar');
   return db.transaction(()=>{
     const previous=db.prepare('SELECT * FROM finance_retail_attendance WHERE day=? AND employee=? AND unit_id=?').get(day,body.employee,body.unit_id);
@@ -146,6 +148,7 @@ export function retailReport(db,u,q={}) {
   const allSales=db.prepare("SELECT * FROM finance_sales WHERE business_id='marjorie' AND day<=? ORDER BY day,id").all(monthEnd(to.slice(0,7)));
   const allMovements=db.prepare("SELECT * FROM finance_movements WHERE business_id='marjorie' AND day<=? AND status<>'rejected' ORDER BY day,id").all(to);
   const attendance=db.prepare('SELECT * FROM finance_retail_attendance WHERE day BETWEEN ? AND ? ORDER BY day,unit_id,employee').all(from.slice(0,7)+'-01',monthEnd(to.slice(0,7)));
+  const clockRows=clockRange(db,from,to);
   const allEntries=db.prepare('SELECT * FROM finance_retail_entries WHERE day<=? ORDER BY day,id').all(to);
   const months=[...new Set(Array.from({length:Math.round((Date.parse(to)-Date.parse(from))/86400000)+1},(_,i)=>addDay(from,i).slice(0,7)))];
   const settings=Object.fromEntries(months.map(m=>[m,retailSettings(db,m)]));
@@ -184,12 +187,13 @@ export function retailReport(db,u,q={}) {
       const assignments={'marjorie-bosque':['Martha','Belén'],'marjorie-norte':['Liliana','Martha'],'marjorie-valle':['Nayely','Yamileth'],'marjorie-sur':['Selena','Yamileth']}[unit];
       for(const employee of cfg.staff){
         const worked=attendance.filter(a=>a.day.startsWith(month)&&a.employee===employee.name),local=worked.filter(a=>a.unit_id===unit&&selected(a.day));
-        if(!assignments.includes(employee.name)&&!local.length)continue;
+        const clockLocal=clockRows.filter(a=>a.employee===employee.name&&a.unit_id===unit&&a.day.startsWith(month));
+        if(!assignments.includes(employee.name)&&!local.length&&!clockLocal.length)continue;
         if(employee.salary_cents===null)missing.push('Falta sueldo vigente de '+employee.name);
         if(!worked.length)missing.push('Faltan días trabajados de '+employee.name);
         const allocations=allocateCents((employee.salary_cents||0)+(employee.extras_cents||0),worked.map(a=>a.weight));
         const allocated=sum(worked.map((a,i)=>({...a,cents:allocations[i]})).filter(a=>a.unit_id===unit&&selected(a.day)),a=>a.cents);
-        salaries+=allocated;let p=personnel.find(p=>p.month===month&&p.name===employee.name);if(!p){p={month,name:employee.name,commission_cents:0,salary_cents:0,days:0};personnel.push(p);}p.salary_cents+=allocated;p.days=sum(local,a=>a.weight); const deductions=allocateCents(employee.deductions_cents||0,worked.map(a=>a.weight)); p.deductions_cents=sum(worked.map((a,i)=>({...a,cents:deductions[i]})).filter(a=>a.unit_id===unit&&selected(a.day)),a=>a.cents); p.advances_cents=sum(expenses.filter(m=>m.day.startsWith(month)&&m.retail_category==='adelantos'&&normRetail(m.counterparty).split(/\s+/).includes(normRetail(employee.name))),m=>m.amount_cents); p.payable_cents=p.salary_cents+p.commission_cents-p.deductions_cents-p.advances_cents;
+        salaries+=allocated;let p=personnel.find(p=>p.month===month&&p.name===employee.name);if(!p){p={month,name:employee.name,commission_cents:0,salary_cents:0,days:0};personnel.push(p);}p.salary_cents+=allocated;p.days=sum(local,a=>a.weight); const deductions=allocateCents(employee.deductions_cents||0,worked.map(a=>a.weight)); p.deductions_cents=sum(worked.map((a,i)=>({...a,cents:deductions[i]})).filter(a=>a.unit_id===unit&&selected(a.day)),a=>a.cents); p.advances_cents=sum(expenses.filter(m=>m.day.startsWith(month)&&m.retail_category==='adelantos'&&normRetail(m.counterparty).split(/\s+/).includes(normRetail(employee.name))),m=>m.amount_cents); p.manual_deductions_cents=p.deductions_cents;p.attendance_deductions_cents=sum(clockLocal,a=>a.charges.amount_cents);p.attendance_pending=sum(clockLocal,a=>a.charges.pending+(a.needs_review?1:0));p.attendance_details=clockLocal.filter(a=>a.charges.items.length).map(a=>({day:a.day,charges:a.charges}));p.deductions_cents+=p.attendance_deductions_cents;p.payable_cents=p.attendance_pending?null:p.salary_cents+p.commission_cents-p.deductions_cents-p.advances_cents;if(p.attendance_pending)missing.push('Asistencia o descuentos pendientes de '+employee.name);
       }
       const periodDays=Math.round((Date.parse(to<monthEnd(month)?to:monthEnd(month))-Date.parse(from>month+'-01'?from:month+'-01'))/86400000)+1;
       for(const f of cfg.fixed.filter(f=>f.unit_id===unit)){
@@ -211,6 +215,7 @@ export function retailReport(db,u,q={}) {
     const opening=cashStart&&cashStart.day<=from?cashStart.amount_cents+sum(cashFlows.filter(e=>e.day<from),e=>e.amount_cents):null;
     const cashTotal=cashStart&&cashStart.day<=to?cashStart.amount_cents+sum(cashFlows,e=>e.amount_cents):null;
     const counted=db.prepare('SELECT * FROM finance_retail_counts WHERE unit_id=? AND day BETWEEN ? AND ? ORDER BY day DESC LIMIT 1').get(unit,from,to); const countExpected=counted&&cashStart&&cashStart.day<=counted.day?cashStart.amount_cents+sum(cashFlows.filter(e=>e.day<=counted.day),e=>e.amount_cents):null;
+    const attendanceDeductions=sum(personnel,p=>p.attendance_deductions_cents||0);
     const warnings=[...new Set(missing)];
     const result={unit_id:unit,name:RETAIL_STORES[unit],sales:{gross_cents:gross,refund_cents:refunds,net_cents:net,breakdown,count:sales.length,pairs:sum(sales,s=>sum(detailMap.get(s.id)?.items||[],x=>x.quantity)),thresholds,
       entries:sales.map(s=>({id:s.id,external_id:s.external_id,document_number:s.document_number,day:s.day,net_cents:s.total_cents-s.refunded_cents,payments:JSON.parse(s.payments_json),items:detailMap.get(s.id)?.items?.map(({unit_cost_cents,...x})=>management?{...x,unit_cost_cents}:x)||null}))},
@@ -218,7 +223,7 @@ export function retailReport(db,u,q={}) {
       cash:{opening_cents:opening,balance_cents:cashTotal,start:cashStart,counted_cents:counted?.amount_cents??null,counted_day:counted?.day||null,difference_cents:counted&&countExpected!==null?counted.amount_cents-countExpected:null,entries:cashFlows.filter(e=>selected(e.day)),incomplete:!cashStart||!settings[from.slice(0,7)].coverage_from},
       remittances:allEntries.filter(e=>e.unit_id===unit&&e.kind==='remittance'&&selected(e.day)),direct_deposits:accepted.filter(m=>m.kind==='income'&&m.status==='reconciled'&&m.payment_method!=='cash'&&selected(m.day)).map(m=>({id:m.id,day:m.day,description:m.description,counterparty:m.counterparty,amount_cents:m.amount_cents,account_name:db.prepare('SELECT name FROM finance_accounts WHERE id=?').get(m.account_id)?.name||'Cuenta por identificar'})),pending_expenses:movements.filter(m=>selected(m.day)&&m.kind==='expense'&&['pending','reported'].includes(m.status)).length,
       warnings};
-    if(management)result.management={card_fee_cents:fees,card_fee_estimated:true,producalza_cents:producalza,other_products_cents:cost-producalza,salary_cents:salaries,commission_cents:commissions,operating_cents:operational,fixed_pending_cents:fixedPending,fixed,personnel,net_provisional_cents:net-fees-cost-salaries-commissions-operational-fixedPending,complete:warnings.length===0,net_cents:warnings.length?null:net-fees-cost-salaries-commissions-operational-fixedPending};
+    if(management)result.management={card_fee_cents:fees,card_fee_estimated:true,producalza_cents:producalza,other_products_cents:cost-producalza,salary_cents:salaries,commission_cents:commissions,operating_cents:operational,fixed_pending_cents:fixedPending,attendance_deductions_cents:attendanceDeductions,fixed,personnel,net_provisional_cents:net-fees-cost-salaries-commissions-operational-fixedPending+attendanceDeductions,complete:warnings.length===0,net_cents:warnings.length?null:net-fees-cost-salaries-commissions-operational-fixedPending+attendanceDeductions};
     result.notebook=retailNotebook(result.sales.entries,thresholds,settings,unit,management,result.expenses.flatMap(c=>c.entries),period);
     if(management&&unit==='marjorie-sur'){
       const received=accepted.filter(m=>selected(m.day)&&m.kind==='income'&&m.status==='reconciled');
