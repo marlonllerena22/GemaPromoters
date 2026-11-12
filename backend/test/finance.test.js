@@ -208,7 +208,7 @@ test("saved payees preserve leading zeroes, alternatives and encrypted historica
     false
   );
   const account = await f.account("producalza"),
-    proof = await workflowReceipt(f, "payee-choice");
+    proof = await workflowReceipt(f, "payee-choice", "producalza", 50000);
   const pay = {
     request_key: crypto.randomUUID(),
     amount_cents: 50000,
@@ -268,7 +268,7 @@ test('employee requests save private reusable names without bank accounts and ca
   assert.equal((await f.req('/payees','normita',{business_id:'producalza',space_id:'producalza-pagos',name:'Otro Nombre',accounts:[]})).status,400);
   assert.equal((await f.req('/payment-requests','normita',{...body,request_id:crypto.randomUUID(),business_id:'personal'})).status,403);
   assert.equal(f.db.prepare('SELECT count(*) n FROM finance_payees').get().n,1);
-  const paid=await f.req(`/payment-requests/${id}/payments`,'owner',{request_key:crypto.randomUUID(),amount_cents:15000,account_id:await f.account('producalza'),evidence_id:await workflowReceipt(f,'employee-paid'),paid_day:f.day,reference:'EMPLOYEE-PAY',confirm_paid:true});assert.equal(paid.status,201,JSON.stringify(paid.body));assert.equal(paid.body.remaining_cents,0);assert.equal(paid.body.payment.destination_index,null);
+  const paid=await f.req(`/payment-requests/${id}/payments`,'owner',{request_key:crypto.randomUUID(),amount_cents:15000,account_id:await f.account('producalza'),evidence_id:await workflowReceipt(f,'employee-paid','producalza',15000),paid_day:f.day,reference:'EMPLOYEE-PAY',confirm_paid:true});assert.equal(paid.status,201,JSON.stringify(paid.body));assert.equal(paid.body.remaining_cents,0);assert.equal(paid.body.payment.destination_index,null);
 });
 
 test("contacts reject masked accounts and cannot move personal beneficiaries into work requests", async (t) => {
@@ -316,7 +316,7 @@ test("contacts reject masked accounts and cannot move personal beneficiaries int
     0
   );
 });
-async function workflowReceipt(f, tag = "one", business = "producalza") {
+async function workflowReceipt(f, tag = "one", business = "producalza", amountCents=null) {
   const png =
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aO8sAAAAASUVORK5CYII=";
   const r = await f.req("/evidence", "owner", {
@@ -329,6 +329,7 @@ async function workflowReceipt(f, tag = "one", business = "producalza") {
     ]).toString("base64"),
   });
   assert.ok([200, 201].includes(r.status));
+  if(amountCents!==null)f.db.prepare('UPDATE finance_evidence SET analysis=? WHERE id=?').run(JSON.stringify({amount_cents:amountCents}),r.body.id);
   return r.body.id;
 }
 test("workspaces authorize named participants without exposing peer financial accounts", async (t) => {
@@ -398,59 +399,16 @@ test("payable reminders survive reads and approval, resolve on evidenced payment
       .status,
     409
   );
-  const firstReceipt = await workflowReceipt(f, "partial");
-  const first = {
-    request_key: crypto.randomUUID(),
-    amount_cents: 10000,
-    evidence_id: firstReceipt,
-    account_id: account,
-    paid_day: f.day,
-    reference: "TEST-PAGO-1",
-    confirm_paid: true,
-  };
-  assert.equal(
-    (
-      await f.req(`/payment-requests/${id}/payments`, "owner", {
-        ...first,
-        confirm_paid: false,
-      })
-    ).status,
-    400
-  );
-  const paid = await f.req(`/payment-requests/${id}/payments`, "owner", first);
-  assert.equal(paid.status, 201);
-  assert.equal(
-    (await f.req(`/payment-requests/${id}/payments`, "owner", first)).body
-      .duplicate,
-    true
-  );
-  assert.equal(
-    (await f.req("/snapshot")).body.workflow.summary.pending_cents,
-    20000
-  );
-  assert.equal(
-    (
-      await f.req(`/payment-requests/${id}/payments`, "owner", {
-        ...first,
-        request_key: crypto.randomUUID(),
-        amount_cents: 25000,
-      })
-    ).status,
-    409
-  );
-  const secondReceipt = await workflowReceipt(f, "final");
-  assert.equal(
-    (
-      await f.req(`/payment-requests/${id}/payments`, "owner", {
-        ...first,
-        request_key: crypto.randomUUID(),
-        amount_cents: 20000,
-        evidence_id: secondReceipt,
-        reference: "TEST-PAGO-2",
-      })
-    ).status,
-    201
-  );
+  const firstReceipt = await workflowReceipt(f, "exact", "producalza", 30000);
+  const first = {request_key:crypto.randomUUID(),amount_cents:30000,evidence_id:firstReceipt,account_id:account,paid_day:f.day,reference:'TEST-PAGO-1',confirm_paid:true};
+  assert.equal((await f.req(`/payment-requests/${id}/payments`,'owner',{...first,confirm_paid:false})).status,400);
+  for(const value of [10000,29999,30001,40000])assert.equal((await f.req(`/payment-requests/${id}/payments`,'owner',{...first,amount_cents:value})).status,409);
+  f.db.prepare('UPDATE finance_evidence SET analysis=? WHERE id=?').run(JSON.stringify({amount_cents:10000}),firstReceipt);
+  assert.equal((await f.req(`/payment-requests/${id}/payments`,'owner',first)).status,409);
+  f.db.prepare('UPDATE finance_evidence SET analysis=? WHERE id=?').run(JSON.stringify({amount_cents:30000}),firstReceipt);
+  const paid=await f.req(`/payment-requests/${id}/payments`,'owner',first);
+  assert.equal(paid.status,201,JSON.stringify(paid.body));
+  assert.equal((await f.req(`/payment-requests/${id}/payments`,'owner',first)).body.duplicate,true);
   const complete = (await f.req("/snapshot")).body;
   assert.equal(complete.workflow.summary.pending_count, 0);
   assert.equal(complete.summary.expense_cents, 30000);
@@ -468,8 +426,8 @@ test("payable reminders survive reads and approval, resolve on evidenced payment
     200
   );
   const reopened = (await f.req("/snapshot")).body;
-  assert.equal(reopened.workflow.summary.pending_cents, 10000);
-  assert.equal(reopened.summary.expense_cents, 20000);
+  assert.equal(reopened.workflow.summary.pending_cents, 30000);
+  assert.equal(reopened.summary.expense_cents, 0);
   assert.equal(
     (
       await f.req(`/payment-requests/${id}/cancel`, "owner", {
@@ -484,7 +442,7 @@ test("payable reminders survive reads and approval, resolve on evidenced payment
   );
   assert.equal(
     f.db.prepare("SELECT COUNT(*) n FROM finance_payments").get().n,
-    2
+    1
   );
 });
 test("work observer sees bank balances and work detail while personal transactions and allocations stay private", async (t) => {

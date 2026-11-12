@@ -1,4 +1,5 @@
-import {settleIessProof} from './finance-iess.js';
+import {suggestOriginAccount} from './finance-origin-account.js';
+import {settleIessProof,iessDetails} from './finance-iess.js';
 import {canRequestPayments,canSeeAllBalances} from '../../shared/finance-access.mjs';
 import crypto from "node:crypto";
 import { decryptDocument } from "./finance-ai.js";
@@ -194,13 +195,25 @@ export function recordRequestPayment(db, user, id, body) {
     }
     if (!request.remaining_cents)
       fail("La solicitud ya no tiene un valor pendiente", 409);
-    if (payload.amount_cents > request.remaining_cents)
-      fail("El pago supera el saldo pendiente", 409);
+    if (payload.amount_cents !== request.amount_cents || request.remaining_cents !== request.amount_cents)
+      fail(`El pago debe ser exactamente $${(request.amount_cents/100).toFixed(2)}. No se aceptan abonos ni pagos parciales`, 409);
     const evidence = db
       .prepare("SELECT * FROM finance_evidence WHERE id=?")
       .get(payload.evidence_id);
     if (!evidence || evidence.business_id !== request.business_id)
       fail("El comprobante no corresponde al negocio");
+    if(evidence.id===request.evidence_id&&request.request_kind==='iess')fail('Sube el comprobante del banco; la planilla IESS no demuestra que ya pagaste');
+    let analysis;try{analysis=JSON.parse(evidence.analysis||'null');}catch{}
+    if(!Number.isSafeInteger(analysis?.amount_cents)||analysis.amount_cents<=0)
+      fail('No se pudo verificar el monto del comprobante. Vuelve a leerlo o sube una imagen más clara; no se registró el pago',409);
+    if(analysis.amount_cents!==request.amount_cents)
+      fail(`Comprobante incorrecto: muestra $${(analysis.amount_cents/100).toFixed(2)} y esta petición requiere $${(request.amount_cents/100).toFixed(2)}. Sube el comprobante que corresponde`,409);
+    const iess=request.request_kind==='iess'?iessDetails(db,request.id):null;
+    if(iess&&analysis.service_ruc&&analysis.service_ruc!==iess.ruc)fail('El RUC del comprobante no corresponde a esta planilla IESS',409);
+    const detectedOrigin=suggestOriginAccount(db,user,analysis);
+    if(detectedOrigin.state==='conflict')fail('La cuenta del comprobante contradice el aviso bancario. Revisa el documento antes de confirmar',409);
+    if(detectedOrigin.state==='matched'&&detectedOrigin.account_id!==payload.account_id)
+      fail('La cuenta elegida no coincide con la cuenta de origen del comprobante',409);
     if (
       db
         .prepare(

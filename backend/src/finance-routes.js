@@ -1,3 +1,5 @@
+import {applyPrivateIessRepair} from './finance-iess-repair.js';
+import {enrichServiceProof} from './finance-service-payment-proof.js';
 import {analyzeIess} from './finance-iess.js';
 import {registerStaffCalendar} from './finance-staff-calendar.js';
 import {registerStaffClock} from './finance-staff-clock.js';
@@ -102,6 +104,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
   archiveBankPromotions(db);
   repairReceiptAccounts(db);
   applyPrivateBankReview(db);
+  applyPrivateIessRepair(db);
   setImmediate(()=>financeSupportCheck(db));
   if(process.env.NODE_ENV!=="test")console.info("[finance] Marjorie integration health "+JSON.stringify(marjorieIntegrationHealth(db)));
   startFinanceSyncWorker(db);
@@ -1061,7 +1064,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
       writer(req);
       aiLimit(req);
       const e = evidenceAccess(req);
-      const analysis = await analyzeDocument(e);
+      const analysis = enrichServiceProof(db,e,await analyzeDocument(e));
       db.transaction(() => {
         db.prepare("UPDATE finance_evidence SET analysis=? WHERE id=?").run(
           JSON.stringify(analysis),

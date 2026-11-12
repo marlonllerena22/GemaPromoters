@@ -1,3 +1,4 @@
+import {declaredIessBank} from './finance-service-payment-proof.js';
 import {matchIessPayments} from './finance-iess.js';
 import { matchUnreferencedDeclaration,matchConfirmedReceiptDeclaration } from "./finance-declared-bank.js";
 import {isBankPromotion} from '../../shared/finance-bank-promotions.mjs';
@@ -179,8 +180,9 @@ export function parseBankMail(m, registry = { accounts: [] }) {
         plain,
       ),
     isCard = /tarjeta de debito|tarjeta de credito/.test(plain) && !settlement;
+  const servicePaid=bank==='Produbanco'&&/pago de servicio/.test(plain)&&/el siguiente pago se ha realizado/.test(plain)&&/cuenta debito/.test(plain);
   const outgoing =
-      settlement || debitCompleted || /transferencia solicitada sera debitada de su cuenta/.test(plain) ||
+      servicePaid || settlement || debitCompleted || /transferencia solicitada sera debitada de su cuenta/.test(plain) ||
       /realizaste una transferencia|transferencia enviada|pago exitoso|pago realizado correctamente|pago con tu|consumo (con|de)/.test(
         plain,
       ),
@@ -195,7 +197,7 @@ export function parseBankMail(m, registry = { accounts: [] }) {
   );
   const origin = (
     body.match(
-      /(?:Cuenta (?:de )?origen|Cuenta de d[eé]bito|Desde la cuenta)\s*(?:N[uú]mero de cuenta\s*:?)?\s*:?\s*([*xX\d\s-]{5,40})/i,
+      /(?:Cuenta (?:de )?origen|Cuenta (?:de )?d[eé]bito|Desde la cuenta)\s*(?:N[uú]mero de cuenta\s*:?)?\s*:?\s*([*xX\d\s-]{5,40})/i,
     )?.[1] || ""
   ).replace(/\s/g, "");
   const destination =
@@ -277,7 +279,12 @@ export function parseBankMail(m, registry = { accounts: [] }) {
   const received = receivedDate.toISOString();
   const date = body.match(/(\d{2})[/-](\d{2})[/-](\d{4})/),
     time = body.match(/(?:a la\(s\)|a las|Hora\s*:?)\s*(\d{1,2}:\d{2})/i);
-  let occurred = null;
+  const namedDate=plain.match(/fecha y hora:\s*(\d{1,2})\/([a-z]+)\/(\d{4})\s+(\d{2}:\d{2})/);
+  const months=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  const namedDay=namedDate&&months.includes(namedDate[2])?`${namedDate[3]}-${String(months.indexOf(namedDate[2])+1).padStart(2,'0')}-${namedDate[1].padStart(2,'0')}`:null;
+  const namedTime=namedDay?new Date(`${namedDay}T${namedDate[4]}:00-05:00`):null;
+  const validNamedDay=namedTime&&Number.isFinite(namedTime.getTime())&&financeDay(namedTime)===namedDay?namedDay:null;
+  let occurred = validNamedDay?namedTime.toISOString():null;
   if (date && time) {
     const value = new Date(
       `${date[3]}-${date[2]}-${date[1]}T${time[1].padStart(5, "0")}:00-05:00`,
@@ -320,14 +327,14 @@ export function parseBankMail(m, registry = { accounts: [] }) {
     : null;
   return {
     id: m.id,
-    parser_version:2,
+    parser_version:3,
     registry_signature:registrySignature(registry),
     accepted_scheduled_transfer:acceptedScheduledTransfer,
     from,
     subject,
     received_at: received,
     occurred_at: occurred,
-    operation_day: date ? `${date[3]}-${date[2]}-${date[1]}` : null,
+    operation_day: date ? `${date[3]}-${date[2]}-${date[1]}` : validNamedDay,
     body,
     bank,
     trusted,
@@ -341,6 +348,7 @@ export function parseBankMail(m, registry = { accounts: [] }) {
       )?.[1],
     ),
     reference,
+    service_ruc:servicePaid?body.match(/Suministro:\s*(\d{13})\b/i)?.[1]||null:null,
     origin_suffix: suffix(origin),
     destination_suffix: suffix(destination),
     card_suffix: suffix(card),
@@ -576,7 +584,7 @@ export function applyMailDraft(db, user, id, body) {
     if (declared.length > 1) fail("Hay varios registros manuales con esa referencia. Revisa antes de aplicar el aviso", 409);
     const linkedBank = body.link_bank_id && !alreadyApplied ? db.prepare("SELECT * FROM finance_bank_transactions WHERE id=? AND account_id=? AND day=? AND amount_cents=?").get(Number(body.link_bank_id),account.id,day,p.amount_cents*(direction==='outgoing'?-1:1)) : null;
     if(body.link_bank_id&&!alreadyApplied&&!linkedBank)fail('El movimiento elegido no coincide con cuenta, fecha y valor');
-    const declaredBank = linkedBank || declared[0] || (!alreadyApplied ? matchConfirmedReceiptDeclaration(db,{account_id:account.id,day,amount_cents:p.amount_cents*(direction==='outgoing'?-1:1),counterparty:p.counterparty})||matchUnreferencedDeclaration(db, { account_id: account.id, day, amount_cents: p.amount_cents * (direction === "outgoing" ? -1 : 1), counterparty: p.counterparty }) : null);
+    const declaredBank = linkedBank || declared[0] || (!alreadyApplied&&direction==='outgoing'?declaredIessBank(db,p,account.id,day):null) || (!alreadyApplied ? matchConfirmedReceiptDeclaration(db,{account_id:account.id,day,amount_cents:p.amount_cents*(direction==='outgoing'?-1:1),counterparty:p.counterparty})||matchUnreferencedDeclaration(db, { account_id: account.id, day, amount_cents: p.amount_cents * (direction === "outgoing" ? -1 : 1), counterparty: p.counterparty }) : null);
     if (existing[0]?.status === "reconciled" && !declaredBank)
       fail(
         "El gasto con esta referencia ya está conciliado. Revisa el aviso para evitar duplicarlo",
@@ -1235,7 +1243,7 @@ export function autoApplyBankMail(db, id) {
   let p = JSON.parse(decryptDocument(row.encrypted).toString());
   const registry=privateSetting(db,'own_account_registry')||{accounts:[]};
   registry.debit_cards=privateSetting(db,'debit_card_accounts')||registry.debit_cards||[];
-  if(p.trusted&&(p.parser_version!==2||p.registry_signature!==registrySignature(registry))){
+  if(p.trusted&&(p.parser_version!==3||p.registry_signature!==registrySignature(registry))){
     const parsed=parseBankMail({id:p.id||id,internalDate:String(Date.parse(p.received_at)),payload:{headers:[{name:'From',value:p.from},{name:'Subject',value:p.subject}],body:{content:p.body}}},registry);
     if(parsed&&!(row.state==='applied'&&parsed.account_id!==row.account_id)){
       p={...parsed,trusted:p.trusted};

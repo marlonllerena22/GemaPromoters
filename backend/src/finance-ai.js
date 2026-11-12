@@ -150,7 +150,7 @@ export async function analyzeDocument(evidence) {
         content: [
           {
             type: "input_text",
-            text: "Extrae los datos legibles de este documento. receiving_bank es únicamente el banco de DESTINO, nunca el banco de origen ni el logo emisor. origin_bank es el banco desde el que salió el dinero y origin_account_suffix son SOLO los últimos dígitos contiguos legibles del campo explícito Cuenta origen; conserva ceros. Nunca uses Cuenta destino para origin_account_suffix. Si el comprobante tiene bloques Para y De, Para identifica al beneficiario, su banco y su cuenta de destino; De identifica al ordenante y su cuenta de origen. Para un número 20******42 devuelve destination_account_suffix 42: nunca unas 20 y 42 como si fueran contiguos. No completes dígitos ocultos ni deduzcas una cuenta de una tarjeta. Si no se lee el campo origen, devuelve null. No confirma una acreditación bancaria.",
+            text: "Extrae los datos legibles de este documento. receiving_bank es únicamente el banco de DESTINO, nunca el banco de origen ni el logo emisor. origin_bank es el banco desde el que salió el dinero y origin_account_suffix son SOLO los últimos dígitos contiguos legibles del campo explícito Cuenta origen, Cuenta débito, Cuenta a debitar o Cuenta debitada; conserva ceros. Nunca uses Cuenta destino para origin_account_suffix. Si el comprobante tiene bloques Para y De, Para identifica al beneficiario, su banco y su cuenta de destino; De identifica al ordenante y su cuenta de origen. Para un número 20******42 devuelve destination_account_suffix 42: nunca unas 20 y 42 como si fueran contiguos. No completes dígitos ocultos ni deduzcas una cuenta de una tarjeta. En pagos de servicios de Produbanco, Cuenta Débito es la cuenta de ORIGEN aunque no exista Cuenta destino. Si figura Cuenta o Número de cuenta como producto debitado en un comprobante de pago de servicio, también es origen. Conserva únicamente el sufijo visible tras X o asteriscos. Si no se lee el campo origen, devuelve null. En la pantalla de Produbanco Pago de servicios / IESS-BIESS, el bloque Con: nombre y Nro. 2••••••542 identifica la cuenta del PAGADOR, no el destino: origin_bank Produbanco, origin_account_suffix 542 y destination_account_suffix null. Código o Suministro con 13 dígitos es el RUC del servicio, devuélvelo en service_ruc; nunca como reference. reference solo es número de operación/referencia bancaria real; si no aparece devuelve null. No confirma una acreditación bancaria.",
           },
           content,
         ],
@@ -169,6 +169,7 @@ export async function analyzeDocument(evidence) {
         origin_account_suffix: nullableString,
         destination_account_suffix: nullableString,
         payer_name: nullableString,
+        service_ruc: nullableString,
         reference: nullableString,
         counterparty: nullableString,
         description: nullableString,
@@ -183,6 +184,7 @@ export async function analyzeDocument(evidence) {
         "origin_account_suffix",
         "destination_account_suffix",
         "payer_name",
+        "service_ruc",
         "reference",
         "counterparty",
         "description",

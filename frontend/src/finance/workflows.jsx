@@ -844,6 +844,7 @@ export function RecordPayment({
     [reference, setReference] = useState(""),
     [evidence, setEvidence] = useState(null),
     [origin, setOrigin] = useState(null),
+    [proofAmount,setProofAmount]=useState(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [uploading, setUploading] = useState(false),
@@ -863,6 +864,7 @@ export function RecordPayment({
     if (!selected || preview) return;
     if (origin?.account_id === Number(account)) setAccount("");
     setOrigin(null);
+    setEvidence(null);setProofAmount(null);setReference("");setValue((request.amount_cents/100).toFixed(2));
     setUploading(true);
     setError("");
     try {
@@ -896,14 +898,13 @@ export function RecordPayment({
             setAccount(String(origin_account.account_id));
           if (analysis.reference) setReference(analysis.reference);
           if (analysis.day) setDay(analysis.day);
-          if (
-            analysis.amount_cents &&
-            analysis.amount_cents <= request.remaining_cents
-          )
-            setValue((analysis.amount_cents / 100).toFixed(2));
+          const detected=Number.isSafeInteger(analysis.amount_cents)&&analysis.amount_cents>0?analysis.amount_cents:null;
+          setProofAmount(detected);
+          if(detected===null)setError('No se pudo leer el monto. Sube una imagen más clara para verificar el pago.');
+          else if(detected!==request.amount_cents)setError(`Este comprobante muestra ${money(detected)} y la petición es de ${money(request.amount_cents)}. Elige el comprobante correcto; no se aceptan abonos.`);
         } catch {
           setError(
-            "El comprobante se guardó. Completa la referencia y revisa el monto."
+            "No se pudo verificar el comprobante. Vuelve a subirlo para leer el monto antes de confirmar."
           );
         }
       }
@@ -988,7 +989,7 @@ export function RecordPayment({
         >
           <div className="gf-pay-target">
             <span>{request.counterparty}</span>
-            <strong>{money(amount(value))}</strong>
+            <strong>{money(request.amount_cents)}</strong>
             <small>{request.description}</small>
           </div>
           <input
@@ -1005,7 +1006,7 @@ export function RecordPayment({
             variant={evidence ? "secondary" : ""}
             onClick={() =>
               preview
-                ? setEvidence({ id: -1, name: "Comprobante de ejemplo" })
+                ? (setEvidence({ id: -1, name: "Comprobante de ejemplo" }),setProofAmount(request.amount_cents))
                 : file.current.click()
             }
           >
@@ -1028,6 +1029,7 @@ export function RecordPayment({
               <p className="gf-fast-file">
                 <FileCheck2 size={19} /> {evidence.name}
               </p>
+              {proofAmount!==null&&<p className={proofAmount===request.amount_cents?"gf-note":"gf-error"}>Comprobante: {money(proofAmount)} · Petición: {money(request.amount_cents)}{proofAmount===request.amount_cents?" · Monto exacto":" · No coincide"}</p>}
               <Field label="Sale de">
                 <select
                   value={account}
@@ -1047,6 +1049,8 @@ export function RecordPayment({
                 <p className="gf-fast-origin" role="status">
                   {origin.state === "matched"
                     ? `Cuenta detectada por el comprobante · ${origin.suffix}`
+                    : origin.state === "conflict"
+                    ? "La cuenta del comprobante contradice el aviso bancario. Revisa el documento."
                     : origin.state === "ambiguous"
                     ? "Coincide con varias cuentas; elige la correcta."
                     : "Revisa y elige la cuenta desde la que pagaste."}
@@ -1080,16 +1084,16 @@ export function RecordPayment({
                 </Field>
               )}
               <details className="gf-fast-edit">
-                <summary>Editar monto o fecha · {dateLabel(day)}</summary>
+                <summary>Fecha del pago · {dateLabel(day)}</summary>
                 <div className="gf-payment-fields">
                   <Field label="Monto transferido (USD)">
                     <input
                       type="number"
                       min="0.01"
-                      max={request.remaining_cents / 100}
+                      max={request.amount_cents / 100}
                       step="0.01"
                       value={value}
-                      onChange={(e) => setValue(e.target.value)}
+                      readOnly
                       required
                     />
                   </Field>
@@ -1124,7 +1128,10 @@ export function RecordPayment({
                 !account ||
                 !reference.trim() ||
                 amount(value) <= 0 ||
-                amount(value) > request.remaining_cents
+                amount(value) !== request.amount_cents ||
+                proofAmount !== request.amount_cents ||
+                origin?.state === "conflict" ||
+                request.remaining_cents !== request.amount_cents
               }
               className="gf-full-width"
             >
