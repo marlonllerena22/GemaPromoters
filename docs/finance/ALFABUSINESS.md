@@ -50,7 +50,18 @@ El campo recomendado es **`unit_id` en la raíz del JSON**, por ejemplo `"unit_i
 
 También se aceptan `local`, `location`, `sucursal`, `unitId`, `branch_name`, `branchName`, `store_name` o `storeName`, tanto en la raíz como dentro de `sale`. Se reconocen los identificadores anteriores y los nombres de la tabla. Un objeto `local` puede identificarlo mediante `name`, `nombre`, `code` o `unit_id`. Si dos campos señalan locales distintos, el envío se rechaza. El local debe venir en el **cuerpo firmado**; los parámetros de la URL no se usan.
 
-En un sobre `{ "event": "sale.registered", "sale": { ... } }`, se admiten `sale.id` como identificador original, `sale.total` expresado en dólares con hasta dos decimales, `sale.invoice_number` y `sale.sold_at` con zona horaria. `source_updated_at` conserva la versión de origen; si falta se usa `updated_at`, `occurred_at` del sobre o `sold_at`. Sin `day`, se toma el día de Ecuador de `sold_at`/`occurred_at`. `sale.registered` representa una venta activa; los demás eventos deben indicar `state` explícito. `payments` conserva el mismo desglose en centavos del ejemplo y nunca se inventa a partir del total.
+En un sobre `{ "event": "sale.registered", "sale": { ... } }`, se admiten `sale.id` como identificador original, `sale.total` expresado en dólares con hasta dos decimales, `sale.invoice_number` y `sale.sold_at` con zona horaria. `source_updated_at` conserva la versión de origen; si falta se usa `updated_at`, `occurred_at` del sobre o `sold_at`. Sin `day`, se toma el día de Ecuador de `sold_at`/`occurred_at`. `sale.registered` representa una venta activa. `payments` conserva el desglose en centavos y nunca se inventa a partir del total.
+
+También se admite el formato real **`sale.upserted`** enviado para las ventas 866 y 870:
+
+- `sale.status.invoice_status: "invoiced"`, `is_voided: false`, `invoice_void_status: null`, `void: null` y `returns: []` identifican una venta `active`. `is_voided: true` identifica `cancelled`. Un estado desconocido o una anulación pendiente requiere `state` explícito; no se presupone venta activa.
+- Si `payments` está vacío, se usa `payment_methods`, por ejemplo `[{"method":"tarjeta","amount":188}]` → `[{"method":"card","amount_cents":18800}]`. Se admiten también `efectivo` → `cash`, `transferencia` → `transfer`, `payphone` y `otro` → `other`. Un método desconocido se rechaza.
+- `amount_paid` debe coincidir con la suma del desglose; `amount_paid + balance_due` debe coincidir con el total cuando no hay devoluciones. Ambos valores vienen en dólares. Si existen ambos desgloses no vacíos, deben coincidir por método, importe y devolución; no se suman entre sí.
+- La fecha de venta proviene de `sold_at` y la versión de `updated_at`; una nueva hora de entrega `occurred_at` no convierte el mismo contenido en otra venta ni cambia su fecha.
+- Las devoluciones no vacías requieren `state` y `refunded_cents` explícitos y el desglose de reembolsos por método. No se adivina el significado de elementos desconocidos en `returns`.
+- El `total` final es autoritativo: no se le suman otra vez impuestos ni se resta otra vez `discount`. `clave_acceso` no se necesita ni se conserva en el modelo normalizado.
+
+Los demás tipos de evento requieren `state` explícito.
 
 Para la venta 866: conservar el ID original `866`, la factura `000000104`, el local `marjorie-sur` y `Idempotency-Key: mb-sale-866`. No sustituir el ID por el número de factura ni generar otro ID en un reintento. Mantener la misma versión y datos al repetir; si cambia la factura, un abono o una devolución, actualizar `source_updated_at`. Renovar únicamente el timestamp y la firma de entrega. La respuesta incluye `id` de Finanzas, `external_id`, `unit_id` e `ignored`; al repetir debe devolver el mismo `id`.
 

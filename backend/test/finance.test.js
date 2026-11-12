@@ -19,6 +19,7 @@ import { encodeBase32, totp, validTotpStep } from "../src/finance-security.js";
 import { initProducalzaDb } from "../src/producalza-db.js";
 import { registerProducalzaRoutes } from "../src/producalza-routes.js";
 import { syncInternalSources } from "../src/finance-sources.js";
+import {alfaBusinessUpserts} from './fixtures/alfabusiness-upserts.js';
 
 const password = "Fixture8";
 test('Android bank collection is owner-only, uses a submit-only device token and stops on revoke or session logout',async t=>{
@@ -1307,6 +1308,43 @@ test('signed AlfaBusiness delivery accepts the reported sale 866 envelope and re
   const canonicalRetry=await send(canonical);assert.equal(canonicalRetry.status,200);assert.equal(canonicalRetry.body.id,accepted.body.id);assert.equal(canonicalRetry.body.ignored,true);
   assert.equal((await send({...body,local:'Norte'})).status,400);
   const noLocal={...body};delete noLocal.local;noLocal.sale={...body.sale};delete noLocal.sale.local;assert.equal((await send(noLocal,'/integrations/alfabusiness?local=marjorie-sur')).status,400);
+});
+
+test('real AlfaBusiness sale.upserted shapes for 866 and 870 import paid card sales with original dates and stable versions',async t=>{
+  const f=await fixture(t),old=process.env.FINANCE_SALES_WEBHOOK_SECRET;
+  process.env.FINANCE_SALES_WEBHOOK_SECRET='test-only-upsert-secret-at-least-32-characters';
+  t.after(()=>{if(old===undefined)delete process.env.FINANCE_SALES_WEBHOOK_SECRET;else process.env.FINANCE_SALES_WEBHOOK_SECRET=old;});
+  const send=body=>{const timestamp=String(Math.floor(Date.now()/1000));return f.req('/integrations/alfabusiness','none',body,'POST',{'idempotency-key':`mb-sale-${body.sale.id}`,'x-finance-timestamp':timestamp,'x-finance-signature':crypto.createHmac('sha256',process.env.FINANCE_SALES_WEBHOOK_SECRET).update(timestamp+'.'+JSON.stringify(body)).digest('hex')});};
+  for(const body of alfaBusinessUpserts){
+    const accepted=await send(body);assert.equal(accepted.status,200,JSON.stringify(accepted.body));
+    const row=f.db.prepare('SELECT * FROM finance_sales WHERE id=?').get(accepted.body.id);
+    assert.equal(row.external_id,String(body.sale.id));assert.equal(row.unit_id,body.unit_id);assert.equal(row.document_number,body.sale.invoice_number);
+    assert.equal(row.day,body.sale.sold_at.slice(0,10));assert.equal(row.total_cents,body.sale.total*100);assert.equal(row.state,'active');
+    assert.equal(row.source_updated_at,new Date(body.sale.updated_at).toISOString());assert.deepEqual(JSON.parse(row.payments_json),[{method:'card',amount_cents:body.sale.total*100}]);
+    assert.ok(!row.payload_json.includes('clave_acceso'));
+    const retry=await send({...body,occurred_at:'2026-11-12T00:00:00-05:00'});assert.equal(retry.status,200);assert.equal(retry.body.id,accepted.body.id);assert.equal(retry.body.ignored,true);
+    const conflicting=structuredClone(body);conflicting.sale.total+=1;conflicting.sale.amount_paid+=1;conflicting.sale.payment_methods[0].amount+=1;
+    assert.equal((await send(conflicting)).status,409);
+  }
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_sales').get().n,2);assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,0);
+  const base=alfaBusinessUpserts[1],change=patch=>({...structuredClone(base),sale:{...structuredClone(base.sale),...patch}});
+  for(const patch of [
+    {amount_paid:187},{balance_due:1},{payment_methods:[{method:'tarjeta',amount:187}]},
+    {payment_methods:[{method:'misterioso',amount:188}]},
+    {payments:[{method:'cash',amount_cents:18800}]},
+    {status:{...base.sale.status,is_voided:'false'}},
+    {status:{...base.sale.status,invoice_status:'unknown'}},
+    {returns:[{id:1,amount:10}]},
+    {status:{...base.sale.status,invoice_void_status:'pending'}},
+    {state:'active',status:{...base.sale.status,is_voided:true}},
+  ])assert.equal((await send(change(patch))).status,400,JSON.stringify(patch));
+  const mixed=change({id:'mixed-upsert',amount_paid:100,balance_due:88,payment_methods:[{method:'efectivo',amount:40},{method:'transferencia',amount:60}]});
+  assert.equal((await send(mixed)).status,200);
+  const complete=structuredClone(mixed);complete.sale.amount_paid=188;complete.sale.balance_due=0;complete.sale.payment_methods.push({method:'tarjeta',amount:88});complete.sale.updated_at='2026-11-12T01:00:00-05:00';
+  const updated=await send(complete);assert.equal(updated.status,200);assert.equal((await send(mixed)).body.ignored,true);
+  const voided=change({status:{...base.sale.status,is_voided:true},void:{reason:'fixture'},updated_at:'2026-11-12T01:00:00-05:00'});
+  const cancelled=await send(voided);assert.equal(cancelled.status,200);assert.equal(f.db.prepare('SELECT state FROM finance_sales WHERE id=?').get(cancelled.body.id).state,'cancelled');
+  assert.equal((await send(base)).body.ignored,true);
 });
 
 test('AlfaBusiness records authenticated rejection reasons without logging credentials or the customer payload',async t=>{
