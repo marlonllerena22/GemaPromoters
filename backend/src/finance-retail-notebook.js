@@ -21,7 +21,7 @@ export function retailNotebook(entries,thresholds,settings,unit,management,expen
   const result=items.map((x,i)=>{
    const commission=known?(eligible?x.quantity*tierCommission(x.unit_price_cents,unit==='marjorie-bosque'):0):null;
    return {sale_id:s.id,external_id:s.external_id,day:s.day,document_number:s.document_number,product:x.product,size:x.size,seller:x.seller,quantity:x.quantity,unit_price_cents:x.unit_price_cents,total_cents:weights[i],...Object.fromEntries(methods.map(m=>[m,columns[m][i]])),unpaid_cents:remaining[i],commission_cents:commission,complete:known,
-    ...(management?{unit_cost_cents:known?x.unit_cost_cents:null,cost_cents:known?x.quantity*x.unit_cost_cents:null,card_fee_cents:feeParts[i],margin_cents:known?weights[i]-x.quantity*x.unit_cost_cents-feeParts[i]-commission:null}:{} )};
+    ...(management?{unit_cost_cents:known?x.unit_cost_cents:null,cost_cents:known&&x.unit_cost_cents!==null?x.quantity*x.unit_cost_cents:null,card_fee_cents:feeParts[i],margin_cents:known&&x.unit_cost_cents!==null?weights[i]-x.quantity*x.unit_cost_cents-feeParts[i]-commission:null}:{} )};
   });
   if(methods.some(m=>columns[m].overflow))result.push({sale_id:s.id,external_id:s.external_id,day:s.day,product:'Cobros por conciliar',size:'',seller:'',quantity:0,total_cents:0,unit_price_cents:null,...Object.fromEntries(methods.map(m=>[m,columns[m].overflow])),unpaid_cents:Math.min(0,s.net_cents-paid),commission_cents:0,complete:false,...(management?{unit_cost_cents:null,cost_cents:0,card_fee_cents:fee-sum(feeParts,x=>x),margin_cents:null}:{})});
   return result;

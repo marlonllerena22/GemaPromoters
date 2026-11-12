@@ -46,3 +46,16 @@ test('rents carry forward by store while keeping earlier configuration and PDF u
  assert.equal(retailSettings(f.db,'2026-11').fixed[0].amount_cents,28750);s.fixed[0].amount_cents=30000;saveRetailSettings(f.db,owner,{month:'2026-11',settings:s});assert.equal(retailSettings(f.db,'2026-10').fixed[0].amount_cents,28750);assert.equal(retailSettings(f.db,'2027-01').fixed[0].amount_cents,30000);
  const pdf=await retailMonthlyPdf(f.report());assert.equal(pdf.subarray(0,4).toString(),'%PDF');assert.ok(pdf.length>2000);
 });
+
+
+test('external sales need no supplier/cost, and local settings survive unchanged-line replays',t=>{
+ const f=fixture(t),item={quantity:60,unit_price_cents:7000,seller:'Selena',product:'Botín',size:'37'};
+ const body={external_id:'cost-local',unit_id:'marjorie-sur',day,total_cents:420000,refunded_cents:0,state:'active',source_updated_at:'2026-10-10T20:00:00Z',payments:[{method:'cash',amount_cents:420000}],retail:{items:[item]}};
+ const incoming=normalizeAlfaBusinessSale(body);assert.equal(incoming.retail.items[0].producalza,null);assert.equal(incoming.retail.items[0].unit_cost_cents,null);
+ const spoof=normalizeAlfaBusinessSale({...body,retail:{items:[{...item,producalza:true,unit_cost_cents:1}]}});assert.equal(spoof.retail.items[0].producalza,null);
+ const sale=importSale(f.db,incoming);let r=f.report().stores[0];assert.equal(r.sales.pairs,60);assert.equal(r.management.commission_cents,6000);assert.equal(r.notebook.totals.cost_cents,null);assert.equal(r.notebook.totals.margin_cents,null);assert.ok(r.warnings.some(w=>w.includes('proveedor y costo')));
+ assert.throws(()=>saveRetailDetails(f.db,owner,sale.id,{items:[item]}),/proveedor/);
+ saveRetailDetails(f.db,owner,sale.id,{items:[{...item,producalza:false,unit_cost_cents:2200}]});r=f.report().stores[0];assert.equal(r.management.other_products_cents,132000);assert.equal(r.management.producalza_cents,0);
+ const updated={...body,source_updated_at:'2026-10-11T00:00:00Z',document_number:'invoice-late'};importSale(f.db,normalizeAlfaBusinessSale(updated));r=f.report().stores[0];assert.equal(r.management.other_products_cents,132000);assert.equal(r.sales.count,1);
+ const changed={...updated,source_updated_at:'2026-10-12T00:00:00Z',retail:{items:[{...item,product:'Otro producto'}]}};importSale(f.db,normalizeAlfaBusinessSale(changed));assert.equal(f.report().stores[0].notebook.totals.cost_cents,null);
+});

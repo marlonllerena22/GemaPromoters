@@ -49,18 +49,20 @@ export function saveRetailSettings(db,u,body) {
   return config;
 }
 // Details describe net sold pairs, after discounts/returns. They never create sales or bank money.
-export function validateRetailDetails(value,sale) {
+export function validateRetailDetails(value,sale,{external=false,requireCosts=false}={}) {
   if(!value||!Array.isArray(value.items)||value.items.length<1||value.items.length>200)fail('Añade los productos vendidos');
   const items=value.items.map(x=>{
-    if(!Number.isSafeInteger(x.quantity)||x.quantity<1||x.quantity>10000||!RETAIL_STAFF.includes(x.seller)||typeof x.producalza!=='boolean')fail('Completa pares, vendedora y proveedor');
-    return {product:text(x.product,150)||'Calzado',size:text(x.size,40),quantity:x.quantity,seller:x.seller,unit_price_cents:cents(x.unit_price_cents,{zero:true}),producalza:x.producalza,unit_cost_cents:x.producalza?3800:cents(x.unit_cost_cents,{zero:true})};
+    if(!Number.isSafeInteger(x.quantity)||x.quantity<1||x.quantity>10000||!RETAIL_STAFF.includes(x.seller))fail('Completa pares y vendedora');
+    const supplier=external?null:(typeof x.producalza==='boolean'?x.producalza:null);
+    if(requireCosts&&supplier===null)fail('Selecciona el proveedor en Gema');
+    return {product:text(x.product,150)||'Calzado',size:text(x.size,40),quantity:x.quantity,seller:x.seller,unit_price_cents:cents(x.unit_price_cents,{zero:true}),producalza:supplier,unit_cost_cents:supplier===null?null:supplier?3800:cents(x.unit_cost_cents,{zero:true})};
   });
   if(items.reduce((n,x)=>n+x.quantity*x.unit_price_cents,0)!==sale.total_cents-sale.refunded_cents)fail('Los importes de los pares deben coincidir con la venta neta. Incluye los descuentos y pares devueltos.');
   return {items};
 }
 export function saveRetailDetails(db,u,id,body) {
   const sale=db.prepare('SELECT * FROM finance_sales WHERE id=? AND business_id=?').get(id,'marjorie');if(!sale)fail('Venta no encontrada',404);
-  access(db,u,sale.unit_id,true);const details=validateRetailDetails(body,sale),old=db.prepare('SELECT * FROM finance_retail_details WHERE sale_id=?').get(id);
+  access(db,u,sale.unit_id,true);const details=validateRetailDetails(body,sale,{requireCosts:true}),old=db.prepare('SELECT * FROM finance_retail_details WHERE sale_id=?').get(id);
   db.transaction(()=>{db.prepare('INSERT INTO finance_retail_details VALUES (?,?,?,?) ON CONFLICT(sale_id) DO UPDATE SET source_version=excluded.source_version,data_json=excluded.data_json,updated_by=excluded.updated_by').run(id,sale.source_updated_at,JSON.stringify(details),u.username);audit(db,u.username,'retail.sale_details','sale',id,old,details,'marjorie');})();return details;
 }
 export function retailAttendance(db,u,body) {
@@ -124,8 +126,18 @@ const sum=(rows,f)=>rows.reduce((n,x)=>n+f(x),0);
 function detailsOf(db,sale){
   const manual=db.prepare('SELECT * FROM finance_retail_details WHERE sale_id=?').get(sale.id);
   const source=JSON.parse(sale.payload_json).retail;
-  const value=manual?.source_version===sale.source_updated_at?JSON.parse(manual.data_json):source;
-  try{return validateRetailDetails(value,sale);}catch{return null;}
+  const saved=manual?JSON.parse(manual.data_json):null;
+  const value=manual?.source_version===sale.source_updated_at?saved:source;
+  try{
+    const details=validateRetailDetails(value,sale);
+    // Invoice/status updates must not erase locally configured supplier costs.
+    // Reuse only unambiguous, unchanged lines; changed products need review.
+    if(saved&&manual.source_version!==sale.source_updated_at){
+      const key=x=>JSON.stringify([x.product,x.size||'',x.quantity,x.unit_price_cents,x.seller]);
+      for(const item of details.items){const matches=saved.items.filter(x=>key(x)===key(item));if(matches.length===1&&details.items.filter(x=>key(x)===key(item)).length===1&&typeof matches[0].producalza==='boolean'){item.producalza=matches[0].producalza;item.unit_cost_cents=matches[0].unit_cost_cents;}}
+    }
+    return details;
+  }catch{return null;}
 }
 export function retailReport(db,u,q={}) {
   access(db,u,q.unit_id&&q.unit_id!=='all'?q.unit_id:null);
@@ -148,6 +160,7 @@ export function retailReport(db,u,q={}) {
     const expenses=accepted.filter(m=>selected(m.day)&&m.kind==='expense').map(m=>({...m,retail_category:retailCategory(m.category,m.description)}));
     const categories=RETAIL_CATEGORIES.map(([id,label,group])=>({id,label,group,amount_cents:sum(expenses.filter(m=>m.retail_category===id),m=>m.amount_cents),entries:expenses.filter(m=>m.retail_category===id)}));
     const missing=[];if(sales.some(s=>!detailMap.get(s.id)))missing.push('Completar productos, pares, proveedor y vendedora de '+sales.filter(s=>!detailMap.get(s.id)).length+' ventas');
+    if(sales.some(s=>detailMap.get(s.id)?.items.some(x=>x.unit_cost_cents===null)))missing.push('Configurar proveedor y costo de los productos en Gema');
     if(sales.some(s=>sum(JSON.parse(s.payments_json),p=>p.amount_cents-(p.refunded_cents||0))!==s.total_cents-s.refunded_cents))missing.push('Hay ventas con cobros incompletos: revisar abonos y fechas de cobro');
     if(breakdown.payphone>0)missing.push('Revisar comisión de PayPhone de estas ventas');
     if(movements.some(m=>selected(m.day)&&m.kind==='expense'&&['pending','reported'].includes(m.status)))missing.push('Hay gastos pendientes de aprobación');
@@ -162,7 +175,7 @@ export function retailReport(db,u,q={}) {
       if(!complete)missing.push('Pares del mes incompletos: la comisión podría cambiar');
       for(const s of monthSelected){
         const items=detailMap.get(s.id)?.items||[];
-        for(const item of items){cost+=item.quantity*item.unit_cost_cents;if(item.producalza)producalza+=item.quantity*3800;
+        for(const item of items){if(item.unit_cost_cents!==null)cost+=item.quantity*item.unit_cost_cents;if(item.producalza)producalza+=item.quantity*3800;
           const commission=knownPairs>=cfg.threshold?item.quantity*tierCommission(item.unit_price_cents,unit==='marjorie-bosque'):0;
           commissions+=commission;let p=personnel.find(p=>p.month===month&&p.name===item.seller);if(!p){p={month,name:item.seller,commission_cents:0,salary_cents:0,days:0};personnel.push(p);}p.commission_cents+=commission;
         }

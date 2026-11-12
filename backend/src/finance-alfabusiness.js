@@ -78,7 +78,7 @@ export function normalizeAlfaBusinessSale(body,{idempotencyKey}={}){
   if(unique.length!==1)reject('Los campos del aviso identifican locales diferentes');
   const unit_id=unique[0];
   // Preserve previously accepted canonical bodies and their payload comparison.
-  if(present(body.unit_id)&&['external_id','day','total_cents','state','source_updated_at'].every(k=>present(body[k])))return {...body,unit_id,business_id:'marjorie',source_system:'alfabusiness',...(body.retail?{retail:validateRetailDetails(body.retail,{...body,refunded_cents:body.refunded_cents||0})}:{})};
+  if(present(body.unit_id)&&['external_id','day','total_cents','state','source_updated_at'].every(k=>present(body[k])))return {...body,unit_id,business_id:'marjorie',source_system:'alfabusiness',...(body.retail?{retail:validateRetailDetails(body.retail,{...body,refunded_cents:body.refunded_cents||0},{external:true})}:{})};
   const sourceIds=(body.sale?[body.sale.sale_id??body.sale.id,body.sale_id]:[body.sale_id,body.id]).filter(present).map(String);
   if(new Set(sourceIds).size>1)reject('Los identificadores de venta son contradictorios');
   const external_id=one(['external_id'],String)??sourceIds[0]??(idempotencyKey?.match(/^mb-sale-(.+)$/)?.[1]);
@@ -103,5 +103,5 @@ export function normalizeAlfaBusinessSale(body,{idempotencyKey}={}){
     document_number:one(['document_number','invoice_number','factura'],String)||'',
     day:day??(sold?financeDay(sold):undefined),total_cents,
     refunded_cents:refund??0,state,source_updated_at:updated,
-    payments,...(one(['retail'])?{retail:validateRetailDetails(one(['retail']),{total_cents,refunded_cents:refund||0})}:{}),...(one(['currency'])?{currency:one(['currency'])}:{})};
+    payments,...(one(['retail'])?{retail:validateRetailDetails(one(['retail']),{total_cents,refunded_cents:refund||0},{external:true})}:{}),...(one(['currency'])?{currency:one(['currency'])}:{})};
 }

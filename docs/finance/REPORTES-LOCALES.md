@@ -38,7 +38,7 @@ Valores de octubre se muestran solo como referencia revisable, especialmente el 
 ## Flujo
 
 1. Recibir ventas de AlfaBusiness sin crear un segundo cobro bancario.
-2. Completar productos y vendedora si el origen todavía no los transmite.
+2. Completar productos y vendedora si el origen todavía no los transmite. Proveedor y costo se configuran internamente en Gema.
 3. Registrar gasto pagado desde caja, entrega, fondos recibidos y conteo desde el propio reporte. Un identificador de operación hace idempotentes los reintentos.
 4. Gastos existentes aprobados/conciliados del local se agrupan automáticamente por concepto; los rechazados no cuentan. Los pendientes se señalan.
 5. Gastos fijos configurados se muestran como previsión. Cuando existe gasto real de la categoría/local/mes, se usa el real y no se suma otra vez la previsión. En períodos parciales la previsión se prorratea por días calendario; el gasto real se muestra en su fecha de registro.
@@ -48,7 +48,7 @@ Valores de octubre se muestran solo como referencia revisable, especialmente el 
 
 ## Integración adicional de AlfaBusiness
 
-Los eventos actuales importados 866/870 contienen total y medio de pago, pero **no pares, productos, proveedor ni vendedora**. El receptor ya admite el campo opcional `sale.retail` (o `retail` en el contrato canónico):
+Los eventos actuales importados 866/870 contienen total y medio de pago, pero **no pares, productos ni vendedora**. El receptor ya admite el campo opcional `sale.retail` (o `retail` en el contrato canónico):
 
 ```json
 {
@@ -59,26 +59,23 @@ Los eventos actuales importados 866/870 contienen total y medio de pago, pero **
         "size": "37",
         "quantity": 2,
         "unit_price_cents": 7000,
-        "seller": "Selena",
-        "producalza": true
+        "seller": "Selena"
       },
       {
         "product": "Producto comprado fuera",
         "size": "36",
         "quantity": 1,
         "unit_price_cents": 4800,
-        "seller": "Selena",
-        "producalza": false,
-        "unit_cost_cents": 2200
+        "seller": "Selena"
       }
     ]
   }
 }
 ```
 
-En ese ejemplo la venta neta debe ser $188. Los pares/precios deben ser netos de descuentos y devoluciones y cuadrar con `total_cents - refunded_cents`. Para un descuento que produzca precios diferentes por centavos, se envían filas separadas. Vendedoras admitidas: Liliana, Martha, Belén, Nayely, Yamileth, Selena. No deducir el proveedor de una etiqueta ni dividir el total entre $38.
+En ese ejemplo la venta neta debe ser $188. Los pares/precios deben ser netos de descuentos y devoluciones y cuadrar con `total_cents - refunded_cents`. Para un descuento que produzca precios diferentes por centavos, se envían filas separadas. Vendedoras admitidas: Liliana, Martha, Belén, Nayely, Yamileth, Selena. Proveedor y costo son configuración interna: al editar el detalle en Gema se selecciona Producalza ($38 por par) u otro proveedor con su costo. No se solicitan al emisor; el receptor ignora esos campos externos. Hasta completar la clasificación, los costos y márgenes del diario quedan por completar, mientras ventas, pares y comisiones sí se calculan.
 
-Mantener mismo ID de venta, firma habitual y `updated_at` más reciente al añadir/corregir detalles. Esto actualiza la venta existente sin duplicarla. Un cambio de versión invalida el complemento manual anterior si el origen no manda detalles nuevos, para no conservar costos/cantidades incompatibles.
+Mantener mismo ID de venta, firma habitual y `updated_at` más reciente al añadir/corregir detalles. Esto actualiza la venta existente sin duplicarla. Un cambio de versión conserva la clasificación local solo en filas idénticas y sin ambigüedad (producto, talla, cantidad, precio y vendedora). Filas cambiadas o sin detalle deben revisarse; no se aplican costos de otro producto.
 
 Se reconocen las etiquetas de factura `SIN UTILIZACION DEL SISTEMA FINANCIERO` como efectivo y `OTROS CON UTILIZACION DEL SISTEMA FINANCIERO` como transferencia, además del contrato anterior. Esta última correspondencia es la indicada expresamente por Marlon para su sistema.
 
