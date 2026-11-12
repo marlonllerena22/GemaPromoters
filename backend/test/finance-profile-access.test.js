@@ -1,3 +1,6 @@
+import crypto from 'node:crypto';
+import {encryptDocument} from '../src/finance-ai.js';
+import {importPlannedCalendar} from '../src/finance-calendar-import.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
@@ -64,4 +67,18 @@ test('profile upgrade preserves existing balances and seeds unknown accounts onl
  assert.equal(db.prepare('SELECT COUNT(*) n FROM finance_accounts').get().n,5);
  assert.equal(db.prepare('SELECT COUNT(*) n FROM finance_bank_transactions').get().n,0);
  assert.equal(db.prepare("SELECT COUNT(*) n FROM finance_accounts WHERE holder_key IS NOT NULL AND verified_at IS NULL AND last_four='' ").get().n,4);
+});
+
+
+test('encrypted calendar import preserves attendance, future payroll and later user edits on replay',t=>{
+ const oldKey=process.env.FINANCE_DOCUMENT_KEY;process.env.FINANCE_DOCUMENT_KEY='calendar-test-fixture-key-thirty-two-characters';t.after(()=>{if(oldKey===undefined)delete process.env.FINANCE_DOCUMENT_KEY;else process.env.FINANCE_DOCUMENT_KEY=oldKey;});
+ const db=fixture(t);db.prepare("INSERT INTO finance_members(name,username,password_hash,role,business_ids) VALUES ('Marlon','marlon','unused','owner','[\"marjorie\"]')").run();
+ const day=financeDay(),month=day.slice(0,7);saveStaffSchedule(db,owner,{day,employee:'Martha',unit_id:'marjorie-bosque',worked:true});
+ const job={kind:'planned-calendar-v1',id:crypto.randomUUID(),owner:'marlon',month,expires_at:new Date(Date.now()+60000).toISOString(),entries:[{day,employee:'Martha',unit_id:'marjorie-bosque'},{day,employee:'Belén',unit_id:'marjorie-bosque'},{day,employee:'Yamileth',unit_id:null}]};
+ const cipher=j=>encryptDocument(Buffer.from(JSON.stringify(j))).toString('base64'),payload=cipher(job),before=db.prepare('SELECT * FROM finance_retail_attendance').all();
+ const result=importPlannedCalendar(db,payload);assert.equal(result.verified,true);assert.equal(result.assigned,2);assert.equal(result.rest,1);assert.equal(result.preserved_worked,1);assert.deepEqual(db.prepare('SELECT * FROM finance_retail_attendance').all(),before);
+ saveStaffSchedule(db,owner,{day,employee:'Belén',unit_id:'marjorie-norte'});assert.equal(importPlannedCalendar(db,payload).duplicate,true);assert.equal(db.prepare("SELECT unit_id FROM finance_staff_schedule WHERE employee='Belén'").get().unit_id,'marjorie-norte');
+ const conflict=importPlannedCalendar(db,cipher({...job,id:crypto.randomUUID(),entries:[{day,employee:'Martha',unit_id:null}]}));assert.equal(conflict.conflicts,1);assert.equal(conflict.verified,false);assert.deepEqual(db.prepare('SELECT * FROM finance_retail_attendance').all(),before);
+ assert.equal(importPlannedCalendar(db,cipher({...job,id:crypto.randomUUID(),expires_at:'2000-01-01'})).rejected,true);
+ assert.equal(importPlannedCalendar(db,cipher({...job,id:crypto.randomUUID(),entries:[job.entries[0],job.entries[0]]})).rejected,true);
 });

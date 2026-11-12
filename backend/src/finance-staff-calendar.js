@@ -1,3 +1,4 @@
+import {importPlannedCalendar} from './finance-calendar-import.js';
 import {audit,financeDay,validDay} from './finance-db.js';
 import {fail} from './finance-service.js';
 import {RETAIL_STORES,RETAIL_STAFF,retailEditor} from '../../shared/finance-retail.mjs';
@@ -20,6 +21,7 @@ export function saveStaffSchedule(db,user,body){
  })();
 }
 export function registerStaffCalendar(app,db,{route}){
+ importPlannedCalendar(db);
  app.get('/api/finance/retail/calendar',route((req,res)=>{if(!retailEditor(req.financeUser))fail('Calendario de organización',403);const period=retailPeriod({day:req.query.day,mode:'month'});res.json({period,staff:RETAIL_STAFF,stores:RETAIL_STORES,entries:db.prepare('SELECT * FROM finance_staff_schedule WHERE day BETWEEN ? AND ? ORDER BY day,employee').all(period.from,period.to)});}));
  app.post('/api/finance/retail/calendar',route((req,res)=>res.json(saveStaffSchedule(db,req.financeUser,req.body))));
 }
