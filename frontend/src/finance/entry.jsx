@@ -1,4 +1,6 @@
 import { canUseFinanceAssistant } from "../../../shared/finance-workflow.mjs";
+import {retailAccess} from '../../../shared/finance-retail.mjs';
+import {RetailReports} from './retail.jsx';
 import {
   isNativeFinance,
   NativeNotificationBridge,
@@ -134,6 +136,7 @@ import "./account-summary.css";
 import { SettlementBalanceForm } from "./settlements.jsx";
 
 const pages = [
+  {id:'locales',label:'Reportes y caja de locales',icon:ChartNoAxesCombined,component:RetailReports,retailOnly:true},
   {
     id: "cheques",
     label: "Cheques y cuenta corriente",
@@ -717,6 +720,7 @@ function FinanceApp() {
   const visiblePages = pages.filter(
     (p) =>
       (!p.ownerOnly || user?.role === "owner") &&
+      (!p.retailOnly || retailAccess(user)) &&
       (!p.assistantOnly || canUseFinanceAssistant(user)) &&
       (!p.cardsOnly ||
         user?.role === "owner" ||
@@ -733,6 +737,7 @@ function FinanceApp() {
           "espacios",
           "mi-acceso",
           "confirmaciones",
+          ...(retailAccess(user)?['locales']:[]),
           ...(user.checks_manage ? ["cheques"] : []),
           ...(canUseFinanceAssistant(user) ? ["asistente"] : []),
         ].includes(p.id)) &&
@@ -745,6 +750,7 @@ function FinanceApp() {
           "espacios",
           "pagos",
           "reportes",
+          "locales",
           "cheques",
           "tarjetas",
           ...(canUseFinanceAssistant(user) ? ["asistente"] : []),
@@ -1040,7 +1046,7 @@ function FinanceApp() {
             {user.role !== "collector" &&
               !(user.work_view && current.id === "inicio") &&
               !(user.role==='owner'&&current.id==='inicio') &&
-              !["espacios", "pagos"].includes(current.id) && (
+              !["espacios", "pagos", "locales"].includes(current.id) && (
                 <div className="gf-filterbar">
                   <div className="gf-business-filter">
                     <Building2 size={16} />

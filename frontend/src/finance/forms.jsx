@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import {RETAIL_CATEGORIES} from '../../../shared/finance-retail.mjs';
 import { transferFeeQuote } from "../../../shared/finance-fees.mjs";
 import {
   Camera,
@@ -493,7 +494,7 @@ export function EditPanel({ type, initial = {}, onClose }) {
                   value={form.category}
                   onChange={(e) => set("category", e.target.value)}
                 >
-                  {categories.map((c) => (
+                  {(form.business_id==='marjorie'?[...new Set([form.category,...RETAIL_CATEGORIES.map(([,label])=>label)])]:categories).map((c) => (
                     <option key={c}>{c}</option>
                   ))}
                 </select>

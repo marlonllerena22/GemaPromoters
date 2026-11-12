@@ -1,4 +1,5 @@
 import {financeDay} from './finance-db.js';
+import {validateRetailDetails} from './finance-retail.js';
 const reject=message=>{throw Object.assign(new Error(message),{status:400});};
 const key=value=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
 const stores={
@@ -26,6 +27,7 @@ const paymentAliases=new Map([
   ['tarjetadecredito','card'],['tarjetadedebito','card'],
   ['transfer','transfer'],['transferencia','transfer'],['transferenciabancaria','transfer'],
   ['payphone','payphone'],['other','other'],['otro','other'],['otros','other'],
+  ['sinutilizaciondelsistemafinanciero','cash'],['otrosconutilizaciondelsistemafinanciero','transfer'],
 ]);
 function paymentBreakdown(rows,label){
   if(!Array.isArray(rows)||rows.length>20)reject(`${label} debe ser un desglose de hasta 20 pagos`);
@@ -76,7 +78,7 @@ export function normalizeAlfaBusinessSale(body,{idempotencyKey}={}){
   if(unique.length!==1)reject('Los campos del aviso identifican locales diferentes');
   const unit_id=unique[0];
   // Preserve previously accepted canonical bodies and their payload comparison.
-  if(present(body.unit_id)&&['external_id','day','total_cents','state','source_updated_at'].every(k=>present(body[k])))return {...body,unit_id,business_id:'marjorie',source_system:'alfabusiness'};
+  if(present(body.unit_id)&&['external_id','day','total_cents','state','source_updated_at'].every(k=>present(body[k])))return {...body,unit_id,business_id:'marjorie',source_system:'alfabusiness',...(body.retail?{retail:validateRetailDetails(body.retail,{...body,refunded_cents:body.refunded_cents||0})}:{})};
   const sourceIds=(body.sale?[body.sale.sale_id??body.sale.id,body.sale_id]:[body.sale_id,body.id]).filter(present).map(String);
   if(new Set(sourceIds).size>1)reject('Los identificadores de venta son contradictorios');
   const external_id=one(['external_id'],String)??sourceIds[0]??(idempotencyKey?.match(/^mb-sale-(.+)$/)?.[1]);
@@ -101,5 +103,5 @@ export function normalizeAlfaBusinessSale(body,{idempotencyKey}={}){
     document_number:one(['document_number','invoice_number','factura'],String)||'',
     day:day??(sold?financeDay(sold):undefined),total_cents,
     refunded_cents:refund??0,state,source_updated_at:updated,
-    payments,...(one(['currency'])?{currency:one(['currency'])}:{})};
+    payments,...(one(['retail'])?{retail:validateRetailDetails(one(['retail']),{total_cents,refunded_cents:refund||0})}:{}),...(one(['currency'])?{currency:one(['currency'])}:{})};
 }

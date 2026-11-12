@@ -1,3 +1,4 @@
+import {RetailShortcut} from './retail.jsx';
 import {
   AccountTiles,
   LiquidityPlan,
@@ -87,7 +88,8 @@ import { WorkSummary, AssistantAvatar, PushEnrollment } from "./workflows.jsx";
 import {BankNotificationsPanel,BankNotificationsShortcut} from './bank-notifications.jsx';
 import {OwnerHome} from './home-action-center.jsx';
 
-export function Overview() {
+export function Overview() {return <><RetailShortcut/><OverviewContent/></>;}
+function OverviewContent() {
   const { data, user, open, navigate, selectMovement, filters } = useFinance();
   const s = data.summary;
   if (user.work_view) return <WorkSummary />;

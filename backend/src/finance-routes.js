@@ -1,4 +1,5 @@
 import { applyPrivateBankReview } from "./finance-bank-review.js";
+import {registerRetailRoutes} from './finance-retail.js';
 import { financeSupportCheck } from "./finance-support-check.js";
 import {updateConfirmedBalance} from './finance-balance-updates.js';
 import {archiveBankPromotions} from './finance-bank-inbox.js';
@@ -417,6 +418,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
   registerWorkflowRoutes(app, db, { route, owner });
   registerOperationsRoutes(app, db, { route, owner });
   registerReceiptRoutes(app,db,{route});
+  registerRetailRoutes(app,db,{route});
   registerInviteManagement(app, db, { route, owner });
   registerGmailRoutes(app, db, { route, owner });
   registerNotificationRoutes(app, db, { route, owner, sessionToken,requestMailCorroboration });

@@ -591,7 +591,7 @@ export function importSale(db, sale, actor = "integration:alfabusiness") {
     });
     if (existing && version < existing.source_updated_at)
       return { id: existing.id, ignored: true };
-    if(existing&&sale.source_system==='alfabusiness'&&version===existing.source_updated_at&&existing.unit_id===(sale.unit_id||null)&&existing.document_number===text(sale.document_number)&&existing.day===day&&existing.total_cents===amount&&existing.refunded_cents===refunded&&existing.state===sale.state&&canonical(JSON.parse(existing.payments_json))===canonical(payments))return {id:existing.id,ignored:true};
+    if(existing&&sale.source_system==='alfabusiness'&&version===existing.source_updated_at&&existing.unit_id===(sale.unit_id||null)&&existing.document_number===text(sale.document_number)&&existing.day===day&&existing.total_cents===amount&&existing.refunded_cents===refunded&&existing.state===sale.state&&canonical(JSON.parse(existing.payments_json))===canonical(payments)&&canonical(JSON.parse(existing.payload_json).retail)===canonical(sale.retail))return {id:existing.id,ignored:true};
     if (existing && existing.payload_json === payload)
       return { id: existing.id, ignored: true };
     if (existing && version === existing.source_updated_at)
