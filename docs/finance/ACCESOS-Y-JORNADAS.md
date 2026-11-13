@@ -13,6 +13,8 @@ Actualización: 12 de noviembre de 2026.
 
 Las chicas no solicitan pagos. Solo Marlon registra la transferencia realizada. Germán recibe un aviso informativo con monto y destinatario cuando Norma o Morelia solicita un pago. Los permisos se aplican en servidor y también en navegación; no basta ocultar botones.
 
+Desde el 13 de noviembre, las seis colaboradoras tienen accesos persistentes **Gasto** y **Asistencia** en la barra inferior. Gasto abre el mismo formulario de Inicio, con el local de la jornada y opción de adjuntar comprobante. Asistencia permite marcar Llegué / Salí desde cualquier pantalla y actualiza la tarjeta de Inicio inmediatamente. En descanso o sin turno se indica que Morelia debe actualizar el calendario; no se permite elegir otro local libremente. Validado a 390 px con los seis perfiles, registro de gastos y marcaciones en una base de prueba, bloqueo de solicitudes en servidor y ausencia de saldos visibles.
+
 ## Local del día
 
 Morelia y Marlon organizan el calendario en Locales → Asistencia. Las empleadas con un único local conservan ese local hasta que se programe otra jornada. Martha y Yamileth requieren asignación explícita cada día. Descanso bloquea las acciones de local. La sesión actualiza su alcance al consultar nuevamente el servidor.

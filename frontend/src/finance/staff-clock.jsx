@@ -9,8 +9,8 @@ export const clockLabels={rest:'Descanso',legacy:'Sin marcación histórica',sch
 export function StaffClock(){
  const {user}=useFinance(),[data,setData]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const load=()=>financeApi('/retail/clock/me').then(setData).catch(e=>setError(e.message));
- useEffect(()=>{load();const timer=setInterval(load,60000);return()=>clearInterval(timer);},[user.shift_day,user.assigned_unit_ids?.join(',')]);
- const punch=async action=>{setBusy(true);setError('');try{setData(await financeApi('/retail/clock/punch',{action}));}catch(e){setError(e.message);}finally{setBusy(false);}};
+ useEffect(()=>{load();const timer=setInterval(load,60000);window.addEventListener('finance-staff-clock-updated',load);return()=>{clearInterval(timer);window.removeEventListener('finance-staff-clock-updated',load);};},[user.shift_day,user.assigned_unit_ids?.join(',')]);
+ const punch=async action=>{setBusy(true);setError('');try{setData(await financeApi('/retail/clock/punch',{action}));window.dispatchEvent(new Event('finance-staff-clock-updated'));}catch(e){setError(e.message);}finally{setBusy(false);}};
  return <section className="gr-clock-card" aria-label="Mi asistencia"><div className="gr-clock-title"><Clock3 size={22}/><strong>Mi asistencia</strong><span>{data?.local||'Sin turno'}</span></div>{data?<><p>{clockLabels[data.status]}{data.hours&&<> · {data.hours.start}–{data.hours.end}</>}</p><div className="gr-clock-times"><span>Entrada <b>{clockTime(data.in_at)}</b></span><span>Salida <b>{clockTime(data.out_at)}</b></span></div><div className="gr-clock-buttons"><button disabled={busy||!data.can_in} onClick={()=>punch('in')}><LogIn size={18}/> Llegué</button><button disabled={busy||!data.can_out} onClick={()=>punch('out')}><LogOut size={18}/> Salí</button></div>{data.in_at&&data.late_minutes===null&&<small>Tolerancia u horario pendiente de configurar.</small>}<small>Se guarda la hora de Ecuador al recibir tu marcación. Necesitas conexión.</small></>:<p>Cargando asistencia…</p>}{error&&<p role="alert" className="gr-error">{error}</p>}</section>;
 }
 export function AttendanceShortcut(){

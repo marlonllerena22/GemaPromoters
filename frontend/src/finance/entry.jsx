@@ -1,6 +1,8 @@
 import { canUseFinanceAssistant } from "../../../shared/finance-workflow.mjs";
 import {retailAccess} from '../../../shared/finance-retail.mjs';
 import {RetailReports} from './retail.jsx';
+import {StoreExpenseDialog} from './profile-home.jsx';
+import {StaffClock} from './staff-clock.jsx';
 import {
   isNativeFinance,
   NativeNotificationBridge,
@@ -28,6 +30,8 @@ import {
   Bell,
   Building2,
   CalendarDays,
+  Clock3,
+  ReceiptText,
   ChartNoAxesCombined,
   Check,
   ChevronDown,
@@ -1155,6 +1159,10 @@ function FinanceApp() {
               <ArrowUpRight size={22} />
               <span>Pedir pago</span>
             </button>}
+            {user.store_staff&&<>
+              <button onClick={()=>open('store-expense')}><ReceiptText size={22}/><span>Gasto</span></button>
+              <button onClick={()=>open('staff-clock')}><Clock3 size={22}/><span>Asistencia</span></button>
+            </>}
             {!user.store_staff&&!user.warehouse_only&&<button onClick={() => navigate("espacios")}>
               <Users size={22} />
               <span>Espacios</span>
@@ -1269,6 +1277,8 @@ function FinanceApp() {
           <MovementDetail movement={modal.movement} onClose={close} />
         )}
         {modal?.type==='upload-payment'&&<PaymentUploadPicker onClose={close}/>}
+        {modal?.type==='store-expense'&&user.store_staff&&<StoreExpenseDialog onClose={close}/>}
+        {modal?.type==='staff-clock'&&user.store_staff&&<Modal title="Mi asistencia" onClose={close}><StaffClock/></Modal>}
         {modal?.type==='receipt-review'&&<ReceiptReview id={modal.initial.id} onClose={close}/>}
         {modal?.type==='receipt-edit'&&<ReceiptComposer initial={modal.initial} onClose={close}/>}
         {modal?.type === "quick" && modal.initial?.mode === "request" && user.request_payments && (
