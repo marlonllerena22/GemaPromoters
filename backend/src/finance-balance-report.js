@@ -2,7 +2,7 @@ import PDFDocument from 'pdfkit';
 import {snapshot,fail} from './finance-service.js';
 import {attachOperations} from './finance-operations.js';
 import {attachWorkflow} from './finance-workflow.js';
-import {balanceReportRows,balanceReportTotals,balanceReportText,canGenerateBalanceReport,BALANCE_REPORT_LIMIT,reportMoney,reportDate} from '../../shared/finance-balance-report.mjs';
+import {balanceReportRows,groupBalanceReportRows,balanceReportTotals,balanceReportText,canGenerateBalanceReport,BALANCE_REPORT_LIMIT,reportMoney,reportDate} from '../../shared/finance-balance-report.mjs';
 
 export function balanceReportCatalog(db,user){
  if(!canGenerateBalanceReport(user))fail('No tienes acceso a reportes de saldos',403);
@@ -13,8 +13,8 @@ export function selectedBalanceReport(db,user,keys){
  if(!Array.isArray(keys)||!keys.length||keys.length>BALANCE_REPORT_LIMIT||keys.some(k=>typeof k!=='string')||new Set(keys).size!==keys.length)fail('Selecciona entre 1 y '+BALANCE_REPORT_LIMIT+' cuentas diferentes');
  const catalog=balanceReportCatalog(db,user),allowed=new Map(catalog.accounts.map(r=>[r.key,r]));
  if(keys.some(k=>!allowed.has(k)))fail('Una cuenta ya no está disponible para tu perfil. Actualiza la selección',403);
- const selected=new Set(keys),rows=catalog.accounts.filter(r=>selected.has(r.key));
- return {generated_at:catalog.generated_at,rows,totals:balanceReportTotals(rows)};
+ const selected=new Set(keys),accounts=catalog.accounts.filter(r=>selected.has(r.key)),rows=groupBalanceReportRows(accounts);
+ return {generated_at:catalog.generated_at,accounts,rows,totals:balanceReportTotals(rows)};
 }
 export async function balanceReportPdf(report){
  const doc=new PDFDocument({size:'A4',margin:0,bufferPages:true,info:{Title:'Reporte de cuentas seleccionadas',Author:'Gema Finanzas'}}),chunks=[];
@@ -28,19 +28,21 @@ export async function balanceReportPdf(report){
  doc.roundedRect(x,121,width,103,12).fill(green);
  write(t.unknown?'TOTAL CONOCIDO DE LA SELECCIÓN':'TOTAL EN CUENTAS SELECCIONADAS',x+20,138,9,'#e4ecdf',{bold:true});
  write(reportMoney(t.total_cents),x+20,156,34,'white',{bold:true,width:width-40});
- write(report.rows.length+' cuentas y fondos · Dólares estadounidenses',x+20,200,9,'#e4ecdf');
+ write(report.rows.reduce((n,r)=>n+(r.account_count||1),0)+' cuentas y fondos · Agrupados por banco · USD',x+20,200,9,'#e4ecdf');
  let start=241;
  if(t.reserved_cents||t.pending_cents){write('Sin corriente ni pendientes: '+reportMoney(t.available_cents),x,start,10,green,{bold:true});start+=20;}
  write('DETALLE DE LA SELECCIÓN',x,start,9,muted,{bold:true,characterSpacing:1});start+=20;
- const columns=report.rows.length>16?2:1,gap=18,cw=(width-gap*(columns-1))/columns,perColumn=Math.ceil(report.rows.length/columns),rowH=Math.min(45,(739-start)/perColumn);
- report.rows.forEach((r,i)=>{
+ const entries=[];let section;for(const r of report.rows){const next=r.ownership==='other'?'other':'own';if(section!==next){entries.push({heading:next==='other'?'OTRAS PERSONAS':'MIS CUENTAS'});section=next;}entries.push(r);}
+ const columns=entries.length>16?2:1,gap=18,cw=(width-gap*(columns-1))/columns,perColumn=Math.ceil(entries.length/columns),rowH=Math.min(45,(748-start)/perColumn);
+ entries.forEach((r,i)=>{
   const col=Math.floor(i/perColumn),row=i%perColumn,px=x+col*(cw+gap),py=start+row*rowH,compact=columns===2,labelWidth=cw-(compact?83:125);
+  if(r.heading){doc.roundedRect(px,py,cw,rowH-2,4).fill('#e4eddf');write(r.heading,px+8,py+7,compact?8:9,green,{bold:true,width:cw-16});return;}
   if(row%2===0)doc.roundedRect(px,py,cw,rowH-2,4).fill('#f3f6ef');
   const name=(r.name.toLowerCase().includes(r.bank.toLowerCase())?'':r.bank+' · ')+r.name;
-  doc.font('Helvetica-Bold').fontSize(compact?8:10).fillColor(green).text(name,px+8,py+4,{width:labelWidth-10,height:Math.max(10,rowH-16),ellipsis:true,lineGap:0});
+  doc.font('Helvetica-Bold').fontSize(compact?8:10).fillColor(green).text(name,px+8,py+3,{width:labelWidth-10,height:Math.max(10,rowH-16),ellipsis:true,lineGap:0});
   write(r.balance_cents===null?'Por indicar':reportMoney(r.balance_cents),px+cw-(compact?79:119),py+6,compact?10:12,green,{bold:true,width:compact?71:111,align:'right'});
-  const detail=[r.number,r.pending?'Por acreditar':r.reserved_cents?'Apartado para cheques':''].filter(Boolean).join(' · ');
-  doc.font('Helvetica').fontSize(compact?7:8).fillColor(muted).text(detail,px+8,py+rowH-10,{width:cw-16,height:10,ellipsis:true,lineBreak:false});
+  const detail=[r.number,r.pending?'Por acreditar':r.reserved_cents?reportMoney(r.reserved_cents)+' apartados para cheques':'',r.balance_cents!==null&&r.unknown_count?r.unknown_count+' saldo(s) por indicar':''].filter(Boolean).join(' · ');
+  doc.font('Helvetica').fontSize(compact?6.8:8).fillColor(muted).text(detail,px+8,py+rowH-9,{width:cw-16,height:10,ellipsis:true,lineBreak:false});
  });
  doc.moveTo(x,758).lineTo(w-x,758).strokeColor('#dbe4d8').lineWidth(.7).stroke();
  const notes=['Solo incluye las cuentas seleccionadas. Saldos registrados en Gema al generar el reporte.'];
