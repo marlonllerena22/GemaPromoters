@@ -14,6 +14,7 @@ import {enrichServiceProof} from '../src/finance-service-payment-proof.js';
 import {repairIessPayments} from '../src/finance-iess-repair.js';
 process.env.NODE_ENV='test';
 function fixture(t){
+ t.mock.timers.enable({apis:['Date'],now:new Date('2026-11-12T23:00:00Z')});
  const db=new Database(':memory:');initFinanceDb(db);t.after(()=>db.close());
  const add=(username,role)=>{const id=db.prepare("INSERT INTO finance_members(name,username,password_hash,role,business_ids) VALUES (?,?,'unused',?,'[\"producalza\",\"personal\"]')").run(username,username,role).lastInsertRowid;return safeMember(db.prepare('SELECT * FROM finance_members WHERE id=?').get(id));};
  const owner=add('marlon','owner'),norma=add('normita','collector'),staff=add('selena','collector');

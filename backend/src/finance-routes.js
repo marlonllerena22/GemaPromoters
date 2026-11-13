@@ -1,5 +1,6 @@
 import {applyPrivateIessRepair} from './finance-iess-repair.js';
 import {applyPrivateStaffRecovery} from './finance-staff-support.js';
+import {applyPrivatePaidCheck} from './finance-check-support.js';
 import {enrichServiceProof} from './finance-service-payment-proof.js';
 import {analyzeIess} from './finance-iess.js';
 import {registerStaffCalendar} from './finance-staff-calendar.js';
@@ -106,6 +107,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
   repairReceiptAccounts(db);
   applyPrivateBankReview(db);
   applyPrivateIessRepair(db);
+  applyPrivatePaidCheck(db);
   setImmediate(()=>financeSupportCheck(db));
   if(process.env.NODE_ENV!=="test")console.info("[finance] Marjorie integration health "+JSON.stringify(marjorieIntegrationHealth(db)));
   startFinanceSyncWorker(db);
