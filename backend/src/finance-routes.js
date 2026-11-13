@@ -1,4 +1,5 @@
 import {applyPrivateIessRepair} from './finance-iess-repair.js';
+import {applyPrivateStaffRecovery} from './finance-staff-support.js';
 import {enrichServiceProof} from './finance-service-payment-proof.js';
 import {analyzeIess} from './finance-iess.js';
 import {registerStaffCalendar} from './finance-staff-calendar.js';
@@ -429,6 +430,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
   registerReceiptRoutes(app,db,{route});
   registerRetailRoutes(app,db,{route});
   registerStaffClock(app,db,{route});
+  applyPrivateStaffRecovery(db);
   registerStaffCalendar(app,db,{route});
   registerInviteManagement(app, db, { route, owner });
   registerGmailRoutes(app, db, { route, owner });
