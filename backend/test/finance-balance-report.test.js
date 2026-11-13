@@ -1,0 +1,12 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {PDFParse} from 'pdf-parse';
+import {balanceReportRows,balanceReportTotals,balanceReportText} from '../../shared/finance-balance-report.mjs';import {balanceReportPdf} from '../src/finance-balance-report.js';
+test('selected totals keep unknown, reserved and pending funds distinct without counting credit cards',()=>{
+ const rows=balanceReportRows({accounts:[{id:1,kind:'bank',name:'Corriente',bank:'Guayaquil',balance_cents:50000,checking_reserved:true},{id:2,kind:'bank',name:'Marlon',bank:'Pichincha',balance_cents:10010},{id:3,kind:'bank',name:'Liliana',bank:'Pichincha',balance_cents:null},{id:4,kind:'card',balance_cents:-30000}],custody_funds:[{id:'efectivo',name:'EFECTIVO',balance_cents:5000}],settlement_funds:[{provider:'diners',available_cents:0,pending_cents:390000,as_of:'2026-11-13'}]});
+ assert.equal(rows.length,6);const t=balanceReportTotals(rows);assert.deepEqual(t,{total_cents:455010,pending_cents:390000,reserved_cents:50000,available_cents:15010,unknown:1});
+ const selected=rows.filter(r=>['account:2','custody:efectivo'].includes(r.key));assert.equal(balanceReportTotals(selected).total_cents,15010);
+ const text=balanceReportText({generated_at:'2026-11-13T18:00:00Z',rows});assert.match(text,/🟨 \*Pichincha · Marlon\*: \$100,10/);assert.match(text,/Diners falta.*por acreditar/);assert.match(text,/TOTAL CONOCIDO: \*\$4.550,10\*/);assert.match(text,/Sin corriente ni pendientes: \*\$150,10\*/);assert.doesNotMatch(text,/NaN/);
+});
+test('PDF stays one A4 page for one, sixteen and forty selected accounts, with exact totals',async()=>{
+ for(const n of [1,16,40]){const rows=Array.from({length:n},(_,i)=>({key:'account:'+i,name:'Cuenta '+String(i+1).padStart(2,'0'),bank:'Pichincha',number:'220000'+String(i).padStart(4,'0'),balance_cents:i===3?null:10010+i,reserved_cents:i===0?10010:0,pending:i===5}));const report={generated_at:'2026-11-13T18:00:00Z',rows,totals:balanceReportTotals(rows)},pdf=await balanceReportPdf(report),parser=new PDFParse({data:pdf});try{const text=await parser.getText();assert.equal(text.total,1);assert.match(text.text,/Reporte de cuentas/);assert.match(text.text,new RegExp('Cuenta '+String(n).padStart(2,'0')));assert.ok(text.text.includes(rows.at(-1).number));assert.ok(text.text.includes('$'+(report.totals.total_cents/100).toLocaleString('es-EC',{minimumFractionDigits:2,maximumFractionDigits:2})));}finally{await parser.destroy();}}
+});
+

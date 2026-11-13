@@ -1,4 +1,5 @@
 import {AttendanceShortcut} from './staff-clock.jsx';
+import {BalanceReportButton} from './balance-report.jsx';
 import {StoreStaffHome,WarehouseHome} from './profile-home.jsx';
 import {RetailShortcut} from './retail.jsx';
 import {
@@ -533,6 +534,7 @@ export function Accounts() {
         title="Cuentas y fondos"
         description="Bancos, billeteras, efectivo y dinero bajo responsabilidad de terceros."
       >
+        <BalanceReportButton/>
         {user.role === "owner" && (
           <details className="gf-account-tools">
             <summary>
