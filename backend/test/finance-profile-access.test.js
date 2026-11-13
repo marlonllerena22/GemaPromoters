@@ -52,7 +52,8 @@ test('receipt routes and reviewers distinguish Norte, Sur exceptions and the new
  const receipt=(unit,bank,holder)=>({business_id:'marjorie',kind:'income',unit_id:unit,receiving_bank:bank,account_holder:holder});
  for(const unit of ['marjorie-valle','marjorie-bosque'])assert.equal(storeReceiptRoute(receipt(unit,'Pichincha')).name,'Marlon');
  assert.equal(storeReceiptRoute(receipt('marjorie-norte','Pichincha')).name,'Liliana');
- for(const bank of ['Guayaquil','Produbanco'])assert.equal(storeReceiptRoute(receipt('marjorie-sur',bank)).name,'Marlon');
+ assert.equal(storeReceiptRoute(receipt('marjorie-sur','Guayaquil')).name,'Marlon');
+ assert.equal(storeReceiptRoute(receipt('marjorie-sur','Produbanco')).name,'Morelia');
  const sur=receipt('marjorie-sur','Pichincha','more-sur');assert.equal(canConfirmStore(user('morelia'),sur),true);assert.equal(canConfirmStore(user('lili'),sur),false);assert.equal(canConfirmStore(user('morelia'),receipt('marjorie-sur','Guayaquil','owner')),false);
  assert.equal(canConfirmStore(user('lili'),receipt('marjorie-norte','Pichincha','lili')),true);
 });

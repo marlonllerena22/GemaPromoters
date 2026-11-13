@@ -7,6 +7,7 @@ import {matchingBankPerson} from './finance-bank-identity.js';
 import {recordedAccountBalance} from './finance-check-ledger.js';
 import {linkRecordedBankEvidence} from './finance-evidence-links.js';
 import {matchKnownBankReceipt} from './finance-declared-bank.js';
+import {receivingBank,storeReceiptRoute,receiptNamedHolder} from '../../shared/finance-store-receipts.mjs';
 
 export function activateReceiptCredits(db){
   const key='receipt_confirmation_credits_v1';let policy=privateSetting(db,key);
@@ -103,6 +104,24 @@ export function suggestReceivingAccount(db, user, analysis) {
     account_id: matches.length === 1 ? matches[0].id : null,
     suffix,
   };
+}
+export function storeReceiptDetails(db,user,analysis={},unit){
+ analysis=analysis||{};
+ const bank=receivingBank(analysis.receiving_bank),match=suggestReceivingAccount(db,user,{...analysis,receiving_bank:bank||analysis.receiving_bank}),named=receiptNamedHolder(analysis.counterparty);
+ const accounts=receiptAccounts(db,user);let account=accounts.find(a=>a.id===match.account_id)||null;
+ const holder=account?(account.holder_key||'owner'):named;
+ const comparable=h=>['morelia','more-sur'].includes(h)?'morelia':h;
+ const conflict=named==='ambiguous'||(named&&account&&comparable(named)!==comparable(holder));
+ if(!account&&match.state!=='ambiguous'&&!conflict&&bank!=='Guayaquil'){
+  const fallback=unit==='marjorie-norte'?'lili':unit==='marjorie-sur'&&bank==='Pichincha'?'more-sur':null;
+  const candidates=accounts.filter(a=>a.holder_key===fallback&&a.bank===bank);
+  // A visible, unmatched number must never be overridden by a local default.
+  if(fallback&&(!named||comparable(named)===comparable(fallback))&&!analysis.destination_account_suffix&&candidates.length===1)account=candidates[0];
+ }
+ const result={amount_cents:analysis.amount_cents,day:analysis.day,customer:analysis.payer_name||'',reference:analysis.reference||'',receiving_bank:bank,account_id:account?.id||null,receiving_holder:account?.holder_key||(account?'owner':named==='ambiguous'?null:named),account_state:conflict?'conflict':match.state};
+ const missing=[];if(!Number.isSafeInteger(result.amount_cents)||result.amount_cents<=0)missing.push('monto');if(!/^\d{4}-\d{2}-\d{2}$/.test(result.day||'')||result.day>financeDay())missing.push('fecha');if(!result.customer)missing.push('remitente');if(!bank)missing.push('banco receptor');if(conflict||match.state==='ambiguous')missing.push('cuenta de destino');
+ if(analysis.warnings?.length)missing.push('datos poco claros del comprobante');
+ return {...result,responsible:storeReceiptRoute({...result,unit_id:unit})?.name||null,auto_ready:missing.length===0,missing};
 }
 export function receiptInbox(db, user) {
   return db

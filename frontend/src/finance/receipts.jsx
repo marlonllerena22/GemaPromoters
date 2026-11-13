@@ -442,7 +442,7 @@ export function ReceiptReview({ id, onClose }) {
             </Button>
           )}
           <EvidenceThumbnail
-            path={`/evidence/${r.evidence_id}`}
+            path={retailReceipt?`/store-receipts/${r.id}/evidence`:`/evidence/${r.evidence_id}`}
             title="Comprobante recibido"
             returnType="receipt-review"
             returnInitial={{ id: r.id }}

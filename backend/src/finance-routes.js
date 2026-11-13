@@ -1,5 +1,5 @@
 import {applyPrivateIessRepair} from './finance-iess-repair.js';
-import {applyPrivateStaffRecovery} from './finance-staff-support.js';
+import {applyPrivateStaffRecovery,applyPrivateArrivals} from './finance-staff-support.js';
 import {applyPrivatePaidCheck} from './finance-check-support.js';
 import {enrichServiceProof} from './finance-service-payment-proof.js';
 import {analyzeIess} from './finance-iess.js';
@@ -16,7 +16,7 @@ import {cancelsConversation} from '../../shared/finance-conversation.mjs';
 import {suggestOriginAccount} from "./finance-origin-account.js";
 import {marjorieIntegrationHealth} from "./finance-integration-health.js";
 import {normalizeAlfaBusinessSale} from './finance-alfabusiness.js';
-import {registerReceiptRoutes,suggestReceivingAccount,repairReceiptAccounts,activateReceiptCredits,confirmReceiptDeposit} from './finance-receipts.js';
+import {registerReceiptRoutes,suggestReceivingAccount,repairReceiptAccounts,activateReceiptCredits,confirmReceiptDeposit,storeReceiptDetails} from './finance-receipts.js';
 import {applyNovemberCleanup,archiveNovemberTrialReceipt,clearCurrentActivity,repairKnownAccountNumbers} from './finance-start-clean.js';
 import {registerNotificationPublic,registerNotificationRoutes,reprocessBankNotifications} from "./finance-bank-notifications.js";
 import {createBankMailCorroborator} from './finance-bank-mail-corroboration.js';
@@ -433,6 +433,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
   registerRetailRoutes(app,db,{route});
   registerStaffClock(app,db,{route});
   applyPrivateStaffRecovery(db);
+  applyPrivateArrivals(db);
   registerStaffCalendar(app,db,{route});
   registerInviteManagement(app, db, { route, owner });
   registerGmailRoutes(app, db, { route, owner });
@@ -1085,7 +1086,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
           e.business_id,
         );
       })();
-      res.json({ analysis, origin_account:suggestOriginAccount(db,req.financeUser,analysis),destination_account:suggestReceivingAccount(db,req.financeUser,analysis), draft: true });
+      res.json({ analysis, origin_account:suggestOriginAccount(db,req.financeUser,analysis),destination_account:suggestReceivingAccount(db,req.financeUser,analysis),store_receipt:e.business_id==='marjorie'?storeReceiptDetails(db,req.financeUser,analysis,e.unit_id):null, draft: true });
     }),
   );
   app.post(

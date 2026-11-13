@@ -73,6 +73,23 @@ export function myClock(db,user,now=new Date()){
  const row=clockState(db,s||{day,employee,unit_id:null,worked:0},now);
  return {day,employee,unit_id:row.unit_id,local:RETAIL_STORES[row.unit_id]||null,in_at:row.in_at||null,out_at:row.out_at||null,status:row.status,hours:row.policy?.hours||null,late_minutes:row.late_minutes??null,can_in:!!s?.unit_id&&!s.worked&&!row.in_at&&!row.review,can_out:!!row.in_at&&!row.out_at&&!['justified','unjustified','present'].includes(row.review),server_time:stamp(now)};
 }
+export function setScheduledArrivals(db,user,{day,time,reason,employees},now=new Date()){
+ if(user.role!=='owner')fail('Solo Marlon puede corregir estas entradas',403);
+ if(validDay(day)!==financeDay(now)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)||at(day,time)>+now||!text(reason,500))fail('Revisa fecha, hora y motivo');
+ return db.transaction(()=>{
+  const scheduled=db.prepare('SELECT * FROM finance_staff_schedule WHERE day=? AND unit_id IS NOT NULL ORDER BY employee').all(day);
+  if(!Array.isArray(employees)||JSON.stringify(scheduled.map(s=>s.employee).sort())!==JSON.stringify([...employees].sort()))fail('El calendario cambió. Revisa quién asiste hoy',409);
+  return scheduled.map(s=>{
+   const old=readClock(db,day,s.employee),r=old||baseClock(db,s);
+   if(r.unit_id!==s.unit_id||['justified','unjustified'].includes(r.review)||(r.out_at&&Date.parse(r.out_at)<=at(day,time)))fail('Hay una jornada que requiere revisión individual',409);
+   r.in_at=new Date(at(day,time)).toISOString();const h=r.policy.hours,t=r.policy.tolerance_minutes;r.late_minutes=h&&t!==null?Math.max(0,Math.floor((at(day,time)-at(day,h.start))/60000)-t):null;
+   r.reason=text(reason,500);r.reviewed_by=user.username;r.reviewed_at=now.toISOString();
+   writeClock(db,r);db.prepare("UPDATE finance_staff_clock_alerts SET resolved=1 WHERE day=? AND employee=? AND kind='missing_in'").run(day,s.employee);
+   audit(db,user.username,'staff.clock.arrival_corrected','staff_clock',day+s.employee,old,r,'marjorie');
+   return {employee:s.employee,unit_id:s.unit_id,in_at:r.in_at,out_at:r.out_at};
+  });
+ })();
+}
 export function punchClock(db,user,body,now=new Date()){
  if(!['in','out'].includes(body.action))fail('Selecciona Llegué o Salí');
  return db.transaction(()=>{

@@ -3,6 +3,7 @@ import {audit,financeDay,passwordHash,validateFinancePassword} from './finance-d
 import {effectiveMember} from './finance-profile-access.js';
 import {staffNames} from '../../shared/finance-access.mjs';
 import {privateSetting,putPrivateSetting} from './finance-operations.js';
+import {setScheduledArrivals} from './finance-staff-clock.js';
 
 // Short-lived hosting job for an owner-requested staff credential recovery.
 // No public endpoint, no owner recovery, no MFA bypass and no attendance writes.
@@ -35,4 +36,14 @@ export function applyPrivateStaffRecovery(db,payload=process.env.FINANCE_STAFF_R
   console.info('[finance] Staff recovery result '+job.id+'|'+sealed);
   return result;
  }catch{console.error('[finance] Staff recovery stopped: review encrypted job and staff access');return {failed:true};}
+}
+export function applyPrivateArrivals(db,payload=process.env.FINANCE_ARRIVAL_CORRECTION_JOB){
+ if(!payload)return null;
+ try{
+  const job=JSON.parse(decryptDocument(Buffer.from(payload,'base64')).toString());
+  if(job.kind!=='scheduled-arrivals-v1'||!/^[a-f0-9-]{36}$/.test(job.id)||!Number.isFinite(Date.parse(job.expires_at))||Date.parse(job.expires_at)<Date.now()||Date.parse(job.expires_at)>Date.now()+2*3600000)throw new Error('Invalid arrival job');
+  const key='scheduled-arrivals:'+job.id;let result=privateSetting(db,key);
+  if(!result){const owner=db.prepare("SELECT * FROM finance_members WHERE username=? AND role='owner' AND active=1").get(job.owner);if(!owner)throw new Error('Owner not found');db.transaction(()=>{result={day:job.day,entries:setScheduledArrivals(db,effectiveMember(db,owner),job)};putPrivateSetting(db,key,result);})();}
+  console.info('[finance] Arrival correction '+job.id+'|'+encryptDocument(Buffer.from(JSON.stringify(result))).toString('base64'));return result;
+ }catch{console.error('[finance] Arrival correction stopped: review calendar and existing punches');return {failed:true};}
 }

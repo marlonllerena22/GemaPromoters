@@ -63,7 +63,7 @@ export function CollaboratorHome() {
   const store = isStoreUser(user),
     reviews = (data.store_receipts || []).filter(
       (r) =>
-        user.review_unit_ids?.includes(r.unit_id) &&
+        r.can_confirm &&
         r.assigned_to_me !== false &&
         !r.confirmed_at &&
         r.status !== "reconciled",

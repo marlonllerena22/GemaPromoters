@@ -4,7 +4,7 @@ import Database from 'better-sqlite3';
 import {initFinanceDb} from '../src/finance-db.js';
 import {initProfileAccess} from '../src/finance-profile-access.js';
 import {initRetail,retailReport,saveRetailSettings,retailAttendance} from '../src/finance-retail.js';
-import {initStaffClock,defaultClockSettings,saveClockSettings,punchClock,myClock,reviewClock,clockRange,evaluateClockAlerts,flushClockPush} from '../src/finance-staff-clock.js';
+import {initStaffClock,defaultClockSettings,saveClockSettings,punchClock,myClock,reviewClock,clockRange,evaluateClockAlerts,flushClockPush,setScheduledArrivals} from '../src/finance-staff-clock.js';
 import {saveStaffSchedule} from '../src/finance-staff-calendar.js';
 import {defaultRetailSettings} from '../../shared/finance-retail.mjs';
 import {encryptDocument} from '../src/finance-ai.js';
@@ -14,6 +14,14 @@ const now=(d,h='18:30')=>new Date(d+'T'+h+':00-05:00');
 function fixture(t){const db=new Database(':memory:');initFinanceDb(db);initProfileAccess(db,{seedAccounts:false});initRetail(db);initStaffClock(db,now('2026-10-31'));t.after(()=>db.close());return db;}
 function schedule(db,day,employee='Selena',unit='marjorie-sur'){db.prepare('INSERT INTO finance_staff_schedule VALUES (?,?,?,0,?)').run(day,employee,unit,'fixture');}
 function settings(db,day){const s={...defaultClockSettings(),tolerance_minutes:5,late_fine_cents:200,absence_day_cents:1500,absence_fine_cents:500};saveClockSettings(db,owner,{effective_day:day,settings:s},now(day,'08:00'));return s;}
+test('authorized arrival adjustment applies only scheduled staff and preserves exits and rest days',t=>{
+ const db=fixture(t),day='2026-11-13';schedule(db,day);schedule(db,day,'Martha','marjorie-norte');schedule(db,day,'Yamileth',null);
+ punchClock(db,staff,{action:'in'},now(day,'10:40'));punchClock(db,staff,{action:'out'},now(day,'12:00'));
+ const body={day,time:'10:00',reason:'Capacitación autorizada por Marlon',employees:['Selena','Martha']};
+ assert.throws(()=>setScheduledArrivals(db,more,body,now(day)),e=>e.status===403);
+ assert.throws(()=>setScheduledArrivals(db,owner,{...body,employees:['Selena']},now(day)),e=>e.status===409);
+ const rows=setScheduledArrivals(db,owner,body,now(day));assert.equal(rows.length,2);assert.ok(rows.every(r=>r.in_at===now(day,'10:00').toISOString()));assert.equal(rows.find(r=>r.employee==='Selena').out_at,now(day,'12:00').toISOString());assert.equal(myClock(db,staff,now(day)).late_minutes,0);assert.equal(db.prepare("SELECT COUNT(*) n FROM finance_staff_clock WHERE employee='Yamileth'").get().n,0);
+});
 
 test('clock uses server day/person/time, enforces shift, and retries do not change hours or double payroll',t=>{
  const db=fixture(t),day='2026-11-02';schedule(db,day);settings(db,day);
