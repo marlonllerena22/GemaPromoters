@@ -287,7 +287,7 @@ export function storeReceipts(db, user) {
       };
     });
 }
-export function attachOperations(db, user, data) {
+export function attachOperations(db, user, data, options={}) {
   data.user=user;
   if(retailManagement(user)&&db.prepare("SELECT 1 FROM sqlite_master WHERE name='finance_staff_clock_meta'").get()){const active=db.prepare('SELECT active_from FROM finance_staff_clock_meta WHERE id=1').get().active_from;data.staff_attendance={pending:clockRange(db,active,financeDay()).filter(r=>r.needs_review).map(r=>({day:r.day,employee:r.employee,unit_id:r.unit_id}))};}
   const scope = data.businesses.map((b) => b.id);
@@ -309,7 +309,7 @@ export function attachOperations(db, user, data) {
   data.loan_overview =
     user.role === "owner" ? loanOverview(db, user) : { loans: [], alerts: [] };
   data.funding_overview = fundingOverview(db, user);
-  accountPresentation(db, user, data, registry);
+  accountPresentation(db, user, data, registry,options);
   const payphoneObservation = privateSetting(
     db,
     "payphone_balance_observation",

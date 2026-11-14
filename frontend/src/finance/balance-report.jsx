@@ -3,8 +3,9 @@ import {Check,Copy,Download,FileText,RefreshCw} from 'lucide-react';
 import {useFinance} from './context.jsx';
 import {Button,Modal} from './components.jsx';
 import {BankLogo} from './banks.jsx';
+import {SettlementBalanceForm} from './settlements.jsx';
 import {financeApi,saveBlob} from './api.js';
-import {BALANCE_REPORT_LIMIT,balanceReportTotals,reportMoney,reportDate,canGenerateBalanceReport} from '../../../shared/finance-balance-report.mjs';
+import {BALANCE_REPORT_LIMIT,balanceReportTotals,reportTotalLabel,reportMoney,reportDate,canGenerateBalanceReport} from '../../../shared/finance-balance-report.mjs';
 import './balance-report.css';
 
 export function BalanceReportButton(){
@@ -13,7 +14,7 @@ export function BalanceReportButton(){
  return <><Button variant="secondary" icon={FileText} onClick={()=>setShow(true)}>Generar reporte</Button>{show&&<BalanceReportDialog onClose={()=>setShow(false)}/>}</>;
 }
 function BalanceReportDialog({onClose}){
- const {user}=useFinance(),[catalog,setCatalog]=useState(null),[selected,setSelected]=useState(new Set()),[busy,setBusy]=useState('loading'),[error,setError]=useState(''),[status,setStatus]=useState(''),[text,setText]=useState(''),textRef=useRef();
+ const {user}=useFinance(),[catalog,setCatalog]=useState(null),[selected,setSelected]=useState(new Set()),[busy,setBusy]=useState('loading'),[error,setError]=useState(''),[status,setStatus]=useState(''),[text,setText]=useState(''),[editDiners,setEditDiners]=useState(false),textRef=useRef();
  const storageKey='gf-balance-report-selection:'+user.username;
  async function load(initial=false){
   setBusy('loading');setError('');try{const next=await financeApi('/balance-report/accounts');let keys=[...selected];if(initial)try{const saved=JSON.parse(localStorage.getItem(storageKey)||'[]');if(Array.isArray(saved))keys=saved;}catch{}
@@ -36,12 +37,14 @@ function BalanceReportDialog({onClose}){
   }catch(e){setError(e.message);}finally{setBusy('');}
  }
  async function copy(){try{await navigator.clipboard.writeText(text);setStatus('Texto copiado para WhatsApp.');}catch{textRef.current?.focus();textRef.current?.select();setStatus('Texto seleccionado: usa Copiar en tu dispositivo.');}}
- return <Modal title="Reporte de mi dinero" subtitle="Elige las cuentas: las tuyas se agrupan por banco y las de otras personas van al final." onClose={onClose} className="gf-balance-report-modal">
+ if(editDiners)return <SettlementBalanceForm onClose={()=>{setEditDiners(false);load();setText('');}}/>;
+ return <Modal title="Reporte de mi dinero" subtitle="Tus cuentas por banco, luego otras personas. Guayaquil corriente y Diners pendientes van aparte." onClose={onClose} className="gf-balance-report-modal">
   <div className="gf-balance-report">
-   <div className="gf-balance-report-total"><span>{totals.unknown?'Total conocido seleccionado':'Total seleccionado'}</span><strong>{reportMoney(totals.total_cents)}</strong><small>{rows.length} cuentas y fondos</small>{(totals.pending_cents>0||totals.reserved_cents>0)&&<p>Sin corriente ni pendientes: <b>{reportMoney(totals.available_cents)}</b></p>}{totals.unknown>0&&<p>{totals.unknown} saldo(s) por indicar no se suman.</p>}</div>
+   <div className="gf-balance-report-total"><span>Total efectivo{totals.cash_unknown?' conocido':''}</span><strong>{reportMoney(totals.total_cents)}</strong><small>Sin corriente ni Diners pendientes</small><p>Mis cuentas: <b>{reportTotalLabel(totals.own_cents,totals.own_unknown)}</b></p><p>Total cheques: <b>{reportTotalLabel(totals.checks_cents,totals.checks_unknown)}</b></p><p>Falta Diners: <b>{reportTotalLabel(totals.pending_cents,totals.pending_unknown)}</b></p>{totals.unknown>0&&<p>{totals.unknown} saldo(s) por indicar.</p>}</div>
    <div className="gf-balance-report-tools"><button disabled={!!busy||!catalog} onClick={()=>select(catalog.accounts.slice(0,BALANCE_REPORT_LIMIT).map(a=>a.key))}>{catalog?.accounts.length>BALANCE_REPORT_LIMIT?'Seleccionar primeras '+BALANCE_REPORT_LIMIT:'Seleccionar todas'}</button><button disabled={!!busy||!selected.size} onClick={()=>select([])}>Ninguna</button><button disabled={!!busy} onClick={()=>load()} aria-label="Actualizar saldos"><RefreshCw size={16}/></button></div>
+   {user.role==='owner'&&catalog?.accounts.some(a=>a.key.startsWith('settlement:diners:'))&&<Button variant="secondary" disabled={!!busy} onClick={()=>setEditDiners(true)}>Actualizar saldos Diners</Button>}
    {busy==='loading'&&<p role="status">Consultando saldos…</p>}
-   <div className="gf-balance-report-options">{catalog?.accounts.map(a=><label key={a.key}><input type="checkbox" checked={selected.has(a.key)} onChange={()=>toggle(a.key)} disabled={!!busy}/><BankLogo bank={a.bank} kind={a.kind}/><span><strong>{a.name}</strong><small>{[a.bank,a.number].filter(Boolean).join(' · ')}</small>{(a.pending||a.reserved_cents>0)&&<em>{a.pending?'Pendiente de acreditar':'Apartado para cheques'}</em>}</span><b>{a.balance_cents===null?'Por indicar':reportMoney(a.balance_cents)}</b></label>)}</div>
+   <div className="gf-balance-report-options">{catalog?.accounts.map(a=><label key={a.key}><input type="checkbox" checked={selected.has(a.key)} onChange={()=>toggle(a.key)} disabled={!!busy}/><BankLogo bank={a.bank} kind={a.kind}/><span><strong>{a.name}</strong><small>{[a.bank,a.number].filter(Boolean).join(' · ')}</small>{(a.pending||a.checking)&&<em>{a.pending?'Pendiente de acreditar':'Corriente · no suma al efectivo'}</em>}</span><b>{a.balance_cents===null?'Por indicar':reportMoney(a.balance_cents)}</b></label>)}</div>
    {catalog&&!catalog.accounts.length&&<p>No tienes cuentas disponibles para este reporte.</p>}
    {catalog&&<p className="gf-balance-report-date">Consultado: {reportDate(catalog.generated_at)}. Al generar se consultan los saldos actuales.</p>}
    {text&&<details className="gf-balance-report-text"><summary>Ver texto para WhatsApp</summary><label htmlFor="gf-report-text">Texto para WhatsApp</label><textarea id="gf-report-text" ref={textRef} readOnly value={text} rows={8}/><Button variant="secondary" icon={Copy} onClick={copy}>Copiar texto</Button></details>}

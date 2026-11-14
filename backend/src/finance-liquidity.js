@@ -10,7 +10,7 @@ const bankKey = (s) =>
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/banco|\s/g, "");
-export function accountPresentation(db, user, data, registry) {
+export function accountPresentation(db, user, data, registry, {separateChecking=false}={}) {
   const own = new Map((registry?.accounts || []).map((a) => [a.account_id, a]));
   if (user.role === "owner")
     data.accounts = data.accounts.map((a) => ({
@@ -27,12 +27,12 @@ export function accountPresentation(db, user, data, registry) {
     .all()
     .filter(
       (a) =>
-        own.has(a.id) && ["pichincha", "guayaquil"].includes(bankKey(a.bank)),
+        own.has(a.id) && (!separateChecking||!a.holder_key||['owner','marlon'].includes(a.holder_key)) && ["pichincha", "guayaquil"].includes(bankKey(a.bank)),
     );
   const ids = new Set(eligible.map((a) => a.id)),
     result = data.accounts.filter((a) => !ids.has(a.id));
-  for (const bank of ["pichincha", "guayaquil"]) {
-    const rows = eligible.filter((a) => bankKey(a.bank) === bank);
+  for (const bank of ["pichincha", "guayaquil"]) for(const checking of separateChecking&&bank==='guayaquil'?[false,true]:[false]) {
+    const rows = eligible.filter((a) => bankKey(a.bank) === bank&&(!separateChecking||bank!=='guayaquil'||/corriente/i.test(a.name)===checking));
     if (!rows.length) continue;
     const balance = rows.reduce(
         (n, a) => n + recordedAccountBalance(db, a, data.period.today),
@@ -46,8 +46,9 @@ export function accountPresentation(db, user, data, registry) {
           0,
         );
     result.push({
-      id: `group:${bank}`,
-      name: "Cuentas de Marlon",
+      id: `group:${bank}${checking?'-checking':''}`,
+      name: checking?'Guayaquil · Corriente':"Cuentas de Marlon",
+      checking_reserved:checking,
       bank: bank === "pichincha" ? "Pichincha" : "Guayaquil",
       kind: "bank",
       business_id: null,

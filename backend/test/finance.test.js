@@ -29,6 +29,7 @@ test('balance exports use current authorized accounts and never modify balances'
  const before=f.db.prepare('SELECT * FROM finance_accounts').all();
  assert.equal((await f.req('/balance-report/accounts','normita')).status,403);assert.equal((await f.req('/balance-report/accounts','reader')).status,403);
  const catalog=await f.req('/balance-report/accounts');assert.equal(catalog.status,200);assert.ok(catalog.body.accounts.some(r=>r.key==='account:'+a));
+ assert.equal(catalog.body.accounts.find(r=>r.key==='settlement:diners:available').balance_cents,null);assert.equal(catalog.body.accounts.find(r=>r.key==='settlement:diners:pending').balance_cents,null);
  const report=await f.req('/balance-report','owner',{keys:['account:'+a],total_cents:999999});assert.equal(report.body.totals.total_cents,10010);assert.doesNotMatch(report.body.text,/Cuenta privada/);
  for(const keys of [[],['account:'+a,'account:'+a],['account:999999'],['settlement:diners:missing']])assert.ok((await f.req('/balance-report','owner',{keys})).status>=400);
  const pdf=await f.raw('/balance-report.pdf','owner',{keys:['account:'+a]});assert.equal(pdf.status,200);assert.match(pdf.headers.get('content-type'),/application\/pdf/);assert.match(pdf.headers.get('cache-control'),/no-store/);assert.equal(Buffer.from(await pdf.arrayBuffer()).subarray(0,4).toString(),'%PDF');
@@ -40,6 +41,10 @@ test('balance exports use current authorized accounts and never modify balances'
  f.db.prepare("INSERT INTO finance_members(name,username,password_hash,role,business_ids,unit_ids,work_view) VALUES ('German','german',?,'viewer','[\"marjorie\",\"producalza\",\"personal\",\"gemashow\"]','[]',1)").run(passwordHash(password));f.db.prepare("UPDATE finance_accounts SET bank='Pichincha' WHERE id=?").run(a);
  f.db.prepare("INSERT INTO finance_runtime_settings(key,encrypted) VALUES ('own_account_registry',?) ON CONFLICT(key) DO UPDATE SET encrypted=excluded.encrypted").run(encryptDocument(Buffer.from(JSON.stringify({accounts:[{account_id:a,number:'2200001234'}]}))));await f.login('german');
  const german=await f.req('/balance-report/accounts','german');assert.ok(german.body.accounts.some(r=>r.key==='account:group:pichincha'));assert.ok(!german.body.accounts.some(r=>r.key==='account:'+a));assert.equal((await f.req('/balance-report','german',{keys:['account:'+a]})).status,403);assert.equal((await f.req('/balance-report','german',{keys:['account:group:pichincha']})).status,200);
+ const c=await f.account(null,'Guayaquil · Corriente'),d=await f.account(null,'Guayaquil · Pagos');for(const [id,value] of [[c,50000],[d,10000]])f.db.prepare("UPDATE finance_accounts SET bank='Guayaquil',opening_cents=? WHERE id=?").run(value,id);
+ f.db.prepare("UPDATE finance_runtime_settings SET encrypted=? WHERE key='own_account_registry'").run(encryptDocument(Buffer.from(JSON.stringify({accounts:[{account_id:a,number:'2200001234'},{account_id:c,number:'123450969'},{account_id:d,number:'123452719'}]}))));
+ const split=await f.req('/balance-report','german',{keys:['account:group:guayaquil','account:group:guayaquil-checking']});assert.equal(split.status,200);assert.equal(split.body.totals.total_cents,10000);assert.equal(split.body.totals.checks_cents,50000);assert.equal(split.body.rows.at(-1).checking,true);
+ assert.equal((await f.req('/snapshot','german')).body.accounts.find(r=>r.id==='group:guayaquil').balance_cents,60000);
 });
 test('Android bank collection is owner-only, uses a submit-only device token and stops on revoke or session logout',async t=>{
   const f=await fixture(t);await f.login();await f.login('reader');
