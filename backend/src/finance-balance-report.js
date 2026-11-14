@@ -2,7 +2,7 @@ import PDFDocument from 'pdfkit';
 import {snapshot,fail} from './finance-service.js';
 import {attachOperations} from './finance-operations.js';
 import {attachWorkflow} from './finance-workflow.js';
-import {balanceReportRows,groupBalanceReportRows,balanceReportTotals,balanceReportSections,reportTotalLabel,balanceReportText,canGenerateBalanceReport,BALANCE_REPORT_LIMIT,reportMoney,reportDate} from '../../shared/finance-balance-report.mjs';
+import {balanceReportRows,groupBalanceReportRows,balanceReportTotals,balanceReportSections,reportRowStyle,reportTotalLabel,balanceReportText,canGenerateBalanceReport,BALANCE_REPORT_LIMIT,reportMoney,reportDate} from '../../shared/finance-balance-report.mjs';
 
 export function balanceReportCatalog(db,user){
  if(!canGenerateBalanceReport(user))fail('No tienes acceso a reportes de saldos',403);
@@ -33,26 +33,26 @@ export async function balanceReportPdf(report){
  let start=241;
  write('DETALLE DE LA SELECCIÓN',x,start,9,muted,{bold:true,characterSpacing:1});start+=20;
  const entries=[];
- if(s.own.length)entries.push({heading:'MIS CUENTAS'},...s.own,{summary:'TOTAL MIS CUENTAS',value:reportTotalLabel(t.own_cents,t.own_unknown)});
- if(s.other.length)entries.push({heading:'OTRAS PERSONAS'},...s.other);
- if(s.own.length||s.other.length)entries.push({summary:'TOTAL EFECTIVO',value:reportTotalLabel(t.total_cents,t.cash_unknown)});
- if(s.checks.length)entries.push({heading:'GUAYAQUIL CORRIENTE · APARTE'},...s.checks);
- const columns=entries.length>16?2:1,gap=18,cw=(width-gap*(columns-1))/columns,perColumn=Math.max(1,Math.ceil(entries.length/columns)),rowH=Math.min(40,(686-start)/perColumn);
+ entries.push(...s.checks);
+ if(s.own.length)entries.push(...s.own,{summary:'TOTAL',value:reportTotalLabel(t.own_cents,t.own_unknown)});
+ entries.push(...s.pending);
+ if(s.other.length)entries.push(...s.other,{summary:'TOTAL',value:reportTotalLabel(t.others_cents,t.others_unknown)});
+ const columns=entries.length>28?2:1,gap=18,cw=(width-gap*(columns-1))/columns,perColumn=Math.max(1,Math.ceil(entries.length/columns)),rowH=Math.min(40,(739-start)/perColumn);
  entries.forEach((r,i)=>{
   const col=Math.floor(i/perColumn),row=i%perColumn,px=x+col*(cw+gap),py=start+row*rowH,compact=columns===2,labelWidth=cw-(compact?83:125);
   if(r.heading||r.summary){doc.roundedRect(px,py,cw,rowH-2,4).fill('#e4eddf');write(r.heading||r.summary,px+8,py+5,compact?7:9,green,{bold:true,width:r.summary?labelWidth-8:cw-16});if(r.summary)write(r.value,px+cw-(compact?79:119),py+5,compact?9:11,green,{bold:true,width:compact?71:111,align:'right'});return;}
   if(row%2===0)doc.roundedRect(px,py,cw,rowH-2,4).fill('#f3f6ef');
-  const name=(r.name.toLowerCase().includes(r.bank.toLowerCase())?'':r.bank+' · ')+r.name;
+  const name=reportRowStyle(r).label;
   doc.font('Helvetica-Bold').fontSize(compact?7.2:10).fillColor(green).text(name,px+8,py+2,{width:labelWidth-10,height:Math.max(9,rowH-12),ellipsis:true,lineGap:0});
   write(r.balance_cents===null?'Por indicar':reportMoney(r.balance_cents),px+cw-(compact?79:119),py+4,compact?9:12,green,{bold:true,width:compact?71:111,align:'right'});
   const detail=[r.number,r.balance_cents!==null&&r.unknown_count?r.unknown_count+' saldo(s) por indicar':''].filter(Boolean).join(' · ');
   doc.font('Helvetica').fontSize(compact?6.2:8).fillColor(muted).text(detail,px+8,py+rowH-8,{width:cw-16,height:9,ellipsis:true,lineBreak:false});
  });
  doc.moveTo(x,758).lineTo(w-x,758).strokeColor('#dbe4d8').lineWidth(.7).stroke();
- [['TOTAL EFECTIVO',reportTotalLabel(t.total_cents,t.cash_unknown)],['TOTAL CHEQUES',reportTotalLabel(t.checks_cents,t.checks_unknown)],['Falta Diners',reportTotalLabel(t.pending_cents,t.pending_unknown)]].forEach(([label,value],i)=>{const y=701+i*18;write(label,x,y,10,green,{bold:true,width:width-160});write(value,w-x-155,y,12,green,{bold:true,width:155,align:'right'});});
- const notes=['Efectivo sin corriente ni Diners pendientes. Solo cuentas seleccionadas.', 'Total cheques: saldo registrado en Guayaquil corriente.'];
+ write('TOTAL EFECTIVO',x,770,11,green,{bold:true,width:width-160});write(reportTotalLabel(t.total_cents,t.cash_unknown),w-x-155,770,14,green,{bold:true,width:155,align:'right'});
+ const notes=['Efectivo sin corriente ni Dinners pendientes. Solo cuentas seleccionadas.'];
  if(t.unknown)notes.push(t.unknown+' saldo(s) por indicar no se suman al total.');
- notes.forEach((n,i)=>write(n,x,770+i*11,8,muted));
+ notes.forEach((n,i)=>write(n,x,794+i*11,8,muted));
  write('Gema Finanzas · Reporte de saldos',x,822,8,muted);
  write('1 / 1',w-80,822,8,muted,{width:44,align:'right'});
  if(doc.bufferedPageRange().count!==1)throw new Error('El reporte excede una hoja');

@@ -24,23 +24,46 @@ export function groupBalanceReportRows(rows){
  return [...own,...separate].sort(reportOrder);
 }
 export function balanceReportTotals(rows){
- const cash=rows.filter(r=>!r.checking&&!r.pending),own=cash.filter(r=>r.ownership!=='other'),checks=rows.filter(r=>r.checking),pending=rows.filter(r=>r.pending);
+ const cash=rows.filter(r=>!r.checking&&!r.pending),{own,other,checks}=balanceReportSections(rows),pending=rows.filter(r=>r.pending);
  const sum=rs=>rs.reduce((n,r)=>n+(r.balance_cents??0),0),unknown=rs=>rs.reduce((n,r)=>n+(r.unknown_count??Number(r.balance_cents===null)),0);
- return {total_cents:sum(cash),own_cents:sum(own),others_cents:sum(cash.filter(r=>r.ownership==='other')),checks_cents:sum(checks),pending_cents:sum(pending),available_cents:sum(cash),reserved_cents:sum(checks),unknown:unknown(rows),cash_unknown:unknown(cash),own_unknown:unknown(own),checks_unknown:unknown(checks),pending_unknown:unknown(pending)};
+ return {total_cents:sum(cash),own_cents:sum(own),others_cents:sum(other),checks_cents:sum(checks),pending_cents:sum(pending),available_cents:sum(cash),reserved_cents:sum(checks),unknown:unknown(rows),cash_unknown:unknown(cash),own_unknown:unknown(own),others_unknown:unknown(other),checks_unknown:unknown(checks),pending_unknown:unknown(pending)};
 }
-export function balanceReportSections(rows){return {own:rows.filter(r=>!r.checking&&!r.pending&&r.ownership!=='other'),other:rows.filter(r=>!r.checking&&!r.pending&&r.ownership==='other'),checks:rows.filter(r=>r.checking)};}
+// Report placement is independent of legal ownership and account permissions.
+const secondBlock=r=>r.ownership==='other'||r.kind==='cash'||/payphone/i.test(r.bank);
+export function balanceReportSections(rows){const order=(a,b)=>reportRowStyle(a).rank-reportRowStyle(b).rank||a.name.localeCompare(b.name,'es');return {own:rows.filter(r=>!r.checking&&!r.pending&&!secondBlock(r)).sort(order),other:rows.filter(r=>!r.checking&&!r.pending&&secondBlock(r)).sort(order),checks:rows.filter(r=>r.checking),pending:rows.filter(r=>r.pending)};}
 export const reportTotalLabel=(value,unknown)=>unknown?(value?reportMoney(value)+' (parcial)':'Por indicar'):reportMoney(value);
-export function balanceEmoji(row){const bank=(row.bank||'').toLowerCase();return row.reserved_cents>0?'🎈':row.kind==='cash'?'💵':/pichincha/.test(bank)?'🟨':/guayaquil/.test(bank)?'🟣':/produbanco/.test(bank)?'🟢':/pac[ií]fico/.test(bank)?'🔵':/solidario/.test(bank)?'🪢':/de\s*una/.test(bank)?'🔖':/payphone/.test(bank)?'🟧':/diners/.test(bank)?'💳':'🏦';}
+export function balanceEmoji(row){const bank=(row.bank||'').toLowerCase();return row.checking?'🎈':row.kind==='cash'?'💰':/pichincha/.test(bank)?'🟨':/guayaquil/.test(bank)?'🎈':/produbanco/.test(bank)?'🟢':/pac[ií]fico/.test(bank)?'🔵':/solidario/.test(bank)?'🪢':/de\s*una/.test(bank)?'🔖':/payphone/.test(bank)?'📙':/diners/.test(bank)?'💳':'🏦';}
+export function reportRowStyle(r){
+ const bank=bankGroup(r.bank),name=clean(r.name),id=r.key;
+ if(r.checking)return {label:'Guayaquil Corr:',emoji:'🎈',rank:-1};
+ if(r.pending)return {label:'Dinners falta',emoji:'💳',rank:7};
+ if(r.kind==='settlement'&&bank==='diners')return {label:'Dinners',emoji:'💳',rank:6};
+ if(bank==='payphone'&&r.ownership!=='other')return {label:'XAVI PAYPHONE',emoji:'📙',rank:10};
+ if(id==='custody:xavi-ahorros')return {label:'XAVI Ahorro',emoji:'🎈',rank:11};
+ if(id==='custody:efectivo')return {label:'EFECTIVO',emoji:'💰',rank:12};
+ const holders={'custody:marcela':['MARCELA',13],'custody:marce':['MARCELA',13],'custody:henry':['HENRY',14],'custody:paty':['ÑAÑA PATY',15],'custody:morelia':['MORE',16],'custody:anita':['ANITA',17]};
+ if(holders[id])return {label:holders[id][0],emoji:balanceEmoji(r),rank:holders[id][1]};
+ const banks={pichincha:['Pichincha',0],produbanco:['Produbanco',1],pacifico:['Pacifico',2],solidario:['Solidario',3],guayaquil:['Guayaquil Ah',4],deuna:['De una',5]};
+ if(r.ownership!=='other'&&banks[bank])return {label:id?.startsWith('bank:')?banks[bank][0]:name,emoji:balanceEmoji(r),rank:banks[bank][1]};
+ return {label:name,emoji:balanceEmoji(r),rank:secondBlock(r)?20:8};
+}
+const whatsappMoney=value=>'$'+(value/100).toLocaleString('es-EC',{useGrouping:false,minimumFractionDigits:value%100?2:0,maximumFractionDigits:2});
+const whatsappTotal=(value,unknown)=>unknown?(value?whatsappMoney(value)+' (parcial)':'Por indicar'):whatsappMoney(value);
 export function balanceReportText(report){
- const t=balanceReportTotals(report.rows),s=balanceReportSections(report.rows),lines=['*REPORTE DE SALDOS*','Al '+reportDate(report.generated_at),''];
- const row=r=>{const name=clean(r.name),bank=clean(r.bank),label=name.toLocaleLowerCase().includes(bank.toLocaleLowerCase())?name:bank+' · '+name;lines.push(balanceEmoji(r)+' *'+label+'*: '+(r.balance_cents===null?'Por indicar':reportMoney(r.balance_cents))+(r.balance_cents!==null&&r.unknown_count?' ('+r.unknown_count+' saldo(s) por indicar)':''));};
- if(s.own.length){lines.push('*MIS CUENTAS*');s.own.forEach(row);lines.push('','TOTAL MIS CUENTAS: *'+reportTotalLabel(t.own_cents,t.own_unknown)+'*');}
- if(s.other.length){lines.push('','-----------------------------','','*OTRAS PERSONAS*');s.other.forEach(row);}
- lines.push('','TOTAL EFECTIVO: *'+reportTotalLabel(t.total_cents,t.cash_unknown)+'*');
- if(s.checks.length){lines.push('','-----------------------------','','*CORRIENTE PARA CHEQUES · APARTE*');s.checks.forEach(row);}
- lines.push('','TOTAL EFECTIVO: *'+reportTotalLabel(t.total_cents,t.cash_unknown)+'*','TOTAL CHEQUES: *'+reportTotalLabel(t.checks_cents,t.checks_unknown)+'*','Falta Diners: *'+reportTotalLabel(t.pending_cents,t.pending_unknown)+'*');
+ const t=balanceReportTotals(report.rows),s=balanceReportSections(report.rows),lines=[];
+ const row=r=>{const {label,emoji}=reportRowStyle(r),amount=r.balance_cents===null?'Por indicar':whatsappMoney(r.balance_cents),extra=r.balance_cents!==null&&r.unknown_count?' ('+r.unknown_count+' saldo(s) por indicar)':'';
+  if(r.checking)lines.push('🎈*Guayaquil Corr:*: '+amount+extra);
+  else if(r.pending)lines.push('💳*Dinners falta*: '+amount+extra+'~');
+  else if(label==='Dinners')lines.push('💳*Dinners* : '+amount+extra);
+  else if(secondBlock(r)){const prefix=label==='EFECTIVO'?'💰 *EFECTIVO*  ':label==='HENRY'?'🟨 *HENRY* :':label==='MORE'?'🟨 *MORE* ':label==='ANITA'?'🟨 *ANITA* ':emoji+'*'+label+'* ';lines.push(prefix+amount+extra);}
+  else lines.push(emoji+'*'+label+'*:'+(label==='Pichincha'?'':' ')+amount+extra);
+ };
+ if(s.checks.length){s.checks.forEach(row);lines.push('-----------------------------------------','');}
+ if(s.own.length){s.own.forEach(row);lines.push('*......TOTAL '+whatsappTotal(t.own_cents,t.own_unknown)+'.....*');}
+ s.pending.forEach(row);
+ if(s.other.length){if(lines.length)lines.push('--------------------------------------------');s.other.forEach(row);lines.push('*......TOTAL '+whatsappTotal(t.others_cents,t.others_unknown)+'......*');}
+ lines.push('','-----------------------------------------------','TOTAL EFECTIVO '+whatsappTotal(t.total_cents,t.cash_unknown));
  if(t.unknown)lines.push(t.unknown+' saldo(s) por indicar, no incluidos en el total.');
- lines.push('Efectivo sin corriente ni Diners pendientes. Solo cuentas seleccionadas · USD');
  return lines.join('\n');
 }
 
