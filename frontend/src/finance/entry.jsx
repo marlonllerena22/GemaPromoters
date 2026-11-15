@@ -138,6 +138,7 @@ import { RequestComposer, EvidenceViewer } from "./payees.jsx";
 import "./payees.css";
 import "./account-summary.css";
 import { SettlementBalanceForm } from "./settlements.jsx";
+import './usability.css';
 
 const pages = [
   {id:'locales',label:'Reportes y caja de locales',icon:ChartNoAxesCombined,component:RetailReports,retailOnly:true},
@@ -269,6 +270,7 @@ pages.unshift(
 pages.find((p) => p.id === "equipo").component = Team;
 
 function Login({ session, onLogin }) {
+  const [showPassword,setShowPassword]=useState(false);
   const [username, setUsername] = useState(
       () => localStorage.getItem("gf_finance_username") || ""
     ),
@@ -379,14 +381,14 @@ function Login({ session, onLogin }) {
             </label>
             <label className="gf-field">
               <span>Contraseña</span>
-              <input
-                type="password"
+              <span className="gf-password-input"><input
+                type={showPassword?'text':'password'}
                 required
                 autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Tu contraseña"
-              />
+              /><button type="button" aria-label={showPassword?'Ocultar contraseña':'Mostrar contraseña'} aria-pressed={showPassword} onClick={()=>setShowPassword(v=>!v)}>{showPassword?<EyeOff size={20}/>:<Eye size={20}/>}</button></span>
             </label>
             {mfa && (
               <label className="gf-field">
@@ -458,6 +460,7 @@ function Login({ session, onLogin }) {
 }
 
 function FinanceApp() {
+  const [smallScreen,setSmallScreen]=useState(()=>window.matchMedia('(max-width:800px)').matches);
   const [session, setSession] = useState(null),
     [user, setUser] = useState(null),
     [data, setData] = useState(null),
@@ -482,6 +485,20 @@ function FinanceApp() {
   const loadId = useRef(0),
     toastTimer = useRef();
   const knownPayables = useRef(null);
+  useEffect(()=>{const media=window.matchMedia('(max-width:800px)'),update=()=>setSmallScreen(media.matches);media.addEventListener('change',update);return()=>media.removeEventListener('change',update);},[]);
+  useEffect(()=>{
+    if(!mobileOpen||!smallScreen)return;
+    const previous=document.activeElement,menu=document.getElementById('gf-navigation'),overflow=document.body.style.overflow;
+    document.body.style.overflow='hidden';menu?.querySelector('[aria-label="Cerrar menú"]')?.focus();
+    const key=e=>{if(document.querySelector('.gf-modal-backdrop'))return;if(e.key==='Escape'){e.preventDefault();setMobileOpen(false);}if(e.key==='Tab'){
+      const nodes=[...menu.querySelectorAll('button:not(:disabled),a[href]')].filter(n=>n.offsetParent!==null);
+      if(!nodes.length)return;
+      if(!nodes.includes(document.activeElement)){e.preventDefault();nodes[0].focus();}
+      else if(e.shiftKey&&document.activeElement===nodes[0]){e.preventDefault();nodes.at(-1).focus();}
+      else if(!e.shiftKey&&document.activeElement===nodes.at(-1)){e.preventDefault();nodes[0].focus();}
+    }};
+    window.addEventListener('keydown',key);return()=>{window.removeEventListener('keydown',key);document.body.style.overflow=overflow;if(previous?.isConnected)previous.focus({preventScroll:true});};
+  },[mobileOpen,smallScreen]);
   const notify = useCallback((message, error = false) => {
     clearTimeout(toastTimer.current);
     setToast({ message, error });
@@ -606,7 +623,7 @@ function FinanceApp() {
     const shortcut = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "k") {
         e.preventDefault();
-        setModal({ type: "search" });
+        document.querySelector('.gf-global-search')?.click();
       }
     };
     window.addEventListener("finance-session-ended", ended);
@@ -659,6 +676,7 @@ function FinanceApp() {
     setMobileOpen(false);
     window.history.pushState({}, "", `/finanzas/${id === "inicio" ? "" : id}`);
     window.scrollTo({ top: 0, behavior: "instant" });
+    requestAnimationFrame(()=>document.getElementById('gf-main')?.focus({preventScroll:true}));
   };
   const open = (type, initial = {}) => setModal({ type, initial });
   const selectMovement = (movement) =>
@@ -764,8 +782,9 @@ function FinanceApp() {
           ...(canUseFinanceAssistant(user) ? ["asistente"] : []),
         ].includes(p.id)) &&
       (!p.hideCollector || user?.role !== "collector" || (p.id==="cuentas"&&user.username==="morelia"))
-  );
+  ).map(p=>user?.store_staff&&p.id==='locales'?{...p,label:'Mi reporte del día'}:p);
   const current = visiblePages.find((p) => p.id === page) || visiblePages[0];
+  useEffect(()=>{document.title=(current?.label||'Ingresar')+' · Gema Finanzas';},[current?.label]);
   const Page = current?.component;
   const close = () => setModal(null);
   const requestClose = () =>
@@ -777,7 +796,7 @@ function FinanceApp() {
       <div className="gf-loading-screen">
         <Brand />
         <Loader2 size={25} className="gf-spin" />
-        {fatal && <p>{fatal}</p>}
+        {fatal&&<><p role="alert">{fatal}</p><Button onClick={()=>window.location.reload()}>Reintentar conexión</Button></>}
       </div>
     );
   if (!user)
@@ -856,6 +875,8 @@ function FinanceApp() {
           />
         )}
         <aside
+          id="gf-navigation"
+          inert={smallScreen&&!mobileOpen?'':undefined}
           className={`gf-sidebar ${mobileOpen ? "open" : ""}`}
           aria-label="Navegación principal"
         >
@@ -952,12 +973,14 @@ function FinanceApp() {
             </div>
           </div>
         </aside>
-        <div className="gf-main-shell">
+        <div className="gf-main-shell" inert={smallScreen&&mobileOpen?'':undefined}>
           <header className="gf-topbar">
             <div className="gf-topbar-left">
               <IconButton
                 icon={Menu}
                 label="Abrir menú"
+                aria-expanded={mobileOpen}
+                aria-controls="gf-navigation"
                 className="gf-mobile-only"
                 onClick={() => setMobileOpen(true)}
               />
@@ -967,32 +990,29 @@ function FinanceApp() {
               </span>
             </div>
             <div className="gf-topbar-right">
-              <button
+              {visiblePages.some(p=>p.id==='movimientos')&&<button
                 className="gf-global-search"
+                aria-label="Buscar un movimiento"
                 onClick={() => open("search")}
               >
                 <Search size={17} />
                 <span>Buscar un movimiento</span>
                 <kbd>⌘ K</kbd>
-              </button>
+              </button>}
               <span className="gf-topbar-separator" />
-              <IconButton
+              {(user.balances_visible||user.username==='morelia')&&<IconButton
                 icon={hidden ? EyeOff : Eye}
                 label={hidden ? "Mostrar cifras" : "Ocultar cifras"}
                 onClick={() => setHidden(!hidden)}
-              />
-              <button
+              />}
+              {(user.role==='owner'||user.username==='german'||user.review_unit_ids?.length>0)&&<button
                 className="gf-notification"
-                aria-label={`${data.summary.pending_count} movimientos pendientes`}
-                onClick={() =>
-                  navigate(
-                    user.role === "collector" ? "movimientos" : "pendientes"
-                  )
-                }
+                aria-label={user.role==='collector'?'Confirmar depósitos recibidos':'Ver transferencias pendientes'}
+                onClick={()=>navigate(user.role==='collector'?'confirmaciones':'pagos')}
               >
                 <Bell size={19} />
                 {data.summary.pending_count > 0 && <i />}
-              </button>
+              </button>}
               <span className="gf-topbar-avatar">{user.name[0]}</span>
             </div>
           </header>
@@ -1150,8 +1170,9 @@ function FinanceApp() {
           <nav
             className="gf-bottom-nav gf-staff-nav"
             aria-label="Navegación móvil"
+            inert={smallScreen&&mobileOpen?'':undefined}
           >
-            <button onClick={() => navigate("inicio")}>
+            <button className={current.id==='inicio'?'active':''} aria-current={current.id==='inicio'?'page':undefined} onClick={() => navigate("inicio")}>
               <Home size={22} />
               <span>Inicio</span>
             </button>
@@ -1163,26 +1184,27 @@ function FinanceApp() {
               <button onClick={()=>open('store-expense')}><ReceiptText size={22}/><span>Gasto</span></button>
               <button onClick={()=>open('staff-clock')}><Clock3 size={22}/><span>Asistencia</span></button>
             </>}
-            {!user.store_staff&&!user.warehouse_only&&<button onClick={() => navigate("espacios")}>
+            {!user.store_staff&&!user.warehouse_only&&<button className={current.id==='espacios'?'active':''} aria-current={current.id==='espacios'?'page':undefined} onClick={() => navigate("espacios")}>
               <Users size={22} />
               <span>Espacios</span>
             </button>}
             {Boolean(user.review_unit_ids?.length) && (
-              <button onClick={() => navigate("confirmaciones")}>
+              <button className={current.id==='confirmaciones'?'active':''} aria-current={current.id==='confirmaciones'?'page':undefined} onClick={() => navigate("confirmaciones")}>
                 <FileCheck2 size={22} />
                 <span>Confirmar</span>
               </button>
             )}
-            <button onClick={() => setMobileOpen(true)}>
+            <button aria-expanded={mobileOpen} aria-controls="gf-navigation" onClick={() => setMobileOpen(true)}>
               <Menu size={22} />
               <span>Más</span>
             </button>
           </nav>
         )}
         {user.role !== "collector" && (
-          <nav className="gf-bottom-nav" aria-label="Navegación móvil">
+          <nav className="gf-bottom-nav" aria-label="Navegación móvil" inert={smallScreen&&mobileOpen?'':undefined}>
             <button
               className={current.id === "inicio" ? "active" : ""}
+              aria-current={current.id==='inicio'?'page':undefined}
               onClick={() => navigate("inicio")}
             >
               <LayoutDashboard size={21} />
@@ -1190,6 +1212,7 @@ function FinanceApp() {
             </button>
             <button
               className={current.id === "movimientos" ? "active" : ""}
+              aria-current={current.id==='movimientos'?'page':undefined}
               onClick={() => navigate("movimientos")}
             >
               <ArrowUpRight size={21} />
@@ -1217,6 +1240,7 @@ function FinanceApp() {
                     ? "active"
                     : ""
                 }
+                aria-current={current.id===(user.work_view?'espacios':'pagos')?'page':undefined}
                 onClick={() => navigate(user.work_view ? "espacios" : "pagos")}
               >
                 {user.work_view ? <Users size={21} /> : <Bell size={21} />}
@@ -1228,7 +1252,7 @@ function FinanceApp() {
                 </span>
               </button>
             )}
-            <button onClick={() => setMobileOpen(true)}>
+            <button aria-expanded={mobileOpen} aria-controls="gf-navigation" onClick={() => setMobileOpen(true)}>
               <Menu size={21} />
               <span>Más</span>
             </button>
@@ -1246,7 +1270,7 @@ function FinanceApp() {
         {toast && (
           <div
             className={`gf-toast ${toast.error ? "error" : ""}`}
-            role="status"
+            role={toast.error?'alert':'status'}
           >
             {toast.error ? <X size={18} /> : <Check size={18} />}
             <span>{toast.message}</span>

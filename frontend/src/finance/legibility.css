@@ -11,21 +11,21 @@
   color: #354e3c;
 }
 .gf-muted {
-  color: #73816c;
+  color: #5e6a58;
 }
 .gf-eyebrow {
-  color: #79896c;
+  color: #637058;
   font-size: 10px;
 }
 .gf-sidebar nav > button {
   font-size: 12px;
-  color: #6e7c65;
+  color: #606d58;
   padding-top: 12px;
   padding-bottom: 12px;
 }
 .gf-nav-label {
   font-size: 9px;
-  color: #8b987d;
+  color: #646d59;
 }
 .gf-workspace strong {
   font-size: 11px;
@@ -33,15 +33,15 @@
 }
 .gf-workspace small {
   font-size: 9px;
-  color: #839276;
+  color: #65705a;
 }
 .gf-install strong {
   font-size: 10px;
-  color: #5d754d;
+  color: #576d48;
 }
 .gf-install small {
   font-size: 9px;
-  color: #839875;
+  color: #5e6d53;
 }
 .gf-user strong {
   font-size: 12px;
@@ -49,25 +49,25 @@
 }
 .gf-user small {
   font-size: 10px;
-  color: #829775;
+  color: #5e6d53;
 }
 .gf-breadcrumb {
   font-size: 12px;
-  color: #8b9981;
+  color: #646d5d;
 }
 .gf-breadcrumb strong {
-  color: #5d7550;
+  color: #576d4b;
 }
 .gf-global-search {
   font-size: 11px;
-  color: #8c9c7f;
+  color: #65705b;
 }
 .gf-global-search kbd {
   font-size: 10px;
 }
 .gf-business-filter select {
   font-size: 12px;
-  color: #61794e;
+  color: #5b7149;
 }
 .gf-top-upload {
   font-size: 11px;
@@ -75,18 +75,18 @@
 .gf-period-filter input {
   font-size: 10px;
   width: 112px;
-  color: #6f855b;
+  color: #5b6d4a;
 }
 .gf-demo-banner {
   font-size: 10px;
-  color: #86764e;
+  color: #756744;
 }
 .gf-demo-banner > span {
   font-size: 9px;
 }
 .gf-welcome .gf-eyebrow {
   font-size: 9px;
-  color: #7f936a;
+  color: #617151;
 }
 .gf-welcome h1 {
   font-size: 31px;
@@ -94,15 +94,15 @@
 }
 .gf-welcome p {
   font-size: 13px;
-  color: #829171;
+  color: #646f57;
 }
 .gf-welcome-date {
   font-size: 11px;
-  color: #859573;
+  color: #5f6c52;
 }
 .gf-stat-top > span {
   font-size: 12px;
-  color: #788c65;
+  color: #5c6c4d;
 }
 .gf-stat > strong {
   font-size: 30px;
@@ -115,7 +115,7 @@
 }
 .gf-stat > small {
   font-size: 10px;
-  color: #8a9b77;
+  color: #636f55;
   line-height: 1.65;
 }
 .gf-stat.primary > small {
@@ -130,11 +130,11 @@
 }
 .gf-section-head p {
   font-size: 13px;
-  color: #849775;
+  color: #5f6d53;
 }
 .gf-section-head .gf-eyebrow {
   font-size: 9px;
-  color: #859c71;
+  color: #5f7051;
 }
 .gf-panel .gf-section-head h2 {
   font-size: 14px;
@@ -142,7 +142,7 @@
 }
 .gf-panel .gf-section-head p {
   font-size: 11px;
-  color: #91a17d;
+  color: #616d53;
 }
 .gf-panel .gf-section-head .gf-button,
 .gf-account-preview .gf-section-head .gf-button {
@@ -150,7 +150,7 @@
 }
 .gf-period-chip {
   font-size: 10px;
-  color: #91a17a;
+  color: #616d52;
 }
 .gf-flow-summary > strong {
   font-size: 27px;
@@ -158,16 +158,16 @@
 }
 .gf-flow-summary > span {
   font-size: 10px;
-  color: #8b9f74;
+  color: #5e6c4e;
 }
 .gf-chart-axis,
 .gf-chart-labels {
   font-size: 9px;
-  color: #95a680;
+  color: #657056;
 }
 .gf-donut small {
   font-size: 9px;
-  color: #8f9f7c;
+  color: #5f6c53;
 }
 .gf-donut strong {
   font-size: 21px;
@@ -175,23 +175,23 @@
 }
 .gf-donut span {
   font-size: 9px;
-  color: #96a67f;
+  color: #667055;
 }
 .gf-donut-legend span {
   font-size: 11px;
-  color: #859772;
+  color: #5f6d52;
 }
 .gf-donut-legend strong {
   font-size: 11px;
-  color: #667e50;
+  color: #596e46;
 }
 .gf-table th {
   font-size: 11px;
-  color: #8a9c75;
+  color: #637053;
 }
 .gf-table td {
   font-size: 12px;
-  color: #768c61;
+  color: #5a6c4a;
 }
 .gf-table td > strong {
   font-size: 12px;
@@ -199,44 +199,44 @@
 }
 .gf-table-main strong {
   font-size: 12px;
-  color: #617c4d;
+  color: #5b7448;
 }
 .gf-table-main small {
   font-size: 10px;
-  color: #95a87d;
+  color: #657153;
 }
 .gf-table .gf-amount {
   font-size: 13px;
-  color: #587945;
+  color: #527140;
 }
 .gf-business-inline {
   font-size: 11px;
-  color: #80976b;
+  color: #5c6d4d;
 }
 .gf-date-cell {
   font-size: 11px;
-  color: #90a379;
+  color: #606d51;
 }
 .gf-badge {
   font-size: 10px;
   padding: 5px 8px;
-  color: #947944;
+  color: #7a6337;
   background: #f8f2e6;
 }
 .gf-badge.approved,
 .gf-badge.reconciled,
 .gf-badge.active {
-  color: #65864e;
+  color: #587544;
   background: #eef5e8;
 }
 .gf-badge.reported {
-  color: #88729e;
+  color: #77648b;
   background: #f2eef7;
 }
 .gf-badge.rejected,
 .gf-badge.cancelled,
 .gf-badge.refunded {
-  color: #a5705e;
+  color: #885c4d;
   background: #fbefea;
 }
 .compact .gf-table th {
@@ -267,7 +267,7 @@
 }
 .gf-table-footer {
   font-size: 10px;
-  color: #96a77f;
+  color: #667055;
 }
 .gf-attention h2 {
   font-size: 22px;
@@ -275,19 +275,19 @@
 }
 .gf-attention > p {
   font-size: 11px;
-  color: #95a77b;
+  color: #657052;
 }
 .gf-attention-item strong {
   font-size: 11px;
-  color: #77905e;
+  color: #5b6e48;
 }
 .gf-attention-item small {
   font-size: 10px;
-  color: #9daf87;
+  color: #636e54;
 }
 .gf-attention > .gf-button {
   font-size: 11px;
-  color: #81986b;
+  color: #5d6d4d;
   min-height: 39px;
 }
 .gf-account-preview .gf-section-head h2 {
@@ -296,39 +296,39 @@
 }
 .gf-account-preview .gf-section-head p {
   font-size: 11px;
-  color: #92a77b;
+  color: #627052;
 }
 .gf-mini-accounts strong {
   font-size: 11px;
-  color: #728c5a;
+  color: #5e7349;
 }
 .gf-mini-accounts small {
   font-size: 10px;
-  color: #9eb086;
+  color: #646f53;
 }
 .gf-mini-accounts .gf-amount {
   font-size: 12px;
-  color: #63834a;
+  color: #577340;
 }
 .gf-data-footnote {
   font-size: 10px;
-  color: #8eaa75;
+  color: #596c49;
 }
 .gf-data-footnote button {
   font-size: 10px;
-  color: #7a995f;
+  color: #586d44;
 }
 .gf-main-footer {
   font-size: 10px;
-  color: #94ab7b;
+  color: #5e6d4d;
 }
 .gf-account-owner {
   font-size: 10px;
-  color: #859f6b;
+  color: #5f734d;
 }
 .gf-account-card > p {
   font-size: 13px;
-  color: #7d9962;
+  color: #596d46;
 }
 .gf-account-balance {
   font-size: 31px;
@@ -336,155 +336,155 @@
 }
 .gf-account-card > small {
   font-size: 10px;
-  color: #97ad7d;
+  color: #5f6d4e;
 }
 .gf-card-number {
   font-size: 11px;
-  color: #96ac7d;
+  color: #5f6d4e;
 }
 .gf-account-status {
   font-size: 11px;
 }
 .gf-account-status .verified {
-  color: #789858;
+  color: #566d3e;
 }
 .gf-account-status .unverified {
-  color: #a38d57;
+  color: #75663e;
 }
 .gf-account-status > small {
   font-size: 10px;
-  color: #94ad77;
+  color: #5e6d4a;
 }
 .gf-account-card footer > span {
   font-size: 10px;
-  color: #9eb783;
+  color: #5e6d4d;
 }
 .gf-account-card footer .gf-button {
   font-size: 11px;
-  color: #809f63;
+  color: #5c7347;
 }
 .gf-review-card > small {
   font-size: 11px;
-  color: #91a77b;
+  color: #617052;
 }
 .gf-review-card h3 {
   font-size: 17px;
-  color: #5b7b44;
+  color: #55733f;
 }
 .gf-review-card > p {
   font-size: 12px;
-  color: #91aa78;
+  color: #5b6c4b;
 }
 .gf-review-card footer > span {
   font-size: 11px;
-  color: #9bb780;
+  color: #5b6d4b;
 }
 .gf-search input {
   font-size: 12px;
-  color: #6b8b50;
+  color: #587241;
 }
 .gf-toolbar select {
   font-size: 11px;
-  color: #789862;
+  color: #566d46;
 }
 .gf-tabs > button {
   font-size: 12px;
-  color: #89a271;
+  color: #5c6d4c;
 }
 .gf-tabs > button.active {
-  color: #54783c;
+  color: #4e7038;
 }
 .gf-note {
   font-size: 12px;
-  color: #829c68;
+  color: #5e704a;
   background: #f5f8ef;
 }
 .gf-note.success {
-  color: #6e9252;
+  color: #54703e;
 }
 .gf-error {
   font-size: 12px;
-  color: #a46d59;
+  color: #905f4e;
 }
 .gf-field > span {
   font-size: 12px;
-  color: #708f56;
+  color: #566d41;
 }
 .gf-field small {
   font-size: 11px;
-  color: #95ad7d;
+  color: #5e6d4e;
 }
 .gf-field input,
 .gf-field select,
 .gf-field textarea {
   font-size: 13px;
-  color: #587a3e;
+  color: #52723a;
   border-color: #dbe6ce;
 }
 .gf-field input::placeholder,
 .gf-field textarea::placeholder {
-  color: #a6bb8e;
+  color: #626e53;
 }
 .gf-modal > header h2 {
   color: #496b35;
 }
 .gf-modal > header p {
   font-size: 12px;
-  color: #91aa77;
+  color: #5b6c4a;
 }
 .gf-modal > header .gf-eyebrow {
-  color: #91a97b;
+  color: #617252;
 }
 .gf-upload-zone > strong {
-  color: #6a8b4e;
+  color: #57723f;
 }
 .gf-upload-zone > p {
   font-size: 11px;
-  color: #95ae7c;
+  color: #5e6d4e;
 }
 .gf-detail-grid strong {
   font-size: 12px;
-  color: #78975f;
+  color: #566d44;
 }
 .gf-detail-grid small {
   font-size: 10px;
-  color: #9ab483;
+  color: #607252;
 }
 .gf-detail-description {
   font-size: 13px;
-  color: #819f66;
+  color: #5d7349;
 }
 .gf-detail-section > p {
   font-size: 12px;
-  color: #95ae7c;
+  color: #5e6d4e;
 }
 .gf-detail-section h3 {
   font-size: 15px;
-  color: #68894d;
+  color: #55703e;
 }
 .gf-match-list strong {
   font-size: 12px;
-  color: #79995f;
+  color: #576d44;
 }
 .gf-match-list small {
   font-size: 10px;
-  color: #9db785;
+  color: #5d6d4e;
 }
 .gf-summary-lines > div {
   font-size: 12px;
-  color: #8aa572;
+  color: #5d6f4d;
 }
 .gf-summary-lines strong {
   font-size: 12px;
-  color: #6b8d50;
+  color: #587441;
 }
 .gf-recurring-row strong {
   font-size: 12px;
-  color: #719351;
+  color: #57713e;
 }
 .gf-recurring-row small {
   font-size: 10px;
-  color: #a0b986;
+  color: #5f6d4e;
 }
 .gf-recurring-row > .gf-amount {
   font-size: 13px;
@@ -492,164 +492,164 @@
 .gf-budget-row > div:first-child,
 .gf-budget-row strong {
   font-size: 12px;
-  color: #849f6a;
+  color: #5f734c;
 }
 .gf-budget-row > small {
   font-size: 10px;
-  color: #a1b987;
+  color: #5f6d4e;
 }
 .gf-payment-strip span {
   font-size: 11px;
-  color: #8ba773;
+  color: #5e704d;
 }
 .gf-payment-strip strong {
   font-size: 20px;
-  color: #759650;
+  color: #59743d;
 }
 .gf-closing-guide strong {
   font-size: 11px;
-  color: #78995a;
+  color: #566d3f;
 }
 .gf-integration-card h3 {
   font-size: 17px;
-  color: #79965e;
+  color: #576d43;
 }
 .gf-integration-card > p {
   font-size: 12px;
-  color: #97b17d;
+  color: #5f704e;
 }
 .gf-integration-meta small {
   font-size: 11px;
-  color: #8faa71;
+  color: #5f734c;
 }
 .gf-integration-meta span {
   font-size: 10px;
-  color: #a4ba8b;
+  color: #606d52;
 }
 .gf-report-document > p {
   font-size: 12px;
 }
 .gf-report-heading > div > strong {
   font-size: 12px;
-  color: #7c9b5d;
+  color: #596f42;
 }
 .gf-report-heading > div > span {
   font-size: 9px;
 }
 .gf-report-heading > div > small {
   font-size: 10px;
-  color: #9ab77f;
+  color: #5a6d4a;
 }
 .gf-report-notes strong {
   font-size: 12px;
-  color: #79995c;
+  color: #576d41;
 }
 .gf-report-notes p {
   font-size: 11px;
-  color: #91ad75;
+  color: #5b6d49;
 }
 .gf-report-notes small {
   font-size: 10px;
-  color: #a0b989;
+  color: #5f6d50;
 }
 .gf-suggestions > button {
   font-size: 12px;
-  color: #88a469;
+  color: #5b6e46;
 }
 .gf-chat-welcome h2 {
   font-size: 29px;
-  color: #648646;
+  color: #58753d;
 }
 .gf-chat-welcome > p {
   font-size: 12px;
-  color: #96b07d;
+  color: #5f6f4e;
 }
 .gf-chat-welcome .gf-eyebrow {
   font-size: 9px;
-  color: #9bb784;
+  color: #5b6d4e;
 }
 .gf-chat-message p {
   font-size: 13px;
-  color: #718f58;
+  color: #576d43;
 }
 .gf-chat-message small {
   font-size: 10px;
-  color: #8fae73;
+  color: #596d48;
 }
 .gf-chat-message.user p {
-  color: #7d995f;
+  color: #596d44;
 }
 .gf-chat-composer textarea {
   font-size: 13px;
-  color: #789b58;
+  color: #566f3e;
 }
 .gf-chat-disclaimer {
   font-size: 10px;
-  color: #a1bb85;
+  color: #5f6e4e;
 }
 .gf-aside-line {
   font-size: 11px;
-  color: #8ba66e;
+  color: #5e7049;
 }
 .gf-assistant-aside p {
   font-size: 12px;
-  color: #94ae76;
+  color: #5e6d49;
 }
 .gf-security-item strong {
   font-size: 12px;
-  color: #7c9b5c;
+  color: #596f41;
 }
 .gf-security-item p {
   font-size: 11px;
-  color: #9ab27e;
+  color: #60704e;
 }
 .gf-audit-list strong {
   font-size: 12px;
-  color: #799c59;
+  color: #57703f;
 }
 .gf-audit-list small {
   font-size: 10px;
-  color: #9dbb81;
+  color: #5d6e4c;
 }
 .gf-audit-list time {
   font-size: 10px;
-  color: #9fb984;
+  color: #5e6d4e;
 }
 .gf-login-form .gf-field > span {
   font-size: 12px;
-  color: #78965d;
+  color: #5c7447;
 }
 .gf-login-form h2 {
   color: #496e32;
 }
 .gf-login-form > p {
-  color: #8ea875;
+  color: #5f714e;
 }
 .gf-login-form > .gf-eyebrow {
-  color: #90aa76;
+  color: #5a6c49;
 }
 .gf-demo-entry > span {
   font-size: 9px;
-  color: #809e61;
+  color: #5c7245;
 }
 .gf-demo-entry p {
   font-size: 12px;
-  color: #8fab70;
+  color: #596d46;
 }
 .gf-demo-entry > .gf-button {
   font-size: 12px;
-  color: #799c57;
+  color: #57703e;
 }
 .gf-login-privacy {
   font-size: 10px;
-  color: #94ad7c;
+  color: #5e6d4e;
 }
 .gf-login-access > footer {
   font-size: 10px;
-  color: #9bb480;
+  color: #617250;
 }
 .gf-login-access > footer > span {
-  color: #a4bb8a;
+  color: #606e51;
 }
 @media (max-width: 1250px) {
   .gf-stat > strong {
@@ -857,10 +857,10 @@
     font-size: 10px;
   }
   .gf-bottom-nav > button {
-    color: #8aa373;
+    color: #5d6d4d;
   }
   .gf-bottom-nav > button.active {
-    color: #527737;
+    color: #4d6f33;
   }
   .gf-section-head p {
     font-size: 12px;

@@ -1,3 +1,5 @@
+import {AttendanceShortcut} from './staff-clock.jsx';
+import {RetailShortcut} from './retail-forms.jsx';
 import {IessLogo} from './iess.jsx';
 import React, { useState } from "react";
 import {
@@ -153,6 +155,7 @@ export function OwnerHome() {
           <small>Contacto y monto</small>
         </button>}
       </section>
+      <div className="gf-overview-shortcuts"><RetailShortcut/><AttendanceShortcut/></div>
       <section className="gf-home-pending" id="gf-home-pending">
         <div className="gf-between">
           <h2>Por resolver</h2>

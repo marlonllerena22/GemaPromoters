@@ -91,7 +91,7 @@ import { WorkSummary, AssistantAvatar, PushEnrollment } from "./workflows.jsx";
 import {BankNotificationsPanel,BankNotificationsShortcut} from './bank-notifications.jsx';
 import {OwnerHome} from './home-action-center.jsx';
 
-export function Overview() {const {user}=useFinance();if(user.store_staff)return <StoreStaffHome/>;if(user.warehouse_only)return <WarehouseHome/>;return <><AttendanceShortcut/><RetailShortcut/><OverviewContent/></>;}
+export function Overview() {const {user}=useFinance();if(user.store_staff)return <StoreStaffHome/>;if(user.warehouse_only)return <WarehouseHome/>;if(user.role==='owner')return <OwnerHome/>;return <><div className="gf-overview-shortcuts"><AttendanceShortcut/><RetailShortcut/></div><OverviewContent/></>;}
 function OverviewContent() {
   const { data, user, open, navigate, selectMovement, filters } = useFinance();
   const s = data.summary;
@@ -1212,7 +1212,7 @@ export function Sales() {
           <span className="gf-muted">{rows.length} ventas mostradas</span>
         </div>
         {rows.length ? (
-          <div className="gf-table-scroll">
+          <div className="gf-table-scroll" tabIndex={0} role="region" aria-label="Tabla de resultados">
             <table className="gf-table">
               <thead>
                 <tr>
@@ -1308,7 +1308,7 @@ export function Closings() {
       </div>
       <section className="gf-panel">
         {data.closings.length ? (
-          <div className="gf-table-scroll">
+          <div className="gf-table-scroll" tabIndex={0} role="region" aria-label="Tabla de resultados">
             <table className="gf-table">
               <thead>
                 <tr>
@@ -1574,7 +1574,7 @@ export function Reports() {
             detail="Solicitudes y gastos aún no conciliados por completo"
           />
         </div>
-        <div className="gf-table-scroll">
+        <div className="gf-table-scroll" tabIndex={0} role="region" aria-label="Tabla de resultados">
           <table className="gf-table">
             <thead>
               <tr>
@@ -1610,7 +1610,7 @@ export function Reports() {
           </table>
         </div>
         <h3>Comprobación de cuentas</h3>
-        <div className="gf-table-scroll">
+        <div className="gf-table-scroll" tabIndex={0} role="region" aria-label="Tabla de resultados">
           <table className="gf-table">
             <thead>
               <tr>
@@ -2178,7 +2178,7 @@ export function Team() {
         {loading ? (
           <Empty title="Consultando accesos…" description="" />
         ) : (
-          <div className="gf-table-scroll">
+          <div className="gf-table-scroll" tabIndex={0} role="region" aria-label="Tabla de resultados">
             <table className="gf-table">
               <thead>
                 <tr>

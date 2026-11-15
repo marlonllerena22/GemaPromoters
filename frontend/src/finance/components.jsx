@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useId, useState } from "react";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -51,6 +51,7 @@ export function Button({
       {...props}
       className={`gf-button ${variant} ${props.className || ""}`}
       disabled={props.disabled || loading}
+      aria-busy={loading || undefined}
     >
       {loading ? (
         <Loader2 size={17} className="gf-spin" />
@@ -136,26 +137,39 @@ export function Modal({
   wide = false,
   className = "",
 }) {
-  const ref = useRef();
+  const ref = useRef(), titleId=useId(), subtitleId=useId(), latestClose=useRef(onClose), dirty=useRef(false), confirmRef=useRef(false), returnFocus=useRef();
+  const [confirmClose,setConfirmClose]=useState(false);
+  latestClose.current=onClose;confirmRef.current=confirmClose;
+  const requestClose=()=>{if(dirty.current&&ref.current?.querySelector('form')){returnFocus.current=document.activeElement;setConfirmClose(true);}else latestClose.current();};
+  const closeRef=useRef(requestClose);closeRef.current=requestClose;
+  const continueEditing=()=>{setConfirmClose(false);setTimeout(()=>returnFocus.current?.isConnected&&returnFocus.current.focus(),0);};
+  useEffect(()=>{if(confirmClose)ref.current?.querySelector('[data-keep-editing]')?.focus();},[confirmClose]);
   useEffect(() => {
     const previous = document.activeElement;
     const saved = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    const first = () =>
-      ref.current
-        ?.querySelector('input:not([type="file"]),select,textarea,button')
-        ?.focus();
+    const element=ref.current;
+    modalStack.push(element);
+    const locked=[];
+    for(let node=element.parentElement;node&&node!==document.body;node=node.parentElement){
+      for(const sibling of node.parentElement.children){if(sibling===node||['SCRIPT','STYLE','LINK'].includes(sibling.tagName))continue;
+        const state=inertLocks.get(sibling)||{count:0,original:sibling.inert};state.count++;inertLocks.set(sibling,state);sibling.inert=true;locked.push(sibling);
+      }
+    }
+    const first = () => element.querySelector('h2')?.focus({preventScroll:true});
     const timer = setTimeout(first, 40);
     const key = (e) => {
-      if (e.key === "Escape") onClose();
+      if(modalStack.at(-1)!==element)return;
+      if (e.key === "Escape") {e.preventDefault();if(confirmRef.current)setConfirmClose(false);else closeRef.current();}
       if (e.key === "Tab") {
         const nodes = [
           ...ref.current.querySelectorAll(
             'button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href],[tabindex="0"]'
           ),
-        ].filter((n) => n.offsetParent !== null);
+        ].filter((n) => n.offsetParent !== null&&!n.closest('[inert]')&&n.type!=='hidden');
         if (!nodes.length) return;
-        if (e.shiftKey && document.activeElement === nodes[0]) {
+        if(!nodes.includes(document.activeElement)){e.preventDefault();(e.shiftKey?nodes.at(-1):nodes[0]).focus();}
+        else if (e.shiftKey && document.activeElement === nodes[0]) {
           e.preventDefault();
           nodes.at(-1).focus();
         } else if (!e.shiftKey && document.activeElement === nodes.at(-1)) {
@@ -164,19 +178,24 @@ export function Modal({
         }
       }
     };
+    const leaving=e=>{if(dirty.current&&element.querySelector('form')){e.preventDefault();e.returnValue='';}};
     window.addEventListener("keydown", key);
+    window.addEventListener('beforeunload',leaving);
     return () => {
       clearTimeout(timer);
       window.removeEventListener("keydown", key);
+      window.removeEventListener('beforeunload',leaving);
+      modalStack.splice(modalStack.indexOf(element),1);
+      locked.forEach(node=>{const state=inertLocks.get(node);if(state&&!--state.count){node.inert=state.original;inertLocks.delete(node);}});
       document.body.style.overflow = saved;
-      previous?.focus();
+      if(previous?.isConnected)previous.focus({preventScroll:true});
     };
   }, []);
   return (
     <div
       className="gf-modal-backdrop"
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) requestClose();
       }}
     >
       <section
@@ -184,21 +203,26 @@ export function Modal({
         className={`gf-modal ${wide ? "wide" : ""} ${className}`}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="gf-dialog-title"
+        aria-labelledby={titleId}
+        aria-describedby={subtitle?subtitleId:undefined}
+        onChangeCapture={e=>{if(e.target.closest('form'))dirty.current=true;}}
       >
         <header>
           <div>
             <span className="gf-eyebrow">GEMA FINANZAS</span>
-            <h2 id="gf-dialog-title">{title}</h2>
-            {subtitle && <p>{subtitle}</p>}
+            <h2 id={titleId} tabIndex={-1}>{title}</h2>
+            {subtitle && <p id={subtitleId}>{subtitle}</p>}
           </div>
-          <IconButton icon={X} label="Cerrar ventana" onClick={onClose} />
+          <IconButton icon={X} label="Cerrar ventana" onClick={requestClose} />
         </header>
-        <div className="gf-modal-body">{children}</div>
+        {confirmClose&&<div className="gf-unsaved-notice" role="alert"><strong>Tienes cambios sin guardar</strong><p>Puedes seguir editando o cerrar y descartarlos.</p><div><Button type="button" data-keep-editing onClick={continueEditing}>Seguir editando</Button><Button type="button" variant="secondary" onClick={()=>latestClose.current()}>Descartar y cerrar</Button></div></div>}
+        <div className="gf-modal-body" inert={confirmClose?'':undefined}>{children}</div>
       </section>
     </div>
   );
 }
+const modalStack=[];
+const inertLocks=new Map();
 export function MovementTable({ rows, onSelect, compact = false }) {
   if (!rows.length)
     return (
@@ -208,7 +232,7 @@ export function MovementTable({ rows, onSelect, compact = false }) {
       />
     );
   return (
-    <div className={`gf-table-scroll ${compact ? "compact" : ""}`}>
+    <div className={`gf-table-scroll ${compact ? "compact" : ""}`} tabIndex={0} role="region" aria-label="Tabla de movimientos">
       <table className="gf-table">
         <thead>
           <tr>

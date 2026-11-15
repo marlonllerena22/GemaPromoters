@@ -89,7 +89,7 @@
 .gf-app .gf-field small,
 .gf-app .gf-note,
 .gf-app .gf-detail-description {
-  color: #6d7f60;
+  color: #52654f;
 }
 .gf-app .gf-stat.primary > small {
   color: #c0d3ad;
@@ -100,7 +100,7 @@
 .gf-app .gf-date-cell,
 .gf-app .gf-table td,
 .gf-app .gf-business-inline {
-  color: #6e805e;
+  color: #52654f;
 }
 .gf-app .gf-badge.approved,
 .gf-app .gf-badge.reconciled,
@@ -108,7 +108,7 @@
   color: #557440;
 }
 .gf-app .gf-badge.pending {
-  color: #8c713c;
+  color: #775920;
 }
 .gf-app .gf-data-footnote,
 .gf-app .gf-main-footer,
@@ -116,11 +116,11 @@
 .gf-app .gf-donut small,
 .gf-app .gf-donut span,
 .gf-app .gf-flow-summary > span {
-  color: #748564;
+  color: #52654f;
 }
 .gf-app .gf-chart-axis,
 .gf-app .gf-chart-labels {
-  color: #81916f;
+  color: #52654f;
 }
 .gf-app .gf-stat.primary .gf-stat-top > span {
   color: #c2d7b1;
@@ -129,11 +129,11 @@
 .gf-login-form .gf-field > span,
 .gf-demo-entry p,
 .gf-login-privacy {
-  color: #748765;
+  color: #52654f;
 }
 .gf-demo-entry > span,
 .gf-login-form > .gf-eyebrow {
-  color: #829672;
+  color: #52654f;
 }
 @media (max-width: 560px) {
   .gf-security-options > div {

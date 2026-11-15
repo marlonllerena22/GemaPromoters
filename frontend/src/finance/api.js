@@ -62,7 +62,8 @@ export async function saveBlob(blob, name) {
   return "Descargas";
 }
 export async function financeApi(path, body, method, options = {}) {
-  const response = await fetch(`/api/finance${path}`, {
+  let response;
+  try { response = await fetch(`/api/finance${path}`, {
     credentials: "same-origin",
     cache: "no-store",
     method: method || (body ? "POST" : "GET"),
@@ -74,8 +75,9 @@ export async function financeApi(path, body, method, options = {}) {
         : { "X-Finance-Interactive": "1" }),
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
-  });
-  const data = await response.json().catch(() => ({}));
+  }); } catch { throw new Error('No se pudo conectar. Revisa tu conexión y vuelve a intentar. Si estabas guardando, comprueba el registro antes de repetir.'); }
+  const data = await response.json().catch(() => null);
+  if(!data)throw new Error('El servidor no respondió correctamente. Vuelve a intentar en un momento; si estabas guardando, comprueba primero el registro.');
   if (!response.ok) {
     if (data.code === "PASSWORD_CHANGE_REQUIRED")
       window.dispatchEvent(

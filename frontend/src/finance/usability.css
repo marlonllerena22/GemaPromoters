@@ -1,0 +1,84 @@
+/* Shared interaction rules; preserve each profile's workflow and permissions. */
+:root { --gf-muted: #52654f; }
+.gf-password-input { position:relative; display:flex; align-items:center; }
+.gf-password-input input { padding-right:52px!important; }
+.gf-password-input button { position:absolute; right:4px; width:44px; height:44px; display:grid; place-items:center; background:transparent; color:#254e3e; border:0; }
+.gf-unsaved-notice { padding:16px 22px; background:#fff3df; border-block:1px solid #ddc7a2; color:#694916; }
+.gf-unsaved-notice p { margin:6px 0 12px; }
+.gf-unsaved-notice>div { display:flex; flex-wrap:wrap; gap:10px; }
+.gf-unsaved-notice .gf-button { min-height:44px; }
+.gf-modal>header h2:focus { outline:none; }
+.gf-app button:focus-visible,.gf-modal button:focus-visible,.gf-app a:focus-visible,.gf-app summary:focus-visible,.gf-login button:focus-visible { outline:3px solid #254e3e; outline-offset:3px; }
+.gf-app .gf-home-hero button:focus-visible { outline-color:white; }
+.gf-icon-button,.gf-toast button,.gf-home-greeting>button { min-width:44px; min-height:44px; }
+.gf-home-tabs>button,.gf-tabs>button,.gf-workflow-tabs>button,.gf-request-types>button { min-height:44px; }
+.gf-app .gf-bottom-nav>button { min-height:48px; min-width:44px; color:#52654f; }
+.gf-app .gf-bottom-nav>button.active { color:#254e3e; font-weight:700; }
+.gf-app .gf-bottom-nav>button.active::after { content:''; position:absolute; bottom:0; width:18px; height:3px; border-radius:3px; background:currentColor; }
+.gf-app .gf-bottom-nav>.gf-mobile-add { color:white; }
+.gf-overview-shortcuts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin:16px 0; }
+.gf-overview-shortcuts>.gr-shortcut,.gf-overview-shortcuts>.gr-attendance-shortcut { margin:0; padding:12px; min-width:0; border-radius:16px; align-items:flex-start; gap:8px; }
+.gf-overview-shortcuts strong { font-size:14px; }
+.gf-overview-shortcuts small { font-size:12px; line-height:1.45; }
+.gf-overview-shortcuts svg { flex-shrink:0; width:20px; }
+.gf-overview-shortcuts>*>:last-child:not(span) { display:none; }
+.gf-overview-shortcuts .gr-shortcut>span:last-child { display:none; }
+.gf-cash-context { display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:12px; border-radius:12px; background:#eef3e8; }
+.gf-cash-context>span { flex:1; min-width:150px; }
+.gf-cash-context small { display:block; margin-top:4px; }
+.gf-cash-context button { min-height:44px; }
+.gf-expense-photo-actions { display:flex; flex-wrap:wrap; gap:10px; margin:8px 0; }
+.gf-expense-photo-actions button { display:inline-flex; gap:8px; align-items:center; }
+.gf-expense-photo-actions input { display:none; }
+.gf-cash-submit { position:sticky; bottom:-1px; background:white; padding:12px 0 2px; border-top:1px solid #dce4d8; margin-top:16px; }
+.gf-cash-submit button { width:100%; }
+.gf-app .gf-home-greeting span,.gf-app .gf-home-actions small,.gf-app .gf-home-pending>.gf-between>span,.gf-app .gf-home-empty,
+.gf-app .gf-home-connections summary,.gf-app .gr-shortcut small,.gf-app .gr-attendance-shortcut small,
+.gf-app .gf-account-short-name,.gf-app .gf-account-number,.gf-app .gf-account-subtitle,.gf-app .gf-account-more>summary,.gf-app .gf-account-tools>summary,.gf-app .gf-account-compact-status,
+.gf-app .gf-bank-wordmark,.gf-app .gf-money-balance>span,.gf-app .gf-money-plan small,.gf-app .gf-money-checking small,.gf-app .gf-settlement-funds>footer,
+.gf-app .gf-collaborator-heading>p,.gf-app .gf-simple-actions small,.gf-app .gf-simple-actions p,.gf-app .gf-assigned-business,.gf-app .gf-collaborator-spaces>p,.gf-app .gf-space-empty>p,.gf-app .gf-simple-private,
+.gf-app .gr-clock-card>p,.gf-app .gr-clock-card>small,.gf-app .gf-work-summary>p,.gf-app .gf-work-explore p,.gf-app .gf-work-private,
+.gf-app .gf-push-enrollment p,.gf-app .gf-push-enrollment strong,.gf-app .gf-payee-hint,.gf-modal .gf-payee-hint,
+.gf-app .gf-gmail-panel p,.gf-app .gf-bank-notifications p,.gf-app .gf-integration-card p,.gf-app .gf-integration-meta,
+.gf-modal>header p,.gf-modal .gf-field>span,.gf-modal .gf-field small,.gf-modal .gf-request-amount>span,
+.gf-modal .gf-request-scope>span,.gf-modal .gf-contact-results>p,.gf-modal .gf-contact-picker header button,
+.gf-login .gf-remember-device small,.gf-login .gf-brand small { color:#52654f; }
+.gf-app .gf-mini-accounts strong,.gf-app .gf-mini-accounts .gf-amount,.gf-modal>header h2 { color:#254e3e; }
+.gf-modal .gf-button.secondary { color:#34543e; background:#f5f8f1; }
+.gf-modal .gr-field input,.gf-modal .gr-field select { color:#254e3e; }
+.gf-modal input::placeholder,.gf-modal textarea::placeholder { color:#62715c; opacity:1; }
+.gf-modal .gr-primary { color:white; background:#254e3e; }
+.gf-app .gf-badge.pending { color:#775920; }
+.gf-app .gf-badge.reported { color:#6c4d85; }
+.gf-app .gf-workflow-tabs>button,.gf-app .gf-workflow-tabs>button[aria-pressed=true],.gf-app .gf-workflow-filter select,.gf-app .gf-empty h3,.gf-app .gf-work-explore h2 { color:#34543e; }
+.gf-app .gf-work-private { color:#52654f!important; }
+@media(max-width:800px){
+ .gf-app .gf-main-footer,.gf-login .gf-login-access>footer { font-size:11px; }
+ .gf-app .gf-main-footer>span:last-child { font-size:10px; }
+ .gf-app .gf-bottom-nav>button>span { font-size:11px; line-height:1.2; }
+ .gf-app .gf-simple-actions small,.gf-app .gr-clock-card>small { font-size:13px; }
+ .gf-app .gf-home-actions small { font-size:12px; }
+ .gf-modal { max-height:calc(100dvh - 16px); }
+ .gf-modal .gf-field>span,.gf-modal .gr-field { font-size:14px; }
+ .gf-modal input,.gf-modal select,.gf-modal textarea { font-size:16px; }
+ .gf-modal .gf-modal-body { overscroll-behavior:contain; }
+ .gf-app .gf-home-hero { margin-top:12px; }
+}
+@media(prefers-reduced-motion:reduce){
+ .gf-app *,.gf-modal *,.gf-login * { scroll-behavior:auto!important; animation-duration:.01ms!important; animation-iteration-count:1!important; transition-duration:.01ms!important; }
+}
+
+/* Readable supporting text on reports, closing guides and profile cards. */
+.gf-report-document, .gf-report-heading, .gf-report-document h2,
+.gf-report-document h3, .gf-report-heading .gf-brand,
+.gf-closing-guide > span, .gf-space-participants, .gf-space-tile footer > span,
+.gf-profile-presets h3, .gf-profile-presets button strong, .gf-profile-presets button span { color: #52654f; }
+
+.gf-report-heading .gf-brand > span, .gf-report-heading > div > span, .gf-space-how > span { color:#52654f; }
+@media(max-width:600px){
+ .gf-app .gf-home-actions { grid-template-columns:repeat(3,minmax(0,1fr)); }
+ .gf-app .gf-home-actions > button { display:flex; flex-direction:column; align-items:flex-start; gap:6px; padding:12px 9px; }
+ .gf-app .gf-home-actions > button > span { flex-shrink:0; }
+ .gf-app .gf-home-actions strong { font-size:13px; overflow-wrap:anywhere; }
+ .gf-app .gf-home-actions small { font-size:11px; }
+}
