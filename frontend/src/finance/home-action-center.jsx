@@ -41,6 +41,7 @@ export function PaymentUploadPicker({ onClose }) {
             <div>
               {r.request_kind==='iess'&&<IessLogo/>}<strong>{r.counterparty}</strong>
               <b>{money(r.remaining_cents)}</b>
+              <small className="gf-request-author">Solicitado por {r.requester_name || r.created_by || 'Usuario no identificado'}</small>
               <span>{r.description}</span>
             </div>
             <DirectPaymentUpload request={r} />
@@ -215,6 +216,7 @@ export function OwnerHome() {
                       : "Depósito por confirmar"}
                   </small>
                   {r.request_kind==='iess'&&<IessLogo/>}<strong>{r.counterparty}</strong>
+                  {kind === "payment"&&<small className="gf-request-author">Solicitado por {r.requester_name || r.created_by || 'Usuario no identificado'}</small>}
                   <span>
                     {kind === "payment"
                       ? r.description

@@ -233,8 +233,8 @@ export function RequestCard({ request, returnSpace = null }) {
           <div>
             {request.request_kind==='iess'&&<IessLogo/>}<h3>{request.counterparty}</h3>
             <p>{request.description}</p>
-            <small>
-              {request.requester_name || request.created_by}
+            <small className="gf-request-author">
+              Solicitado por {request.requester_name || request.created_by || "Usuario no identificado"}
               {request.due_date
                 ? ` · Vence ${dateLabel(request.due_date)}`
                 : ""}
@@ -628,16 +628,13 @@ export function RequestDetails({ id, onClose }) {
         <p>Consultando solicitud…</p>
       ) : (
         <>
+          <p className="gf-request-author gf-request-author-detail">Solicitado por <strong>{r.requester_name || r.created_by || "Usuario no identificado"}</strong> · {dateLabel(r.day)}</p>
           {detail.iess?<IessDetails details={detail.iess} value={r.amount_cents}/>:<div className="gf-request-detail-summary">
             <span>{detail.space?.name || businessNames[r.business_id]}</span>
             <h3>{r.counterparty}</h3>
             <strong>{money(r.amount_cents)}</strong>
             <p>{r.description}</p>
             {r.observation&&<div className="gf-request-observation"><strong>Detalle u observación</strong><p>{r.observation}</p></div>}
-            <small>
-              Solicitado por {r.requester_name || r.created_by} ·{" "}
-              {dateLabel(r.day)}
-            </small>
           </div>
           }
           {detail.payments.filter((p) => !p.voided_at).length > 0 && (

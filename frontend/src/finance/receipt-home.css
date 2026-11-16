@@ -657,3 +657,18 @@
     margin: 10px 0;
   }
 }
+
+/* The requester is distinct from the beneficiary, visible before opening. */
+.gf-request-author,
+.gf-home-pending-open small.gf-request-author {
+  color: #315c4c;
+  font-size: .82rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.gf-request-author-detail {
+  margin: 0 0 .75rem;
+  padding: .65rem .8rem;
+  border-radius: 12px;
+  background: #f1f6ef;
+}
