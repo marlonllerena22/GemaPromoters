@@ -1,9 +1,30 @@
 import {decryptDocument,encryptDocument} from './finance-ai.js';
 import {audit,financeDay,passwordHash,validateFinancePassword} from './finance-db.js';
 import {effectiveMember} from './finance-profile-access.js';
-import {staffNames} from '../../shared/finance-access.mjs';
+import {staffNames,YAJAIRA_UNITS} from '../../shared/finance-access.mjs';
 import {privateSetting,putPrivateSetting} from './finance-operations.js';
 import {setScheduledArrivals} from './finance-staff-clock.js';
+
+// Owner-authorized onboarding, delivered encrypted through hosting. Creates only
+// the requested new collector; never changes an existing account or its password.
+export function provisionYajaira(db,job,now=new Date()){
+ if(job.kind!=='yajaira-onboarding-v1'||!/^[a-f0-9-]{36}$/.test(job.id)||!Number.isFinite(Date.parse(job.expires_at))||Date.parse(job.expires_at)<+now||Date.parse(job.expires_at)>+now+2*3600000)throw new Error('Invalid onboarding job');
+ const key='staff-onboarding:'+job.id,previous=privateSetting(db,key);if(previous)return {...previous,duplicate:true};
+ const password=validateFinancePassword(job.password);
+ return db.transaction(()=>{
+  const owner=db.prepare("SELECT * FROM finance_members WHERE username=? AND role='owner' AND active=1").get(job.owner);
+  if(!owner||job.owner!=='marlon'||db.prepare("SELECT 1 FROM finance_members WHERE username='yajaira'").get())throw new Error('Onboarding needs access review');
+  const row=db.prepare("INSERT INTO finance_members(name,username,password_hash,role,business_ids,unit_ids,work_view) VALUES ('Yajaira','yajaira',?,'collector',?,?,0)").run(passwordHash(password),JSON.stringify(['marjorie']),JSON.stringify(YAJAIRA_UNITS));
+  const result={id:Number(row.lastInsertRowid),username:'yajaira',role:'collector',unit_ids:YAJAIRA_UNITS,completed_at:now.toISOString()};
+  audit(db,owner.username,'member.created','member',result.id,null,{name:'Yajaira',role:'collector',business_ids:['marjorie'],unit_ids:YAJAIRA_UNITS,temporary_password:true},'marjorie');
+  putPrivateSetting(db,key,result);return result;
+ })();
+}
+export function applyPrivateStaffOnboarding(db,payload=process.env.FINANCE_STAFF_ONBOARDING_JOB){
+ if(!payload)return null;
+ try{const job=JSON.parse(decryptDocument(Buffer.from(payload,'base64')).toString()),result=provisionYajaira(db,job);console.info('[finance] Staff onboarding completed '+result.username+' id='+result.id);return result;}
+ catch{console.error('[finance] Staff onboarding stopped: review encrypted job and existing account');return {failed:true};}
+}
 
 // Short-lived hosting job for an owner-requested staff credential recovery.
 // No public endpoint, no owner recovery, no MFA bypass and no attendance writes.

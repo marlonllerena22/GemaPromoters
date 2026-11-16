@@ -1,4 +1,11 @@
-export const staffNames={lili:'Liliana',liliana:'Liliana',martha:'Martha',belen:'Belén',nayeli:'Nayely',nayely:'Nayely',yamileth:'Yamileth',selena:'Selena'};
+export const staffNames={lili:'Liliana',liliana:'Liliana',martha:'Martha',belen:'Belén',nayeli:'Nayely',nayely:'Nayely',yamileth:'Yamileth',selena:'Selena',yajaira:'Yajaira'};
+// Temporary availability is not a planned or worked shift. An explicit calendar
+// entry (including rest) always wins; no historical attendance is inferred.
+export const YAJAIRA_UNITS=['marjorie-norte','marjorie-valle','marjorie-sur'];
+export function flexibleStaffUnits(u,day){
+ if(u?.username!=='yajaira'||!isStoreStaff(u)||day<'2026-11-16'||!u.business_ids?.includes('marjorie'))return [];
+ return YAJAIRA_UNITS.filter(id=>(u.flexible_unit_ids||u.unit_ids||[]).includes(id));
+}
 export const isStoreStaff=u=>Boolean(u&&u.role!=='owner'&&staffNames[u.username]);
 export const isWarehouse=u=>Boolean(u&&['ana','jose','bodega'].includes(u.username));
 export const isLili=u=>Boolean(u&&['lili','liliana'].includes(u.username));

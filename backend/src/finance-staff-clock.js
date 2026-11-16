@@ -1,6 +1,6 @@
 import {audit,financeDay,validDay,cents} from './finance-db.js';
 import {fail,text} from './finance-service.js';
-import {staffNames,isStoreStaff} from '../../shared/finance-access.mjs';
+import {staffNames,isStoreStaff,flexibleStaffUnits} from '../../shared/finance-access.mjs';
 import {RETAIL_STAFF,RETAIL_STORES,retailManagement,retailEditor} from '../../shared/finance-retail.mjs';
 import {decryptDocument} from './finance-ai.js';
 import {pushConfiguration,validatePushSubscription} from './finance-push.js';
@@ -71,7 +71,8 @@ export function myClock(db,user,now=new Date()){
  const day=financeDay(now),employee=staffNames[user.username],s=db.prepare('SELECT * FROM finance_staff_schedule WHERE day=? AND employee=?').get(day,employee);
  // Require an explicit schedule, including for permanent staff.
  const row=clockState(db,s||{day,employee,unit_id:null,worked:0},now);
- return {day,employee,unit_id:row.unit_id,local:RETAIL_STORES[row.unit_id]||null,in_at:row.in_at||null,out_at:row.out_at||null,status:row.status,hours:row.policy?.hours||null,late_minutes:row.late_minutes??null,can_in:!!s?.unit_id&&!s.worked&&!row.in_at&&!row.review,can_out:!!row.in_at&&!row.out_at&&!['justified','unjustified','present'].includes(row.review),server_time:stamp(now)};
+ const choices=s?[]:flexibleStaffUnits(user,day).map(id=>({unit_id:id,name:RETAIL_STORES[id]}));
+ return {day,employee,available_stores:choices,unit_id:row.unit_id,local:RETAIL_STORES[row.unit_id]||null,in_at:row.in_at||null,out_at:row.out_at||null,status:choices.length?'flexible':row.status,hours:row.policy?.hours||null,late_minutes:row.late_minutes??null,can_in:choices.length>0||!!s?.unit_id&&!s.worked&&!row.in_at&&!row.review,can_out:!!row.in_at&&!row.out_at&&!['justified','unjustified','present'].includes(row.review),server_time:stamp(now)};
 }
 export function setScheduledArrivals(db,user,{day,time,reason,employees},now=new Date()){
  if(user.role!=='owner')fail('Solo Marlon puede corregir estas entradas',403);
@@ -93,7 +94,15 @@ export function setScheduledArrivals(db,user,{day,time,reason,employees},now=new
 export function punchClock(db,user,body,now=new Date()){
  if(!['in','out'].includes(body.action))fail('Selecciona Llegué o Salí');
  return db.transaction(()=>{
-  const mine=myClock(db,user,now);if(!mine.unit_id)fail('No tienes un local asignado hoy. Morelia puede organizar tu turno.');
+  let mine=myClock(db,user,now);
+  if(!mine.unit_id&&mine.available_stores.length&&body.action==='in'){
+   if(!mine.available_stores.some(s=>s.unit_id===body.unit_id))fail('Selecciona el local donde trabajas hoy');
+   db.prepare('INSERT INTO finance_staff_schedule VALUES (?,?,?,0,?)').run(mine.day,mine.employee,body.unit_id,user.username);
+   audit(db,user.username,'retail.flexible_arrival','staff_schedule',mine.day+mine.employee,null,{day:mine.day,employee:mine.employee,unit_id:body.unit_id},'marjorie');
+   mine=myClock(db,user,now);
+  }
+  if(!mine.unit_id)fail('No tienes un local asignado hoy. Morelia puede organizar tu turno.');
+  if(body.unit_id&&body.unit_id!==mine.unit_id)fail('Tu jornada ya está asignada a otro local',409);
   const old=readClock(db,mine.day,mine.employee),r=old||baseClock(db,mine);
   if(r.review)fail('Morelia ya revisó esta jornada; pídele que la reabra para corregirla',409);
   if(body.action==='in'){

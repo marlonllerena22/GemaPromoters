@@ -1,5 +1,5 @@
 import {financeDay,safeMember} from './finance-db.js';
-import {isStoreStaff,isWarehouse,staffNames,profilePermissions} from '../../shared/finance-access.mjs';
+import {isStoreStaff,isWarehouse,staffNames,profilePermissions,flexibleStaffUnits} from '../../shared/finance-access.mjs';
 
 export function initProfileAccess(db,{seedAccounts=Boolean(db.prepare("SELECT 1 FROM finance_members WHERE username='marlon' AND role='owner'").get())}={}){
  db.exec(`CREATE TABLE IF NOT EXISTS finance_staff_schedule(day TEXT NOT NULL,employee TEXT NOT NULL,unit_id TEXT,worked INTEGER NOT NULL DEFAULT 0,updated_by TEXT NOT NULL,PRIMARY KEY(day,employee));`);
@@ -20,7 +20,7 @@ export function profileForDay(db,member,day=financeDay()){
  const original=u.unit_ids||[];
  // Permanent staff retain their single store until scheduled; replacements need an explicit day.
  const units=row?(row.unit_id?[row.unit_id]:[]):original.length===1?original:[];
- return {...u,assigned_unit_ids:units,unit_ids:units.length?units:['__sin_jornada__'],shift_day:day,shift_pending:!row&&original.length!==1,shift_off:Boolean(row&&!row.unit_id),staff_name:staffNames[u.username]};
+ return {...u,flexible_unit_ids:row?[]:flexibleStaffUnits(u,day),assigned_unit_ids:units,unit_ids:units.length?units:['__sin_jornada__'],shift_day:day,shift_pending:!row&&original.length!==1,shift_off:Boolean(row&&!row.unit_id),staff_name:staffNames[u.username]};
 }
 export function effectiveMember(db,raw){return profileForDay(db,safeMember(raw));}
 export function restrictProfileRoute(user,path,method){

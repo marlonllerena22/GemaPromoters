@@ -2,7 +2,7 @@ export const RETAIL_STORES = {
   'marjorie-norte': 'Norte', 'marjorie-sur': 'Sur',
   'marjorie-valle': 'Valle', 'marjorie-bosque': "Sebastián’s · Bosque",
 };
-export const RETAIL_STAFF = ['Liliana', 'Martha', 'Belén', 'Nayely', 'Yamileth', 'Selena'];
+export const RETAIL_STAFF = ['Liliana', 'Martha', 'Belén', 'Nayely', 'Yamileth', 'Selena', 'Yajaira'];
 export const RETAIL_CATEGORIES = [
   ['pras_cargo','PRAS / CARGO','varios'],
   ['servientrega','Servientrega','varios'], ['transporte','Transporte y motorizado','varios'],

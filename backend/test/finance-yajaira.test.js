@@ -1,0 +1,61 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import Database from 'better-sqlite3';
+import {initFinanceDb,passwordHash,passwordMatches,safeMember} from '../src/finance-db.js';
+import {initFinanceOperationsDb} from '../src/finance-operations-db.js';
+import {initProfileAccess,profileForDay,restrictProfileRoute} from '../src/finance-profile-access.js';
+import {initRetail,retailSettings,saveRetailSettings,retailReport} from '../src/finance-retail.js';
+import {initStaffClock,myClock,punchClock,evaluateClockAlerts} from '../src/finance-staff-clock.js';
+import {saveStaffSchedule} from '../src/finance-staff-calendar.js';
+import {provisionYajaira} from '../src/finance-staff-support.js';
+import {YAJAIRA_UNITS,canSeeAccountBalance,canSeeStoreCash} from '../../shared/finance-access.mjs';
+import {defaultRetailSettings} from '../../shared/finance-retail.mjs';
+const owner={username:'marlon',role:'owner',business_ids:['marjorie'],unit_ids:[]};
+const staff={username:'yajaira',name:'Yajaira',role:'collector',business_ids:['marjorie'],unit_ids:YAJAIRA_UNITS};
+const now=(day='2026-11-16',time='10:02')=>new Date(day+'T'+time+':00-05:00');
+function fixture(t){const db=new Database(':memory:');initFinanceDb(db);initFinanceOperationsDb(db);initProfileAccess(db,{seedAccounts:false});initRetail(db);initStaffClock(db,now('2026-11-01'));t.after(()=>db.close());return db;}
+test('every day is available only in the three authorized stores; arrival assigns one store and exit counts once',t=>{
+ const db=fixture(t);
+ for(let n=16;n<=22;n++)assert.deepEqual(myClock(db,profileForDay(db,staff,`2026-11-${n}`),now(`2026-11-${n}`)).available_stores.map(s=>s.unit_id),YAJAIRA_UNITS);
+ assert.equal(myClock(db,staff,now('2026-11-15')).can_in,false);
+ const initial=profileForDay(db,staff,'2026-11-16');assert.deepEqual(initial.assigned_unit_ids,[]);assert.equal(initial.request_payments,false);
+ assert.equal(canSeeAccountBalance(initial,{holder_key:'lili'}),false);assert.equal(canSeeStoreCash(initial),false);assert.equal(restrictProfileRoute(initial,'/payment-requests','POST'),false);
+ assert.equal(evaluateClockAlerts(db,now('2026-11-16','19:00')).length,0);
+ for(const unit of [undefined,'marjorie-bosque','fake'])assert.throws(()=>punchClock(db,initial,{action:'in',unit_id:unit},now()),/Selecciona/);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM finance_staff_schedule').get().n,0);
+ const arrived=punchClock(db,initial,{action:'in',unit_id:'marjorie-valle'},now());assert.equal(arrived.late_minutes,0);
+ const assigned=profileForDay(db,staff,'2026-11-16');assert.deepEqual(assigned.unit_ids,['marjorie-valle']);assert.deepEqual(assigned.flexible_unit_ids,[]);
+ assert.equal(punchClock(db,initial,{action:'in',unit_id:'marjorie-valle'},now('2026-11-16','11:00')).in_at,arrived.in_at);
+ assert.throws(()=>punchClock(db,initial,{action:'in',unit_id:'marjorie-sur'},now()),e=>e.status===409);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM finance_retail_attendance').get().n,0);
+ punchClock(db,assigned,{action:'out'},now('2026-11-16','18:00'));punchClock(db,assigned,{action:'out'},now('2026-11-16','18:01'));
+ assert.equal(db.prepare('SELECT SUM(weight) n FROM finance_retail_attendance').get().n,1);
+ assert.deepEqual(profileForDay(db,staff,'2026-11-17').flexible_unit_ids,YAJAIRA_UNITS);
+});
+test('Morelia schedule and rest override flexible availability, including stale profile requests',t=>{
+ const db=fixture(t),more={...owner,role:'collector',username:'morelia'},stale=profileForDay(db,staff,'2026-11-16');
+ saveStaffSchedule(db,more,{day:'2026-11-16',employee:'Yajaira',unit_id:null});
+ assert.equal(myClock(db,stale,now()).can_in,false);assert.throws(()=>punchClock(db,stale,{action:'in',unit_id:'marjorie-sur'},now()),/asignado/);
+ saveStaffSchedule(db,more,{day:'2026-11-16',employee:'Yajaira',unit_id:'marjorie-norte'});
+ assert.deepEqual(myClock(db,stale,now()).available_stores,[]);
+ assert.throws(()=>punchClock(db,stale,{action:'in',unit_id:'marjorie-sur'},now()),e=>e.status===409);
+ assert.equal(punchClock(db,stale,{action:'in'},now()).unit_id,'marjorie-norte');
+ const limited={...staff,unit_ids:['marjorie-sur']};assert.deepEqual(myClock(db,limited,now('2026-11-17')).available_stores.map(s=>s.unit_id),['marjorie-sur']);
+ assert.equal(myClock(db,{...staff,username:'martha'},now('2026-11-17')).can_in,false);
+});
+test('existing six salaries survive onboarding, new salary stays pending and old reports gain no new payroll cost',t=>{
+ const db=fixture(t),old=defaultRetailSettings();old.staff=old.staff.filter(p=>p.name!=='Yajaira').map(p=>({...p,salary_cents:50000,extras_cents:123}));
+ db.prepare('INSERT INTO finance_retail_settings VALUES (?,?,?)').run('2026-11',JSON.stringify(old),'morelia');
+ const cfg=retailSettings(db,'2026-11');assert.equal(cfg.staff.length,7);assert.equal(cfg.staff[0].salary_cents,50000);assert.equal(cfg.staff[0].extras_cents,123);assert.equal(cfg.staff.find(p=>p.name==='Yajaira').salary_cents,null);
+ saveRetailSettings(db,owner,{month:'2026-11',settings:cfg});assert.equal(retailSettings(db,'2026-12').staff[0].extras_cents,0);assert.equal(retailSettings(db,'2026-12').staff[0].salary_cents,50000);
+ const report=retailReport(db,owner,{day:'2026-11-15',mode:'month'});assert.ok(report.stores.every(s=>!s.management.personnel.some(p=>p.name==='Yajaira')));
+});
+test('private onboarding creates only Yajaira, no bank movements, and does not overwrite existing accounts',t=>{
+ const db=fixture(t);process.env.FINANCE_DOCUMENT_KEY='fixture-onboarding-key-123456789';t.after(()=>delete process.env.FINANCE_DOCUMENT_KEY);
+ db.prepare('INSERT INTO finance_members(name,username,password_hash,role,business_ids,unit_ids) VALUES (?,?,?,?,?,?)').run('Marlon','marlon',passwordHash('Fixture8'),'owner','["marjorie"]','[]');
+ const job={kind:'yajaira-onboarding-v1',id:crypto.randomUUID(),owner:'marlon',password:'Fixture8',expires_at:new Date(+now()+60000).toISOString()};
+ assert.throws(()=>provisionYajaira(db,{...job,owner:'morelia'},now()));assert.throws(()=>provisionYajaira(db,{...job,expires_at:'2020-01-01'},now()));
+ const result=provisionYajaira(db,job,now()),member=db.prepare("SELECT * FROM finance_members WHERE username='yajaira'").get();assert.equal(member.active,1);assert.ok(passwordMatches('Fixture8',member.password_hash));assert.deepEqual(JSON.parse(member.unit_ids),YAJAIRA_UNITS);assert.equal(safeMember(member).role,'collector');
+ assert.equal(provisionYajaira(db,job,now()).duplicate,true);assert.throws(()=>provisionYajaira(db,{...job,id:crypto.randomUUID()},now()));assert.equal(db.prepare('SELECT COUNT(*) n FROM finance_movements').get().n,0);assert.equal(db.prepare('SELECT COUNT(*) n FROM finance_staff_schedule').get().n,0);assert.equal(result.username,'yajaira');
+});
