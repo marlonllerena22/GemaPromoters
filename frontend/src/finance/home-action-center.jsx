@@ -216,11 +216,11 @@ export function OwnerHome() {
                       : "Depósito por confirmar"}
                   </small>
                   {r.request_kind==='iess'&&<IessLogo/>}<strong>{r.counterparty}</strong>
-                  {kind === "payment"&&<small className="gf-request-author">Solicitado por {r.requester_name || r.created_by || 'Usuario no identificado'}</small>}
+                  <small className="gf-request-author">{kind === "payment"?"Solicitado por ":"Enviado por "}{(kind === "payment"?r.requester_name:r.creator_name) || r.created_by || 'Usuario no identificado'}</small>
                   <span>
                     {kind === "payment"
                       ? r.description
-                      : r.creator_name || r.created_by}
+                      : null}
                   </span>
                 </span>
                 <b>

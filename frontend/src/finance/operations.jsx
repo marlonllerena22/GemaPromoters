@@ -280,8 +280,8 @@ export function StoreReview() {
             <div>
               <span>{data.units.find((u) => u.id === r.unit_id)?.name}</span>
               <h3>{money(r.amount_cents)}</h3>
-              <p>
-                {r.creator_name || r.created_by} · {dateLabel(r.day)}
+              <p className="gf-request-author">
+                Enviado por {r.creator_name || r.created_by || "Usuario no identificado"} · {dateLabel(r.day)}
               </p>
               {r.receiving_bank && <small>{r.receiving_bank}{r.confirmation_responsible ? ` · Confirma ${r.confirmation_responsible}` : ""}</small>}
               {r.confirmed_at && (

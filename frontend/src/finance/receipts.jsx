@@ -75,9 +75,7 @@ export function ReceiptList({
                   ? "Rechazado"
                   : "Enviado · por confirmar"}
               </small>
-              {user.role === "owner" && (
-                <small>{r.creator_name || r.created_by}</small>
-              )}
+              <small className="gf-request-author">Enviado por {r.creator_name || r.created_by || "Usuario no identificado"}</small>
             </span>
             <b>{money(r.amount_cents)}</b>
             <ChevronRight size={18} />
@@ -402,8 +400,8 @@ export function ReceiptReview({ id, onClose }) {
       ) : (
         <div className="gf-receipt-review">
           <header>
-            <span>
-              {r.creator_name || r.created_by} · {dateLabel(r.day)}
+            <span className="gf-request-author">
+              Enviado por {r.creator_name || r.created_by || "Usuario no identificado"} · {dateLabel(r.day)}
             </span>
             <strong>{money(r.amount_cents)}</strong>
             <h3>{r.counterparty}</h3>

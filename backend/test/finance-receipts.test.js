@@ -200,6 +200,7 @@ test("destination matching preserves zeros and requires a unique account in the 
 test("a receipt notification opens the exact receipt and resolved receipts are skipped", async (t) => {
   const f = fixture(t),
     r = registerQuickEntry(f.db, f.norma, f.payload);
+  f.db.prepare("UPDATE finance_members SET name=? WHERE username=?").run("Normita Prueba",f.norma.username);
   const sub = { provider: "fcm", token: "x".repeat(140) };
   f.db
     .prepare(
@@ -222,6 +223,7 @@ test("a receipt notification opens the exact receipt and resolved receipts are s
   assert.equal(sent[0].receipt_id, String(r.movement.id));
   assert.equal(sent[0].url, "/finanzas/confirmaciones");
   assert.equal(sent[0].body.includes("1243"), false);
+  assert.equal(sent[0].body,"Normita Prueba te envió un comprobante de cliente. Toca para revisarlo.");
   f.db
     .prepare("UPDATE finance_movements SET status='approved' WHERE id=?")
     .run(r.movement.id);

@@ -78,7 +78,7 @@ export async function flushPaymentPush(
     if (!db.open) return;
     const request = db
       .prepare(
-        "SELECT m.*,(SELECT COALESCE(holder_key,'owner') FROM finance_accounts WHERE id=m.account_id) account_holder FROM finance_movements m WHERE m.id=?"
+        "SELECT m.*,(SELECT name FROM finance_members WHERE username=m.created_by) creator_name,(SELECT COALESCE(holder_key,'owner') FROM finance_accounts WHERE id=m.account_id) account_holder FROM finance_movements m WHERE m.id=?"
       )
       .get(event.request_id);
     const receipt=event.event_key.startsWith('receipt-review:');
@@ -112,7 +112,7 @@ export async function flushPaymentPush(
           value,
           JSON.stringify({
             title: informational?"Solicitud de transferencia · informativo":receipt?"Depósito por confirmar":"Te pidieron una transferencia",
-            body: informational?`$${(request.amount_cents/100).toFixed(2)} para ${request.counterparty}`:receipt?'Recibiste un comprobante de cliente. Toca para revisarlo.':'Toca para ver los datos y subir el comprobante del pago.',
+            body: informational?`$${(request.amount_cents/100).toFixed(2)} para ${request.counterparty}`:receipt?`${request.creator_name || request.created_by || 'Una colaboradora'} te envió un comprobante de cliente. Toca para revisarlo.`:'Toca para ver los datos y subir el comprobante del pago.',
             url: informational?"/finanzas/":receipt?"/finanzas/confirmaciones":"/finanzas/pagos",
             ...(informational?{}:receipt?{receipt_id:String(request.id)}:{request_id:String(request.id)}),
             tag: `${receipt?'gema-receipt':'gema-payment'}-${request.id}`,
