@@ -90,3 +90,21 @@ Se reconocen las etiquetas de factura `SIN UTILIZACION DEL SISTEMA FINANCIERO` c
 ## Validación
 
 Pruebas de comisión por par/meta mensual retroactiva, tarjeta/efectivo, proveedor externo, reparto salarial y centavos, duplicación de guardados, previsiones/gastos reales, privacidad entre perfiles, versiones de venta y etiquetas de factura. Prueba móvil 390 px contra SQLite en memoria: registrar gasto y verlo agrupado sin desbordamiento ni errores JavaScript.
+
+
+### Clasificación de Sebastián’s por lista de modelos · 16/11/2026
+
+La lista entregada por Marlon se aplica a `marjorie-bosque`, tanto a ventas existentes sin clasificación local como a ventas nuevas. No escribe movimientos bancarios ni altera importes, pares o comisiones. Reglas en `shared/finance-retail-suppliers.mjs`:
+
+- Juan Cajas: 3A, 03, 3T, 3D, 4B, 2A, 3C, 3B, 5A, 6A, 7C, 7B, 7A; Mocasín 01; tacones 05/07/06; sandalias.
+- Aguimashoes: Moleca y Beira Rio.
+- Xavier Guerrero: Boxford, Oxford y Zarleth.
+- Xavier Mejía: familia TD, incluidos 022/099/113/115/112/106/084/050.
+- Gusmar: nombre o código G seguido de número; Yolita; Discabar; Bellino.
+- Quigu / Elsi: nombre o códigos 4A015, 7F006, 7F007 y 3A002.
+- El bloque 10 (M6, A1, F2, MY2, MY4, NB1, Z3, MCI, SR1, SH5) **sí es Producalza: $38 por par**, según aclaración expresa del propietario.
+- Otros modelos identificados de ese local: Producalza, conforme a la regla acordada. Un modelo ausente o señales contradictorias quedan pendientes.
+
+Se conservan SKU, ceros iniciales y límites de código; mayúsculas, tildes y separadores no cambian la clasificación. Los nombres y costos recibidos del emisor no sustituyen estas reglas. Una clasificación guardada expresamente en Gema conserva prioridad; se mantiene tras reenvíos únicamente si la línea (incluido SKU) no cambió.
+
+Los proveedores externos sin precio tienen costo `null`: no se pagan a Producalza, sí participan de las comisiones y su margen queda pendiente. En el editor puede guardarse el costo pendiente o escribir el importe con coma/punto. Los demás locales conservan su configuración existente.

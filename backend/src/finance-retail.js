@@ -3,6 +3,7 @@ import {canSeeStoreCash} from '../../shared/finance-access.mjs';
 import {audit, cents, financeDay, validDay} from './finance-db.js';
 import {fail, unitAccess, createMovement, text} from './finance-service.js';
 import {retailNotebook} from './finance-retail-notebook.js';
+import {applyRetailSupplier} from '../../shared/finance-retail-suppliers.mjs';
 import {retailMonthlyPdf} from './finance-retail-pdf.js';
 import {RETAIL_STORES, RETAIL_STAFF, RETAIL_CATEGORIES, retailAccess, retailManagement, retailEditor, retailCategory, tierCommission, allocateCents, defaultRetailSettings, normRetail} from '../../shared/finance-retail.mjs';
 
@@ -57,7 +58,7 @@ export function validateRetailDetails(value,sale,{external=false,requireCosts=fa
     if(!Number.isSafeInteger(x.quantity)||x.quantity<1||x.quantity>10000||!RETAIL_STAFF.includes(x.seller))fail('Completa pares y vendedora');
     const supplier=external?null:(typeof x.producalza==='boolean'?x.producalza:null);
     if(requireCosts&&supplier===null)fail('Selecciona el proveedor en Gema');
-    return {product:text(x.product,150)||'Calzado',size:text(x.size,40),quantity:x.quantity,seller:x.seller,unit_price_cents:cents(x.unit_price_cents,{zero:true}),producalza:supplier,unit_cost_cents:supplier===null?null:supplier?3800:cents(x.unit_cost_cents,{zero:true})};
+    return {product:text(x.product,150)||'Calzado',sku:text(x.sku,100),size:text(x.size,40),quantity:x.quantity,seller:x.seller,unit_price_cents:cents(x.unit_price_cents,{zero:true}),producalza:supplier,unit_cost_cents:supplier===null?null:supplier?3800:x.unit_cost_cents===null||x.unit_cost_cents===undefined||x.unit_cost_cents===''?null:cents(x.unit_cost_cents,{zero:true})};
   });
   if(items.reduce((n,x)=>n+x.quantity*x.unit_price_cents,0)!==sale.total_cents-sale.refunded_cents)fail('Los importes de los pares deben coincidir con la venta neta. Incluye los descuentos y pares devueltos.');
   return {items};
@@ -136,10 +137,10 @@ function detailsOf(db,sale){
     // Invoice/status updates must not erase locally configured supplier costs.
     // Reuse only unambiguous, unchanged lines; changed products need review.
     if(saved&&manual.source_version!==sale.source_updated_at){
-      const key=x=>JSON.stringify([x.product,x.size||'',x.quantity,x.unit_price_cents,x.seller]);
+      const key=x=>JSON.stringify([x.product,x.sku||'',x.size||'',x.quantity,x.unit_price_cents,x.seller]);
       for(const item of details.items){const matches=saved.items.filter(x=>key(x)===key(item));if(matches.length===1&&details.items.filter(x=>key(x)===key(item)).length===1&&typeof matches[0].producalza==='boolean'){item.producalza=matches[0].producalza;item.unit_cost_cents=matches[0].unit_cost_cents;}}
     }
-    return details;
+    return {items:details.items.map(item=>applyRetailSupplier(item,sale.unit_id))};
   }catch{return null;}
 }
 export function retailReport(db,u,q={}) {
