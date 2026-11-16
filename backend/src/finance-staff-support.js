@@ -31,12 +31,14 @@ export function applyPrivateStaffOnboarding(db,payload=process.env.FINANCE_STAFF
 export function recoverStaffAccess(db,job,now=new Date()){
  if(job.kind!=='staff-access-recovery-v1'||!/^[a-f0-9-]{36}$/.test(job.id)||!Number.isFinite(Date.parse(job.expires_at))||Date.parse(job.expires_at)<+now||Date.parse(job.expires_at)>+now+2*3600000||!staffNames[job.username])throw new Error('Invalid staff recovery job');
  const key='staff-access-recovery:'+job.id,previous=privateSetting(db,key);if(previous)return {...previous.result,duplicate:true};
- const password=validateFinancePassword(job.password);
+ // An owner-specified recovery password may exceed the eight-character UI
+ // policy. Use the login hasher's 8–256-character bounds without truncation.
+ const recoveryHash=passwordHash(job.password);
  return db.transaction(()=>{
   const owner=db.prepare("SELECT * FROM finance_members WHERE username=? AND role='owner' AND active=1").get(job.owner);
   const member=db.prepare('SELECT * FROM finance_members WHERE username=?').get(job.username);
   if(!owner||!member||member.role!=='collector'||member.mfa_enabled||!JSON.parse(member.business_ids).includes('marjorie'))throw new Error('Staff recovery needs access review');
-  db.prepare('UPDATE finance_members SET active=1,password_hash=?,password_policy_completed=NULL,password_changed_at=? WHERE id=?').run(passwordHash(password),now.toISOString(),member.id);
+  db.prepare('UPDATE finance_members SET active=1,password_hash=?,password_policy_completed=NULL,password_changed_at=? WHERE id=?').run(recoveryHash,now.toISOString(),member.id);
   db.prepare('DELETE FROM finance_sessions WHERE member_id=?').run(member.id);
   const updated=effectiveMember(db,db.prepare('SELECT * FROM finance_members WHERE id=?').get(member.id));
   const result={username:updated.username,active:updated.active,store_staff:updated.store_staff,request_payments:updated.request_payments,assigned_unit_ids:updated.assigned_unit_ids,password_change_required:updated.password_change_required};
