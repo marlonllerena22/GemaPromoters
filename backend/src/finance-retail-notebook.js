@@ -19,15 +19,21 @@ export function retailNotebook(entries,thresholds,settings,unit,management,expen
   const feeParts=allocateCents(fee,columns.card);
   const eligible=thresholds.find(t=>t.month===s.day.slice(0,7))?.eligible;
   const result=items.map((x,i)=>{
-   const commission=known?(eligible?x.quantity*tierCommission(x.unit_price_cents,unit==='marjorie-bosque'):0):null;
+   const calculated=known?x.quantity*tierCommission(x.unit_price_cents,unit==='marjorie-bosque'):null;
+   const commission=known?(eligible?calculated:0):null;
    return {sale_id:s.id,external_id:s.external_id,day:s.day,document_number:s.document_number,product:x.product,size:x.size,seller:x.seller,quantity:x.quantity,unit_price_cents:x.unit_price_cents,total_cents:weights[i],...Object.fromEntries(methods.map(m=>[m,columns[m][i]])),unpaid_cents:remaining[i],commission_cents:commission,complete:known,
+    calculated_commission_cents:calculated,pending_commission_cents:known?calculated-commission:null,commission_eligible:!!eligible,
     ...(management?{supplier_name:x.supplier_name||null,supplier_rule:x.supplier_rule||null,unit_cost_cents:known?x.unit_cost_cents:null,cost_cents:known&&x.unit_cost_cents!==null?x.quantity*x.unit_cost_cents:null,card_fee_cents:feeParts[i],margin_cents:known&&x.unit_cost_cents!==null?weights[i]-x.quantity*x.unit_cost_cents-feeParts[i]-commission:null}:{} )};
   });
-  if(methods.some(m=>columns[m].overflow))result.push({sale_id:s.id,external_id:s.external_id,day:s.day,product:'Cobros por conciliar',size:'',seller:'',quantity:0,total_cents:0,unit_price_cents:null,...Object.fromEntries(methods.map(m=>[m,columns[m].overflow])),unpaid_cents:Math.min(0,s.net_cents-paid),commission_cents:0,complete:false,...(management?{unit_cost_cents:null,cost_cents:0,card_fee_cents:fee-sum(feeParts,x=>x),margin_cents:null}:{})});
+  if(methods.some(m=>columns[m].overflow))result.push({sale_id:s.id,external_id:s.external_id,day:s.day,product:'Cobros por conciliar',size:'',seller:'',quantity:0,total_cents:0,unit_price_cents:null,...Object.fromEntries(methods.map(m=>[m,columns[m].overflow])),unpaid_cents:Math.min(0,s.net_cents-paid),commission_cents:0,calculated_commission_cents:0,pending_commission_cents:0,complete:false,...(management?{unit_cost_cents:null,cost_cents:0,card_fee_cents:fee-sum(feeParts,x=>x),margin_cents:null}:{})});
   return result;
  });
- const keys=['quantity','total_cents',...methods,'unpaid_cents','commission_cents',...(management?['cost_cents','card_fee_cents','margin_cents']:[])];
+ const keys=['quantity','total_cents',...methods,'unpaid_cents','commission_cents','calculated_commission_cents','pending_commission_cents',...(management?['cost_cents','card_fee_cents','margin_cents']:[])];
  const totals=Object.fromEntries(keys.map(k=>[k,rows.some(r=>r[k]===null)?null:sum(rows,r=>r[k]||0)]));
  const days=[];for(let d=period.from;d<=period.to;){const sales=sum(entries.filter(s=>s.day===d),s=>s.net_cents),spent=sum(expenses.filter(e=>e.day===d),e=>e.amount_cents);days.push({day:d,sales_cents:sales,expenses_cents:spent,after_expenses_cents:sales-spent});const date=new Date(d+'T12:00:00Z');date.setUTCDate(date.getUTCDate()+1);d=date.toISOString().slice(0,10);}
- return {rows,totals,days,expenses_cents:sum(expenses,e=>e.amount_cents),after_expenses_cents:sum(entries,s=>s.net_cents)-sum(expenses,e=>e.amount_cents)};
+ const sellers=[...new Set(rows.filter(r=>r.seller).map(r=>r.seller))].map(name=>{
+  const own=rows.filter(r=>r.seller===name);
+  return {name,pairs:sum(own,r=>r.quantity||0),calculated_cents:sum(own,r=>r.calculated_commission_cents||0),earned_cents:sum(own,r=>r.commission_cents||0),pending_cents:sum(own,r=>r.pending_commission_cents||0)};
+ });
+ return {rows,totals,days,commissions:{complete:entries.every(s=>!!s.items),sellers},expenses_cents:sum(expenses,e=>e.amount_cents),after_expenses_cents:sum(entries,s=>s.net_cents)-sum(expenses,e=>e.amount_cents)};
 }

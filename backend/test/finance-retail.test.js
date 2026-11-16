@@ -7,6 +7,10 @@ import {initRetail,retailReport,retailPeriod,retailSettings,saveRetailDetails,sa
 import {normalizeAlfaBusinessSale} from '../src/finance-alfabusiness.js';
 import {defaultRetailSettings,tierCommission,allocateCents} from '../../shared/finance-retail.mjs';
 import {retailMonthlyPdf} from '../src/finance-retail-pdf.js';
+import {financeSupportCheck} from '../src/finance-support-check.js';
+import {initFinanceOperationsDb} from '../src/finance-operations-db.js';
+import {encryptDocument,decryptDocument} from '../src/finance-ai.js';
+import crypto from 'node:crypto';
 const owner={username:'marlon',name:'Marlon',role:'owner',business_ids:['marjorie'],unit_ids:[]};
 const more={...owner,username:'morelia',role:'collector'},staff={...owner,username:'selena',role:'collector',unit_ids:['marjorie-sur']};
 const day='2026-10-10';
@@ -14,6 +18,66 @@ function fixture(t){const db=new Database(':memory:');initFinanceDb(db);initReta
  const sale=(quantity,price=7000,unit='marjorie-sur',extra={})=>{const body={external_id:String(++n),source_system:'alfabusiness',business_id:'marjorie',unit_id:unit,day,total_cents:quantity*price,refunded_cents:0,state:'active',source_updated_at:'2026-10-10T20:00:00Z',payments:[{method:'cash',amount_cents:quantity*price}],...extra};const result=importSale(db,body);return {id:result.id,body};};
  const detail=(s,quantity,price=7000,extra={})=>saveRetailDetails(db,owner,s.id,{items:[{quantity,unit_price_cents:price,product:'Botín',seller:'Selena',producalza:true,...extra}]});
  const report=(user=owner,mode='month',unit='marjorie-sur')=>retailReport(db,user,{day,mode,unit_id:unit});return {db,sale,detail,report};}
+
+test('commission is visible per pair and seller before the target, without adding it to payroll or costs',t=>{
+ const f=fixture(t),a=f.sale(2);f.detail(a,2);
+ let r=f.report().stores[0],n=r.notebook;
+ assert.equal(n.totals.calculated_commission_cents,200);
+ assert.equal(n.totals.pending_commission_cents,200);
+ assert.equal(n.totals.commission_cents,0);
+ assert.equal(r.management.commission_cents,0);
+ assert.equal(n.totals.margin_cents,14000-7600);
+ assert.deepEqual(n.commissions.sellers,[{name:'Selena',pairs:2,calculated_cents:200,earned_cents:0,pending_cents:200}]);
+ const b=f.sale(57);f.detail(b,57,7000,{seller:'Yamileth'});
+ assert.equal(f.report().stores[0].notebook.totals.commission_cents,0);
+ const c=f.sale(1,7000,'marjorie-sur',{payments:[{method:'card',amount_cents:7000}]});f.detail(c,1);
+ r=f.report().stores[0];n=r.notebook;
+ assert.equal(n.totals.calculated_commission_cents,6000);
+ assert.equal(n.totals.commission_cents,6000);
+ assert.equal(n.totals.pending_commission_cents,0);
+ assert.equal(r.management.commission_cents,6000);
+ assert.equal(n.commissions.sellers.find(x=>x.name==='Selena').earned_cents,300);
+ assert.equal(n.commissions.sellers.find(x=>x.name==='Yamileth').earned_cents,5700);
+ assert.equal(n.totals.margin_cents,420000-228000-609-6000);
+});
+
+test('calculated commission uses Sebastian tiers, counts card sales, and stays unknown when detail is missing',t=>{
+ const f=fixture(t),a=f.sale(1,18800,'marjorie-bosque',{payments:[{method:'card',amount_cents:18800}]});f.detail(a,1,18800,{seller:'Belén'});
+ let n=f.report(owner,'day','marjorie-bosque').stores[0].notebook;
+ assert.equal(n.rows[0].calculated_commission_cents,300);assert.equal(n.rows[0].commission_cents,0);
+ assert.equal(n.commissions.sellers[0].name,'Belén');assert.equal(n.commissions.complete,true);
+ const b=f.sale(1,7000,'marjorie-bosque');
+ n=f.report(owner,'month','marjorie-bosque').stores[0].notebook;
+ assert.equal(n.totals.calculated_commission_cents,null);assert.equal(n.commissions.complete,false);
+ assert.equal(n.commissions.sellers[0].calculated_cents,300);
+ assert.equal(n.rows.find(x=>x.sale_id===b.id).calculated_commission_cents,null);
+ // A different store reaching 60 cannot enable Bosque commissions.
+ const c=f.sale(60);f.detail(c,60);
+ assert.equal(f.report(owner,'month','marjorie-bosque').stores[0].notebook.rows[0].commission_cents,0);
+ assert.equal(f.report(owner,'month','marjorie-bosque').stores[0].sales.thresholds[0].pairs,1);
+ const next=retailReport(f.db,owner,{day:'2026-11-01',mode:'month',unit_id:'marjorie-bosque'}).stores[0];
+ assert.equal(next.notebook.totals.calculated_commission_cents,0);
+});
+
+test('commission support check is encrypted, expiring, once-only and does not write financial records',t=>{
+ const f=fixture(t);initFinanceOperationsDb(f.db);
+ f.db.prepare('INSERT INTO finance_members(name,username,password_hash,role,business_ids,unit_ids) VALUES (?,?,?,?,?,?)').run('Marlon','marlon','not-a-login','owner','["marjorie"]','[]');
+ const a=f.sale(1);f.detail(a,1);
+ const before=f.db.prepare('SELECT * FROM finance_sales').all(),old=process.env.FINANCE_DOCUMENT_KEY;
+ process.env.FINANCE_DOCUMENT_KEY='retail-support-fixture-key-32characters';
+ t.after(()=>{if(old===undefined)delete process.env.FINANCE_DOCUMENT_KEY;else process.env.FINANCE_DOCUMENT_KEY=old;});
+ const logs=[];t.mock.method(console,'info',s=>logs.push(s));t.mock.method(console,'warn',()=>{});
+ const job={kind:'retail-commissions-v1',id:crypto.randomUUID(),day,expires_at:new Date(Date.now()+60000).toISOString()};
+ const seal=j=>encryptDocument(Buffer.from(JSON.stringify(j))).toString('base64'),payload=seal(job);
+ assert.deepEqual(financeSupportCheck(f.db,payload),{completed:true});
+ assert.equal(financeSupportCheck(f.db,payload),null);
+ const result=JSON.parse(decryptDocument(Buffer.from(logs.map(x=>x.split('|')[3]).join(''),'base64')).toString());
+ assert.equal(result.stores.find(s=>s.unit_id==='marjorie-sur').calculated_cents,100);
+ assert.equal('bankAccounts' in result,false);
+ assert.deepEqual(f.db.prepare('SELECT * FROM finance_sales').all(),before);
+ assert.equal(f.db.prepare('SELECT COUNT(*) n FROM finance_bank_transactions').get().n,0);
+ assert.deepEqual(financeSupportCheck(f.db,seal({...job,id:crypto.randomUUID(),expires_at:'2020-01-01'})),{completed:false});
+});
 test('monthly threshold is by pairs, retroactive, and commission is per pair including cards',t=>{const f=fixture(t);const a=f.sale(59);f.detail(a,59);assert.equal(f.report().stores[0].management.commission_cents,0);const b=f.sale(1,7000,'marjorie-sur',{payments:[{method:'card',amount_cents:7000}]});f.detail(b,1);const r=f.report().stores[0];assert.equal(r.management.commission_cents,6000);assert.equal(r.management.producalza_cents,60*3800);assert.equal(r.management.card_fee_cents,609);assert.equal(r.sales.breakdown.cash,59*7000);assert.equal(r.sales.breakdown.card,7000);assert.equal(tierCommission(18800,true),300);assert.equal(tierCommission(7000),100);});
 test('net result stays incomplete with missing items; other suppliers are excluded from Producalza',t=>{const f=fixture(t),s=f.sale(1);assert.equal(f.report().total.net_cents,null);f.detail(s,1,7000,{producalza:false,unit_cost_cents:2200});const r=f.report().stores[0];assert.equal(r.management.producalza_cents,0);assert.equal(r.management.other_products_cents,2200);assert.throws(()=>f.detail(s,2),/coincidir/);});
 test('salary splits across all stores by days, conserving cents; cannot double-book a day',t=>{const f=fixture(t),s=defaultRetailSettings();s.staff=s.staff.map(x=>({...x,salary_cents:x.name==='Martha'?10001:0}));saveRetailSettings(f.db,more,{month:'2026-10',settings:s});for(const [d,unit] of [['01','marjorie-norte'],['02','marjorie-norte'],['03','marjorie-bosque']])retailAttendance(f.db,more,{day:'2026-10-'+d,unit_id:unit,employee:'Martha',weight:1});assert.throws(()=>retailAttendance(f.db,more,{day:'2026-10-01',unit_id:'marjorie-sur',employee:'Martha',weight:1}),/otro local/);const r=f.report(owner,'month','all');assert.equal(r.stores.reduce((n,x)=>n+x.management.salary_cents,0),10001);assert.deepEqual(allocateCents(10001,[2,1]),[6667,3334]);});

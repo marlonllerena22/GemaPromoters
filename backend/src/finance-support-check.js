@@ -2,6 +2,7 @@ import { decryptDocument, encryptDocument } from "./finance-ai.js";
 import { financeDay } from "./finance-db.js";
 import { recordedAccountBalance } from "./finance-check-ledger.js";
 import { privateSetting, putPrivateSetting } from "./finance-operations.js";
+import { retailReport } from "./finance-retail.js";
 
 // Operator-only, read-only support check. Requires a short-lived encrypted job
 // in the hosting secret store; it exposes no route and logs no plaintext data.
@@ -9,7 +10,19 @@ export function financeSupportCheck(db, payload = process.env.FINANCE_SUPPORT_CH
   if (!payload) return null;
   try {
     const job = JSON.parse(decryptDocument(Buffer.from(payload, "base64")).toString());
-    if (job.kind !== "conversation-and-push-v1" || !/^[a-f0-9-]{36}$/.test(job.id) || !Number.isFinite(Date.parse(job.expires_at)) || Date.parse(job.expires_at)<Date.now() || Date.parse(job.expires_at)>Date.now()+2*3600000) throw new Error("invalid support job");
+    if (!["conversation-and-push-v1","retail-commissions-v1"].includes(job.kind) || !/^[a-f0-9-]{36}$/.test(job.id) || !Number.isFinite(Date.parse(job.expires_at)) || Date.parse(job.expires_at)<Date.now() || Date.parse(job.expires_at)>Date.now()+2*3600000) throw new Error("invalid support job");
+    if(job.kind==='retail-commissions-v1'){
+      const key=`support-check:${job.id}:retail-commissions-v1`;
+      if(privateSetting(db,key))return null;
+      const owner=db.prepare("SELECT username,name,role,business_ids FROM finance_members WHERE role='owner' AND active=1 LIMIT 1").get();
+      if(!owner)throw new Error('owner missing');
+      const report=retailReport(db,{...owner,business_ids:JSON.parse(owner.business_ids),unit_ids:[]},{mode:'month',day:job.day||financeDay(),unit_id:'all'});
+      const result={job_id:job.id,period:report.period,stores:report.stores.map(s=>({unit_id:s.unit_id,count:s.sales.count,pairs:s.sales.pairs,thresholds:s.sales.thresholds,commissions:s.notebook.commissions,calculated_cents:s.notebook.totals.calculated_commission_cents,earned_cents:s.notebook.totals.commission_cents,missing_details:s.sales.entries.filter(x=>!x.items).map(x=>({external_id:x.external_id,day:x.day})),warnings:s.warnings}))};
+      const cipher=encryptDocument(Buffer.from(JSON.stringify(result))).toString('base64'),chunks=cipher.match(/.{1,3500}/g);
+      chunks.forEach((chunk,index)=>console.info(`[finance] Private support check ${job.id}|${index}|${chunks.length}|${chunk}`));
+      putPrivateSetting(db,key,{completed_at:new Date().toISOString()});
+      return {completed:true};
+    }
     const key=`support-check:${job.id}:bank-signals-v13`;
     if(privateSetting(db,key)) return null;
     const drafts=db.prepare("SELECT d.* FROM finance_assistant_drafts d JOIN finance_members m ON m.id=d.member_id WHERE m.role='owner' AND d.result_json IS NOT NULL ORDER BY d.created_at DESC LIMIT 5").all().map(({encrypted,...r})=>{
