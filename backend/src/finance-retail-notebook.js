@@ -35,5 +35,5 @@ export function retailNotebook(entries,thresholds,settings,unit,management,expen
   const own=rows.filter(r=>r.seller===name);
   return {name,pairs:sum(own,r=>r.quantity||0),calculated_cents:sum(own,r=>r.calculated_commission_cents||0),earned_cents:sum(own,r=>r.commission_cents||0),pending_cents:sum(own,r=>r.pending_commission_cents||0)};
  });
- return {rows,totals,days,commissions:{complete:entries.every(s=>!!s.items),sellers},expenses_cents:sum(expenses,e=>e.amount_cents),after_expenses_cents:sum(entries,s=>s.net_cents)-sum(expenses,e=>e.amount_cents)};
+ return {rows,totals,days,commissions:{complete:entries.every(s=>!!s.items),sellers,calculated_cents:sum(sellers,p=>p.calculated_cents),earned_cents:sum(sellers,p=>p.earned_cents)},expenses_cents:sum(expenses,e=>e.amount_cents),after_expenses_cents:sum(entries,s=>s.net_cents)-sum(expenses,e=>e.amount_cents)};
 }

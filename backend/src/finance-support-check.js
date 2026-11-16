@@ -2,7 +2,7 @@ import { decryptDocument, encryptDocument } from "./finance-ai.js";
 import { financeDay } from "./finance-db.js";
 import { recordedAccountBalance } from "./finance-check-ledger.js";
 import { privateSetting, putPrivateSetting } from "./finance-operations.js";
-import { retailReport } from "./finance-retail.js";
+import { retailReport,validateRetailDetails } from "./finance-retail.js";
 
 // Operator-only, read-only support check. Requires a short-lived encrypted job
 // in the hosting secret store; it exposes no route and logs no plaintext data.
@@ -17,7 +17,14 @@ export function financeSupportCheck(db, payload = process.env.FINANCE_SUPPORT_CH
       const owner=db.prepare("SELECT username,name,role,business_ids FROM finance_members WHERE role='owner' AND active=1 LIMIT 1").get();
       if(!owner)throw new Error('owner missing');
       const report=retailReport(db,{...owner,business_ids:JSON.parse(owner.business_ids),unit_ids:[]},{mode:'month',day:job.day||financeDay(),unit_id:'all'});
-      const result={job_id:job.id,period:report.period,stores:report.stores.map(s=>({unit_id:s.unit_id,count:s.sales.count,pairs:s.sales.pairs,thresholds:s.sales.thresholds,commissions:s.notebook.commissions,calculated_cents:s.notebook.totals.calculated_commission_cents,earned_cents:s.notebook.totals.commission_cents,missing_details:s.sales.entries.filter(x=>!x.items).map(x=>({external_id:x.external_id,day:x.day})),warnings:s.warnings}))};
+      const missingDetail=x=>{
+        const sale=db.prepare('SELECT * FROM finance_sales WHERE id=?').get(x.id),source=JSON.parse(sale.payload_json).retail;
+        const manual=db.prepare('SELECT * FROM finance_retail_details WHERE sale_id=?').get(x.id);
+        const value=manual?.source_version===sale.source_updated_at?JSON.parse(manual.data_json):source;
+        let reason=null;try{validateRetailDetails(value,sale);}catch(e){reason=e.message;}
+        return {external_id:x.external_id,day:x.day,source_has_items:!!source?.items?.length,reason};
+      };
+      const result={job_id:job.id,period:report.period,stores:report.stores.map(s=>({unit_id:s.unit_id,count:s.sales.count,pairs:s.sales.pairs,thresholds:s.sales.thresholds,commissions:s.notebook.commissions,calculated_cents:s.notebook.totals.calculated_commission_cents,earned_cents:s.notebook.totals.commission_cents,missing_details:s.sales.entries.filter(x=>!x.items).map(missingDetail),warnings:s.warnings}))};
       const cipher=encryptDocument(Buffer.from(JSON.stringify(result))).toString('base64'),chunks=cipher.match(/.{1,3500}/g);
       chunks.forEach((chunk,index)=>console.info(`[finance] Private support check ${job.id}|${index}|${chunks.length}|${chunk}`));
       putPrivateSetting(db,key,{completed_at:new Date().toISOString()});

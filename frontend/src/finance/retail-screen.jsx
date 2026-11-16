@@ -53,7 +53,7 @@ function CommissionSummary({s}){
  const n=s.notebook,c=n.commissions;
  if(!c)return null;
  return <section className="gr-commission-summary" aria-label="Comisiones de las vendedoras">
-  <div className="gr-commission-values"><span>Comisión calculada <b>{val(n.totals.calculated_commission_cents)}</b></span><span>Habilitada para pago <b>{val(n.totals.commission_cents)}</b></span></div>
+  <div className="gr-commission-values"><span>Comisión calculada{!c.complete?' · parcial':''} <b>{val(!c.complete&&!c.sellers.length?null:c.calculated_cents)}</b></span><span>Habilitada para pago{!c.complete?' · parcial':''} <b>{val(!c.complete&&!c.sellers.length?null:c.earned_cents)}</b></span></div>
   {s.sales.thresholds.map(t=><p key={t.month}><strong>{t.pairs}{!t.complete?'+':''} / {t.target} pares del mes</strong> · {t.eligible?'Meta alcanzada: se incluyen todas las ventas del mes.':`Faltan ${Math.max(0,t.target-t.pairs)} pares para habilitar el pago de todas las comisiones del mes.`}</p>)}
   {!c.complete&&<p className="gr-commission-warning">Hay ventas sin detalle suficiente. Completa los pares, precios y vendedora para calcular todas las comisiones.</p>}
   <details><summary>Ver comisión por vendedora</summary>{c.sellers.length?c.sellers.map(p=><div className="gr-commission-seller" key={p.name}><strong>{p.name} · {p.pairs} pares</strong><span>Calculada {money(p.calculated_cents)} · habilitada {money(p.earned_cents)}</span>{p.pending_cents>0&&<small>{money(p.pending_cents)} pendiente de la meta</small>}</div>):<p>Sin ventas con vendedora identificada en este período.</p>}</details>

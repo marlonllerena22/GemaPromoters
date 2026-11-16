@@ -49,6 +49,7 @@ test('calculated commission uses Sebastian tiers, counts card sales, and stays u
  const b=f.sale(1,7000,'marjorie-bosque');
  n=f.report(owner,'month','marjorie-bosque').stores[0].notebook;
  assert.equal(n.totals.calculated_commission_cents,null);assert.equal(n.commissions.complete,false);
+ assert.equal(n.commissions.calculated_cents,300);assert.equal(n.commissions.earned_cents,0);
  assert.equal(n.commissions.sellers[0].calculated_cents,300);
  assert.equal(n.rows.find(x=>x.sale_id===b.id).calculated_commission_cents,null);
  // A different store reaching 60 cannot enable Bosque commissions.
