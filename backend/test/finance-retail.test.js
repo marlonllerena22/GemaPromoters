@@ -41,6 +41,36 @@ test('commission is visible per pair and seller before the target, without addin
  assert.equal(n.totals.margin_cents,420000-228000-609-6000);
 });
 
+test('daily estimate deducts calculated commission and card fee, leaving product costs to monthly management',t=>{
+ const f=fixture(t),a=f.sale(1,18800,'marjorie-bosque',{payments:[{method:'card',amount_cents:18800}]});
+ f.detail(a,1,18800,{seller:'Belén'});
+ let r=f.report(owner,'day','marjorie-bosque');
+ assert.equal(r.stores[0].notebook.rows[0].card_fee_cents,1636);
+ assert.equal(r.stores[0].notebook.rows[0].after_fees_cents,16864);
+ assert.equal(r.stores[0].notebook.totals.after_fees_cents,16864);
+ assert.equal(r.stores[0].management.commission_cents,0); // payroll still requires 60 pairs
+ assert.equal(f.report(owner,'month','marjorie-bosque').stores[0].management.producalza_cents,3800);
+ // An unknown supplier cost cannot prevent calculating commission and bank fee.
+ const b=f.sale(1,7000,'marjorie-sur',{retail:{items:[{product:'Botín',seller:'Selena',quantity:1,unit_price_cents:7000}]},payments:[{method:'transfer',amount_cents:7000}]});
+ r=f.report(owner,'day');assert.equal(r.stores[0].notebook.totals.cost_cents,null);
+ assert.equal(r.stores[0].notebook.rows.find(x=>x.sale_id===b.id).after_fees_cents,6900);
+});
+
+test('financial detail is server-private for all store staff in every report mode',t=>{
+ const f=fixture(t),a=f.sale(1);f.detail(a,1);
+ const privateKeys=['commission_cents','calculated_commission_cents','pending_commission_cents','commission_eligible','card_fee_cents','after_fees_cents','cost_cents','unit_cost_cents','margin_cents'];
+ for(const username of ['selena','belen','lili','martha','yamileth','nayeli','yajaira'])for(const mode of ['day','week','month']){
+  const r=f.report({...staff,username},mode).stores[0],n=r.notebook;
+  assert.equal('management' in r,false);assert.equal('commissions' in n,false);
+  for(const key of privateKeys){assert.ok(n.rows.every(x=>!(key in x)),username+': '+key);assert.equal(key in n.totals,false);}
+  assert.equal(n.totals.total_cents,7000);
+ }
+ for(const user of [owner,more,{...owner,username:'german',role:'viewer'}]){
+  const n=f.report(user,'day').stores[0].notebook;
+  assert.equal(n.totals.after_fees_cents,6900);assert.equal(n.commissions.calculated_cents,100);
+ }
+});
+
 test('calculated commission uses Sebastian tiers, counts card sales, and stays unknown when detail is missing',t=>{
  const f=fixture(t),a=f.sale(1,18800,'marjorie-bosque',{payments:[{method:'card',amount_cents:18800}]});f.detail(a,1,18800,{seller:'Belén'});
  let n=f.report(owner,'day','marjorie-bosque').stores[0].notebook;
