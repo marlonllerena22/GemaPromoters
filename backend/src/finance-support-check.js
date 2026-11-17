@@ -22,7 +22,7 @@ export function financeSupportCheck(db, payload = process.env.FINANCE_SUPPORT_CH
         movements:db.prepare("SELECT id,kind,day,amount_cents,status,reference,description,created_at FROM finance_movements WHERE account_id=? AND hidden_at IS NULL ORDER BY id DESC LIMIT 50").all(a.id)
       }));
       const possibleDeposits=db.prepare("SELECT b.id,b.account_id,a.name,a.bank,b.day,b.occurred_at,b.amount_cents,b.reference,b.description,b.import_source FROM finance_bank_transactions b JOIN finance_accounts a ON a.id=b.account_id WHERE b.amount_cents=500000 AND b.day>=date(?,'-14 days') ORDER BY b.id DESC LIMIT 15").all(financeDay());
-      const result={job_id:job.id,checked_at:new Date().toISOString(),observation:privateSetting(db,'payphone_balance_observation'),accounts,possibleDeposits};
+      const result={job_id:job.id,checked_at:new Date().toISOString(),observation:privateSetting(db,'payphone_balance_observation'),reconciliation:privateSetting(db,'payphone_reconciliation_pending'),custody:db.prepare("SELECT id,name,bank,balance_cents,version FROM finance_custody_balances WHERE id IN ('xavi-pichincha','xavi-ahorros')").all(),accounts,possibleDeposits};
       const cipher=encryptDocument(Buffer.from(JSON.stringify(result))).toString('base64'),chunks=cipher.match(/.{1,3500}/g);
       chunks.forEach((chunk,index)=>console.info(`[finance] Private support check ${job.id}|${index}|${chunks.length}|${chunk}`));
       putPrivateSetting(db,key,{completed_at:new Date().toISOString()});return {completed:true};

@@ -16,6 +16,7 @@ import { recordedAccountBalance } from "./finance-check-ledger.js";
 import { importStatementImage } from "./finance-statement-images.js";
 import { recordOwnerDeclaration } from "./finance-owner-declarations.js";
 import {updateConfirmedBalance} from './finance-balance-updates.js';
+import {importBank,reconcile} from './finance-service.js';
 const normalize = (s) =>
   String(s || "")
     .normalize("NFD")
@@ -52,6 +53,21 @@ export function applyBankReview(db, config) {
       .get(rows[0].account_id);
   };
   return db.transaction(() => {
+    const custodyTransfers=[];
+    for(const entry of config.wallet_custody_transfers||[]){
+      if(entry.confirmed!==true||entry.custody_id!=='xavi-pichincha'||!Number.isSafeInteger(entry.amount_cents)||entry.amount_cents<=0||!Number.isSafeInteger(entry.expected_wallet_cents)||!Number.isSafeInteger(entry.expected_custody_version)||!Number.isFinite(Date.parse(entry.occurred_at))||Date.parse(entry.occurred_at)>Date.now()||!/^[a-f0-9]{64}$/.test(entry.source_hash||''))throw new Error('Invalid confirmed wallet withdrawal');
+      const transferKey='wallet-custody:'+entry.source_hash;
+      const previous=privateSetting(db,transferKey);if(previous){if(previous.custody_id!==entry.custody_id||previous.amount_cents!==entry.amount_cents)throw new Error('Withdrawal evidence already used with different values');custodyTransfers.push({...previous,duplicate:true});continue;}
+      const wallets=db.prepare("SELECT * FROM finance_accounts WHERE kind='wallet' AND lower(bank)='payphone' AND active=1").all(),fund=db.prepare('SELECT * FROM finance_custody_balances WHERE id=?').get(entry.custody_id);
+      if(wallets.length!==1||wallets[0].business_id!=='gemashow'||!fund||fund.version!==entry.expected_custody_version||fund.balance_cents!==entry.expected_custody_cents||recordedAccountBalance(db,wallets[0])!==entry.expected_wallet_cents)throw new Error('Wallet or custody balance changed; review before withdrawal');
+      const account=wallets[0],day=financeDay(entry.occurred_at),user={role:'owner',username:'marlon',business_ids:['gemashow'],unit_ids:[]},group=crypto.createHash('sha256').update(transferKey).digest('hex');
+      const bankId=importBank(db,user,{account_id:account.id,source_system:'assistant',rows:[{day,occurred_at:entry.occurred_at,amount_cents:-entry.amount_cents,description:'Retiro PayPhone acreditado en '+fund.name,external_id:transferKey}]}).transaction_ids[0];
+      const movementId=Number(db.prepare("INSERT INTO finance_movements (business_id,account_id,kind,amount_cents,day,category,counterparty,description,payment_method,status,transfer_group,transfer_side,created_by,reviewed_by) VALUES ('gemashow',?,'transfer',?,?,'Traslado de fondos',?,?,'transfer','approved',?,'outgoing','marlon','marlon')").run(account.id,entry.amount_cents,day,fund.name,'Retiro PayPhone confirmado por Marlon; acreditado en '+fund.name,group).lastInsertRowid);
+      reconcile(db,user,{movement_id:movementId,bank_transaction_id:bankId,amount_cents:entry.amount_cents});
+      const adjustment=adjustCustody(db,user,fund.id,{balance_cents:(fund.balance_cents||0)+entry.amount_cents,version:fund.version,reason:'Retiro recibido desde PayPhone; traslado de fondos, no ingreso por ventas',request_key:group});
+      const result={account_id:account.id,custody_id:fund.id,amount_cents:entry.amount_cents,bank_transaction_id:bankId,movement_id:movementId,custody_adjustment_id:adjustment.adjustment.id};
+      putPrivateSetting(db,transferKey,result);audit(db,'marlon','wallet.custody_transfer','account',account.id,null,result,'gemashow');custodyTransfers.push(result);
+    }
     let custodies = 0;
     for (const c of config.custody_balances || []) {
       if (
@@ -133,6 +149,7 @@ export function applyBankReview(db, config) {
           .get(row.lastInsertRowid);
       }
       const before = recordedAccountBalance(db, account);
+      if(w.expected_balance_cents!==undefined&&(!Number.isSafeInteger(w.expected_balance_cents)||w.expected_balance_cents!==before))throw new Error('Wallet balance changed; review before confirming');
       db.prepare(
         "INSERT OR IGNORE INTO finance_balance_checkpoints (account_id,as_of_at,balance_cents,source_hash,created_by,created_at) VALUES (?,?,?,?,?,?)",
       ).run(
@@ -173,8 +190,11 @@ export function applyBankReview(db, config) {
           requested_by: "marlon",
           subtract_estimated_fees: false,
           platform_fee_owned: true,
+          difference_cents: w.balance_cents-before,
+          reconciliation_note: w.reconciliation_note||null,
         },
       );
+      if(w.reconciliation_note&&before!==w.balance_cents)putPrivateSetting(db,'payphone_reconciliation_pending',{account_id:account.id,calculated_cents:before,confirmed_cents:w.balance_cents,difference_cents:w.balance_cents-before,as_of_at:w.as_of_at,source_hash:w.source_hash,note:w.reconciliation_note});
       wallets++;
     }
     if (config.debit_cards?.length) {
@@ -363,6 +383,7 @@ export function applyBankReview(db, config) {
       declarations,
       adjustments,
       confirmedBalances,
+      custodyTransfers,
     };
     putPrivateSetting(db, key, result);
     return result;
