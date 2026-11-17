@@ -55,7 +55,7 @@ export function applyBankReview(db, config) {
     let custodies = 0;
     for (const c of config.custody_balances || []) {
       if (
-        !["morelia", "efectivo", "xavi-ahorros"].includes(c.id) ||
+        !["morelia", "efectivo", "xavi-ahorros", "xavi-pichincha"].includes(c.id) ||
         !Number.isSafeInteger(c.expected_version) ||
         !/^[a-f0-9]{64}$/.test(c.source_hash || "")
       )

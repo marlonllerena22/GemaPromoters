@@ -40,6 +40,7 @@ export function reportRowStyle(r){
  if(r.kind==='settlement'&&bank==='diners')return {label:'Dinners',emoji:'💳',rank:6};
  if(bank==='payphone'&&r.ownership!=='other')return {label:'XAVI PAYPHONE',emoji:'📙',rank:10};
  if(id==='custody:xavi-ahorros')return {label:'XAVI Ahorro',emoji:'🎈',rank:11};
+ if(id==='custody:xavi-pichincha')return {label:'XAVI Pichincha',emoji:'🟨',rank:11.5};
  if(id==='custody:efectivo')return {label:'EFECTIVO',emoji:'💰',rank:12};
  const holders={'custody:marcela':['MARCELA',13],'custody:marce':['MARCELA',13],'custody:henry':['HENRY',14],'custody:paty':['ÑAÑA PATY',15],'custody:morelia':['MORE',16],'custody:anita':['ANITA',17]};
  if(holders[id])return {label:holders[id][0],emoji:balanceEmoji(r),rank:holders[id][1]};
