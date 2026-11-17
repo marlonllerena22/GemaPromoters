@@ -30,3 +30,18 @@ test('changed balances reject the withdrawal and roll back both sides',t=>{
  assert.equal(f.balance(),534795);assert.equal(f.db.prepare("SELECT balance_cents FROM finance_custody_balances WHERE id='xavi-pichincha'").get().balance_cents,null);
  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,0);
 });
+test('two direct charges and their actual fees reconcile the withdrawal without a balance adjustment',t=>{
+ const f=fixture(t);f.config.wallet_balances=[];
+ f.config.wallet_custody_transfers[0].expected_wallet_cents=723295;
+ f.config.wallet_custody_transfers[0].reference='93693725';
+ f.config.wallet_receipt_expected_before_cents=534795;f.config.wallet_receipt_expected_after_cents=723295;
+ f.config.wallet_direct_receipts=['93611271','93700505'].map(reference=>({reference,gross_cents:100000,fee_cents:5750,occurred_at:new Date(Date.now()-2000).toISOString(),counterparty:'Customer',description:'Boletos DuncanDhu',source_hash:'c'.repeat(64)}));
+ const result=applyBankReview(f.db,f.config);assert.equal(result.directReceipts.length,2);assert.equal(f.balance(),223295);
+ assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,5);
+ assert.equal(f.db.prepare('SELECT count(*) n FROM finance_balance_checkpoints').get().n,0);
+ assert.equal(f.db.prepare("SELECT sum(amount_cents) n FROM finance_movements WHERE kind='expense'").get().n,11500);
+ assert.equal(f.db.prepare("SELECT sum(amount_cents) n FROM finance_movements WHERE kind='income'").get().n,200000);
+ assert.equal(f.db.prepare("SELECT balance_cents FROM finance_custody_balances WHERE id='xavi-pichincha'").get().balance_cents,500000);
+ assert.equal(privateSetting(f.db,'payphone_reconciliation_pending'),null);
+ assert.equal(applyBankReview(f.db,f.config).applied,false);
+});
