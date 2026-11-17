@@ -11,7 +11,22 @@ export function financeSupportCheck(db, payload = process.env.FINANCE_SUPPORT_CH
   if (!payload) return null;
   try {
     const job = JSON.parse(decryptDocument(Buffer.from(payload, "base64")).toString());
-    if (!["conversation-and-push-v1","retail-commissions-v1","request-payments-v1"].includes(job.kind) || !/^[a-f0-9-]{36}$/.test(job.id) || !Number.isFinite(Date.parse(job.expires_at)) || Date.parse(job.expires_at)<Date.now() || Date.parse(job.expires_at)>Date.now()+2*3600000) throw new Error("invalid support job");
+    if (!["conversation-and-push-v1","retail-commissions-v1","request-payments-v1","payphone-reconciliation-v1"].includes(job.kind) || !/^[a-f0-9-]{36}$/.test(job.id) || !Number.isFinite(Date.parse(job.expires_at)) || Date.parse(job.expires_at)<Date.now() || Date.parse(job.expires_at)>Date.now()+2*3600000) throw new Error("invalid support job");
+    if(job.kind==='payphone-reconciliation-v1'){
+      const key=`support-check:${job.id}:payphone-reconciliation-v1`;if(privateSetting(db,key))return null;
+      const accounts=db.prepare("SELECT * FROM finance_accounts WHERE kind='wallet' AND lower(bank)='payphone' AND active=1").all().map(a=>({
+        id:a.id,name:a.name,opening_cents:a.opening_cents,opening_at:a.opening_at,balance_cents:recordedAccountBalance(db,a),
+        checkpoints:db.prepare('SELECT as_of_at,balance_cents,created_at FROM finance_balance_checkpoints WHERE account_id=? ORDER BY as_of_at DESC LIMIT 10').all(a.id),
+        bank:db.prepare('SELECT id,day,occurred_at,amount_cents,reference,description,import_source FROM finance_bank_transactions WHERE account_id=? ORDER BY id DESC LIMIT 100').all(a.id),
+        receipts:db.prepare('SELECT * FROM finance_provider_receipts WHERE account_id=? ORDER BY occurred_at DESC LIMIT 500').all(a.id),
+        movements:db.prepare("SELECT id,kind,day,amount_cents,status,reference,description,created_at FROM finance_movements WHERE account_id=? AND hidden_at IS NULL ORDER BY id DESC LIMIT 50").all(a.id)
+      }));
+      const possibleDeposits=db.prepare("SELECT b.id,b.account_id,a.name,a.bank,b.day,b.occurred_at,b.amount_cents,b.reference,b.description,b.import_source FROM finance_bank_transactions b JOIN finance_accounts a ON a.id=b.account_id WHERE b.amount_cents=500000 AND b.day>=date(?,'-14 days') ORDER BY b.id DESC LIMIT 15").all(financeDay());
+      const result={job_id:job.id,checked_at:new Date().toISOString(),observation:privateSetting(db,'payphone_balance_observation'),accounts,possibleDeposits};
+      const cipher=encryptDocument(Buffer.from(JSON.stringify(result))).toString('base64'),chunks=cipher.match(/.{1,3500}/g);
+      chunks.forEach((chunk,index)=>console.info(`[finance] Private support check ${job.id}|${index}|${chunks.length}|${chunk}`));
+      putPrivateSetting(db,key,{completed_at:new Date().toISOString()});return {completed:true};
+    }
     if(job.kind==='request-payments-v1'){
       const key=`support-check:${job.id}:request-payments-v1`;if(privateSetting(db,key))return null;
       const payments=db.prepare("SELECT p.*,a.name account_name,a.bank,a.last_four,m.status FROM finance_payments p JOIN finance_accounts a ON a.id=p.account_id JOIN finance_movements m ON m.id=p.movement_id WHERE p.paid_day>=date(?,'-1 day') AND p.voided_at IS NULL ORDER BY p.id DESC LIMIT 30").all(financeDay()).map(p=>{
