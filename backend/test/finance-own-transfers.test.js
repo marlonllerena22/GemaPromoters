@@ -24,12 +24,12 @@ function fixture(t){
 test('accepted Pichincha notice records both own-transfer legs immediately; retries and a second notice preserve cents',(t)=>{
   const f=fixture(t),m=f.make('pich-first');
   ingestBankMessages(f.db,[m]);
-  assert.equal(f.balance(f.from),88697);assert.equal(f.balance(f.to),21922);
-  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_movements').get().n,0);
+  assert.equal(f.balance(f.from),88656);assert.equal(f.balance(f.to),21922);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_movements').get().n,1);
   assert.equal(f.db.prepare('SELECT count(*) n FROM finance_own_transfers').get().n,1);
   ingestBankMessages(f.db,[m,{...m,id:'same-bank-operation-again'}]);replayAutomaticBankMail(f.db);
-  assert.equal(f.balance(f.from),88697);assert.equal(f.balance(f.to),21922);
-  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,2);
+  assert.equal(f.balance(f.from),88656);assert.equal(f.balance(f.to),21922);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,3);
   assert.equal(f.db.prepare("SELECT count(*) n FROM finance_mail_messages WHERE state!='applied'").get().n,0);
 });
 test('a later receiving-bank email with another bank reference corroborates, never credits the transfer twice',(t)=>{
@@ -43,22 +43,30 @@ test('a later receiving-bank email with another bank reference corroborates, nev
   assert.equal(f.db.prepare('SELECT state FROM finance_notification_events').get().state,'matched');
   const received={id:'guay-received',internalDate:String(Date.now()-1000),payload:{headers:[{name:'From',value:'avisos@bancoguayaquil.com'},{name:'Subject',value:'Transferencia recibida'},{name:'Authentication-Results',value:'mx.google.com; dmarc=pass header.from=bancoguayaquil.com'}],body:{content:'Te confirmamos que Fixture Owner Full Name ha realizado una transferencia recibida. Cuenta destino: ****6207 Monto: USD 113.03 Referencia GUAY999999'}}};
   ingestBankMessages(f.db,[received]);replayAutomaticBankMail(f.db);
-  assert.equal(f.balance(f.to),21922);assert.equal(f.balance(f.from),88697);
-  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,2);
+  assert.equal(f.balance(f.to),21922);assert.equal(f.balance(f.from),88656);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,3);
   assert.equal(f.db.prepare("SELECT state FROM finance_own_transfers").get().state,'destination_confirmed');
   assert.equal(f.db.prepare("SELECT state FROM finance_mail_messages WHERE id='guay-received'").get().state,'applied');
 });
 test('equal own transfers with different bank references remain two separate transfers',(t)=>{
   const f=fixture(t);ingestBankMessages(f.db,[f.make('transfer-one','OWNREF111'),f.make('transfer-two','OWNREF222')]);
-  assert.equal(f.balance(f.from),77394);assert.equal(f.balance(f.to),33225);
+  assert.equal(f.balance(f.from),77312);assert.equal(f.balance(f.to),33225);
   assert.equal(f.db.prepare('SELECT count(*) n FROM finance_own_transfers').get().n,2);
-  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,4);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,6);
+});
+
+test('receiving bank can arrive first with its own reference and is not credited again',t=>{
+ const f=fixture(t);
+ const received={id:'receiver-first',internalDate:String(Date.now()-20000),payload:{headers:[{name:'From',value:'avisos@bancoguayaquil.com'},{name:'Subject',value:'Transferencia recibida'},{name:'Authentication-Results',value:'mx.google.com; dmarc=pass header.from=bancoguayaquil.com'}],body:{content:'Te confirmamos que Fixture Owner Full Name ha realizado una transferencia recibida. Cuenta destino: ****6207 Monto: USD 113.03 Referencia GUAY999999'}}};
+ ingestBankMessages(f.db,[received]);assert.equal(f.balance(f.to),21922);
+ ingestBankMessages(f.db,[f.make('origin-later')]);assert.equal(f.balance(f.to),21922);assert.equal(f.balance(f.from),88656);
+ assert.equal(f.db.prepare('SELECT COUNT(*) n FROM finance_bank_transactions WHERE amount_cents>0').get().n,1);
 });
 test('a destination in another bank never matches an own account just because the final digits coincide',(t)=>{
   const f=fixture(t),m=f.make('external-destination');
   m.payload.body.content=m.payload.body.content.replace('BANCO DE GUAYAQUIL S.A','BANCO PROCREDIT S.A');
   ingestBankMessages(f.db,[m]);
-  assert.equal(f.balance(f.from),88697);assert.equal(f.balance(f.to),10619);
+  assert.equal(f.balance(f.from),88656);assert.equal(f.balance(f.to),10619);
   assert.equal(f.db.prepare('SELECT count(*) n FROM finance_own_transfers').get().n,0);
 });
 test('untrusted or rejected scheduled-transfer messages never post money',(t)=>{
@@ -76,13 +84,13 @@ test('repairing the supplied PAGOS number reclassifies an already debited transf
   putPrivateSetting(f.db,'own_account_registry',registry);
   const m=f.make('pagos-missing-number');m.payload.body.content=m.payload.body.content.replace('6207','2719');
   ingestBankMessages(f.db,[m]);
-  assert.equal(f.balance(f.from),88697);assert.equal(f.balance(f.to),10619);
-  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,1);
-  assert.equal(repairKnownAccountNumbers(f.db).last_four,'2719');
-  assert.equal(f.balance(f.from),88697);assert.equal(f.balance(f.to),10619);
-  replayAutomaticBankMail(f.db);
-  assert.equal(f.balance(f.from),88697);assert.equal(f.balance(f.to),21922);
+  assert.equal(f.balance(f.from),88656);assert.equal(f.balance(f.to),10619);
   assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,2);
+  assert.equal(repairKnownAccountNumbers(f.db).last_four,'2719');
+  assert.equal(f.balance(f.from),88656);assert.equal(f.balance(f.to),10619);
+  replayAutomaticBankMail(f.db);
+  assert.equal(f.balance(f.from),88656);assert.equal(f.balance(f.to),21922);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,3);
   replayAutomaticBankMail(f.db);assert.equal(f.balance(f.to),21922);
 });
 for(const phoneFirst of [true,false])test(`the real Pichincha successful-transfer notification links to the sending account; phone first: ${phoneFirst}`,(t)=>{
@@ -105,8 +113,8 @@ for(const phoneFirst of [true,false])test(`the real Pichincha successful-transfe
   const notice=f.db.prepare('SELECT * FROM finance_notification_events').get();
   assert.equal(notice.state,'matched');assert.equal(notice.account_id,f.from);
   assert.equal(notice.amount_cents,-11303);
-  assert.equal(f.balance(f.from),88697);assert.equal(f.balance(f.to),21922);
-  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,2);
+  assert.equal(f.balance(f.from),88656);assert.equal(f.balance(f.to),21922);
+  assert.equal(f.db.prepare('SELECT count(*) n FROM finance_bank_transactions').get().n,3);
 });
 test('an existing pending notice is upgraded by automatic replay, without reviving archived old mail',(t)=>{
   const f=fixture(t),m=f.make('stored-pending');
@@ -115,6 +123,6 @@ test('an existing pending notice is upgraded by automatic replay, without revivi
   save.run(m.id,old.received_at,encryptDocument(Buffer.from(JSON.stringify(old))),f.from,old.received_at,null);
   save.run('archived-old',old.received_at,encryptDocument(Buffer.from(JSON.stringify({...old,id:'archived-old'}))),f.from,old.received_at,old.received_at);
   assert.equal(replayAutomaticBankMail(f.db).applied,1);
-  assert.equal(f.balance(f.to),21922);assert.equal(f.balance(f.from),88697);
+  assert.equal(f.balance(f.to),21922);assert.equal(f.balance(f.from),88656);
   assert.equal(f.db.prepare("SELECT state FROM finance_mail_messages WHERE id='archived-old'").get().state,'pending');
 });

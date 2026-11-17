@@ -14,6 +14,7 @@ import {enrichServiceProof} from '../src/finance-service-payment-proof.js';
 import {repairIessPayments} from '../src/finance-iess-repair.js';
 import {recordedAccountBalance} from '../src/finance-check-ledger.js';
 import {repairRequestPayments} from '../src/finance-payment-repair.js';
+import {applyTransferFee} from '../src/finance-transfer-fees.js';
 process.env.NODE_ENV='test';
 function fixture(t){
  t.mock.timers.enable({apis:['Date'],now:new Date('2026-11-12T23:00:00Z')});
@@ -31,6 +32,48 @@ function ordinaryRequest(f){
  f.db.prepare('UPDATE finance_movements SET is_payment_request=1 WHERE id=?').run(r.id);
  return {id:r.id,body:{request_key:crypto.randomUUID(),confirm_paid:true,evidence_id:f.evidence(),account_id:f.account,amount_cents:12345,paid_day:financeDay(),reference:'TRANSFER-123'}};
 }
+
+for(const [destination,explicit,fee] of [['Banco Pichincha S.A.',null,0],['Banco del Pacífico',null,41],['Guayaquil',0,0],[null,null,0]])test(`payment fee only for a known different bank: ${destination}, explicit ${explicit}`,t=>{
+ const f=fixture(t),r=ordinaryRequest(f),a=f.db.prepare('SELECT * FROM finance_accounts WHERE id=?').get(f.account);
+ f.db.prepare('UPDATE finance_evidence SET analysis=? WHERE id=?').run(JSON.stringify({amount_cents:12345,receiving_bank:destination,fee_total_cents:explicit}),r.body.evidence_id);
+ const p=recordRequestPayment(f.db,f.owner,r.id,r.body);assert.equal(recordedAccountBalance(f.db,a),100000-12345-fee);
+ assert.equal(p.ledger.fee?.amount_cents||0,fee);recordRequestPayment(f.db,f.owner,r.id,r.body);assert.equal(recordedAccountBalance(f.db,a),100000-12345-fee);
+ assert.equal(requireRequest(f.db,f.owner,r.id).remaining_cents,0);
+});
+
+test('bank fee split into commission and IVA or combined is corroborated without a second charge',t=>{
+ const f=fixture(t),r=ordinaryRequest(f),a=f.db.prepare('SELECT * FROM finance_accounts WHERE id=?').get(f.account);
+ f.db.prepare('UPDATE finance_evidence SET analysis=? WHERE id=?').run(JSON.stringify({amount_cents:12345,receiving_bank:'Guayaquil'}),r.body.evidence_id);
+ const p=recordRequestPayment(f.db,f.owner,r.id,r.body);
+ for(const [amount,description,ref] of [[-36,'Comisión transferencia interbancaria','TRANSFER-123'],[-5,'IVA cobrado','TRANSFER-123'],[-41,'Comisión con IVA','TRANSFER-123-FEE']]){
+  importBank(f.db,f.owner,{account_id:f.account,source_system:'bank-email',rows:[{day:financeDay(),occurred_at:new Date().toISOString(),amount_cents:amount,description,reference:ref,external_id:'fee-'+amount}]});
+ }
+ assert.equal(recordedAccountBalance(f.db,a),87614);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM finance_bank_transactions').get().n,2);
+ assert.equal(f.db.prepare('SELECT estimated FROM finance_transfer_fees').get().estimated,0);
+ assert.equal(f.db.prepare('SELECT COUNT(*) n FROM finance_allocations').get().n,2);
+});
+
+test('a verified waiver reverses only the calculated fee, with original checkpoint timing',t=>{
+ const f=fixture(t),r=ordinaryRequest(f),a=f.db.prepare('SELECT * FROM finance_accounts WHERE id=?').get(f.account);
+ f.db.prepare('UPDATE finance_evidence SET analysis=? WHERE id=?').run(JSON.stringify({amount_cents:12345,receiving_bank:'Guayaquil'}),r.body.evidence_id);
+ const p=recordRequestPayment(f.db,f.owner,r.id,r.body);
+ applyTransferFee(f.db,f.owner,p.ledger.bank_transaction_id,{destination_bank:'Guayaquil',explicit_cents:0});
+ assert.equal(recordedAccountBalance(f.db,a),87655);
+ applyTransferFee(f.db,f.owner,p.ledger.bank_transaction_id,{destination_bank:'Guayaquil'});assert.equal(recordedAccountBalance(f.db,a),87655);
+});
+
+test('own-account payment proof debits origin, credits destination, only fee is an expense and receiving notice cannot duplicate it',t=>{
+ const f=fixture(t),r=ordinaryRequest(f);
+ const to=Number(f.db.prepare("INSERT INTO finance_accounts(name,bank,kind,last_four,opening_cents,opening_date) VALUES ('Destino','Guayaquil','bank','6789',20000,'2026-01-01')").run().lastInsertRowid);
+ putPrivateSetting(f.db,'own_account_registry',{owner_name:'Owner Fixture Full Name',accounts:[{account_id:f.account,bank:'Pichincha',number:'0011234'},{account_id:to,bank:'Guayaquil',number:'0016789'}]});
+ f.db.prepare('UPDATE finance_evidence SET analysis=? WHERE id=?').run(JSON.stringify({amount_cents:12345,receiving_bank:'Banco de Guayaquil S.A.',destination_account_suffix:'6789',origin_account_suffix:'1234'}),r.body.evidence_id);
+ const p=recordRequestPayment(f.db,f.owner,r.id,r.body);assert.ok(p.ledger.own_transfer);
+ assert.equal(recordedAccountBalance(f.db,f.db.prepare('SELECT * FROM finance_accounts WHERE id=?').get(f.account)),87614);
+ assert.equal(recordedAccountBalance(f.db,f.db.prepare('SELECT * FROM finance_accounts WHERE id=?').get(to)),32345);
+ importBank(f.db,f.owner,{account_id:to,source_system:'bank-email',rows:[{day:financeDay(),amount_cents:12345,reference:'TRANSFER-123',external_id:'receiver'}]});
+ assert.equal(recordedAccountBalance(f.db,f.db.prepare('SELECT * FROM finance_accounts WHERE id=?').get(to)),32345);
+ assert.equal(f.db.prepare("SELECT SUM(amount_cents) n FROM finance_movements WHERE kind='expense' AND is_payment_request=0 AND status='reconciled'").get().n,41);
+});
 test('ordinary transfer proof immediately debits the selected account once and reconciles the request payment',t=>{
  const f=fixture(t),r=ordinaryRequest(f),account=f.db.prepare('SELECT * FROM finance_accounts WHERE id=?').get(f.account);
  const out=recordRequestPayment(f.db,f.owner,r.id,r.body);

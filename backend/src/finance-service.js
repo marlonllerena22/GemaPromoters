@@ -1,5 +1,6 @@
 import {canSeeAccountBalance,canSeeAllBalances,isWarehouse,isStoreStaff} from '../../shared/finance-access.mjs';
 import crypto from "node:crypto";
+import {matchTransferFeeEvidence} from './finance-transfer-fees.js';
 import {notificationBankMatch} from './finance-notification-match.js';
 import {linkRecordedBankEvidence} from './finance-evidence-links.js';
 import {matchOwnTransferCredit} from './finance-own-transfers.js';
@@ -269,6 +270,8 @@ export function importBank(db, user, body) {
     const transactionIds = [];
     const source = ["bank-email", "assistant", "statement-image", "bank-notification"].includes(body.source_system) ? body.source_system : "csv";
     rows.forEach((row, index) => {
+      const fee=matchTransferFeeEvidence(db,{account_id:account.id,...row},source);
+      if(fee){transactionIds.push(fee.id);return;}
       const ownCredit=matchOwnTransferCredit(db,{account_id:account.id,...row},source);
       if(ownCredit){transactionIds.push(ownCredit.id);return;}
       const fingerprint = crypto

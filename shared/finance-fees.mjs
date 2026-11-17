@@ -1,4 +1,4 @@
-// Reference SPI retail tariffs. A quote never creates a ledger charge.
+// Reference SPI digital tariffs, including IVA. Explicit bank charges take precedence.
 export const BANK_TRANSFER_FEES = [
   {
     bank: "Pichincha",
@@ -52,12 +52,15 @@ export const BANK_TRANSFER_FEES = [
       "https://dce-documents.s3.amazonaws.com/tarifario-pizarra-multimarca-noviembre-2026.pdf",
   },
 ];
-const norm = (s) =>
+export const transferBankKey = (s) =>
   String(s || "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
-    .replace(/banco|\s|!/g, "");
+    .replace(/[^a-z]/g, "")
+    .replace(/^(?:bancodel|bancode|banco)/, "")
+    .replace(/sa$/, "");
+const norm=transferBankKey;
 export function transferFeeQuote(from, to, channel = "digital") {
   const a = norm(from),
     b = norm(to);

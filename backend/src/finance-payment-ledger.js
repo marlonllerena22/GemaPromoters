@@ -2,6 +2,8 @@ import {audit,financeDay} from './finance-db.js';
 import {fail,importBank,reconcile} from './finance-service.js';
 import {recordedAccountBalance} from './finance-check-ledger.js';
 import {bankPartyConflicts} from './finance-bank-evidence-person.js';
+import {applyTransferFee,requestDestinationBank} from './finance-transfer-fees.js';
+import {postOwnTransferFromProof} from './finance-own-transfers.js';
 
 // Called inside the payment transaction, after the owner's confirmation and proof validation.
 // One bank debit is shared by the proof, mail and Android notification.
@@ -11,16 +13,17 @@ export function settleRequestProof(db,user,request,payment){
  if(!account)fail('Cuenta de origen no disponible');
  if(account.kind==='card')return {state:'card',account_id:account.id,balance_delta_cents:0};
  if(!['bank','wallet'].includes(account.kind))fail('Cuenta de origen no válida');
+ const before=recordedAccountBalance(db,account);
+ const proof=db.prepare('SELECT analysis FROM finance_evidence WHERE id=?').get(payment.evidence_id);
+ let analysis;try{analysis=JSON.parse(proof?.analysis||'null');}catch{}
  const linked=db.prepare('SELECT a.bank_transaction_id,a.amount_cents,b.account_id,b.amount_cents bank_amount FROM finance_allocations a JOIN finance_bank_transactions b ON b.id=a.bank_transaction_id WHERE a.movement_id=?').all(payment.movement_id);
  if(linked.length){
   if(linked.length!==1||linked[0].account_id!==account.id||linked[0].amount_cents!==payment.amount_cents||linked[0].bank_amount!==-payment.amount_cents)fail('El pago tiene una asociación bancaria diferente',409);
-  return {state:'matched',account_id:account.id,bank_transaction_id:linked[0].bank_transaction_id,balance_delta_cents:0};
+  const extra=finishTransfer(db,user,request,payment,analysis,linked[0].bank_transaction_id);
+  return {state:'matched',account_id:account.id,bank_transaction_id:linked[0].bank_transaction_id,...extra,balance_delta_cents:recordedAccountBalance(db,account)-before};
  }
- const before=recordedAccountBalance(db,account);
  const matches=db.prepare("SELECT * FROM finance_bank_transactions WHERE account_id=? AND amount_cents=? AND reference=? AND day BETWEEN date(?,'-1 day') AND date(?,'+1 day')").all(account.id,-payment.amount_cents,payment.reference,payment.paid_day,payment.paid_day);
  if(matches.length>1)fail('Hay más de un débito con estos datos. Revisa antes de registrar otro',409);
- const proof=db.prepare('SELECT analysis FROM finance_evidence WHERE id=?').get(payment.evidence_id);
- let analysis;try{analysis=JSON.parse(proof?.analysis||'null');}catch{}
  // Use the original declaration time, never the retry/repair time. This preserves balance checkpoints.
  const declaredAt=payment.created_at&&financeDay(payment.created_at)===payment.paid_day?payment.created_at:null;
  const bank=matches[0];
@@ -37,7 +40,15 @@ export function settleRequestProof(db,user,request,payment){
  }
  reconcile(db,user,{movement_id:payment.movement_id,bank_transaction_id:bankId,amount_cents:payment.amount_cents});
  const delta=recordedAccountBalance(db,account)-before;
- const result={state:bank||imported?.duplicates?'matched':delta===0?'included':'debited',account_id:account.id,bank_transaction_id:bankId,balance_delta_cents:delta};
+ const extra=finishTransfer(db,user,request,payment,analysis,bankId);
+ const result={state:bank||imported?.duplicates?'matched':delta===0?'included':'debited',account_id:account.id,bank_transaction_id:bankId,balance_delta_cents:recordedAccountBalance(db,account)-before,...extra};
  audit(db,user.username,'payment.bank_settled','payment',payment.id,null,result,request.business_id);
  return result;
+}
+function finishTransfer(db,user,request,payment,analysis,bankId){
+ const destinationBank=requestDestinationBank(db,request,payment,analysis);
+ const ownTransfer=postOwnTransferFromProof(db,{...analysis,receiving_bank:destinationBank},bankId,payment);
+ if(ownTransfer)db.prepare("UPDATE finance_movements SET kind='transfer',transfer_side='outgoing',transfer_group=? WHERE id=?").run(ownTransfer.id,payment.movement_id);
+ const fee=applyTransferFee(db,user,bankId,{destination_bank:destinationBank,explicit_cents:analysis?.fee_total_cents,business_id:request.business_id,unit_id:request.unit_id});
+ return {fee,own_transfer:ownTransfer||null};
 }

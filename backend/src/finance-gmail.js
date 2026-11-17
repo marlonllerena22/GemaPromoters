@@ -1,10 +1,11 @@
+import {applyTransferFee} from './finance-transfer-fees.js';
 import {declaredIessBank} from './finance-service-payment-proof.js';
 import {matchIessPayments} from './finance-iess.js';
 import { matchUnreferencedDeclaration,matchConfirmedReceiptDeclaration } from "./finance-declared-bank.js";
 import {isBankPromotion} from '../../shared/finance-bank-promotions.mjs';
 import {archiveBankNotice} from './finance-bank-inbox.js';
 import {linkRecordedBankEvidence} from './finance-evidence-links.js';
-import {postOwnTransferDestination} from './finance-own-transfers.js';
+import {postOwnTransferDestination,matchOwnTransferDebit} from './finance-own-transfers.js';
 import { ensureCardCycles } from "./finance-funding.js";
 import crypto from "node:crypto";
 import {
@@ -351,6 +352,7 @@ export function parseBankMail(m, registry = { accounts: [] }) {
     service_ruc:servicePaid?body.match(/Suministro:\s*(\d{13})\b/i)?.[1]||null:null,
     origin_suffix: suffix(origin),
     destination_suffix: suffix(destination),
+    destination_bank: destinationBank || destinationBankText || null,
     card_suffix: suffix(card),
     card_kind: /tarjeta de credito/.test(plain)
       ? "credit"
@@ -562,6 +564,7 @@ export function applyMailDraft(db, user, id, body) {
       if(!known)fail("Este aviso tiene una referencia ya registrada con otros datos",409);
       db.prepare("UPDATE finance_mail_messages SET state='applied',account_id=?,bank_transaction_id=? WHERE id=?").run(account.id,known.id,id);
       postOwnTransferDestination(db,p,known.id);
+      if(direction==='outgoing'&&p.destination_bank)applyTransferFee(db,user,known.id,{destination_bank:p.destination_bank,explicit_cents:p.fee_cents,business_id:body.business_id||account.business_id||'personal'});
       return {ok:true,duplicate:true};
     }
     const day = financeDay(timestamp),
@@ -584,7 +587,7 @@ export function applyMailDraft(db, user, id, body) {
     if (declared.length > 1) fail("Hay varios registros manuales con esa referencia. Revisa antes de aplicar el aviso", 409);
     const linkedBank = body.link_bank_id && !alreadyApplied ? db.prepare("SELECT * FROM finance_bank_transactions WHERE id=? AND account_id=? AND day=? AND amount_cents=?").get(Number(body.link_bank_id),account.id,day,p.amount_cents*(direction==='outgoing'?-1:1)) : null;
     if(body.link_bank_id&&!alreadyApplied&&!linkedBank)fail('El movimiento elegido no coincide con cuenta, fecha y valor');
-    const declaredBank = linkedBank || declared[0] || (!alreadyApplied&&direction==='outgoing'?declaredIessBank(db,p,account.id,day):null) || (!alreadyApplied ? matchConfirmedReceiptDeclaration(db,{account_id:account.id,day,amount_cents:p.amount_cents*(direction==='outgoing'?-1:1),counterparty:p.counterparty})||matchUnreferencedDeclaration(db, { account_id: account.id, day, amount_cents: p.amount_cents * (direction === "outgoing" ? -1 : 1), counterparty: p.counterparty }) : null);
+    const declaredBank = linkedBank || declared[0] || matchOwnTransferDebit(db,{account_id:account.id,destination_account_id:p.destination_account_id,amount_cents:p.amount_cents*(direction==="outgoing"?-1:1),day,reference:p.reference}) || (!alreadyApplied&&direction==='outgoing'?declaredIessBank(db,p,account.id,day):null) || (!alreadyApplied ? matchConfirmedReceiptDeclaration(db,{account_id:account.id,day,amount_cents:p.amount_cents*(direction==='outgoing'?-1:1),counterparty:p.counterparty})||matchUnreferencedDeclaration(db, { account_id: account.id, day, amount_cents: p.amount_cents * (direction === "outgoing" ? -1 : 1), counterparty: p.counterparty }) : null);
     if (existing[0]?.status === "reconciled" && !declaredBank)
       fail(
         "El gasto con esta referencia ya está conciliado. Revisa el aviso para evitar duplicarlo",
@@ -664,47 +667,9 @@ export function applyMailDraft(db, user, id, body) {
     ).run(account.id, movement?.id || null, bank.id, id);
     if (p.event === "card_settlement")
       recordCardPayment(db, p, { bankId: bank.id, accountId: account.id });
-    if (p.fee_cents && direction === "outgoing") {
-      const feeKey = (key || `mail:${id}:${account.id}:${direction}`) + ":fee";
-      const importedFee = importBank(db, user, {
-        source_system: "bank-email",
-        account_id: account.id,
-        rows: [
-          {
-            day,
-            occurred_at: timestamp,
-            amount_cents: -p.fee_cents,
-            reference: p.reference ? `${p.reference}-FEE` : "",
-            description: "Comisión bancaria identificada en el aviso",
-            external_id: feeKey,
-          },
-        ],
-      });
-      if (body.business_id) {
-        const feeMovement = createMovement(db, user, {
-          business_id: body.business_id,
-          kind: "expense",
-          amount_cents: p.fee_cents,
-          day,
-          category: "Comisiones bancarias",
-          allow_cross_account: true,
-          counterparty: p.bank,
-          description:
-            "Comisión identificada por el banco; registrada junto al traslado",
-          account_id: account.id,
-          reference: p.reference ? `${p.reference}-FEE` : "",
-          payment_method: "transfer",
-        });
-        db.prepare(
-          "UPDATE finance_movements SET status='reported' WHERE id=?",
-        ).run(feeMovement.id);
-        const feeBank = { id: importedFee.transaction_ids[0] };
-        reconcile(db, user, {
-          movement_id: feeMovement.id,
-          bank_transaction_id: feeBank.id,
-          amount_cents: p.fee_cents,
-        });
-      }
+    if(direction==='outgoing' && (p.event==='internal_transfer'||p.destination_bank||p.fee_cents)) {
+      const destination=p.destination_bank||(p.destination_account_id?db.prepare('SELECT bank FROM finance_accounts WHERE id=?').get(p.destination_account_id)?.bank:null);
+      applyTransferFee(db,user,bank.id,{destination_bank:destination|| (p.fee_cents?'Destino interbancario identificado por cargo explícito':null),explicit_cents:p.fee_cents,business_id:body.business_id||account.business_id||'personal'});
     }
     audit(db, user.username, "mail.applied", "mail", id, null, {
       account_id: account.id,

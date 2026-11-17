@@ -1341,6 +1341,7 @@ export function OpeningAllocationPanel({ account, onClose }) {
 export function TransferPanel({ onClose }) {
   const { data, user, notify, refresh } = useFinance();
   const [idempotencyKey] = useState(() => crypto.randomUUID());
+  const [transferReference,setTransferReference]=useState('');
   const [from, setFrom] = useState(""),
     [to, setTo] = useState(""),
     [value, setValue] = useState(""),
@@ -1372,10 +1373,12 @@ export function TransferPanel({ onClose }) {
         day,
         description,
         confirm_cash: confirmed,
+        confirm_bank: confirmed,
+        reference: transferReference,
       });
       await refresh();
       notify(
-        "Traslado registrado. Los movimientos bancarios quedan pendientes de contrastar.",
+        "Traslado registrado: salida y entrada aplicadas. La comisión interbancaria se guarda aparte cuando corresponde.",
       );
       onClose();
     } catch (e) {
@@ -1464,7 +1467,7 @@ export function TransferPanel({ onClose }) {
             {fee.cents !== null && value
               ? `Salida prevista: ${money(amount(value) + fee.cents)}.`
               : ""}{" "}
-            Este estimado no modifica el saldo.
+            Se descontará aparte de la cuenta de origen al confirmar. El cargo real del banco prevalece.
           </p>
         )}
         <Field label="Motivo y propiedad de los fondos">
@@ -1476,7 +1479,8 @@ export function TransferPanel({ onClose }) {
             placeholder="Ej. Entrega de recaudación del evento, traslado propio o fondos prestados entre negocios"
           />
         </Field>
-        {cash && (
+        <Field label="Referencia bancaria (si consta)" value={transferReference} onChange={e=>setTransferReference(e.target.value)} />
+        {(
           <fieldset className="gf-checks">
             <label>
               <input
@@ -1485,14 +1489,12 @@ export function TransferPanel({ onClose }) {
                 checked={confirmed}
                 onChange={(e) => setConfirmed(e.target.checked)}
               />
-              Confirmo la entrega o recepción física indicada y su responsable.
+              Confirmo que el traslado ya se realizó{cash?' y la entrega o recepción física indicada':''}.
             </label>
           </fieldset>
         )}
         <div className="gf-note">
-          Se registran origen y destino sin generar ventas ni gastos. Los lados
-          bancarios se contrastan con sus movimientos importados. Las entregas
-          físicas confirmadas actualizan el registro de efectivo o custodia.
+          El importe sale de una cuenta y entra en la otra. El traslado no es una venta ni un gasto; solo la comisión bancaria es un gasto.
           Para ver cuentas de otros negocios, selecciona «Todos mis negocios».
         </div>
         {error && (

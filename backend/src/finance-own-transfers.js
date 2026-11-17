@@ -2,6 +2,26 @@ import crypto from 'node:crypto';
 import {audit,financeDay} from './finance-db.js';
 import {importBank,fail} from './finance-service.js';
 import {privateSetting} from './finance-operations.js';
+import {transferBankKey} from '../../shared/finance-fees.mjs';
+import {decryptDocument} from './finance-ai.js';
+
+export function postOwnTransferFromProof(db,proof,originBankId,payment){
+ const bank=transferBankKey(proof?.receiving_bank),suffix=String(proof?.destination_account_suffix||'');
+ if(!bank||suffix.length<3||!/^\d+$/.test(suffix))return null;
+ const registry=privateSetting(db,'own_account_registry')?.accounts||[];
+ const targets=registry.filter(a=>transferBankKey(a.bank)===bank&&String(a.number||a.suffix||'').endsWith(suffix)&&a.account_id!==payment.account_id);
+ if(targets.length!==1)return null;
+ const parent=db.prepare('SELECT * FROM finance_bank_transactions WHERE id=?').get(originBankId);
+ return postOwnTransferDestination(db,{id:'proof:'+payment.id,event:'internal_transfer',account_id:payment.account_id,origin_account_id:payment.account_id,destination_account_id:targets[0].account_id,amount_cents:payment.amount_cents,reference:payment.reference,occurred_at:parent.occurred_at||payment.created_at,bank:proof.origin_bank||'',origin_suffix:proof.origin_account_suffix||''},originBankId);
+}
+
+export function matchOwnTransferDebit(db,row){
+ if(row.amount_cents>=0||!row.destination_account_id)return null;
+ const matches=db.prepare(`SELECT b.*,t.id transfer_id FROM finance_own_transfers t JOIN finance_bank_transactions b ON b.id=t.origin_bank_id WHERE t.origin_account_id=? AND t.destination_account_id=? AND t.amount_cents=? AND b.day=? AND (t.reference=? OR t.reference='')`).all(row.account_id,row.destination_account_id,-row.amount_cents,row.day,row.reference||'');
+ if(matches.length>1)fail('Hay dos traslados propios posibles; revisa la referencia para no duplicarlos',409);
+ if(matches.length===1){if(row.reference)db.prepare('UPDATE finance_own_transfers SET reference=? WHERE id=?').run(row.reference,matches[0].transfer_id);return matches[0];}
+ return null;
+}
 
 const words=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().match(/[a-z]{3,}/g)||[];
 function ownSender(db,value){
@@ -38,7 +58,7 @@ export function matchOwnTransferCredit(db,row,source) {
 }
 
 export function postOwnTransferDestination(db,p,originBankId) {
-  if(p.event!=='internal_transfer'||!p.origin_account_id||!p.destination_account_id||p.origin_account_id===p.destination_account_id||!p.reference)return null;
+  if(p.event!=='internal_transfer'||!p.origin_account_id||!p.destination_account_id||p.origin_account_id===p.destination_account_id)return null;
   if(p.account_id!==p.origin_account_id)return null;
   if(!db.prepare('SELECT 1 FROM finance_bank_transactions WHERE id=? AND account_id=? AND amount_cents=?').get(originBankId,p.origin_account_id,-p.amount_cents))fail('El aviso no coincide con el débito de origen ya registrado',409);
   const registry=privateSetting(db,'own_account_registry')?.accounts||[];
@@ -46,12 +66,20 @@ export function postOwnTransferDestination(db,p,originBankId) {
   const previous=db.prepare('SELECT * FROM finance_own_transfers WHERE origin_bank_id=?').get(originBankId);
   if(previous?.destination_bank_id)return previous;
   const at=p.occurred_at||p.received_at,day=financeDay(at);
-  const id=previous?.id||crypto.createHash('sha256').update(JSON.stringify([p.origin_account_id,p.destination_account_id,p.reference,p.amount_cents])).digest('hex');
+  const id=previous?.id||crypto.createHash('sha256').update(JSON.stringify([p.origin_account_id,p.destination_account_id,p.reference||originBankId,p.amount_cents])).digest('hex');
   db.prepare("INSERT OR IGNORE INTO finance_own_transfers(id,origin_account_id,destination_account_id,amount_cents,reference,started_at,origin_bank_id,source_mail_id,created_at) VALUES (?,?,?,?,?,?,?,?,?)").run(id,p.origin_account_id,p.destination_account_id,p.amount_cents,p.reference,at,originBankId,p.id,new Date().toISOString());
   const owner={role:'owner',username:'system:own-transfer',business_ids:['producalza','marjorie','gemashow','personal'],unit_ids:[]};
-  const receiver=db.prepare("SELECT * FROM finance_accounts WHERE id=? AND active=1 AND kind='bank'").get(p.destination_account_id);
+  const receiver=db.prepare("SELECT * FROM finance_accounts WHERE id=? AND active=1 AND kind IN ('bank','wallet')").get(p.destination_account_id);
   if(!receiver)return null;
-  const already=db.prepare("SELECT * FROM finance_bank_transactions WHERE account_id=? AND amount_cents=? AND reference=? AND day BETWEEN date(?,'-1 day') AND date(?,'+1 day')").all(receiver.id,p.amount_cents,p.reference,day,day);
+  let already=p.reference?db.prepare("SELECT * FROM finance_bank_transactions WHERE account_id=? AND amount_cents=? AND reference=? AND day BETWEEN date(?,'-1 day') AND date(?,'+1 day')").all(receiver.id,p.amount_cents,p.reference,day,day):[];
+  if(!already.length){
+    const credits=db.prepare("SELECT b.* FROM finance_bank_transactions b WHERE account_id=? AND amount_cents=? AND day BETWEEN date(?,'-1 day') AND date(?,'+1 day') AND NOT EXISTS(SELECT 1 FROM finance_own_transfers t WHERE t.destination_bank_id=b.id)").all(receiver.id,p.amount_cents,day,day);
+    already=credits.filter(b=>{
+      const evidence=db.prepare("SELECT encrypted FROM finance_mail_messages WHERE bank_transaction_id=? AND state='applied'").all(b.id);
+      if(db.prepare("SELECT 1 FROM sqlite_master WHERE name='finance_notification_events'").get())evidence.push(...db.prepare("SELECT encrypted FROM finance_notification_events WHERE bank_transaction_id=? AND state IN ('applied','matched')").all(b.id));
+      return evidence.some(e=>{try{const n=JSON.parse(decryptDocument(e.encrypted).toString());return ownSender(db,n.counterparty)&&(n.origin_account_id===p.origin_account_id|| (b.occurred_at&&Math.abs(Date.parse(b.occurred_at)-Date.parse(at))<=48*3600000));}catch{return false;}});
+    });
+  }
   if(already.length>1)fail('Hay varios abonos con la referencia del traslado propio',409);
   const imported=already.length?{transaction_ids:[already[0].id]}:importBank(db,owner,{source_system:'bank-email',account_id:receiver.id,rows:[{day,occurred_at:at,amount_cents:p.amount_cents,reference:p.reference,description:`Traslado propio desde ${p.bank} · cuenta ${p.origin_suffix}`,external_id:`own-transfer:${id}:destination`,counterparty:privateSetting(db,'own_account_registry')?.owner_name||''}]});
   db.prepare('UPDATE finance_own_transfers SET destination_bank_id=? WHERE id=?').run(imported.transaction_ids[0],id);

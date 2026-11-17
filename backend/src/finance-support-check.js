@@ -3,6 +3,7 @@ import { financeDay } from "./finance-db.js";
 import { recordedAccountBalance } from "./finance-check-ledger.js";
 import { privateSetting, putPrivateSetting } from "./finance-operations.js";
 import { retailReport,validateRetailDetails } from "./finance-retail.js";
+import {requestDestinationBank} from './finance-transfer-fees.js';
 
 // Operator-only, read-only support check. Requires a short-lived encrypted job
 // in the hosting secret store; it exposes no route and logs no plaintext data.
@@ -16,9 +17,14 @@ export function financeSupportCheck(db, payload = process.env.FINANCE_SUPPORT_CH
       const payments=db.prepare("SELECT p.*,a.name account_name,a.bank,a.last_four,m.status FROM finance_payments p JOIN finance_accounts a ON a.id=p.account_id JOIN finance_movements m ON m.id=p.movement_id WHERE p.paid_day>=date(?,'-1 day') AND p.voided_at IS NULL ORDER BY p.id DESC LIMIT 30").all(financeDay()).map(p=>{
         const account=db.prepare('SELECT * FROM finance_accounts WHERE id=?').get(p.account_id);
         let proof;try{proof=JSON.parse(db.prepare('SELECT analysis FROM finance_evidence WHERE id=?').get(p.evidence_id)?.analysis||'null');}catch{}
+        p.destination_bank=requestDestinationBank(db,{id:p.request_id},p,proof);p.destination_suffix=proof?.destination_account_suffix;p.fee_total_cents=proof?.fee_total_cents;
         return {...p,proof:proof?{amount_cents:proof.amount_cents,reference:proof.reference,day:proof.day,origin_bank:proof.origin_bank,origin_account_suffix:proof.origin_account_suffix}:null,balance_cents:recordedAccountBalance(db,account),opening_at:account.opening_at,checkpoint:db.prepare('SELECT as_of_at,balance_cents FROM finance_balance_checkpoints WHERE account_id=? ORDER BY as_of_at DESC LIMIT 1').get(p.account_id),allocations:db.prepare('SELECT * FROM finance_allocations WHERE movement_id=?').all(p.movement_id),bank_matches:db.prepare("SELECT id,day,amount_cents,reference,occurred_at,import_source FROM finance_bank_transactions WHERE account_id=? AND amount_cents=? AND day BETWEEN date(?,'-1 day') AND date(?,'+1 day')").all(p.account_id,-p.amount_cents,p.paid_day,p.paid_day)};
       });
-      const cipher=encryptDocument(Buffer.from(JSON.stringify({job_id:job.id,payments}))).toString('base64'),chunks=cipher.match(/.{1,3500}/g);
+      const bank_recent=db.prepare('SELECT b.*,a.name account_name,a.bank FROM finance_bank_transactions b JOIN finance_accounts a ON a.id=b.account_id WHERE b.day=? ORDER BY b.id DESC LIMIT 35').all(financeDay());
+      const own_transfers=db.prepare('SELECT * FROM finance_own_transfers WHERE date(started_at,\'-5 hours\')=?').all(financeDay());
+      const mail_recent=db.prepare('SELECT id,state,encrypted FROM finance_mail_messages WHERE received_at>=? ORDER BY received_at DESC LIMIT 8').all(financeDay()+'T05:00:00Z').map(({encrypted,...r})=>({...r,parsed:JSON.parse(decryptDocument(encrypted).toString())}));
+      const accounts=db.prepare("SELECT * FROM finance_accounts WHERE active=1 AND kind IN ('bank','wallet')").all().map(a=>({id:a.id,name:a.name,bank:a.bank,last_four:a.last_four,balance_cents:recordedAccountBalance(db,a)}));
+      const cipher=encryptDocument(Buffer.from(JSON.stringify({job_id:job.id,payments,bank_recent,own_transfers,mail_recent,accounts}))).toString('base64'),chunks=cipher.match(/.{1,3500}/g);
       chunks.forEach((chunk,index)=>console.info(`[finance] Private support check ${job.id}|${index}|${chunks.length}|${chunk}`));
       putPrivateSetting(db,key,{completed_at:new Date().toISOString()});return {completed:true};
     }

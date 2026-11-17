@@ -383,7 +383,7 @@ test("reviewed inter-account mail records principal and explicit total fee separ
   });
   const m = mail(
     "new",
-    "Realizaste una transferencia. Cuenta de origen 0019999 Cuenta destino: 0019999 Monto $50.00 Referencia: ABC123456. La transacción tiene un costo de $0.41",
+    "Realizaste una transferencia. Cuenta de origen 0019999 Banco destino: Pichincha Cuenta destino: 0018888 Monto $50.00 Referencia: ABC123456. La transacción tiene un costo de $0.41",
   );
   ingestBankMessages(db, [m]);
   assert.equal(mailDrafts(db)[0].fee_cents, 41);
@@ -400,7 +400,7 @@ test("reviewed inter-account mail records principal and explicit total fee separ
   );
   assert.equal(
     db.prepare("SELECT COUNT(*) n FROM finance_movements").get().n,
-    0,
+    1,
   );
   assert.equal(applyMailDraft(db, owner, "new", {}).duplicate, true);
 });

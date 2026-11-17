@@ -978,6 +978,8 @@ export function RecordPayment({
                     : done.ledger?.state==='card'
                       ? 'Pago registrado con tarjeta de crédito. No se descontó de una cuenta bancaria.'
                       : 'Comprobante y fecha guardados.'}
+                  {done.ledger?.fee?.amount_cents>0&&` Comisión bancaria con IVA: ${money(done.ledger.fee.amount_cents)}${done.ledger.fee.estimated?' (calculada)':''}.`}
+                  {done.ledger?.own_transfer&&' El importe también se sumó a tu cuenta de destino; el traslado no cuenta como gasto.'}
           </p>
           {done.remaining_cents > 0 && (
             <div>Queda por transferir: {money(done.remaining_cents)}</div>

@@ -43,6 +43,8 @@ export function initFinanceOperationsDb(db) {
     ).run();
   }
   db.exec(`
+    CREATE TABLE IF NOT EXISTS finance_transfer_fees (principal_bank_id INTEGER PRIMARY KEY REFERENCES finance_bank_transactions(id),bank_transaction_id INTEGER UNIQUE REFERENCES finance_bank_transactions(id),amount_cents INTEGER NOT NULL,estimated INTEGER NOT NULL,destination_bank TEXT NOT NULL,source TEXT NOT NULL,created_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS finance_transfer_fee_evidence (fee_id INTEGER NOT NULL REFERENCES finance_transfer_fees(principal_bank_id),identity TEXT NOT NULL,component TEXT NOT NULL,amount_cents INTEGER NOT NULL,PRIMARY KEY(fee_id,identity));
     CREATE TABLE IF NOT EXISTS finance_assistant_photos (id TEXT PRIMARY KEY,member_id INTEGER NOT NULL REFERENCES finance_members(id),mime TEXT NOT NULL,name TEXT NOT NULL,bytes INTEGER NOT NULL,sha256 TEXT NOT NULL,encrypted BLOB NOT NULL,uploaded_at TEXT NOT NULL,UNIQUE(member_id,sha256));
     CREATE TABLE IF NOT EXISTS finance_assistant_draft_photos (draft_id TEXT NOT NULL REFERENCES finance_assistant_drafts(id) ON DELETE CASCADE,photo_id TEXT NOT NULL REFERENCES finance_assistant_photos(id),PRIMARY KEY(draft_id,photo_id));
     CREATE TABLE IF NOT EXISTS finance_assistant_photo_applications (photo_id TEXT NOT NULL REFERENCES finance_assistant_photos(id),target TEXT NOT NULL,draft_id TEXT NOT NULL REFERENCES finance_assistant_drafts(id),PRIMARY KEY(photo_id,target));

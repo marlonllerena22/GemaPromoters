@@ -1594,34 +1594,29 @@ test("transfers preserve total funds and never count as revenue or expense", asy
     from_account_id: from,
     to_account_id: to,
     amount_cents: 5000,
+    confirm_bank: true,
     day: f.day,
     description: "Fondos prestados entre negocios",
   });
   assert.equal(result.status, 201);
-  await f.bank(from, [{ day: f.day, amount_cents: -5000, external_id: "out" }]);
-  await f.bank(to, [{ day: f.day, amount_cents: 5000, external_id: "in" }]);
-  for (const id of result.body.movement_ids) {
-    const m = f.db
-      .prepare("SELECT * FROM finance_movements WHERE id=?")
-      .get(id);
-    const b = f.db
-      .prepare("SELECT id FROM finance_bank_transactions WHERE account_id=?")
-      .get(m.account_id);
-    assert.equal(
-      (
-        await f.req("/reconcile", "owner", {
-          movement_id: id,
-          bank_transaction_id: b.id,
-          amount_cents: 5000,
-        })
-      ).status,
-      200
-    );
-  }
+  assert.equal(f.db.prepare('SELECT COUNT(*) n FROM finance_allocations').get().n,2);
   const s = (await f.req("/snapshot")).body.summary;
   assert.equal(s.balance_cents, 0);
   assert.equal(s.income_cents, 0);
   assert.equal(s.expense_cents, 0);
+});
+
+test('confirmed interbank transfer updates both accounts, charges only origin and is idempotent',async t=>{
+ const f=await fixture(t);await f.login();const from=await f.account('producalza','Origen'),to=await f.account('marjorie','Destino');
+ f.db.prepare("UPDATE finance_accounts SET bank='Pichincha' WHERE id=?").run(from);
+ f.db.prepare("UPDATE finance_accounts SET bank='Guayaquil' WHERE id=?").run(to);
+ const body={idempotency_key:'12345678-1234-1234-1234-123456789012',from_account_id:from,to_account_id:to,amount_cents:5000,day:f.day,description:'Traslado propio realizado',reference:'OWN-API-12345'};
+ assert.equal((await f.req('/transfers','owner',body)).status,400);
+ const out=await f.req('/transfers','owner',{...body,confirm_bank:true});assert.equal(out.status,201,JSON.stringify(out.body));
+ assert.equal((await f.req('/transfers','owner',{...body,confirm_bank:true})).body.duplicate,true);
+ const s=(await f.req('/snapshot')).body;assert.equal(s.accounts.find(a=>a.id===from).balance_cents,-5041);assert.equal(s.accounts.find(a=>a.id===to).balance_cents,5000);
+ assert.equal(s.summary.income_cents,0);assert.equal(s.summary.expense_cents,41);
+ assert.equal(f.db.prepare('SELECT COUNT(*) n FROM finance_own_transfers').get().n,1);
 });
 
 test("cash custody transfers require physical confirmation and affect only the cash journal", async (t) => {

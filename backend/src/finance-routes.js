@@ -1,4 +1,5 @@
 import {applyPrivateIessRepair} from './finance-iess-repair.js';
+import {settleManualTransfer} from './finance-transfer-ledger.js';
 import {applyPrivatePaymentRepair} from './finance-payment-repair.js';
 import {registerBalanceReport} from './finance-balance-report.js';
 import {applyPrivateStaffRecovery,applyPrivateArrivals,applyPrivateStaffOnboarding} from './finance-staff-support.js';
@@ -709,6 +710,8 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
       if (day < from.opening_date || day < to.opening_date)
         fail("El traslado es anterior al saldo inicial de una cuenta");
       const cash = (a) => ["cash", "custody"].includes(a.kind);
+      if([from,to].some(a=>!['cash','custody','bank','wallet'].includes(a.kind)))fail('Elige cuentas de fondos; una tarjeta de crédito no es saldo de efectivo');
+      if([from,to].some(a=>['bank','wallet'].includes(a.kind))&&b.confirm_bank!==true)fail('Confirma que el traslado ya se realizó en el banco');
       if ((cash(from) || cash(to)) && b.confirm_cash !== true)
         fail("Confirma la entrega o recepción física de los fondos");
       const result = db.transaction(() => {
@@ -731,6 +734,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
             incoming.account_id !== to.id ||
             outgoing.amount_cents !== b.amount_cents ||
             outgoing.day !== day ||
+            outgoing.reference !== text(b.reference,200) ||
             outgoing.description !== text(b.description, 2000)
           )
             fail(
@@ -805,7 +809,8 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
             description: text(b.description, 2000),
           },
         );
-        return { group, movement_ids: ids };
+        const ledger=settleManualTransfer(db,req.financeUser,{group,from,to,amount_cents:b.amount_cents,day,reference:text(b.reference,200),movement_ids:ids});
+        return { group, movement_ids: ids,ledger };
       })();
       res.status(201).json(result);
     }),

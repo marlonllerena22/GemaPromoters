@@ -1,4 +1,6 @@
 import {matchIessPayments} from './finance-iess.js';
+import {postOwnTransferFromProof} from './finance-own-transfers.js';
+import {applyTransferFee} from './finance-transfer-fees.js';
 import crypto from "node:crypto";
 import { audit, financeDay } from "./finance-db.js";
 import { encryptDocument, decryptDocument } from "./finance-ai.js";
@@ -151,6 +153,7 @@ export function parseBankNotification(
     direction,
     counterparty,
     destination_suffix:destinationSuffix,
+    destination_bank:body.match(/banco (?:de )?destino\s*:\s*([^\n]+?)(?=\s+(?:cuenta|referencia|fecha|monto)\b|$)/i)?.[1]?.trim()||null,
     reference,
     account_id: conflict ? null : mapped,
     suffix,
@@ -312,6 +315,10 @@ export function applyBankNotification(db, user, id, body = {}) {
         ],
       });
       bank = { id: result.transaction_ids[0] };
+    }
+    if(direction==='outgoing'){
+      postOwnTransferFromProof(db,{receiving_bank:p.destination_bank,destination_account_suffix:p.destination_suffix,origin_bank:account.bank,origin_account_suffix:p.suffix},bank.id,{id:'android:'+id,account_id:account.id,amount_cents:amount,reference:reference||'',created_at:row.posted_at});
+      applyTransferFee(db,user,bank.id,{destination_bank:p.destination_bank,business_id:account.business_id||'personal'});
     }
     const matched =
       !!body.link_bank_id || candidates.some((r) => r.id === bank.id);
