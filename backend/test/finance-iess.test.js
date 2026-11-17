@@ -14,7 +14,7 @@ import {enrichServiceProof} from '../src/finance-service-payment-proof.js';
 import {repairIessPayments} from '../src/finance-iess-repair.js';
 import {recordedAccountBalance} from '../src/finance-check-ledger.js';
 import {repairRequestPayments} from '../src/finance-payment-repair.js';
-import {applyTransferFee} from '../src/finance-transfer-fees.js';
+import {applyTransferFee,requestDestinationBank} from '../src/finance-transfer-fees.js';
 process.env.NODE_ENV='test';
 function fixture(t){
  t.mock.timers.enable({apis:['Date'],now:new Date('2026-11-12T23:00:00Z')});
@@ -39,6 +39,14 @@ for(const [destination,explicit,fee] of [['Banco Pichincha S.A.',null,0],['Banco
  const p=recordRequestPayment(f.db,f.owner,r.id,r.body);assert.equal(recordedAccountBalance(f.db,a),100000-12345-fee);
  assert.equal(p.ledger.fee?.amount_cents||0,fee);recordRequestPayment(f.db,f.owner,r.id,r.body);assert.equal(recordedAccountBalance(f.db,a),100000-12345-fee);
  assert.equal(requireRequest(f.db,f.owner,r.id).remaining_cents,0);
+});
+
+test('an unspecified saved bank does not override the explicit destination in the proof',t=>{
+ const f=fixture(t),r=ordinaryRequest(f);
+ const encrypted=encryptDocument(Buffer.from(JSON.stringify({accounts:[{bank:'Otro'}]})));
+ f.db.prepare("INSERT INTO finance_payees(id,business_id,encrypted,created_by) VALUES ('fixture-payee','producalza',?,'marlon')").run(encrypted);
+ f.db.prepare("INSERT INTO finance_request_payees(request_id,payee_id,encrypted) VALUES (?,'fixture-payee',?)").run(r.id,encrypted);
+ assert.equal(requestDestinationBank(f.db,{id:r.id},{destination_index:0},{receiving_bank:'Banco Internacional'}),'Banco Internacional');
 });
 
 test('bank fee split into commission and IVA or combined is corroborated without a second charge',t=>{

@@ -384,10 +384,10 @@ export function GmailPanel() {
         <Button
           icon={state.connected ? RefreshCw : Mail}
           loading={busy}
-          onClick={state.connected ? sync : connect}
+          onClick={state.connected && !state.last_error ? sync : connect}
           disabled={!state.connected && !state.configured}
         >
-          {state.connected ? "Actualizar correo" : "Conectar con Google"}
+          {state.last_error ? 'Volver a conectar Google' : state.connected ? "Actualizar correo" : "Conectar con Google"}
         </Button>
         <Button variant="secondary" onClick={() => open("mail-inbox")}>
           Ver avisos {state.draft_count ? `· ${state.draft_count}` : ""}

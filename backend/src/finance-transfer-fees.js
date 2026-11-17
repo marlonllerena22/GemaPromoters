@@ -7,7 +7,8 @@ import {decryptDocument} from './finance-ai.js';
 export function requestDestinationBank(db,request,payment,analysis){
  const row=db.prepare('SELECT encrypted FROM finance_request_payees WHERE request_id=?').get(request.id);
  const payee=row?JSON.parse(decryptDocument(row.encrypted).toString()):null;
- const selected=payee?.accounts?.[payment.destination_index]?.bank;
+ const selectedValue=payee?.accounts?.[payment.destination_index]?.bank;
+ const selected=transferBankKey(selectedValue)==='otro'?null:selectedValue;
  const detected=analysis?.receiving_bank;
  if(selected&&detected&&transferBankKey(selected)!==transferBankKey(detected))return null;
  return detected||selected||null;

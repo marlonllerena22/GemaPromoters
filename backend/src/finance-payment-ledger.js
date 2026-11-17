@@ -46,6 +46,7 @@ export function settleRequestProof(db,user,request,payment){
  return result;
 }
 function finishTransfer(db,user,request,payment,analysis,bankId){
+ if(request.request_kind==='iess')return {fee:null,own_transfer:null};
  const destinationBank=requestDestinationBank(db,request,payment,analysis);
  const ownTransfer=postOwnTransferFromProof(db,{...analysis,receiving_bank:destinationBank},bankId,payment);
  if(ownTransfer)db.prepare("UPDATE finance_movements SET kind='transfer',transfer_side='outgoing',transfer_group=? WHERE id=?").run(ownTransfer.id,payment.movement_id);

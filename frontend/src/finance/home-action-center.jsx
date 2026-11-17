@@ -76,6 +76,7 @@ export function OwnerHome() {
   ].filter((item) => tab === "all" || item.kind === tab);
   return (
     <div className="gf-owner-home">
+      {data.mail_status?.last_error&&<button className="gf-home-reminder" onClick={()=>navigate('conexiones')}><Bell size={21}/><span><strong>El correo bancario necesita reconexión</strong><small>No se están leyendo correos nuevos. Toca aquí para recuperar la conexión.</small></span><ChevronRight size={18}/></button>}
       <header className="gf-home-greeting">
         <div>
           <span>

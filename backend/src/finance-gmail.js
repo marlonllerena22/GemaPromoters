@@ -927,7 +927,7 @@ export function registerGmailRoutes(app, db, { route, owner }) {
         putPrivateSetting(
           db,
           "mail_sync_error",
-          "No se pudo actualizar; revisa la conexión",
+          error.status ? error.message : "No se pudo actualizar; revisa la conexión",
         );
       } finally {
         running = false;
