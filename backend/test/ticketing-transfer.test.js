@@ -253,6 +253,44 @@ test('an administrator can cancel mistakenly approved tickets, restore stock, em
   assert.equal(messages.length, 2);
 });
 
+test('an administrator can move a paid order to an equal-value event while preserving its QR codes', async (t) => {
+  const f = await fixture(t);
+  const messages = [];
+  t.mock.method(nodemailer, 'createTransport', () => ({ sendMail: async (message) => { messages.push(message); } }));
+  for (const key of ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS']) {
+    const previous = process.env[key];
+    process.env[key] = 'isolated-test';
+    t.after(() => { if (previous === undefined) delete process.env[key]; else process.env[key] = previous; });
+  }
+  const targetEvent = f.db.prepare("SELECT * FROM ticketing_events WHERE slug = 'jose-andrea-macas-2026'").get();
+  f.db.prepare("UPDATE ticketing_events SET status = 'published', sales_enabled = 1, payment_enabled = 1, is_past = 0 WHERE id = ?").run(targetEvent.id);
+  const targetType = f.db.prepare("SELECT * FROM ticketing_ticket_types WHERE event_id = ? AND name = 'GOLDEN'").get(targetEvent.id);
+  f.db.prepare('UPDATE ticketing_ticket_types SET stock = 20, sold = 0, price = 15, status = ? WHERE id = ?').run('active', targetType.id);
+
+  const order = (await f.create()).body;
+  const confirmed = await f.request(`/transfers/${order.id}/confirm`, f.admin, 'POST', { reference: 'CHANGE-EVENT-001' });
+  assert.equal(confirmed.status, 200);
+  const originalCodes = confirmed.body.order.tickets.map((ticket) => ticket.code);
+  const changed = await f.request(`/admin/orders/${order.id}/change-event`, f.admin, 'POST', {
+    target_event_id: targetEvent.id,
+    target_ticket_type_id: targetType.id,
+    reason: 'El cliente compro Loja y solicito Macas'
+  });
+  assert.equal(changed.status, 200);
+  assert.equal(changed.body.order.event_id, targetEvent.id);
+  assert.equal(changed.body.order.event_title, targetEvent.title);
+  assert.equal(changed.body.order.items[0].ticket_name, 'GOLDEN');
+  assert.deepEqual(changed.body.order.tickets.map((ticket) => ticket.code), originalCodes);
+  assert.ok(changed.body.order.tickets.every((ticket) => ticket.event_id === targetEvent.id && ticket.status === 'valid'));
+  assert.equal(f.db.prepare('SELECT sold FROM ticketing_ticket_types WHERE id = ?').get(f.type.id).sold, 0);
+  assert.equal(f.db.prepare('SELECT sold FROM ticketing_ticket_types WHERE id = ?').get(targetType.id).sold, 2);
+  const audit = f.db.prepare("SELECT payload FROM ticketing_payment_events WHERE order_id = ? AND event_status = 'event_changed'").get(order.id);
+  assert.equal(JSON.parse(audit.payload).reason, 'El cliente compro Loja y solicito Macas');
+  assert.equal(messages.length, 2);
+  assert.match(messages[1].subject, /Cambio confirmado a JOSÉ ANDRËA EN MACAS/);
+  assert.match(messages[1].html, /Conserva estos mismos enlaces y QR/);
+});
+
 test('offline scanner downloads an event, synchronizes idempotently and resolves used or cancelled conflicts', async (t) => {
   const f = await fixture(t);
   t.mock.method(nodemailer, 'createTransport', () => ({ sendMail: async () => {} }));

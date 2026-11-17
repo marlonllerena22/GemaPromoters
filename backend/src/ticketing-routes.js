@@ -514,7 +514,7 @@ export function registerTicketingRoutes(app, db) {
     } : {}) };
   }
 
-  async function sendTicketEmail(orderId) {
+  async function sendTicketEmail(orderId, options = {}) {
     const transporter = ticketingTransporter();
     const order = orderDetails(orderId);
     if (!transporter || !order?.customer_email || !order.tickets.length) {
@@ -537,14 +537,14 @@ export function registerTicketingRoutes(app, db) {
     await transporter.sendMail({
       from: process.env.SMTP_FROM || process.env.SMTP_USER,
       to: order.customer_email,
-      subject: `Tus entradas ProTickets · ${order.order_number}`,
+      subject: options.subject || `Tus entradas ProTickets · ${order.order_number}`,
       html: `
         <div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;background:#f6f6f6;padding:24px;color:#111">
           <div style="background:#111;color:#fff;padding:18px 22px;border-radius:12px">
             <strong style="font-size:22px">ProTickets</strong>
-            <p style="margin:5px 0 0;color:#ddd">Tu compra fue confirmada</p>
+            <p style="margin:5px 0 0;color:#ddd">${options.heading || 'Tu compra fue confirmada'}</p>
           </div>
-          <p>Hola ${order.customer_name}, tu pago del pedido <strong>${order.order_number}</strong> fue confirmado.</p>
+          <p>${options.intro || `Hola ${order.customer_name}, tu pago del pedido <strong>${order.order_number}</strong> fue confirmado.`}</p>
           ${ticketCards.join('')}
           <p style="font-size:13px;color:#6b7280">Presenta cada QR desde tu cuenta. El enlace no mostrará la entrada a otra persona, aunque lo reciba o lo copie.</p>
         </div>`
@@ -1538,6 +1538,99 @@ export function registerTicketingRoutes(app, db) {
     ).run(req.params.id, req.ticketEstablishment.id);
     if (!result.changes) return res.status(400).json({ message: 'Pedido no encontrado o ya procesado' });
     res.json({ ok: true });
+  });
+
+  app.post('/api/ticketing/admin/orders/:id/change-event', requireTicketAdmin, async (req, res) => {
+    const orderId = Number(req.params.id);
+    const targetEventId = Number(req.body?.target_event_id);
+    const targetTicketTypeId = Number(req.body?.target_ticket_type_id);
+    const reason = cleanText(req.body?.reason, 300) || 'Cambio solicitado por el cliente';
+    try {
+      const change = db.transaction(() => {
+        const order = db.prepare(
+          'SELECT * FROM ticketing_orders WHERE id = ? AND establishment_id = ?'
+        ).get(orderId, req.ticketEstablishment.id);
+        if (!order) throw new Error('Pedido no encontrado');
+        if (order.payment_status !== 'paid') throw new Error('Solo se puede cambiar un pedido pagado');
+
+        const items = db.prepare('SELECT * FROM ticketing_order_items WHERE order_id = ? ORDER BY id').all(order.id);
+        if (items.length !== 1) throw new Error('Este pedido requiere revision manual porque contiene varias localidades');
+        const item = items[0];
+        const tickets = db.prepare('SELECT * FROM ticketing_tickets WHERE order_id = ? ORDER BY id').all(order.id);
+        if (tickets.length !== Number(item.quantity) || tickets.some((ticket) => ticket.status !== 'valid')) {
+          throw new Error('No se puede cambiar un pedido con entradas usadas, anuladas o incompletas');
+        }
+
+        const target = db.prepare(
+          `SELECT types.*, events.title AS event_title, events.status AS event_status,
+                  events.sales_enabled, events.is_past, events.establishment_id
+           FROM ticketing_ticket_types AS types
+           JOIN ticketing_events AS events ON events.id = types.event_id
+           WHERE types.id = ? AND events.id = ? AND events.establishment_id = ?`
+        ).get(targetTicketTypeId, targetEventId, req.ticketEstablishment.id);
+        if (!target || target.status !== 'active' || target.event_status !== 'published' || Number(target.is_past)) {
+          throw new Error('La localidad de destino no se encuentra disponible');
+        }
+        if (order.event_id === target.event_id && item.ticket_type_id === target.id) {
+          throw new Error('El pedido ya pertenece a este evento y localidad');
+        }
+        if (Number(item.quantity) > availableForType(target)) {
+          throw new Error('No hay suficientes entradas disponibles en la localidad de destino');
+        }
+        const targetSubtotal = money(Number(target.price) * Number(item.quantity));
+        if (targetSubtotal !== money(order.subtotal) || money(target.price) !== money(item.unit_price)) {
+          throw new Error('El cambio requiere ajuste de valor y debe revisarse antes de continuar');
+        }
+
+        db.prepare(
+          `UPDATE ticketing_ticket_types
+           SET sold = MAX(0, sold - ?), updated_at = datetime('now', 'localtime')
+           WHERE id = ? AND event_id = ?`
+        ).run(item.quantity, item.ticket_type_id, order.event_id);
+        db.prepare(
+          `UPDATE ticketing_ticket_types
+           SET sold = sold + ?, updated_at = datetime('now', 'localtime')
+           WHERE id = ? AND event_id = ?`
+        ).run(item.quantity, target.id, target.event_id);
+        db.prepare(
+          `UPDATE ticketing_order_items
+           SET ticket_type_id = ?, ticket_name = ?, unit_price = ?
+           WHERE id = ? AND order_id = ?`
+        ).run(target.id, target.name, target.price, item.id, order.id);
+        db.prepare(
+          `UPDATE ticketing_tickets SET event_id = ?
+           WHERE order_id = ? AND establishment_id = ?`
+        ).run(target.event_id, order.id, order.establishment_id);
+        db.prepare(
+          `UPDATE ticketing_orders
+           SET event_id = ?, updated_at = datetime('now', 'localtime')
+           WHERE id = ?`
+        ).run(target.event_id, order.id);
+        db.prepare(
+          `INSERT INTO ticketing_payment_events
+           (establishment_id, order_id, provider, event_status, payload)
+           VALUES (?, ?, 'admin', 'event_changed', ?)`
+        ).run(order.establishment_id, order.id, JSON.stringify({
+          from_event_id: order.event_id,
+          to_event_id: target.event_id,
+          from_ticket_type_id: item.ticket_type_id,
+          to_ticket_type_id: target.id,
+          quantity: item.quantity,
+          reason,
+          changed_by: req.user.username || 'Administrador'
+        }));
+        return { fromEventId: order.event_id, toEventId: target.event_id, eventTitle: target.event_title };
+      })();
+
+      const email = await sendTicketEmail(orderId, {
+        subject: `Cambio confirmado a ${change.eventTitle} · ${orderDetails(orderId).order_number}`,
+        heading: 'Tu cambio de evento fue confirmado',
+        intro: `Hola ${orderDetails(orderId).customer_name}, cambiamos tus entradas al evento <strong>${change.eventTitle}</strong>. Conserva estos mismos enlaces y QR; ahora corresponden exclusivamente a este evento.`
+      }).catch((error) => ({ sent: false, reason: error.message }));
+      res.json({ order: orderDetails(orderId), email, change });
+    } catch (error) {
+      res.status(409).json({ message: error.message });
+    }
   });
 
   app.post('/api/ticketing/admin/orders/:id/cancel-tickets', requireTicketAdmin, async (req, res) => {
