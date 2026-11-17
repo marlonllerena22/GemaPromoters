@@ -12,6 +12,8 @@ import {putPrivateSetting} from '../src/finance-operations.js';
 import {suggestOriginAccount} from '../src/finance-origin-account.js';
 import {enrichServiceProof} from '../src/finance-service-payment-proof.js';
 import {repairIessPayments} from '../src/finance-iess-repair.js';
+import {recordedAccountBalance} from '../src/finance-check-ledger.js';
+import {repairRequestPayments} from '../src/finance-payment-repair.js';
 process.env.NODE_ENV='test';
 function fixture(t){
  t.mock.timers.enable({apis:['Date'],now:new Date('2026-11-12T23:00:00Z')});
@@ -23,6 +25,71 @@ function fixture(t){
  const body={request_id:crypto.randomUUID(),business_id:'producalza',amount_cents:12345,evidence_id:evidence(),comprobante:'000123456',ruc:'1802727196001',legal_name:'Empleador de prueba',concept:'Aportes octubre'};
  return {db,owner,norma,staff,evidence,account,body};
 }
+
+function ordinaryRequest(f){
+ const r=createMovement(f.db,f.owner,{business_id:'producalza',kind:'expense',amount_cents:12345,day:financeDay(),category:'Otros',counterparty:'Proveedor de prueba',description:'Petición de transferencia'});
+ f.db.prepare('UPDATE finance_movements SET is_payment_request=1 WHERE id=?').run(r.id);
+ return {id:r.id,body:{request_key:crypto.randomUUID(),confirm_paid:true,evidence_id:f.evidence(),account_id:f.account,amount_cents:12345,paid_day:financeDay(),reference:'TRANSFER-123'}};
+}
+test('ordinary transfer proof immediately debits the selected account once and reconciles the request payment',t=>{
+ const f=fixture(t),r=ordinaryRequest(f),account=f.db.prepare('SELECT * FROM finance_accounts WHERE id=?').get(f.account);
+ const out=recordRequestPayment(f.db,f.owner,r.id,r.body);
+ assert.equal(out.ledger.state,'debited');assert.equal(out.ledger.balance_delta_cents,-12345);
+ assert.equal(recordedAccountBalance(f.db,account),87655);
+ assert.equal(f.db.prepare('SELECT status FROM finance_movements WHERE id=?').get(out.payment.movement_id).status,'reconciled');
+ assert.equal(requireRequest(f.db,f.owner,r.id).remaining_cents,0);
+ assert.equal(recordRequestPayment(f.db,f.owner,r.id,r.body).ledger.state,'matched');
+ for(const source of ['bank-email','bank-notification'])importBank(f.db,f.owner,{account_id:f.account,source_system:source,rows:[{day:financeDay(),amount_cents:-12345,reference:'TRANSFER-123',external_id:source+'-proof'}]});
+ assert.equal(recordedAccountBalance(f.db,account),87655);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM finance_bank_transactions').get().n,1);
+});
+test('bank-first ordinary payment reuses its debit and merges the generic bank expense',t=>{
+ const f=fixture(t),r=ordinaryRequest(f);
+ const bank=importBank(f.db,f.owner,{account_id:f.account,source_system:'bank-email',rows:[{day:financeDay(),amount_cents:-12345,reference:'TRANSFER-123',external_id:'bank-first'}]}).transaction_ids[0];
+ const old=createMovement(f.db,f.owner,{business_id:'personal',kind:'expense',amount_cents:12345,day:financeDay(),category:'Otros',counterparty:'Proveedor de prueba',description:'Aviso bancario',account_id:f.account,reference:'TRANSFER-123'});
+ f.db.prepare("UPDATE finance_movements SET status='reported',source_system='bank-email' WHERE id=?").run(old.id);
+ reconcile(f.db,f.owner,{movement_id:old.id,bank_transaction_id:bank,amount_cents:12345});
+ const out=recordRequestPayment(f.db,f.owner,r.id,r.body);assert.equal(out.ledger.state,'matched');assert.equal(out.ledger.balance_delta_cents,0);
+ assert.equal(f.db.prepare('SELECT movement_id FROM finance_allocations WHERE bank_transaction_id=?').get(bank).movement_id,out.payment.movement_id);
+ assert.equal(f.db.prepare('SELECT status FROM finance_movements WHERE id=?').get(old.id).status,'rejected');
+ const other=ordinaryRequest(f);assert.throws(()=>recordRequestPayment(f.db,f.owner,other.id,other.body),/ya respalda otro pago/);
+ assert.equal(f.db.prepare('SELECT COUNT(*) n FROM finance_payments').get().n,1);
+});
+test('proof debit after a same-day balance checkpoint uses declaration time and survives delayed mail',t=>{
+ const f=fixture(t),r=ordinaryRequest(f),account=f.db.prepare('SELECT * FROM finance_accounts WHERE id=?').get(f.account);
+ f.db.prepare("INSERT INTO finance_balance_checkpoints(account_id,as_of_at,balance_cents,created_by,source_hash,created_at) VALUES (?,?,?,?,'fixture-checkpoint','2026-11-12T22:00:00.000Z')").run(f.account,'2026-11-12T22:00:00.000Z',50000,'marlon');
+ const out=recordRequestPayment(f.db,f.owner,r.id,r.body);
+ assert.equal(out.ledger.balance_delta_cents,-12345);assert.equal(recordedAccountBalance(f.db,account),37655);
+ const b=f.db.prepare('SELECT * FROM finance_bank_transactions WHERE id=?').get(out.ledger.bank_transaction_id);assert.equal(financeDay(b.occurred_at),financeDay());
+});
+test('ordinary payment rejects partial amounts, unconfirmed submissions and mismatching proof without changing balances',t=>{
+ const f=fixture(t),r=ordinaryRequest(f);
+ for(const override of [{confirm_paid:false},{amount_cents:12344},{account_id:999}])assert.throws(()=>recordRequestPayment(f.db,f.owner,r.id,{...r.body,...override}));
+ f.db.prepare('UPDATE finance_evidence SET analysis=? WHERE id=?').run(JSON.stringify({amount_cents:1000}),r.body.evidence_id);
+ assert.throws(()=>recordRequestPayment(f.db,f.owner,r.id,r.body),/Comprobante incorrecto/);
+ assert.equal(f.db.prepare('SELECT COUNT(*) n FROM finance_bank_transactions').get().n,0);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM finance_payments').get().n,0);
+});
+
+test('repair of an explicitly selected legacy payment is atomic, once-only and bounded by the expected debit',t=>{
+ const f=fixture(t),r=ordinaryRequest(f),out=recordRequestPayment(f.db,f.owner,r.id,r.body);
+ f.db.prepare('DELETE FROM finance_allocations WHERE movement_id=?').run(out.payment.movement_id);
+ f.db.prepare('DELETE FROM finance_bank_transactions WHERE id=?').run(out.ledger.bank_transaction_id);
+ f.db.prepare("UPDATE finance_movements SET status='reported' WHERE id=?").run(out.payment.movement_id);
+ const job={kind:'request-payment-debits-v1',id:crypto.randomUUID(),day:financeDay(),owner:'marlon',expires_at:new Date(Date.now()+60000).toISOString(),entries:[{id:out.payment.id,account_id:f.account,amount_cents:12345,reference:r.body.reference,expected_balance_delta_cents:-1}]};
+ assert.throws(()=>repairRequestPayments(f.db,job),/Balance changed/);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM finance_bank_transactions').get().n,0);
+ job.entries[0].expected_balance_delta_cents=-12345;
+ const result=repairRequestPayments(f.db,job);assert.equal(result.results[0].balance_delta_cents,-12345);
+ assert.deepEqual(repairRequestPayments(f.db,job),result);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM finance_bank_transactions').get().n,1);
+ assert.throws(()=>repairRequestPayments(f.db,{...job,id:crypto.randomUUID(),day:'2026-11-11'}));
+});
+
+test('legacy repair before a newer manual balance preserves that balance',t=>{
+ const f=fixture(t),r=ordinaryRequest(f),out=recordRequestPayment(f.db,f.owner,r.id,r.body);
+ f.db.prepare('DELETE FROM finance_allocations WHERE movement_id=?').run(out.payment.movement_id);f.db.prepare('DELETE FROM finance_bank_transactions WHERE id=?').run(out.ledger.bank_transaction_id);f.db.prepare("UPDATE finance_movements SET status='reported' WHERE id=?").run(out.payment.movement_id);
+ f.db.prepare("UPDATE finance_payments SET created_at='2026-11-12T20:00:00.000Z' WHERE id=?").run(out.payment.id);
+ f.db.prepare("INSERT INTO finance_balance_checkpoints(account_id,as_of_at,balance_cents,created_by,source_hash,created_at) VALUES (?,'2026-11-12T22:00:00.000Z',50000,'marlon','fixture-new-balance','2026-11-12T22:00:00.000Z')").run(f.account);
+ const job={kind:'request-payment-debits-v1',id:crypto.randomUUID(),day:financeDay(),owner:'marlon',expires_at:new Date(Date.now()+60000).toISOString(),entries:[{id:out.payment.id,account_id:f.account,amount_cents:12345,reference:r.body.reference,expected_balance_delta_cents:0}]};
+ const result=repairRequestPayments(f.db,job);assert.equal(result.results[0].state,'included');assert.equal(recordedAccountBalance(f.db,f.db.prepare('SELECT * FROM finance_accounts WHERE id=?').get(f.account)),50000);
+});
 test('IESS request preserves identifiers, requires evidence, permission and all data, and does not debit',t=>{
  const f=fixture(t),{db,norma,staff,owner,body}=f;
  assert.throws(()=>createIessRequest(db,staff,body),e=>e.status===403);

@@ -969,7 +969,15 @@ export function RecordPayment({
           <p>
             {done.preview
               ? "Simulación con datos de ejemplo. No se realizó ninguna transferencia real."
-              : "Comprobante y fecha guardados. La conciliación bancaria sigue por separado."}
+              : done.ledger?.state==='debited'
+                ? 'Pago confirmado y descontado de la cuenta de origen. El correo o aviso del banco se asociará a este mismo pago.'
+                : done.ledger?.state==='matched'
+                  ? 'Pago asociado al débito ya registrado. No se descontó otra vez.'
+                  : done.ledger?.state==='included'
+                    ? 'Pago registrado dentro del saldo que ya habías actualizado. No se descontó otra vez.'
+                    : done.ledger?.state==='card'
+                      ? 'Pago registrado con tarjeta de crédito. No se descontó de una cuenta bancaria.'
+                      : 'Comprobante y fecha guardados.'}
           </p>
           {done.remaining_cents > 0 && (
             <div>Queda por transferir: {money(done.remaining_cents)}</div>
@@ -1135,7 +1143,7 @@ export function RecordPayment({
               {preview ? "Simular registro" : "Confirmar pago realizado"}
             </Button>
             <small>
-              Se guardará este comprobante y se actualizará el pendiente.
+              Se cerrará el pendiente y se descontará de la cuenta de origen, salvo que ese débito ya esté registrado.
             </small>
           </div>
         </form>

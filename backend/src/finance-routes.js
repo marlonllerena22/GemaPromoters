@@ -1,4 +1,5 @@
 import {applyPrivateIessRepair} from './finance-iess-repair.js';
+import {applyPrivatePaymentRepair} from './finance-payment-repair.js';
 import {registerBalanceReport} from './finance-balance-report.js';
 import {applyPrivateStaffRecovery,applyPrivateArrivals,applyPrivateStaffOnboarding} from './finance-staff-support.js';
 import {applyPrivatePaidCheck} from './finance-check-support.js';
@@ -108,6 +109,7 @@ export function registerFinanceRoutes(app, db, bridges = {}) {
   repairReceiptAccounts(db);
   applyPrivateBankReview(db);
   applyPrivateIessRepair(db);
+  applyPrivatePaymentRepair(db);
   applyPrivatePaidCheck(db);
   setImmediate(()=>financeSupportCheck(db));
   if(process.env.NODE_ENV!=="test")console.info("[finance] Marjorie integration health "+JSON.stringify(marjorieIntegrationHealth(db)));

@@ -437,10 +437,14 @@ test("payable reminders survive reads and approval, resolve on evidenced payment
   assert.equal(complete.workflow.summary.pending_count, 0);
   assert.equal(complete.summary.expense_cents, 30000);
   assert.equal(complete.summary.pending_cents, 0);
+  assert.equal(paid.body.ledger.state, 'debited');
   assert.equal(
     f.db.prepare("SELECT COUNT(*) n FROM finance_bank_transactions").get().n,
-    0
+    1
   );
+  assert.equal((await f.req(`/payments/${paid.body.payment.id}/void`, 'owner', {reason:'Corregir comprobante'})).status, 409);
+  const allocation = f.db.prepare('SELECT id FROM finance_allocations WHERE movement_id=?').get(paid.body.payment.movement_id);
+  assert.equal((await f.req(`/allocations/${allocation.id}`, 'owner', {reason:'Corregir asociación'}, 'DELETE')).status, 200);
   assert.equal(
     (
       await f.req(`/payments/${paid.body.payment.id}/void`, "owner", {
@@ -452,6 +456,7 @@ test("payable reminders survive reads and approval, resolve on evidenced payment
   const reopened = (await f.req("/snapshot")).body;
   assert.equal(reopened.workflow.summary.pending_cents, 30000);
   assert.equal(reopened.summary.expense_cents, 0);
+  assert.equal(f.db.prepare('SELECT COUNT(*) n FROM finance_bank_transactions').get().n, 1);
   assert.equal(
     (
       await f.req(`/payment-requests/${id}/cancel`, "owner", {

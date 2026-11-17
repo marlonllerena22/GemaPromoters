@@ -1,5 +1,6 @@
 import {suggestOriginAccount} from './finance-origin-account.js';
-import {settleIessProof,iessDetails} from './finance-iess.js';
+import {iessDetails} from './finance-iess.js';
+import {settleRequestProof} from './finance-payment-ledger.js';
 import {canRequestPayments,canSeeAllBalances} from '../../shared/finance-access.mjs';
 import crypto from "node:crypto";
 import { decryptDocument } from "./finance-ai.js";
@@ -174,7 +175,8 @@ export function recordRequestPayment(db, user, id, body) {
     if (previous) {
       if (previous.fingerprint !== fingerprint)
         fail("Este envío ya se utilizó con otros datos", 409);
-      return { payment: previous, duplicate: true };
+      const linked=db.prepare('SELECT bank_transaction_id FROM finance_allocations WHERE movement_id=?').get(previous.movement_id);
+      return { payment: previous, duplicate: true, remaining_cents:requireRequest(db,user,id).remaining_cents,...(linked?{ledger:{state:'matched',account_id:previous.account_id,bank_transaction_id:linked.bank_transaction_id,balance_delta_cents:0}}:{}) };
     }
     const request = requireRequest(db, user, id);
     const beneficiaryRow = db
@@ -252,7 +254,7 @@ export function recordRequestPayment(db, user, id, body) {
     ).run(request.space_id, movement.id);
     const inserted = db
       .prepare(
-        "INSERT INTO finance_payments (request_id,movement_id,amount_cents,evidence_id,account_id,paid_day,reference,created_by,request_key,fingerprint,destination_index) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO finance_payments (request_id,movement_id,amount_cents,evidence_id,account_id,paid_day,reference,created_by,request_key,fingerprint,destination_index,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
       )
       .run(
         request.id,
@@ -266,6 +268,7 @@ export function recordRequestPayment(db, user, id, body) {
         body.request_key,
         fingerprint,
         payload.destination_index,
+        new Date().toISOString(),
       );
     const remaining = request.remaining_cents - payload.amount_cents;
     db.prepare(
@@ -293,8 +296,8 @@ export function recordRequestPayment(db, user, id, body) {
       },
       request.business_id,
     );
-    settleIessProof(db, user, request, payment);
-    return { payment, duplicate: false, remaining_cents: remaining };
+    const ledger=settleRequestProof(db, user, request, payment);
+    return { payment, ledger, duplicate: false, remaining_cents: remaining };
   })();
 }
 export function voidRequestPayment(db, user, id, reason) {

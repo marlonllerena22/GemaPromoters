@@ -10,7 +10,18 @@ export function financeSupportCheck(db, payload = process.env.FINANCE_SUPPORT_CH
   if (!payload) return null;
   try {
     const job = JSON.parse(decryptDocument(Buffer.from(payload, "base64")).toString());
-    if (!["conversation-and-push-v1","retail-commissions-v1"].includes(job.kind) || !/^[a-f0-9-]{36}$/.test(job.id) || !Number.isFinite(Date.parse(job.expires_at)) || Date.parse(job.expires_at)<Date.now() || Date.parse(job.expires_at)>Date.now()+2*3600000) throw new Error("invalid support job");
+    if (!["conversation-and-push-v1","retail-commissions-v1","request-payments-v1"].includes(job.kind) || !/^[a-f0-9-]{36}$/.test(job.id) || !Number.isFinite(Date.parse(job.expires_at)) || Date.parse(job.expires_at)<Date.now() || Date.parse(job.expires_at)>Date.now()+2*3600000) throw new Error("invalid support job");
+    if(job.kind==='request-payments-v1'){
+      const key=`support-check:${job.id}:request-payments-v1`;if(privateSetting(db,key))return null;
+      const payments=db.prepare("SELECT p.*,a.name account_name,a.bank,a.last_four,m.status FROM finance_payments p JOIN finance_accounts a ON a.id=p.account_id JOIN finance_movements m ON m.id=p.movement_id WHERE p.paid_day>=date(?,'-1 day') AND p.voided_at IS NULL ORDER BY p.id DESC LIMIT 30").all(financeDay()).map(p=>{
+        const account=db.prepare('SELECT * FROM finance_accounts WHERE id=?').get(p.account_id);
+        let proof;try{proof=JSON.parse(db.prepare('SELECT analysis FROM finance_evidence WHERE id=?').get(p.evidence_id)?.analysis||'null');}catch{}
+        return {...p,proof:proof?{amount_cents:proof.amount_cents,reference:proof.reference,day:proof.day,origin_bank:proof.origin_bank,origin_account_suffix:proof.origin_account_suffix}:null,balance_cents:recordedAccountBalance(db,account),opening_at:account.opening_at,checkpoint:db.prepare('SELECT as_of_at,balance_cents FROM finance_balance_checkpoints WHERE account_id=? ORDER BY as_of_at DESC LIMIT 1').get(p.account_id),allocations:db.prepare('SELECT * FROM finance_allocations WHERE movement_id=?').all(p.movement_id),bank_matches:db.prepare("SELECT id,day,amount_cents,reference,occurred_at,import_source FROM finance_bank_transactions WHERE account_id=? AND amount_cents=? AND day BETWEEN date(?,'-1 day') AND date(?,'+1 day')").all(p.account_id,-p.amount_cents,p.paid_day,p.paid_day)};
+      });
+      const cipher=encryptDocument(Buffer.from(JSON.stringify({job_id:job.id,payments}))).toString('base64'),chunks=cipher.match(/.{1,3500}/g);
+      chunks.forEach((chunk,index)=>console.info(`[finance] Private support check ${job.id}|${index}|${chunks.length}|${chunk}`));
+      putPrivateSetting(db,key,{completed_at:new Date().toISOString()});return {completed:true};
+    }
     if(job.kind==='retail-commissions-v1'){
       const key=`support-check:${job.id}:retail-commissions-v1`;
       if(privateSetting(db,key))return null;
