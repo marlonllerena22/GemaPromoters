@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import nodemailer from 'nodemailer';
 import QRCode from 'qrcode';
+import {registerTicketDownloadRoutes} from './ticketing-downloads.js';
 import { createToken, requireAuth } from './auth.js';
 import { transferSettings, transferInstructions, buildTicketSalesReport } from './ticketing-finance.js';
 import { registerTicketingPromotionRoutes } from './ticketing-promotions.js';
@@ -268,6 +269,7 @@ export function registerTicketingRoutes(app, db) {
     ticketingTransporter,
     publicAppUrl
   });
+  registerTicketDownloadRoutes(app,db,{requireTicketAdmin,publicAppUrl});
 
   function requireTicketValidationAccess(req, res, next) {
     requireAuth(req, res, () => {

@@ -8,6 +8,7 @@ import { registerTicketingRoutes } from '../src/ticketing-routes.js';
 import { createToken } from '../src/auth.js';
 import { buildTicketSalesReport } from '../src/ticketing-finance.js';
 import { browserPurchase, deliverTikTokPurchases } from '../src/ticketing-tracking.js';
+import {ticketEventDate} from '../src/ticketing-downloads.js';
 
 async function fixture(t) {
   const db = new Database(':memory:');
@@ -38,6 +39,27 @@ async function fixture(t) {
   const create = () => request('/orders', buyer, 'POST', { ticket_type_id: type.id, quantity: 2, payment_method: 'transfer', service_fee: 0, total: 1 });
   return { db, business, event, type, customer, admin, buyer, request, rawRequest, create };
 }
+
+test('private PDF links need an authorized paid order, download without a session, and stop on expiry or ticket use',async t=>{
+ const f=await fixture(t),created=await f.create(),id=created.body.id;
+ assert.equal((await f.request(`/admin/orders/${id}/download-link`,f.buyer,'POST',{})).status,403);
+ assert.equal((await f.request(`/admin/orders/${id}/download-link`,'','POST',{})).status,401);
+ assert.equal((await f.request(`/admin/orders/${id}/download-link`,f.admin,'POST',{})).status,400);
+ assert.equal((await f.request(`/transfers/${id}/confirm`,f.admin,'POST',{reference:'PDF-TEST-001'})).status,200);
+ const before=f.db.prepare('SELECT code,status FROM ticketing_tickets WHERE order_id=? ORDER BY id').all(id);
+ const link=await f.request(`/admin/orders/${id}/download-link`,f.admin,'POST',{});assert.equal(link.status,200);assert.equal(link.body.ticket_count,2);
+ const path=new URL(link.body.url).pathname.replace('/api/ticketing',''),token=path.split('/')[2];
+ assert.equal(token.length,43);assert.doesNotMatch(JSON.stringify(f.db.prepare('SELECT * FROM ticketing_download_links').get()),new RegExp(token));
+ const pdf=await f.rawRequest(path,'');assert.equal(pdf.status,200);assert.match(pdf.headers.get('content-type'),/application\/pdf/);assert.match(pdf.headers.get('content-disposition'),/attachment/);assert.match(pdf.headers.get('cache-control'),/no-store/);
+ const bytes=Buffer.from(await pdf.arrayBuffer());assert.equal(bytes.subarray(0,5).toString(),'%PDF-');assert.match(bytes.toString('latin1'),/\/Count 2/);
+ assert.deepEqual(f.db.prepare('SELECT code,status FROM ticketing_tickets WHERE order_id=? ORDER BY id').all(id),before);
+ assert.equal((await f.rawRequest('/downloads/'+ 'a'.repeat(43)+'/entradas.pdf','')).status,404);
+ f.db.prepare("UPDATE ticketing_tickets SET status='used' WHERE code=?").run(before[0].code);assert.equal((await f.rawRequest(path,'')).status,410);
+ f.db.prepare("UPDATE ticketing_tickets SET status='valid' WHERE code=?").run(before[0].code);
+ f.db.prepare("UPDATE ticketing_download_links SET expires_at='2000-01-01T00:00:00Z'").run();assert.equal((await f.rawRequest(path,'')).status,410);
+ const foreign=createToken({role:'admin',establishmentId:999999,username:'another-admin'});assert.equal((await f.request(`/admin/orders/${id}/download-link`,foreign,'POST',{})).status,403);
+ assert.match(ticketEventDate('2026-11-22 01:00:00'),/21 de noviembre de 2026.*(?:20:00|8:00 p\.)/);
+});
 
 test('transfer reservation uses authoritative 5% fee, event QR, expiry and no tickets until approval', async (t) => {
   const f = await fixture(t);
