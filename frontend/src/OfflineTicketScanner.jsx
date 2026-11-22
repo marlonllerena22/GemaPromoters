@@ -403,6 +403,9 @@ export default function OfflineTicketScanner({ user, onLogout }) {
   }
 
   const accessType = ticketAccessType(result);
+  const preparedEventLabel = `${currentPackage?.event?.title || ''} ${currentPackage?.event?.city || ''}`
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const isMacasEvent = preparedEventLabel.includes('macas');
 
   return <main className="pts-shell">
     <header className="pts-header">
@@ -442,7 +445,7 @@ export default function OfflineTicketScanner({ user, onLogout }) {
         <button type="submit" disabled={!manualCode.trim()}>Validar</button>
       </form>
 
-      {result && <article className={`pts-result ${result.valid ? 'valid' : 'invalid'} ${result.conflict ? 'conflict' : ''} ${accessType ? `access-${accessType.key}` : ''}`}>
+      {result && <article className={`pts-result ${result.valid ? 'valid' : 'invalid'} ${result.conflict ? 'conflict' : ''} ${accessType ? `access-${accessType.key}` : ''} ${isMacasEvent ? 'event-macas' : ''}`}>
         {accessType && <div className="pts-access-band"><span>LOCALIDAD</span><strong>{accessType.label}</strong></div>}
         <div className="pts-result-icon">{result.valid ? <CheckCircle2 /> : <X />}</div>
         <div className="pts-result-copy"><small>{result.test ? 'QR DE PRUEBA · NO HABILITA INGRESO' : result.provisional ? 'RESULTADO SIN CONEXIÓN · GUARDADO' : result.conflict ? 'CONFLICTO AL SINCRONIZAR' : 'RESULTADO CONFIRMADO'}</small><strong>{result.message || result.server_message}</strong>
