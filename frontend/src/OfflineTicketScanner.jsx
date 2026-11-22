@@ -120,6 +120,12 @@ function ticketAccessType(outcome) {
   return null;
 }
 
+function isMacasEventRecord(event) {
+  const label = `${event?.title || ''} ${event?.city || ''}`
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return label.includes('macas');
+}
+
 function resultTone(valid) {
   try {
     const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -140,6 +146,7 @@ function resultTone(valid) {
 }
 
 export default function OfflineTicketScanner({ user, onLogout }) {
+  const autoPrepareMacas = String(user?.username || '').trim().toLowerCase() === 'yamileth.qr';
   const [store, setStore] = useState(readStore);
   const storeRef = useRef(store);
   const [online, setOnline] = useState(navigator.onLine);
@@ -191,7 +198,12 @@ export default function OfflineTicketScanner({ user, onLogout }) {
       if (!quiet) setNotice('Sin internet: se conserva la lista descargada en el dispositivo.');
       return null;
     }
-    const data = await api(`/ticketing/validation/offline-package${eventId ? `?event_id=${encodeURIComponent(eventId)}` : ''}`);
+    let data = await api(`/ticketing/validation/offline-package${!autoPrepareMacas && eventId ? `?event_id=${encodeURIComponent(eventId)}` : ''}`);
+    if (autoPrepareMacas && !isMacasEventRecord(data.event)) {
+      const macasEvent = data.events?.find(isMacasEventRecord);
+      if (!macasEvent) throw new Error('El evento de Macas no está disponible para el escáner');
+      data = await api(`/ticketing/validation/offline-package?event_id=${encodeURIComponent(macasEvent.id)}`);
+    }
     const pendingAccepted = new Set(storeRef.current.scans
       .filter((scan) => scan.sync_status === 'pending' && scan.client_result === 'valid')
       .map((scan) => scan.code));
@@ -403,9 +415,7 @@ export default function OfflineTicketScanner({ user, onLogout }) {
   }
 
   const accessType = ticketAccessType(result);
-  const preparedEventLabel = `${currentPackage?.event?.title || ''} ${currentPackage?.event?.city || ''}`
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-  const isMacasEvent = preparedEventLabel.includes('macas');
+  const isMacasEvent = isMacasEventRecord(currentPackage?.event);
 
   return <main className="pts-shell">
     <header className="pts-header">
@@ -493,10 +503,12 @@ export default function OfflineTicketScanner({ user, onLogout }) {
 
     {view === 'setup' && <section className="pts-panel pts-setup">
       <div className="pts-panel-title"><div><small>PREPARACIÓN</small><h2>Control del evento</h2></div></div>
-      <label>Evento<select value={currentPackage?.event?.id || ''} disabled={!online} onChange={(event) => prepareEvent(Number(event.target.value))}>
-        {!currentPackage?.events?.length && <option value="">Conéctate para cargar eventos</option>}
-        {currentPackage?.events?.map((event) => <option value={event.id} key={event.id}>{event.title}</option>)}
-      </select></label>
+      {autoPrepareMacas
+        ? <div className="pts-auto-event"><ShieldCheck /><span><small>EVENTO ACTIVO AUTOMÁTICAMENTE</small><strong>JOSÉ ANDRËA EN MACAS</strong></span></div>
+        : <label>Evento<select value={currentPackage?.event?.id || ''} disabled={!online} onChange={(event) => prepareEvent(Number(event.target.value))}>
+          {!currentPackage?.events?.length && <option value="">Conéctate para cargar eventos</option>}
+          {currentPackage?.events?.map((event) => <option value={event.id} key={event.id}>{event.title}</option>)}
+        </select></label>}
       <label>Nombre de esta puerta o teléfono<input value={store.gate_name} onChange={(event) => setGateName(event.target.value)} placeholder="Ej. Puerta principal 1" /></label>
       <button className="pts-prepare" type="button" disabled={!online || syncing} onClick={() => prepareEvent(currentPackage?.event?.id)}><Download /> Descargar y actualizar boletos</button>
       <div className="pts-checklist">
@@ -513,7 +525,7 @@ export default function OfflineTicketScanner({ user, onLogout }) {
       <button className={view === 'scan' ? 'active' : ''} onClick={() => setView('scan')}><QrCode /><span>Escanear</span></button>
       <button className={view === 'search' ? 'active' : ''} onClick={() => setView('search')}><Search /><span>Buscar</span></button>
       <button className={view === 'history' ? 'active' : ''} onClick={() => setView('history')}><History /><span>Historial</span>{pending.length > 0 && <b>{pending.length}</b>}</button>
-      <button className={view === 'setup' ? 'active' : ''} onClick={() => setView('setup')}><Settings /><span>Preparar</span></button>
+      <button className={view === 'setup' ? 'active' : ''} onClick={() => setView('setup')}><Settings /><span>{autoPrepareMacas ? 'Actualizar' : 'Preparar'}</span></button>
     </nav>
   </main>;
 }

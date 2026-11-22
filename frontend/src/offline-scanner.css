@@ -247,6 +247,11 @@ body:has(.pts-login) { margin: 0; background: #090b0d; }
 .pts-setup .pts-panel-title { margin-bottom: 0; }
 .pts-setup > label { display: grid; gap: 7px; color: #d4d9dc; font-size: 11px; font-weight: 800; }
 .pts-setup select, .pts-setup input { width: 100%; min-height: 48px; padding: 0 12px; border: 1px solid #353b40; border-radius: 13px; outline: none; color: #fff; background: #0f1214; }
+.pts-auto-event { display: flex; align-items: center; gap: 12px; min-height: 74px; padding: 14px; border: 1px solid rgba(34,199,118,.45); border-radius: 14px; color: #d8ffe8; background: linear-gradient(135deg, rgba(34,199,118,.19), rgba(14,67,43,.48)); }
+.pts-auto-event > svg { width: 34px; height: 34px; flex: 0 0 auto; color: #4ade80; }
+.pts-auto-event > span { display: flex; min-width: 0; flex-direction: column; }
+.pts-auto-event small { color: #94ddb2; font-size: 9px; font-weight: 900; letter-spacing: .1em; }
+.pts-auto-event strong { margin-top: 4px; font-size: 15px; }
 .pts-prepare { display: flex; justify-content: center; align-items: center; gap: 8px; min-height: 52px; border: 0; border-radius: 14px; color: #17100a; background: linear-gradient(135deg, #ffae5d, var(--pts-orange)); font-weight: 950; }
 .pts-prepare:disabled { filter: grayscale(.8); opacity: .55; }
 .pts-checklist { display: grid; gap: 8px; }
