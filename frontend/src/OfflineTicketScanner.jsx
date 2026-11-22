@@ -146,7 +146,8 @@ function resultTone(valid) {
 }
 
 export default function OfflineTicketScanner({ user, onLogout }) {
-  const autoPrepareMacas = String(user?.username || '').trim().toLowerCase() === 'yamileth.qr';
+  const scannerUsername = String(user?.username || '').trim().toLowerCase();
+  const autoPrepareMacas = scannerUsername === 'yamileth.qr' || ['supreme', 'admin'].includes(user?.role);
   const [store, setStore] = useState(readStore);
   const storeRef = useRef(store);
   const [online, setOnline] = useState(navigator.onLine);
