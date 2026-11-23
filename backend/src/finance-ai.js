@@ -121,8 +121,10 @@ export async function response(input, instructions, format, { maxOutputTokens = 
       request_id: safeToken(result.headers?.get("x-request-id")),
     };
     console.warn("[finance] AI provider rejected request " + JSON.stringify(provider));
-    const quota = ["insufficient_quota", "billing_hard_limit_reached", "billing_not_active"].includes(provider.code);
-    const message = quota
+    const quota = provider.type === "insufficient_quota" || ["insufficient_quota", "credit_balance_exhausted", "billing_hard_limit_reached", "billing_not_active", "organization_usage_limit_exceeded", "organization_spend_limit_exceeded", "project_spend_limit_exceeded"].includes(provider.code);
+    const message = provider.code === "credit_balance_exhausted"
+      ? "Se agotó el crédito de la IA de Gema. Marlon debe recargar la cuenta de OpenAI API. No se guardó este registro; puedes usar el formulario."
+      : quota
       ? "La IA está sin saldo o alcanzó su límite de consumo. Marlon debe revisar la facturación del proveedor. No se guardó este registro; puedes usar el formulario."
       : result.status === 429
         ? "La IA recibió demasiadas solicitudes. Espera un momento y vuelve a enviar. No se guardó este registro."

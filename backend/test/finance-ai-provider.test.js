@@ -4,6 +4,8 @@ import { response } from '../src/finance-ai.js';
 
 for (const [status, code, expected] of [
   [429, 'insufficient_quota', /sin saldo/],
+  [429, 'credit_balance_exhausted', /Se agotó el crédito/],
+  [429, 'project_spend_limit_exceeded', /límite de consumo/],
   [429, 'rate_limit_exceeded', /demasiadas solicitudes/],
   [401, 'invalid_api_key', /no está autorizada/],
   [400, 'invalid_json_schema', /diagnóstico/],
