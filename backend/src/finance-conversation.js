@@ -23,7 +23,7 @@ const properties = {
   direction: { type: ["string", "null"], enum: ["incoming", "outgoing", null] },
   payment_method: { type: ["string", "null"], enum: ["cash", "card", "transfer", "payphone", "other", null] },
 };
-const schema = {
+export const conversationSchema = {
   type: "object", additionalProperties: false,
   properties: {
     action: { type: "string", enum: ["question", "movement", "request", "bank_entry", "custody_balance", "account_balance", "batch"] },
@@ -37,6 +37,7 @@ const schema = {
   }, required: ["action", "message", "draft_action", "data", "items"],
 };
 
+const schema = conversationSchema;
 const editableKeys=['business_id','unit_id','account_id','amount_cents','day','category','counterparty','description','reference','custody_id','space_id','kind','direction','payment_method'];
 const editablePlan=plan=>plan.action==='batch'?null:{action:plan.action,data:Object.fromEntries(editableKeys.map(k=>[k,plan.data?.[k]??null]))};
 function missingPlanFields(db,user,plan){

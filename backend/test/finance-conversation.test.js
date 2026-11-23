@@ -4,7 +4,7 @@ import Database from "better-sqlite3";
 import { initFinanceDb, safeMember, financeDay } from "../src/finance-db.js";
 import { prepareConversation, confirmConversation,reviseConversation } from "../src/finance-conversation.js";
 import { recordedAccountBalance } from "../src/finance-check-ledger.js";
-import { encryptDocument } from "../src/finance-ai.js";
+import { encryptDocument, decryptDocument } from "../src/finance-ai.js";
 import { applyMailDraft } from "../src/finance-gmail.js";
 import { financeSupportCheck } from "../src/finance-support-check.js";
 import { importStatementImage } from "../src/finance-statement-images.js";
@@ -38,6 +38,37 @@ function fixture(t) {
   return { db, owner, german, norma, accountId, data, setResponse: (r) => { next = r; }, requests: () => requests,lastRequest:()=>lastRequest };
 }
 const chat = (content) => ({ messages: [{ role: "user", content }] });
+
+test('photo diagnostics are private, read-only, expiring and cannot apply a balance', async t => {
+  const f = fixture(t), photo = await uploadPhoto(f), logs = [];
+  f.setResponse({action:'account_balance', data:{...f.data, photo_id:photo.id, amount_cents:25000}});
+  t.mock.method(console, 'info', value => logs.push(value));
+  t.mock.method(console, 'warn', () => {});
+  const job = {kind:'assistant-photo-v1',id:'abcdefab-abcd-abcd-abcd-abcdefabcdef',photo_name:'saldo-test.png',expires_at:new Date(Date.now()+60000).toISOString()};
+  const seal = j => encryptDocument(Buffer.from(JSON.stringify(j))).toString('base64');
+  assert.equal((await financeSupportCheck(f.db,seal({...job, expires_at:'2020-01-01'}))).completed,false);
+  assert.equal(f.requests(),0);
+  assert.equal((await financeSupportCheck(f.db,seal(job))).completed,true);
+  assert.equal(await financeSupportCheck(f.db,seal(job)),null);
+  assert.equal(f.requests(),1);
+  const diagnostic = JSON.parse(decryptDocument(Buffer.from(logs.map(l=>l.split('|')[3]).join(''),'base64')).toString());
+  assert.equal(diagnostic.ok,true);
+  assert.equal(diagnostic.photo.id,photo.id);
+  assert.deepEqual(diagnostic.applications,[]);
+  assert.doesNotMatch(logs.join(''),/25000|saldo-test/);
+  for (const table of ['finance_bank_transactions','finance_movements','finance_assistant_drafts','finance_assistant_photo_applications','finance_balance_checkpoints']) assert.equal(f.db.prepare(`SELECT count(*) n FROM ${table}`).get().n,0);
+  assert.equal(recordedAccountBalance(f.db,f.db.prepare('SELECT * FROM finance_accounts WHERE id=?').get(f.accountId)),10000);
+});
+
+test('provider rejection of a photo leaves it reusable without a balance adjustment', async t => {
+  const f = fixture(t), photo = await uploadPhoto(f);
+  t.mock.method(console,'warn',()=>{});
+  t.mock.method(globalThis,'fetch',async()=>Response.json({error:{code:'insufficient_quota'}},{status:429}));
+  await assert.rejects(prepareConversation(f.db,f.owner,{...chat('Actualizar los fondos del pichincha, confirmado'),photo_ids:[photo.id]}),/sin saldo/);
+  assert.ok(f.db.prepare('SELECT id FROM finance_assistant_photos WHERE id=?').get(photo.id));
+  for (const table of ['finance_bank_transactions','finance_movements','finance_assistant_drafts','finance_assistant_photo_applications','finance_balance_checkpoints']) assert.equal(f.db.prepare(`SELECT count(*) n FROM ${table}`).get().n,0);
+  assert.equal(recordedAccountBalance(f.db,f.db.prepare('SELECT * FROM finance_accounts WHERE id=?').get(f.accountId)),10000);
+});
 
 async function uploadPhoto(f,user=f.owner){
   const bytes=await sharp({create:{width:10,height:10,channels:3,background:"white"}}).png().toBuffer();

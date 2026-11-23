@@ -4,6 +4,7 @@ import { recordedAccountBalance } from "./finance-check-ledger.js";
 import { privateSetting, putPrivateSetting } from "./finance-operations.js";
 import { retailReport,validateRetailDetails } from "./finance-retail.js";
 import {requestDestinationBank} from './finance-transfer-fees.js';
+import {diagnoseAssistantPhoto} from './finance-ai-support.js';
 
 // Operator-only, read-only support check. Requires a short-lived encrypted job
 // in the hosting secret store; it exposes no route and logs no plaintext data.
@@ -11,7 +12,8 @@ export function financeSupportCheck(db, payload = process.env.FINANCE_SUPPORT_CH
   if (!payload) return null;
   try {
     const job = JSON.parse(decryptDocument(Buffer.from(payload, "base64")).toString());
-    if (!["conversation-and-push-v1","retail-commissions-v1","request-payments-v1","payphone-reconciliation-v1"].includes(job.kind) || !/^[a-f0-9-]{36}$/.test(job.id) || !Number.isFinite(Date.parse(job.expires_at)) || Date.parse(job.expires_at)<Date.now() || Date.parse(job.expires_at)>Date.now()+2*3600000) throw new Error("invalid support job");
+    if (!["conversation-and-push-v1","retail-commissions-v1","request-payments-v1","payphone-reconciliation-v1","assistant-photo-v1"].includes(job.kind) || !/^[a-f0-9-]{36}$/.test(job.id) || !Number.isFinite(Date.parse(job.expires_at)) || Date.parse(job.expires_at)<Date.now() || Date.parse(job.expires_at)>Date.now()+2*3600000) throw new Error("invalid support job");
+    if(job.kind==='assistant-photo-v1')return diagnoseAssistantPhoto(db,job).catch(()=>{console.warn('[finance] Assistant photo support check failed');return {completed:false};});
     if(job.kind==='payphone-reconciliation-v1'){
       const key=`support-check:${job.id}:payphone-reconciliation-v1`;if(privateSetting(db,key))return null;
       const accounts=db.prepare("SELECT * FROM finance_accounts WHERE kind='wallet' AND lower(bank)='payphone' AND active=1").all().map(a=>({

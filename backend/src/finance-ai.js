@@ -109,11 +109,30 @@ export async function response(input, instructions, format, { maxOutputTokens = 
       503,
     );
   }
-  if (!result.ok)
-    fail(
-      "El proveedor de IA no pudo completar la solicitud. Revisa su configuración en el servidor.",
-      502,
-    );
+  if (!result.ok) {
+    // Never log the provider body: it can contain an API key or input content.
+    const body = await result.json().catch(() => null);
+    const safeToken = value => typeof value === "string" && /^[a-zA-Z0-9_.\[\]-]{1,120}$/.test(value) ? value : null;
+    const provider = {
+      status: result.status,
+      code: safeToken(body?.error?.code),
+      type: safeToken(body?.error?.type),
+      param: safeToken(body?.error?.param),
+      request_id: safeToken(result.headers?.get("x-request-id")),
+    };
+    console.warn("[finance] AI provider rejected request " + JSON.stringify(provider));
+    const quota = ["insufficient_quota", "billing_hard_limit_reached", "billing_not_active"].includes(provider.code);
+    const message = quota
+      ? "La IA está sin saldo o alcanzó su límite de consumo. Marlon debe revisar la facturación del proveedor. No se guardó este registro; puedes usar el formulario."
+      : result.status === 429
+        ? "La IA recibió demasiadas solicitudes. Espera un momento y vuelve a enviar. No se guardó este registro."
+        : [401, 403].includes(result.status)
+          ? "La conexión con la IA no está autorizada. Es necesario revisar su acceso en el servidor. No se guardó este registro; puedes usar el formulario."
+          : result.status >= 500
+            ? "El servicio de IA tiene un fallo temporal. Vuelve a enviar en un momento. No se guardó este registro."
+            : "La IA no pudo procesar esta solicitud. El diagnóstico quedó registrado para corregirlo. No se guardó este registro; puedes usar el formulario.";
+    throw Object.assign(new Error(message), { status: 502, provider });
+  }
   const data = await result.json();
   if (data.status === "incomplete")
     fail(
