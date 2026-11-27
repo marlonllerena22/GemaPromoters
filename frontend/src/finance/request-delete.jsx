@@ -7,12 +7,12 @@ import {financeApi,money} from './api.js';
 export function DeleteRequestButton({request,onDeleted}){
   const {user,refresh,notify}=useFinance();
   const [confirm,setConfirm]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('');
-  if(user.role!=='owner'||!request||request.remaining_cents<=0||request.payment_state==='cancelled')return null;
+  if(!request||(user.role!=='owner'&&request.created_by!==user.username)||request.remaining_cents<=0||request.payment_state==='cancelled')return null;
   async function remove(){
     if(busy)return;
     setBusy(true);setError('');
     try{
-      await financeApi(`/payment-requests/${request.id}/cancel`,{reason:'Petición eliminada de pendientes por Marlon.'});
+      await financeApi(`/payment-requests/${request.id}/cancel`,{reason:'Petición eliminada de pendientes por quien la gestiona.'});
     }catch(e){setError(e.message);setBusy(false);return;}
     setConfirm(false);
     notify('Petición eliminada de pendientes. El historial se conserva.');

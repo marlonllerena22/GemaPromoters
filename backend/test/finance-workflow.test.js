@@ -10,6 +10,7 @@ import { initFinanceDb, safeMember, financeDay } from "../src/finance-db.js";
 import { createMovement } from "../src/finance-service.js";
 import { encryptDocument } from "../src/finance-ai.js";
 import { queuePaymentNotice } from "../src/finance-workflow.js";
+import { registerWorkflowRoutes } from "../src/finance-workflow-routes.js";
 import {
   validatePushSubscription,
   flushPaymentPush,
@@ -132,6 +133,32 @@ function fixture(t) {
   t.after(() => db.close());
   return { db, user, request };
 }
+
+test("request creators cancel only their own pending requests without changing accounts or payments", t => {
+  const {db,user,request}=fixture(t), handlers=new Map();
+  registerWorkflowRoutes({get(){},post(path,handler){handlers.set(path,handler);}},db,{route:fn=>fn,owner(){throw new Error('Owner-only operation');}});
+  const cancel=handlers.get('/api/finance/payment-requests/:id/cancel');
+  const bankBefore=db.prepare('SELECT * FROM finance_bank_transactions').all();
+  const paymentsBefore=db.prepare('SELECT * FROM finance_payments').all();
+  const accountsBefore=db.prepare('SELECT * FROM finance_accounts').all();
+  const invoke=member=>cancel({financeUser:member,params:{id:request.id},body:{reason:'Solicitud de prueba retirada'}},{json:body=>assert.deepEqual(body,{ok:true})});
+  for(const username of ['norma','morelia','german','ana','jose','bodega']) {
+    db.prepare("UPDATE finance_movements SET created_by=?,status='pending' WHERE id=?").run(username,request.id);
+    const member={...user,username,role:username==='german'?'viewer':'collector',work_view:true};
+    assert.throws(()=>invoke({...member,username:'otro'}),e=>e.status===403);
+    assert.equal(db.prepare('SELECT status FROM finance_movements WHERE id=?').get(request.id).status,'pending');
+    invoke(member);
+    assert.equal(db.prepare('SELECT status FROM finance_movements WHERE id=?').get(request.id).status,'rejected');
+    assert.equal(db.prepare("SELECT actor FROM finance_audit WHERE action='request.cancelled' ORDER BY id DESC LIMIT 1").get().actor,username);
+    assert.throws(()=>invoke(member),e=>e.status===409);
+  }
+  db.prepare("UPDATE finance_movements SET status='pending' WHERE id=?").run(request.id);
+  assert.throws(()=>invoke({...user,username:'ana',role:'collector'}),e=>e.status===404);
+  invoke(user);
+  assert.deepEqual(db.prepare('SELECT * FROM finance_bank_transactions').all(),bankBefore);
+  assert.deepEqual(db.prepare('SELECT * FROM finance_payments').all(),paymentsBefore);
+  assert.deepEqual(db.prepare('SELECT * FROM finance_accounts').all(),accountsBefore);
+});
 test("push subscriptions accept browser providers and reject arbitrary or insecure destinations", () => {
   const s = subscription();
   assert.equal(validatePushSubscription(s).endpoint, s.endpoint);

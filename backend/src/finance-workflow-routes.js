@@ -324,9 +324,10 @@ export function registerWorkflowRoutes(app, db, { route, owner }) {
   app.post(
     "/api/finance/payment-requests/:id/cancel",
     route((req, res) => {
-      owner(req);
       const request = requireRequest(db, req.financeUser, req.params.id),
         reason = text(req.body.reason, 1000);
+      if (req.financeUser.role !== 'owner' && request.created_by !== req.financeUser.username)
+        fail('Solo puedes eliminar tus propias peticiones', 403);
       if (!reason) fail("Indica por qué se anula esta solicitud");
       if (!request.remaining_cents)
         fail("La solicitud ya no tiene saldo pendiente", 409);

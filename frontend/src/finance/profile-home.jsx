@@ -7,7 +7,7 @@ import {financeApi,today,money} from './api.js';
 import {Modal,Button} from './components.jsx';
 import {CashForm} from './retail-forms.jsx';
 import {ReceiptList} from './receipts.jsx';
-import {PushEnrollment} from './workflows.jsx';
+import {PushEnrollment,RequestCard} from './workflows.jsx';
 import {RETAIL_STORES} from '../../../shared/finance-retail.mjs';
 export function StoreStaffHome(){
  const {user,open,navigate}=useFinance();
@@ -20,4 +20,4 @@ export function StoreExpenseDialog({onClose}){
  const save=async(path,body)=>{setBusy(true);setError('');try{await financeApi('/retail/'+path,body);await refresh();onClose();notify('Gasto registrado en la caja del local');}catch(e){setError(e.message);}finally{setBusy(false);}};
  return <Modal title="Gasto del local" onClose={onClose}>{error&&<p role="alert" className="gf-error">{error}</p>}{stores.length?<div className="gr-report"><CashForm data={{stores,capabilities:data.capabilities}} initial={{kind:'expense',unit_id:stores[0].unit_id}} day={today()} busy={busy} save={save}/></div>:<p>{user.shift_off?'Hoy tienes descanso.':'No tienes un local asignado hoy.'} Si estás trabajando, Morelia debe actualizar tu turno en el calendario.</p>}</Modal>;
 }
-export function WarehouseHome(){const {user,data,open}=useFinance();return <div className="gf-collaborator-home"><h1>Hola, {user.name.split(' ')[0]}.</h1><p>Tus solicitudes de transferencia y sus comprobantes.</p><Button onClick={()=>open('quick',{mode:'request'})}>＋ Pedir transferencia</Button><h2>Mis solicitudes</h2><div className="gf-simple-actions">{(data.workflow?.requests||[]).map(r=><button key={r.id} onClick={()=>open('pay-request',{id:r.id})}><span><strong>{r.counterparty} · {money(r.amount_cents)}</strong><small>{r.payment_state==='paid'?'Pagada · ver comprobante':r.payment_state==='cancelled'?'Cancelada':'Pendiente'}</small></span><span>→</span></button>)}</div>{!data.workflow?.requests?.length&&<p>Todavía no tienes solicitudes.</p>}</div>;}
+export function WarehouseHome(){const {user,data,open}=useFinance();return <div className="gf-collaborator-home"><h1>Hola, {user.name.split(' ')[0]}.</h1><p>Tus solicitudes de transferencia y sus comprobantes.</p><Button onClick={()=>open('quick',{mode:'request'})}>＋ Pedir transferencia</Button><h2>Mis solicitudes</h2><div className="gf-request-list">{(data.workflow?.requests||[]).map(r=><RequestCard key={r.id} request={r}/>)}</div>{!data.workflow?.requests?.length&&<p>Todavía no tienes solicitudes.</p>}</div>;}
