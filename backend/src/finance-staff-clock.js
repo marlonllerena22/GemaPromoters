@@ -74,6 +74,26 @@ export function myClock(db,user,now=new Date()){
  const choices=s?[]:flexibleStaffUnits(user,day).map(id=>({unit_id:id,name:RETAIL_STORES[id]}));
  return {day,employee,available_stores:choices,unit_id:row.unit_id,local:RETAIL_STORES[row.unit_id]||null,in_at:row.in_at||null,out_at:row.out_at||null,status:choices.length?'flexible':row.status,hours:row.policy?.hours||null,late_minutes:row.late_minutes??null,can_in:choices.length>0||!!s?.unit_id&&!s.worked&&!row.in_at&&!row.review,can_out:!!row.in_at&&!row.out_at&&!['justified','unjustified','present'].includes(row.review),server_time:stamp(now)};
 }
+export function correctEmployeeArrival(db,user,{day,employee,time,reason,unit_id},now=new Date()){
+ if(user.role!=='owner')fail('Solo Marlon puede corregir estas entradas',403);
+ if(validDay(day)>financeDay(now)||!RETAIL_STAFF.includes(employee)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)||at(day,time)>+now||!text(reason,500))fail('Revisa fecha, empleada, hora y motivo');
+ return db.transaction(()=>{
+  const s=db.prepare('SELECT * FROM finance_staff_schedule WHERE day=? AND employee=?').get(day,employee);
+  if(!s?.unit_id||(unit_id&&unit_id!==s.unit_id))fail('Revisa el local asignado a esta jornada',409);
+  const old=readClock(db,day,employee),r=old?structuredClone(old):baseClock(db,s);
+  if(r.unit_id!==s.unit_id||(r.out_at&&Date.parse(r.out_at)<=at(day,time)))fail('La entrada no coincide con la jornada o es posterior a la salida',409);
+  r.in_at=new Date(at(day,time)).toISOString();
+  const h=r.policy.hours,t=r.policy.tolerance_minutes;
+  r.late_minutes=h&&t!==null?Math.max(0,Math.floor((at(day,time)-at(day,h.start))/60000)-t):null;
+  if(['justified','unjustified'].includes(r.review))r.review=null;
+  r.reason=text(reason,500);r.reviewed_by=user.username;r.reviewed_at=stamp(now);
+  if(r.out_at||r.review==='present')present(db,r,true);
+  writeClock(db,r);
+  db.prepare("UPDATE finance_staff_clock_alerts SET resolved=1 WHERE day=? AND employee=? AND kind='missing_in'").run(day,employee);
+  audit(db,user.username,'staff.clock.arrival_corrected','staff_clock',day+employee,old,r,'marjorie');
+  return {employee,unit_id:r.unit_id,in_at:r.in_at,out_at:r.out_at,late_minutes:r.late_minutes,charges:clockCharges(r)};
+ })();
+}
 export function setScheduledArrivals(db,user,{day,time,reason,employees},now=new Date()){
  if(user.role!=='owner')fail('Solo Marlon puede corregir estas entradas',403);
  if(validDay(day)!==financeDay(now)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)||at(day,time)>+now||!text(reason,500))fail('Revisa fecha, hora y motivo');

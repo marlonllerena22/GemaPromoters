@@ -3,7 +3,7 @@ import {audit,financeDay,passwordHash,validateFinancePassword} from './finance-d
 import {effectiveMember} from './finance-profile-access.js';
 import {staffNames,YAJAIRA_UNITS} from '../../shared/finance-access.mjs';
 import {privateSetting,putPrivateSetting} from './finance-operations.js';
-import {setScheduledArrivals} from './finance-staff-clock.js';
+import {setScheduledArrivals,correctEmployeeArrival} from './finance-staff-clock.js';
 
 // Owner-authorized onboarding, delivered encrypted through hosting. Creates only
 // the requested new collector; never changes an existing account or its password.
@@ -64,9 +64,9 @@ export function applyPrivateArrivals(db,payload=process.env.FINANCE_ARRIVAL_CORR
  if(!payload)return null;
  try{
   const job=JSON.parse(decryptDocument(Buffer.from(payload,'base64')).toString());
-  if(job.kind!=='scheduled-arrivals-v1'||!/^[a-f0-9-]{36}$/.test(job.id)||!Number.isFinite(Date.parse(job.expires_at))||Date.parse(job.expires_at)<Date.now()||Date.parse(job.expires_at)>Date.now()+2*3600000)throw new Error('Invalid arrival job');
+  if(!['scheduled-arrivals-v1','employee-arrival-v1'].includes(job.kind)||!/^[a-f0-9-]{36}$/.test(job.id)||!Number.isFinite(Date.parse(job.expires_at))||Date.parse(job.expires_at)<Date.now()||Date.parse(job.expires_at)>Date.now()+2*3600000)throw new Error('Invalid arrival job');
   const key='scheduled-arrivals:'+job.id;let result=privateSetting(db,key);
-  if(!result){const owner=db.prepare("SELECT * FROM finance_members WHERE username=? AND role='owner' AND active=1").get(job.owner);if(!owner)throw new Error('Owner not found');db.transaction(()=>{result={day:job.day,entries:setScheduledArrivals(db,effectiveMember(db,owner),job)};putPrivateSetting(db,key,result);})();}
+  if(!result){const owner=db.prepare("SELECT * FROM finance_members WHERE username=? AND role='owner' AND active=1").get(job.owner);if(!owner)throw new Error('Owner not found');db.transaction(()=>{const actor=effectiveMember(db,owner);result={day:job.day,entries:job.kind==='employee-arrival-v1'?[correctEmployeeArrival(db,actor,job)]:setScheduledArrivals(db,actor,job)};putPrivateSetting(db,key,result);})();}
   console.info('[finance] Arrival correction '+job.id+'|'+encryptDocument(Buffer.from(JSON.stringify(result))).toString('base64'));return result;
  }catch{console.error('[finance] Arrival correction stopped: review calendar and existing punches');return {failed:true};}
 }
