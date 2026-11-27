@@ -1,4 +1,5 @@
 import {IessDetails,IessLogo} from './iess.jsx';
+import {DeleteRequestButton} from './request-delete.jsx';
 import {
   AccountTiles,
   LiquidityPlan,
@@ -265,7 +266,7 @@ export function RequestCard({ request, returnSpace = null }) {
           Ver detalles
         </Button>
         {user.role === "owner" && request.remaining_cents > 0 && <DirectPaymentUpload request={request}/>}
-
+        <DeleteRequestButton request={request}/>
       </footer>
     </article>
   );
@@ -581,13 +582,11 @@ export function WorkSummary() {
   );
 }
 export function RequestDetails({ id, onClose }) {
-  const { data, user, open, refresh, notify } = useFinance();
+  const { data, user, open } = useFinance();
   const [detail, setDetail] = useState(null),
     [destination, setDestination] = useState(null),
     [note, setNote] = useState(""),
-    [error, setError] = useState(""),
-    [cancel, setCancel] = useState(false),
-    [reason, setReason] = useState("");
+    [error, setError] = useState("");
   const proofPicker = useRef();
   const load = () =>
     financeApi(`/payment-requests/${id}`)
@@ -606,16 +605,6 @@ export function RequestDetails({ id, onClose }) {
       setError(e.message);
     }
   }
-  async function cancelRequest() {
-    try {
-      await financeApi(`/payment-requests/${id}/cancel`, { reason });
-      await refresh();
-      notify("Solicitud anulada. El historial se conserva.");
-      setCancel(false);
-    } catch (e) {
-      setError(e.message);
-    }
-  }
   const r = detail?.request;
   return (
     <Modal
@@ -628,7 +617,7 @@ export function RequestDetails({ id, onClose }) {
         <p>Consultando solicitud…</p>
       ) : (
         <>
-          <p className="gf-request-author gf-request-author-detail">Solicitado por <strong>{r.requester_name || r.created_by || "Usuario no identificado"}</strong> · {dateLabel(r.day)}</p>
+          <div className="gf-request-detail-heading"><p className="gf-request-author gf-request-author-detail">Solicitado por <strong>{r.requester_name || r.created_by || "Usuario no identificado"}</strong> · {dateLabel(r.day)}</p><DeleteRequestButton request={r} onDeleted={onClose}/></div>
           {detail.iess?<IessDetails details={detail.iess} value={r.amount_cents}/>:<div className="gf-request-detail-summary">
             <span>{detail.space?.name || businessNames[r.business_id]}</span>
             <h3>{r.counterparty}</h3>
@@ -758,32 +747,6 @@ export function RequestDetails({ id, onClose }) {
                   Enviar
                 </Button>
               </form>
-            )}
-            {user.role === "owner" && r.remaining_cents > 0 && (
-              <div className="gf-request-cancel">
-                {cancel ? (
-                  <>
-                    <Field label="Motivo de anulación">
-                      <textarea
-                        value={reason}
-                        onChange={(e) => setReason(e.target.value)}
-                        maxLength={1000}
-                      />
-                    </Field>
-                    <Button
-                      variant="secondary"
-                      disabled={!reason.trim()}
-                      onClick={cancelRequest}
-                    >
-                      Anular y conservar historial
-                    </Button>
-                  </>
-                ) : (
-                  <button onClick={() => setCancel(true)}>
-                    Anular una solicitud que ya no corresponde
-                  </button>
-                )}
-              </div>
             )}
           </details>
         </>

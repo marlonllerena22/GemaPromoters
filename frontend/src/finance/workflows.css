@@ -827,24 +827,13 @@
 .gf-space-note-form .gf-button {
   font-size: 12px;
 }
-.gf-request-cancel {
-  margin-top: 30px;
-  padding-top: 20px;
-  border-top: 1px solid #eef2e7;
-}
-.gf-request-cancel > button {
-  border: 0;
-  background: none;
-  color: #ae9d91;
-  font-size: 12px;
-  cursor: pointer;
-  padding: 0;
-}
-.gf-request-cancel textarea {
-  width: 100%;
-  min-height: 70px;
-  resize: vertical;
-}
+.gf-request-delete-button {display:inline-flex;align-items:center;justify-content:center;flex:0 0 44px;width:44px;min-height:44px;margin-left:auto;border:1px solid #f2b8b5;border-radius:12px;background:#fff1f0;color:#b42318;cursor:pointer;scroll-margin-block:100px;}
+.gf-request-delete-button:hover {background:#ffe2df;}
+.gf-request-delete-button:focus-visible {outline:3px solid #b42318;outline-offset:3px;}
+.gf-request-detail-heading {display:flex;align-items:center;gap:12px;}
+.gf-request-detail-heading p {flex:1;min-width:0;}
+.gf-request-delete-actions {display:flex;justify-content:flex-end;gap:12px;flex-wrap:wrap;margin-top:20px;}
+.gf-request-delete-confirm.gf-button {background:#b42318;color:#fff;border-color:#b42318;}
 .gf-record-payment {
   display: grid;
   gap: 20px;
@@ -1706,3 +1695,8 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+.gf-pay-request-card > footer {gap:8px;}
+.gf-pay-request-card > footer > .gf-button {flex:1;min-width:0;white-space:normal;padding:10px 8px;}
+.gf-home-pending-card > footer {gap:12px;align-items:center;}
+.gf-home-pending-card > footer > .gf-button {flex:1;min-width:0;width:auto;}

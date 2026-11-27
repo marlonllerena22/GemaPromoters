@@ -1,4 +1,5 @@
 import {AttendanceShortcut} from './staff-clock.jsx';
+import {DeleteRequestButton} from './request-delete.jsx';
 import {RetailShortcut} from './retail-forms.jsx';
 import {IessLogo} from './iess.jsx';
 import React, { useState } from "react";
@@ -233,7 +234,7 @@ export function OwnerHome() {
               </button>
               <footer>
                 {kind === "payment" ? (
-                  <DirectPaymentUpload request={r} />
+                  <><DirectPaymentUpload request={r} /><DeleteRequestButton request={r}/></>
                 ) : (
                   <Button
                     icon={CheckCircle2}
