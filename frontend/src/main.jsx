@@ -842,9 +842,13 @@ function App() {
   const [token, saveToken] = useState(getToken());
   const [user, saveUser] = useState(getUser());
   const pathname = window.location.pathname;
+  const publicPathname = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
   const isStudioDomain = ['estudioscreativos.com', 'www.estudioscreativos.com'].includes(window.location.hostname.toLowerCase());
   const isNativeScanner = import.meta.env.VITE_NATIVE_SCANNER === 'true' || window.location.protocol === 'capacitor:';
   const scannerRequested = isNativeScanner || pathname === '/scanner';
+  const isRenjiSession =
+    user?.establishment_module_type === 'clothing' ||
+    String(user?.establishment_name || '').toUpperCase() === 'RENJI';
 
   if (pathname === '/privacidad') {
     return <Suspense fallback={<div className="studio-route-loading"/>}><ContentStudioPrivacy /></Suspense>;
@@ -916,15 +920,22 @@ function App() {
     return <MarjorieReferralPage code={decodeURIComponent(window.location.pathname.split('/').pop())} />;
   }
 
-  if (window.location.pathname === '/renji' || window.location.pathname === '/renji-tienda') {
+  if (publicPathname === '/renji' || publicPathname === '/renji-tienda') {
+    if (publicPathname === '/renji' && token && isRenjiSession) {
+      return <RenjiApp user={user} onLogout={() => {
+        clearToken();
+        saveToken(null);
+        saveUser(null);
+      }} />;
+    }
     return <RenjiPublicRegistration mode="shop" />;
   }
 
-  if (window.location.pathname === '/renji-registro') {
+  if (publicPathname === '/renji-registro') {
     return <RenjiPublicRegistration mode="paid" />;
   }
 
-  if (window.location.pathname === '/renji-separar') {
+  if (publicPathname === '/renji-separar') {
     return <RenjiPublicRegistration mode="separation" />;
   }
 
@@ -989,10 +1000,6 @@ function App() {
       saveUser(null);
     }} />;
   }
-
-  const isRenjiSession =
-    user?.establishment_module_type === 'clothing' ||
-    String(user?.establishment_name || '').toUpperCase() === 'RENJI';
 
   if (isRenjiSession) {
     return <RenjiApp user={user} onLogout={() => {
