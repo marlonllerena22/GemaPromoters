@@ -12,7 +12,20 @@ export function financeSupportCheck(db, payload = process.env.FINANCE_SUPPORT_CH
   if (!payload) return null;
   try {
     const job = JSON.parse(decryptDocument(Buffer.from(payload, "base64")).toString());
-    if (!["conversation-and-push-v1","retail-commissions-v1","request-payments-v1","payphone-reconciliation-v1","assistant-photo-v1"].includes(job.kind) || !/^[a-f0-9-]{36}$/.test(job.id) || !Number.isFinite(Date.parse(job.expires_at)) || Date.parse(job.expires_at)<Date.now() || Date.parse(job.expires_at)>Date.now()+2*3600000) throw new Error("invalid support job");
+    if (!["conversation-and-push-v1","retail-commissions-v1","request-payments-v1","payphone-reconciliation-v1","assistant-photo-v1","checking-balance-v1"].includes(job.kind) || !/^[a-f0-9-]{36}$/.test(job.id) || !Number.isFinite(Date.parse(job.expires_at)) || Date.parse(job.expires_at)<Date.now() || Date.parse(job.expires_at)>Date.now()+2*3600000) throw new Error("invalid support job");
+    if(job.kind==='checking-balance-v1'){
+      const key=`support-check:${job.id}:checking-balance-v1`;if(privateSetting(db,key))return null;
+      const accounts=db.prepare("SELECT * FROM finance_accounts WHERE active=1 AND bank LIKE '%Guayaquil%' AND name LIKE '%Corriente%'").all().map(a=>({
+        id:a.id,balance_cents:recordedAccountBalance(db,a),verified_at:a.verified_at,verified_cents:a.verified_cents,
+        checkpoints:db.prepare('SELECT * FROM finance_balance_checkpoints WHERE account_id=? ORDER BY as_of_at DESC LIMIT 5').all(a.id),
+        checks:db.prepare("SELECT id,number,amount_cents,status,cleared_bank_id,manual_cleared_day,cleared_at,updated_at FROM finance_checks WHERE account_id=? ORDER BY updated_at DESC LIMIT 100").all(a.id),
+        bank:db.prepare('SELECT id,day,occurred_at,created_at,amount_cents,import_source FROM finance_bank_transactions WHERE account_id=? AND day>=date(?,\'-2 days\') ORDER BY id DESC LIMIT 100').all(a.id,financeDay()),
+      }));
+      const result={job_id:job.id,checked_at:new Date().toISOString(),accounts};
+      const chunks=encryptDocument(Buffer.from(JSON.stringify(result))).toString('base64').match(/.{1,3500}/g);
+      chunks.forEach((chunk,index)=>console.info(`[finance] Private support check ${job.id}|${index}|${chunks.length}|${chunk}`));
+      putPrivateSetting(db,key,{completed_at:new Date().toISOString()});return {completed:true};
+    }
     if(job.kind==='assistant-photo-v1')return diagnoseAssistantPhoto(db,job).catch(()=>{console.warn('[finance] Assistant photo support check failed');return {completed:false};});
     if(job.kind==='payphone-reconciliation-v1'){
       const key=`support-check:${job.id}:payphone-reconciliation-v1`;if(privateSetting(db,key))return null;
