@@ -37,19 +37,22 @@ export function Checks() {
   const { data, open, user, refresh, notify } = useFinance(),
     f = data.funding_overview || {},
     [busy, setBusy] = useState(null),
+    [clearing, setClearing] = useState(null),
     [error, setError] = useState("");
-  async function mark(c, cleared) {
+  async function mark(c, cleared, included = false) {
     setBusy(c.id);
     setError("");
     try {
       await financeApi(`/checks/${encodeURIComponent(c.id)}/settlement`, {
         cleared,
+        included_in_balance: included,
         version: c.version,
         request_key: crypto.randomUUID(),
       });
       await refresh();
+      setClearing(null);
       notify(
-        cleared ? "Cheque marcado cobrado" : "Cheque nuevamente pendiente",
+        cleared ? included ? "Cheque cobrado; ya incluido en el saldo" : "Cheque cobrado y descontado de la cuenta" : "Cheque nuevamente pendiente",
       );
     } catch (e) {
       setError(e.message);
@@ -77,7 +80,7 @@ export function Checks() {
             <BankLogo bank="Guayaquil" />
             <div>
               <h3>{a.name}</h3>
-              <p>{a.balance_cents===null?"Registro de cheques":"Dinero apartado en corriente"}</p>
+              <p>{a.balance_cents===null?"Registro de cheques":"Saldo actual de la cuenta"}</p>
             </div>
             {a.balance_cents!==null&&<strong>{money(a.balance_cents)}</strong>}
           </header>
@@ -153,6 +156,8 @@ export function Checks() {
                                   : `Marcado por ${c.cleared_by_name || c.cleared_by || "responsable"}`}
                               </small>
                             )}
+                            {c.cleared_in_balance_at && <small>Ya incluido en el saldo actualizado</small>}
+                            {c.status==='cleared' && !c.cleared_bank_id && !c.cleared_in_balance_at && (user.role==='owner'||user.checks_clear) && <button onClick={()=>setClearing(c)}>Ya estaba incluido en el saldo</button>}
                           </td>
                           <td>{c.number}</td>
                           <td>{money(c.amount_cents)}</td>
@@ -166,7 +171,7 @@ export function Checks() {
                                 !(user.role === "owner" || user.checks_clear) ||
                                 Boolean(c.cleared_bank_id)
                               }
-                              onChange={(e) => mark(c, e.target.checked)}
+                              onChange={(e) => e.target.checked ? setClearing(c) : mark(c, false)}
                             />
                           </td>
                         </tr>
@@ -195,6 +200,15 @@ export function Checks() {
         Marlon y Germán pueden marcar los cobrados. Las coincidencias bancarias
         completas se confirman automáticamente; lo dudoso queda para revisar.
       </p>
+      {clearing && <Modal title={`Cheque ${clearing.number} cobrado`} onClose={()=>{if(!busy)setClearing(null);}}>
+        <p><strong>{clearing.payee}</strong> · {money(clearing.amount_cents)}</p>
+        <p>Si el banco ya había descontado este cheque cuando actualizaste el saldo, elige «Ya incluido en el saldo».</p>
+        {error && <p className="gf-error" role="alert">{error}</p>}
+        <div className="gf-form-actions">
+          <Button disabled={!!busy} onClick={()=>mark(clearing,true,true)}>Ya incluido en el saldo</Button>
+          <Button variant="secondary" disabled={!!busy} onClick={()=>mark(clearing,true,false)}>Descontar ahora</Button>
+        </div>
+      </Modal>}
     </>
   );
 }

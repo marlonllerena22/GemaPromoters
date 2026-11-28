@@ -86,6 +86,7 @@ export function initFinanceOperationsDb(db) {
     "cleared_by",
     "cleared_at",
     "clearing_source",
+    "cleared_in_balance_at",
   ])
     if (
       !db

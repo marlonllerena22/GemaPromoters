@@ -2,7 +2,8 @@ import { applyBankReview } from "../src/finance-bank-review.js";
 import { assistantFilters, sourcedAnswer } from "../src/finance-assistant.js";
 import { recordMailStatement } from "../src/finance-gmail.js";
 import { initFinanceOperationsDb } from "../src/finance-operations-db.js";
-import { declareCheck } from "../src/finance-check-ledger.js";
+import { declareCheck, matchReportedChecks } from "../src/finance-check-ledger.js";
+import {updateConfirmedBalance} from '../src/finance-balance-updates.js';
 import {
   accountPresentation,
   liquidityView,
@@ -614,6 +615,37 @@ test("reported cheque clearing is authorized, versioned, reversible and replay-s
     db.prepare("SELECT status FROM finance_checks WHERE id=?").get(c.id).status,
     "pending",
   );
+});
+
+test('checks already included in an updated balance do not debit it again, including later bank evidence', t=>{
+  const {db,owner,account}=fixture(t),day=financeDay();
+  const check=saveCheck(db,owner,{account_id:account,number:'998',payee:'Proveedor Ejemplo',amount_cents:228635,due_day:day});
+  const request={cleared:true,included_in_balance:true,version:0,request_key:'fixture-included-0001'};
+  assert.throws(()=>declareCheck(db,owner,check.id,request),/Primero actualiza/);
+  updateConfirmedBalance(db,owner,account,{balance_cents:555279,day});
+  declareCheck(db,owner,check.id,request);declareCheck(db,owner,check.id,request);
+  assert.equal(accountCash(db,account),555279);
+  assert.equal(snapshot(db,owner,{}).accounts.find(a=>a.id===account).balance_cents,555279);
+  assert.equal(fundingOverview(db,owner).accounts.find(a=>a.id===account).balance_cents,555279);
+  assert.throws(()=>declareCheck(db,owner,check.id,{...request,included_in_balance:false}),e=>e.status===409);
+  const at=db.prepare('SELECT as_of_at FROM finance_balance_checkpoints WHERE account_id=?').get(account).as_of_at;
+  const imported=importBank(db,owner,{account_id:account,rows:[{day,occurred_at:new Date(Date.parse(at)+1000).toISOString(),amount_cents:-228635,reference:'Cheque 998',description:'Proveedor Ejemplo',external_id:'included-check-bank'}]});
+  matchReportedChecks(db,owner.username);
+  assert.equal(db.prepare('SELECT cleared_bank_id FROM finance_checks WHERE id=?').get(check.id).cleared_bank_id,imported.transaction_ids[0]);
+  assert.equal(accountCash(db,account),555279);
+  const other=saveCheck(db,owner,{account_id:account,number:'999',payee:'Proveedor Nuevo',amount_cents:10000,due_day:day});
+  declareCheck(db,owner,other.id,{cleared:true,version:0,request_key:'fixture-new-debit-0001'});
+  assert.equal(accountCash(db,account),545279);
+});
+
+test('an included check can be reopened without creating money',t=>{
+  const {db,owner,account}=fixture(t),day=financeDay();
+  updateConfirmedBalance(db,owner,account,{balance_cents:555279,day});
+  const check=saveCheck(db,owner,{account_id:account,number:'997',payee:'Proveedor Ejemplo',amount_cents:10000,due_day:day});
+  declareCheck(db,owner,check.id,{cleared:true,included_in_balance:true,version:0,request_key:'fixture-included-0002'});
+  declareCheck(db,owner,check.id,{cleared:false,version:1,request_key:'fixture-reopened-0002'});
+  assert.equal(accountCash(db,account),555279);
+  assert.equal(db.prepare('SELECT cleared_in_balance_at FROM finance_checks WHERE id=?').get(check.id).cleared_in_balance_at,null);
 });
 
 test("a later bank debit replaces reported cheque clearing without a second deduction", (t) => {

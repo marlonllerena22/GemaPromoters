@@ -15,7 +15,7 @@ export function reportedCheckDebits(
 ) {
   return db
     .prepare(
-      "SELECT COALESCE(SUM(amount_cents),0) n FROM finance_checks WHERE account_id=? AND status='cleared' AND cleared_bank_id IS NULL AND manual_cleared_day<=? AND (? IS NULL OR cleared_at<=?) AND (? IS NULL OR cleared_at>?)",
+      "SELECT COALESCE(SUM(amount_cents),0) n FROM finance_checks WHERE account_id=? AND status='cleared' AND cleared_bank_id IS NULL AND cleared_in_balance_at IS NULL AND manual_cleared_day<=? AND (? IS NULL OR cleared_at<=?) AND (? IS NULL OR cleared_at>?)",
     )
     .get(
       accountId,
@@ -44,17 +44,17 @@ export function recordedAccountBalance(
   );
   const rows = db
     .prepare(
-      "SELECT b.* FROM finance_bank_transactions b WHERE account_id=? AND day>=? AND day<=? AND NOT EXISTS(SELECT 1 FROM finance_receipt_confirmations c WHERE c.bank_transaction_id=b.id AND c.disposition='included')",
+      "SELECT b.*,(SELECT c.cleared_in_balance_at FROM finance_checks c WHERE c.cleared_bank_id=b.id) check_included_at FROM finance_bank_transactions b WHERE account_id=? AND day>=? AND day<=? AND NOT EXISTS(SELECT 1 FROM finance_receipt_confirmations c WHERE c.bank_transaction_id=b.id AND c.disposition='included')",
     )
     .all(account.id, account.opening_date, throughDay)
     .filter(r=>!throughInstant||!r.occurred_at||Date.parse(r.occurred_at)<=Date.parse(throughInstant));
   const after = checkpoint
     ? rows.filter(
-        (r) =>
+        (r) => !(r.check_included_at && r.check_included_at <= checkpoint.as_of_at) && (
           r.day > financeDay(checkpoint.as_of_at) ||
           (r.day === financeDay(checkpoint.as_of_at) &&
             r.occurred_at &&
-            Date.parse(r.occurred_at) > Date.parse(checkpoint.as_of_at)),
+            Date.parse(r.occurred_at) > Date.parse(checkpoint.as_of_at))),
       )
     : rows;
   return (
@@ -151,13 +151,15 @@ export function declareCheck(db, user, id, body) {
     error("Solo Marlon y Germán pueden marcar cheques cobrados", 403);
   if (
     typeof body.cleared !== "boolean" ||
+    (body.included_in_balance !== undefined && typeof body.included_in_balance !== 'boolean') ||
+    (body.included_in_balance === true && !body.cleared) ||
     !Number.isSafeInteger(body.version) ||
     !/^[A-Za-z0-9_-]{16,100}$/.test(body.request_key || "")
   )
     error("Actualiza el cheque antes de marcarlo");
   const hash = crypto
     .createHash("sha256")
-    .update(JSON.stringify([id, body.cleared, body.version]))
+    .update(JSON.stringify([id, body.cleared, body.version,...(body.included_in_balance===true?['included']:[])]))
     .digest("hex");
   return db.transaction(() => {
     const previous = db
@@ -183,14 +185,21 @@ export function declareCheck(db, user, id, body) {
         409,
       );
     const now = new Date().toISOString();
+    const checkpoint = body.included_in_balance === true
+      ? db.prepare('SELECT as_of_at FROM finance_balance_checkpoints WHERE account_id=? AND as_of_at<=? ORDER BY as_of_at DESC,id DESC LIMIT 1').get(c.account_id,now)
+      : null;
+    if(body.included_in_balance === true && !checkpoint)
+      error('Primero actualiza el saldo real de la cuenta para indicar que el cheque ya está incluido');
+    const includedAt = body.cleared ? checkpoint?.as_of_at || (c.status==='cleared'?c.cleared_in_balance_at:null) : null;
     db.prepare(
-      "UPDATE finance_checks SET status=?,manual_cleared_day=?,cleared_by=?,cleared_at=?,clearing_source=?,updated_at=?,version=version+1 WHERE id=?",
+      "UPDATE finance_checks SET status=?,manual_cleared_day=?,cleared_by=?,cleared_at=?,clearing_source=?,cleared_in_balance_at=?,updated_at=?,version=version+1 WHERE id=?",
     ).run(
       body.cleared ? "cleared" : "pending",
-      body.cleared ? financeDay() : null,
+      body.cleared ? c.manual_cleared_day || financeDay() : null,
       body.cleared ? user.username : null,
-      body.cleared ? now : null,
+      body.cleared ? c.cleared_at || now : null,
       body.cleared ? "reported" : null,
+      includedAt,
       now,
       id,
     );
@@ -207,6 +216,8 @@ export function declareCheck(db, user, id, body) {
       {
         status: body.cleared ? "cleared" : "pending",
         manual_cleared_day: body.cleared ? financeDay() : null,
+        included_in_balance: Boolean(includedAt),
+        balance_as_of_at: includedAt,
       },
     );
     if (body.cleared) matchReportedChecks(db, user.username);
