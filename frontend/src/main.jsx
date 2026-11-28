@@ -916,8 +916,12 @@ function App() {
     return <MarjorieReferralPage code={decodeURIComponent(window.location.pathname.split('/').pop())} />;
   }
 
+  if (window.location.pathname === '/renji' || window.location.pathname === '/renji-tienda') {
+    return <RenjiPublicRegistration mode="shop" />;
+  }
+
   if (window.location.pathname === '/renji-registro') {
-    return <RenjiPublicRegistration />;
+    return <RenjiPublicRegistration mode="paid" />;
   }
 
   if (window.location.pathname === '/renji-separar') {

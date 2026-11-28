@@ -100,6 +100,16 @@ services:
         value: https://pay.payphonetodoesposible.com/api/button/Prepare
       - key: PAYPHONE_CONFIRM_URL
         value: https://pay.payphonetodoesposible.com/api/button/V2/Confirm
+      - key: RENJI_PAYPHONE_TOKEN
+        sync: false
+      - key: RENJI_PAYPHONE_STORE_ID
+        sync: false
+      - key: RENJI_PAYPHONE_PREPARE_URL
+        value: https://pay.payphonetodoesposible.com/api/button/Prepare
+      - key: RENJI_PAYPHONE_CONFIRM_URL
+        value: https://pay.payphonetodoesposible.com/api/button/V2/Confirm
+      - key: RENJI_WHATSAPP_NUMBER
+        sync: false
       - key: TICKETING_SERVICE_FEE_PERCENT
         value: 10
     disk:

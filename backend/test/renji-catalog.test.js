@@ -59,6 +59,12 @@ test('RENJI photo catalog reserves exact variants, survives retries, and preserv
       assert.equal(entry.launch_id, 'lanzamiento-2-pantalones');
       assert.equal(entry.launch_name, 'Lanzamiento 2 · Pantalones baggy');
     }
+    const hoodie = catalog.body.products.find((item) => item.id === 'hoodie-toros-negros');
+    assert.equal(hoodie.item_type, 'hoodie');
+    assert.equal(hoodie.price, 38.99);
+    assert.equal(hoodie.compare_at_price, 45.99);
+    assert.deepEqual(hoodie.sizes.map((item) => item.quantity), [2, 6, 6, 4]);
+    assert.equal(catalog.body.checkout.payphone_configured, false);
     assert.equal((await request('/public-registrations', 'POST', payload({ product_id: '', selection_type: 'set' }))).status, 409);
     assert.equal((await request('/orders', 'POST', payload({ product_id: '', selection_type: 'set' }))).status, 409);
     for (const quantity of [0, -1, 1.5, 'abc', 1001]) {
@@ -151,7 +157,7 @@ test('RENJI photo catalog reserves exact variants, survives retries, and preserv
     assert.equal(sale.body.orders[0].launch_id, 'lanzamiento-2-pantalones');
     assert.ok(sale.body.launches.some((launch) => launch.id === 'lanzamiento-1-sukuna'));
     assert.ok(sale.body.launches.some((launch) => launch.id === 'lanzamiento-2-pantalones'));
-    assert.equal(sale.body.catalog.length, 2);
+    assert.equal(sale.body.catalog.length, 3);
     assert.deepEqual(db.prepare('SELECT * FROM renji_stock WHERE establishment_id = ?').all(business.id), legacyBefore);
     assert.equal((await request('/stock', 'POST', { items: [] }, '')).status, 401);
   });
@@ -183,5 +189,20 @@ test('RENJI photo catalog reserves exact variants, survives retries, and preserv
     assert.equal((await request(`/orders/${order.id}`, 'DELETE')).status, 200);
     assert.equal(stock('baggy-negro', 'XL'), 2);
     assert.equal(stock('baggy-gris', 'S'), 1);
+  });
+
+  await t.test('WhatsApp checkout registers a hoodie as unpaid before opening chat', async () => {
+    const body = payload({
+      product_id: 'hoodie-toros-negros', selection_type: 'hoodie', size: 'S', hoodie_size: 'S',
+      quantity: 2, items: [{ product_id: 'hoodie-toros-negros', item_type: 'hoodie', size: 'S', quantity: 2 }]
+    });
+    const response = await request('/public-orders', 'POST', body);
+    assert.equal(response.status, 201);
+    assert.equal(response.body.total, 77.98);
+    assert.equal(stock('hoodie-toros-negros', 'S'), 0);
+    const saved = registration(response.body.registration_id);
+    assert.equal(saved.payment_status, 'pending');
+    assert.equal(saved.sales_origin, 'whatsapp');
+    assert.equal(saved.total_amount, 77.98);
   });
 });

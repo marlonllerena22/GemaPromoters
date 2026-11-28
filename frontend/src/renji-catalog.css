@@ -50,6 +50,12 @@
 .renji-admin-catalog article { padding: 16px; border: 1px solid #deded5; border-radius: 14px; display: grid; gap: 10px; }
 .renji-admin-catalog img { width: 100%; max-height: 210px; object-fit: contain; border-radius: 10px; background: #eeeee8; }
 .renji-admin-catalog article > div { display: flex; flex-wrap: wrap; gap: 12px; }
+.renji-product-manager { grid-column: 1 / -1; }
+.renji-product-form-preview { width: min(100%, 360px); max-height: 420px; object-fit: contain; justify-self: center; border-radius: 12px; background: #ededeb; }
+.renji-product-stock-editor { padding: 16px; border: 1px solid #deded6; border-radius: 12px; }
+.renji-product-stock-editor > div { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; margin-top: 10px; }
+.renji-check-label { display: flex !important; grid-template-columns: auto 1fr; align-items: center; gap: 9px; }
+.renji-check-label input { width: 20px !important; min-height: 20px !important; }
 @media (max-width: 540px) {
   .renji-catalog-page { padding: 10px; }
   .renji-catalog-page .renji-public-card { padding: 22px 16px; border-radius: 18px; }
@@ -60,4 +66,98 @@
   .renji-product-caption { padding: 12px; }
   .renji-product-caption strong { font-size: 20px; }
   .renji-photo-label { font-size: 8px; left: 6px; bottom: 6px; }
+}
+
+/* Tienda pública RENJI */
+.renji-store-page { min-height: 100vh; padding: 0; background: #090a09; color: #f7f7f2; align-items: flex-start; }
+.renji-store-shell { width: min(1180px, 100%); margin: auto; background: #111310; min-height: 100vh; overflow: hidden; }
+.renji-store-nav { min-height: 76px; padding: 14px clamp(18px,4vw,48px); display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #ffffff14; background: #0b0d0b; }
+.renji-store-logo { width: 44px; height: 44px; display: grid; place-items: center; border: 1px solid #f2c94c; color: #f2c94c; font: italic 950 28px Georgia; border-radius: 50%; }
+.renji-store-nav > div { display: grid; }
+.renji-store-nav strong { letter-spacing: 3px; font-size: 17px; }
+.renji-store-nav small { color: #94998f; font-size: 9px; letter-spacing: 1.4px; }
+.renji-cart-pill { margin-left: auto; display: flex; align-items: center; gap: 8px; padding: 9px 13px; color: #10120f; background: #f2c94c; border-radius: 30px; font-weight: 900; }
+.renji-store-hero { min-height: 590px; padding: clamp(30px,6vw,76px); display: grid; grid-template-columns: .9fr 1.1fr; align-items: center; gap: 38px; background: radial-gradient(circle at 75% 40%,#463d24 0,transparent 45%),linear-gradient(140deg,#171a15,#080908); }
+.renji-store-hero > div { position: relative; z-index: 1; }
+.renji-store-hero > div > span { color: #f2c94c; font-size: 11px; letter-spacing: 2px; font-weight: 900; }
+.renji-store-hero h1 { margin: 14px 0; color: #fff; font-size: clamp(42px,7vw,80px); line-height: .96; letter-spacing: -3px; }
+.renji-store-hero p { max-width: 520px; color: #b9bdb5; font-size: 17px; line-height: 1.6; }
+.renji-store-hero a { width: fit-content; margin-top: 24px; display: flex; gap: 8px; align-items: center; color: #12130f; background: #f2c94c; padding: 14px 18px; border-radius: 7px; font-weight: 900; text-decoration: none; }
+.renji-store-hero img { width: 100%; max-height: 620px; object-fit: contain; filter: drop-shadow(0 28px 35px #0009); border-radius: 16px; }
+.renji-store-section { padding: clamp(32px,5vw,64px); border-top: 1px solid #ffffff12; }
+.renji-store-title { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 28px; }
+.renji-store-title > span { flex: 0 0 34px; height: 34px; display: grid; place-items: center; color: #111; background: #f2c94c; border-radius: 50%; font-size: 11px; font-weight: 950; }
+.renji-store-title h2 { color: white; font-size: clamp(25px,3vw,36px); margin: 0; }
+.renji-store-title p { color: #8f958b; margin: 5px 0 0; }
+.renji-shop-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 18px; }
+.renji-shop-product { padding: 0; overflow: hidden; border: 1px solid #ffffff18; border-radius: 14px; color: white; background: #171a16; text-align: left; cursor: pointer; }
+.renji-shop-product.selected { border-color: #f2c94c; box-shadow: 0 0 0 2px #f2c94c55; }
+.renji-shop-product:disabled { opacity: .48; cursor: not-allowed; }
+.renji-shop-photo { position: relative; aspect-ratio: 4/5; overflow: hidden; background: #2c2d2a; }
+.renji-shop-photo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.renji-shop-photo > b { position: absolute; left: 12px; top: 12px; padding: 6px 8px; color: #17170f; background: #f2c94c; font-size: 9px; letter-spacing: 1px; border-radius: 4px; }
+.renji-shop-photo > i { position: absolute; right: 12px; top: 12px; width: 31px; height: 31px; display: grid; place-items: center; color: #111; background: #f2c94c; border-radius: 50%; }
+.renji-shop-copy { padding: 17px; display: grid; gap: 7px; }
+.renji-shop-copy small { color: #e9c648; font-size: 10px; letter-spacing: 1.3px; }
+.renji-shop-copy > strong { font-size: 20px; }
+.renji-shop-copy p { color: #9da298; margin: 0; min-height: 34px; font-size: 12px; line-height: 1.45; }
+.renji-shop-copy > div { display: flex; gap: 9px; align-items: baseline; margin-top: 5px; }
+.renji-shop-copy > div b { color: white; font-size: 20px; }
+.renji-shop-copy del { color: #747971; }
+.renji-shop-copy > div span { margin-left: auto; color: #8f958b; font-size: 10px; }
+.renji-configurator { margin-top: 22px; padding: 22px; background: #181b17; border: 1px solid #ffffff17; border-radius: 14px; display: grid; gap: 18px; }
+.renji-configurator > div:first-child { display: flex; justify-content: space-between; gap: 12px; }
+.renji-configurator > div:first-child span { color: #a1a69d; }
+.renji-configurator .renji-size-options button { background: #0f110f; color: white; border-color: #ffffff20; }
+.renji-configurator .renji-size-options button.selected { color: #15160e; background: #f2c94c; border-color: #f2c94c; }
+.renji-add-row { display: flex; justify-content: space-between; gap: 15px; align-items: end; }
+.renji-add-row label { color: #aaa; display: grid; gap: 6px; font-size: 11px; }
+.renji-add-row select { min-height: 44px; color: white; background: #0c0d0c; border: 1px solid #ffffff25; border-radius: 7px; padding: 0 12px; }
+.renji-add-row button { min-height: 46px; display: flex; align-items: center; gap: 7px; border: 0; border-radius: 7px; background: #f2c94c; color: #14150f; font-weight: 900; padding: 0 18px; }
+.renji-add-row button:disabled { opacity: .45; }
+.renji-store-section .renji-previous-drop { background: #191b18; color: #878c84; }
+.renji-store-checkout { display: block; }
+.renji-empty-cart { min-height: 150px; display: grid; place-items: center; align-content: center; gap: 12px; color: #747a71; border: 1px dashed #ffffff24; border-radius: 14px; }
+.renji-cart-list { display: grid; gap: 10px; }
+.renji-cart-list article { display: grid; grid-template-columns: 70px 1fr auto auto; align-items: center; gap: 14px; padding: 12px; background: #181a17; border: 1px solid #ffffff14; border-radius: 12px; }
+.renji-cart-list article > img { width: 70px; height: 70px; object-fit: contain; background: #2b2d29; border-radius: 8px; }
+.renji-cart-list article > div:nth-child(2) { display: grid; gap: 3px; }
+.renji-cart-list article span { color: #93998f; font-size: 12px; }
+.renji-cart-list article b { color: #f2c94c; }
+.renji-quantity { display: flex; align-items: center; gap: 8px; }
+.renji-quantity button,.renji-trash { width: 32px; height: 32px; display: grid; place-items: center; color: white; background: #0e100e; border: 1px solid #ffffff20; border-radius: 7px; }
+.renji-trash { color: #d9877d; }
+.renji-cart-total { padding: 18px 5px 0; display: flex; justify-content: space-between; border-top: 1px solid #ffffff1c; }
+.renji-cart-total strong { font-size: 24px; color: #f2c94c; }
+.renji-customer-grid { padding: 0; border: 0; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 15px; }
+.renji-customer-grid label { color: #b5bab1; display: grid; gap: 7px; font-size: 12px; font-weight: 700; }
+.renji-customer-grid input,.renji-customer-grid select { width: 100%; min-height: 49px; box-sizing: border-box; border: 1px solid #ffffff1f; border-radius: 8px; padding: 0 13px; color: white; background: #090b09; font-size: 16px; }
+.renji-checkout-actions { padding: 10px clamp(32px,5vw,64px) 70px; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.renji-checkout-actions button { min-height: 56px; display: flex; justify-content: center; align-items: center; gap: 9px; border-radius: 9px; font-size: 15px; font-weight: 900; }
+.renji-whatsapp-checkout { color: white; background: #24844c; border: 0; }
+.renji-payphone-checkout { color: #111; background: #f2c94c; border: 0; }
+.renji-checkout-actions button:disabled { opacity: .38; cursor: not-allowed; }
+.renji-checkout-actions small,.renji-checkout-actions p { grid-column: 1/-1; color: #8d9389; margin: 3px 0; text-align: center; }
+.renji-payment-message { margin: 18px clamp(18px,4vw,48px) 0; padding: 14px; display: flex; gap: 8px; align-items: center; border: 1px solid #e2c45b; border-radius: 9px; color: #f6dc7d; background: #342f1a; }
+.renji-payment-message.success { color: #9ee8b6; background: #173422; border-color: #3c9e60; }
+.renji-payment-message.error { color: #ffb0a8; background: #3a1d1a; border-color: #b95b52; }
+
+@media (max-width: 760px) {
+  .renji-store-hero { min-height: auto; grid-template-columns: 1fr; padding: 44px 20px 24px; }
+  .renji-store-hero h1 { letter-spacing: -2px; }
+  .renji-store-hero img { max-height: 470px; }
+  .renji-shop-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+  .renji-store-section { padding: 34px 16px; }
+  .renji-shop-copy { padding: 12px; }
+  .renji-shop-copy > strong { font-size: 16px; }
+  .renji-shop-copy p { display: none; }
+  .renji-shop-copy > div { flex-wrap: wrap; }
+  .renji-shop-copy > div span { width: 100%; margin-left: 0; }
+  .renji-configurator { padding: 15px; }
+  .renji-customer-grid { grid-template-columns: 1fr; }
+  .renji-cart-list article { grid-template-columns: 56px 1fr auto; gap: 9px; }
+  .renji-cart-list article > img { width: 56px; height: 56px; }
+  .renji-cart-list article .renji-trash { grid-column: 3; }
+  .renji-quantity { grid-row: 2; grid-column: 2; }
+  .renji-checkout-actions { padding: 0 16px 50px; grid-template-columns: 1fr; }
 }

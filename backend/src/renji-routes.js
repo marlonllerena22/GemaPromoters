@@ -16,6 +16,31 @@ function emailTransportConfigured() {
   return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 }
 
+function renjiPublicUrl() {
+  return String(process.env.PUBLIC_APP_URL || 'https://promotersec.com').replace(/\/$/, '');
+}
+
+function renjiPayPhoneCredentials() {
+  const token = cleanText(process.env.RENJI_PAYPHONE_TOKEN);
+  const storeId = cleanText(process.env.RENJI_PAYPHONE_STORE_ID);
+  if (!token || !storeId) throw catalogError('PayPhone todavía no está conectado para RENJI.', 503);
+  return { token, storeId };
+}
+
+async function renjiPayPhoneRequest(url, body) {
+  const { token } = renjiPayPhoneCredentials();
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body)
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw catalogError(`PayPhone no pudo iniciar el cobro (${response.status}).`, 502);
+  return payload;
+}
+
+const moneyCents = (value) => Math.round(toMoney(value) * 100);
+
 function escapeHtml(value) {
   return String(value || '')
     .replaceAll('&', '&amp;')
@@ -144,7 +169,7 @@ function catalogItemsFromPayload(payload) {
 
 function readPublicCatalogItems(db, establishmentId, body, legacyPayload) {
   const suppliedItems = Array.isArray(body.items) ? body.items : [];
-  if (suppliedItems.length > 2) throw catalogError('Puedes registrar un máximo de dos prendas por cliente.', 400);
+  if (suppliedItems.length > 10) throw catalogError('Puedes agregar un máximo de diez combinaciones de prenda y talla por pedido.', 400);
   const rawItems = suppliedItems.length ? suppliedItems : [{
     product_id: legacyPayload.productId,
     size: legacyPayload.pantsSize,
@@ -154,32 +179,34 @@ function readPublicCatalogItems(db, establishmentId, body, legacyPayload) {
 
   return rawItems.map((item) => {
     const quantity = Number(item.quantity ?? 1);
-    if (!Number.isSafeInteger(quantity) || quantity < 1 || (suppliedItems.length && quantity !== 1)) {
-      throw catalogError('Cada selección representa una prenda. Agrega una segunda selección para pedir dos.', 400);
+    if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 20) {
+      throw catalogError('La cantidad por talla debe estar entre 1 y 20.', 400);
     }
     const size = normalizeSize(item.size || item.pants_size);
     if (!size) throw catalogError('Selecciona la talla de cada prenda.', 400);
     const normalized = {
       productId: cleanText(item.product_id),
-      selectionType: 'pants',
+      selectionType: cleanText(item.item_type),
       pantsSize: size,
       size
     };
-    validateCatalogPayload(db, establishmentId, normalized);
+    const product = validateCatalogPayload(db, establishmentId, normalized);
     return {
-      item_type: 'pants',
+      item_type: product.item_type,
       product_id: normalized.productId,
       product_name: normalized.productName,
       color: normalized.color,
       size,
-      quantity
+      quantity,
+      unit_price: toMoney(product.price),
+      line_total: toMoney(Number(product.price || 0) * quantity)
     };
   });
 }
 
 function orderItemsForSelection(selectionType, quantity, sizesByType = {}) {
   const catalogItems = catalogItemsFromPayload(sizesByType);
-  if (catalogItems.length) return catalogItems.map((item) => ({ ...item, item_type: 'pants' }));
+  if (catalogItems.length) return catalogItems.map((item) => ({ ...item, item_type: item.item_type || 'pants' }));
   const qty = Math.max(1, Number(quantity || 1));
   const hoodieSize = sizesByType.hoodie_size || sizesByType.hoodieSize || sizesByType.size;
   const pantsSize = sizesByType.pants_size || sizesByType.pantsSize || sizesByType.size;
@@ -622,23 +649,120 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
   app.get('/api/renji/catalog', (req, res) => {
     const establishment = getRenjiEstablishment(db);
     if (!establishment) return res.status(404).json({ message: 'RENJI no está disponible' });
-    res.set('Cache-Control', 'no-store').json({ products: renjiCatalog(db, establishment.id), previous_collection: { name: 'Conjunto Sukuna', available: false } });
+    res.set('Cache-Control', 'no-store').json({
+      products: renjiCatalog(db, establishment.id).filter((product) => product.active),
+      previous_collection: { name: 'Conjunto Sukuna', available: false },
+      checkout: {
+        payphone_configured: Boolean(process.env.RENJI_PAYPHONE_TOKEN && process.env.RENJI_PAYPHONE_STORE_ID),
+        whatsapp_number: cleanText(process.env.RENJI_WHATSAPP_NUMBER)
+      }
+    });
   });
 
-  const registerPublicOrder = (isSeparation) => async (req, res) => {
+  const readCatalogProduct = (body, idOverride = '') => {
+    const name = cleanText(body.name);
+    const color = cleanText(body.color) || 'Negro';
+    const itemType = normalizeItemType(body.item_type);
+    const id = cleanText(idOverride || body.id || name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''));
+    const imageUrl = cleanText(body.image_url);
+    const launchName = cleanText(body.launch_name) || `Lanzamiento · ${name}`;
+    const launchId = cleanText(body.launch_id) || launchName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const price = toMoney(body.price);
+    const compareAtPrice = toMoney(body.compare_at_price);
+    if (!id || !name || !itemType || !imageUrl || !launchId) throw catalogError('Nombre, tipo, imagen y lanzamiento son obligatorios.', 400);
+    if (!/^[a-z0-9-]{2,80}$/.test(id)) throw catalogError('El identificador del producto no es válido.', 400);
+    if (!(imageUrl.startsWith('/renji/') || imageUrl.startsWith('https://') || imageUrl.startsWith('data:image/'))) {
+      throw catalogError('La imagen debe ser un archivo seleccionado o una URL https válida.', 400);
+    }
+    if (imageUrl.length > 8_000_000) throw catalogError('La imagen es demasiado pesada. Usa una imagen menor a 6 MB.', 400);
+    const stock = Object.fromEntries(sizes.map((size) => {
+      const quantity = Number(body.stock?.[size] ?? 0);
+      if (!Number.isSafeInteger(quantity) || quantity < 0 || quantity > 10000) throw catalogError(`El stock de talla ${size} no es válido.`, 400);
+      return [size, quantity];
+    }));
+    return { id, name, color, itemType, imageUrl, launchId, launchName, description: cleanText(body.description),
+      price, compareAtPrice, featured: body.featured ? 1 : 0, active: body.active === false ? 0 : 1,
+      sortOrder: Number.isSafeInteger(Number(body.sort_order)) ? Number(body.sort_order) : 100, stock };
+  };
+
+  app.post('/api/renji/catalog/products', requireAdmin, (req, res) => {
     try {
+      const establishmentId = getRequestEstablishmentId(req);
+      assertRenjiBusiness(db, establishmentId);
+      const product = readCatalogProduct(req.body);
+      db.transaction(() => {
+        db.prepare(`INSERT INTO renji_catalog_products
+          (establishment_id, id, name, color, image_url, active, launch_id, launch_name, item_type, description, price, compare_at_price, featured, sort_order)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .run(establishmentId, product.id, product.name, product.color, product.imageUrl, product.active, product.launchId,
+            product.launchName, product.itemType, product.description, product.price, product.compareAtPrice, product.featured, product.sortOrder);
+        for (const size of sizes) {
+          db.prepare('INSERT INTO renji_catalog_stock (establishment_id, product_id, size, quantity) VALUES (?, ?, ?, ?)')
+            .run(establishmentId, product.id, size, product.stock[size]);
+          if (product.stock[size]) db.prepare(`INSERT INTO renji_catalog_movements
+            (establishment_id, product_id, size, quantity, notes) VALUES (?, ?, ?, ?, ?)`)
+            .run(establishmentId, product.id, size, product.stock[size], 'Inventario inicial desde administrador');
+        }
+      })();
+      res.status(201).json({ ok: true, product: renjiCatalog(db, establishmentId).find((entry) => entry.id === product.id) });
+    } catch (error) {
+      const duplicate = String(error.message || '').includes('UNIQUE constraint');
+      res.status(duplicate ? 409 : (error.status || 500)).json({ message: duplicate ? 'Ya existe un producto con ese identificador.' : error.message });
+    }
+  });
+
+  app.put('/api/renji/catalog/products/:id', requireAdmin, (req, res) => {
+    try {
+      const establishmentId = getRequestEstablishmentId(req);
+      assertRenjiBusiness(db, establishmentId);
+      const existing = db.prepare('SELECT * FROM renji_catalog_products WHERE establishment_id = ? AND id = ?')
+        .get(establishmentId, req.params.id);
+      if (!existing) return res.status(404).json({ message: 'Producto no encontrado' });
+      const product = readCatalogProduct(req.body, existing.id);
+      db.transaction(() => {
+        db.prepare(`UPDATE renji_catalog_products SET name = ?, color = ?, image_url = ?, active = ?, launch_id = ?, launch_name = ?,
+          item_type = ?, description = ?, price = ?, compare_at_price = ?, featured = ?, sort_order = ?
+          WHERE establishment_id = ? AND id = ?`)
+          .run(product.name, product.color, product.imageUrl, product.active, product.launchId, product.launchName,
+            product.itemType, product.description, product.price, product.compareAtPrice, product.featured, product.sortOrder,
+            establishmentId, existing.id);
+        for (const size of sizes) {
+          const current = db.prepare(`SELECT quantity FROM renji_catalog_stock
+            WHERE establishment_id = ? AND product_id = ? AND size = ?`).get(establishmentId, existing.id, size);
+          const difference = product.stock[size] - Number(current?.quantity || 0);
+          db.prepare(`INSERT INTO renji_catalog_stock (establishment_id, product_id, size, quantity) VALUES (?, ?, ?, ?)
+            ON CONFLICT(establishment_id, product_id, size) DO UPDATE SET quantity = excluded.quantity`)
+            .run(establishmentId, existing.id, size, product.stock[size]);
+          if (difference) db.prepare(`INSERT INTO renji_catalog_movements
+            (establishment_id, product_id, size, quantity, notes) VALUES (?, ?, ?, ?, ?)`)
+            .run(establishmentId, existing.id, size, difference, 'Ajuste desde administrador');
+        }
+      })();
+      res.json({ ok: true, product: renjiCatalog(db, establishmentId).find((entry) => entry.id === existing.id) });
+    } catch (error) {
+      res.status(error.status || 500).json({ message: error.message || 'No se pudo actualizar el producto' });
+    }
+  });
+
+  const registerPublicOrder = (mode = 'paid') => async (req, res) => {
+    try {
+      const isSeparation = mode === 'separation';
+      const isWhatsApp = mode === 'whatsapp';
       const establishment = getRenjiEstablishment(db);
       if (!establishment) return res.status(404).json({ message: 'RENJI no está disponible' });
       const firstItem = Array.isArray(req.body.items) ? req.body.items[0] : null;
       const payload = readOrderPayload({
         ...req.body,
         product_id: firstItem?.product_id || req.body.product_id,
-        selection_type: 'pants',
+        selection_type: firstItem?.item_type || req.body.selection_type || 'pants',
         size: firstItem?.size || req.body.size,
-        pants_size: firstItem?.size || req.body.pants_size,
-        quantity: firstItem ? 1 : req.body.quantity
+        pants_size: firstItem?.item_type === 'pants' ? firstItem?.size : req.body.pants_size,
+        hoodie_size: firstItem?.item_type === 'hoodie' ? firstItem?.size : req.body.hoodie_size,
+        quantity: firstItem ? Number(firstItem.quantity || 1) : req.body.quantity
       }, {
-        paidByDefault: !isSeparation, registrationType: isSeparation ? 'separation' : 'paid',
+        paidByDefault: mode === 'paid', registrationType: isSeparation ? 'separation' : 'paid',
         requireDeposit: isSeparation, requireEmail: true
       });
       const catalogItems = readPublicCatalogItems(db, establishment.id, req.body, payload);
@@ -649,9 +773,13 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
         productName: firstCatalogItem.product_name,
         color: firstCatalogItem.color,
         size: firstCatalogItem.size,
-        pantsSize: firstCatalogItem.size,
+        selectionType: firstCatalogItem.item_type,
+        pantsSize: firstCatalogItem.item_type === 'pants' ? firstCatalogItem.size : payload.pantsSize,
+        hoodieSize: firstCatalogItem.item_type === 'hoodie' ? firstCatalogItem.size : payload.hoodieSize,
         quantity: catalogItems.reduce((sum, item) => sum + item.quantity, 0)
       });
+      payload.paymentStatus = mode === 'paid' ? 'paid' : 'pending';
+      const totalAmount = toMoney(catalogItems.reduce((sum, item) => sum + Number(item.line_total || 0), 0));
       const requestKey = cleanText(req.body.request_key);
       if (!/^[a-zA-Z0-9-]{16,80}$/.test(requestKey)) throw catalogError('Actualiza la página e intenta enviar tu pedido nuevamente.', 400);
       const requestHash = createHash('sha256').update(JSON.stringify(payload)).digest('hex');
@@ -668,12 +796,14 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
         const inserted = db.prepare(`INSERT INTO renji_registrations
           (establishment_id, customer_name, customer_cedula, customer_email, customer_city, customer_address, customer_phone,
            customer_instagram, purchase_channel, selection_type, size, hoodie_size, pants_size, quantity, registration_type,
-           deposit_amount, notes, product_id, product_name, color, stock_reserved, request_key, request_hash, catalog_items_json)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`)
+           deposit_amount, notes, product_id, product_name, color, stock_reserved, request_key, request_hash, catalog_items_json,
+           payment_status, sales_origin, total_amount)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`)
           .run(establishment.id, payload.customerName, payload.cedula, payload.email, payload.city, payload.address,
             payload.phone, payload.instagram, payload.purchaseChannel, payload.selectionType, payload.size, payload.hoodieSize,
             payload.pantsSize, payload.quantity, payload.registrationType, payload.depositAmount, payload.notes,
-            payload.productId, payload.productName, payload.color, requestKey, requestHash, JSON.stringify(catalogItems));
+            payload.productId, payload.productName, payload.color, requestKey, requestHash, JSON.stringify(catalogItems),
+            payload.paymentStatus, isWhatsApp ? 'whatsapp' : 'web', totalAmount);
         return { id: Number(inserted.lastInsertRowid), duplicate: false };
       })();
       let emailResult = { sent: result.emailSent || false };
@@ -682,14 +812,84 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
         db.prepare('UPDATE renji_registrations SET email_sent = ? WHERE id = ?').run(emailResult.sent ? 1 : 0, result.id);
       }
       res.status(result.duplicate ? 200 : 201).json({ ok: true, registration_id: result.id, email: { sent: emailResult.sent },
-        product_name: payload.productName, color: payload.color, size: payload.pantsSize, quantity: payload.quantity,
+        product_name: payload.productName, color: payload.color, size: payload.size, quantity: payload.quantity,
+        total: totalAmount,
         items: catalogItems });
     } catch (error) {
       res.status(error.status || 500).json({ message: error.message || 'No se pudo registrar tu pedido' });
     }
   };
-  app.post('/api/renji/public-registrations', registerPublicOrder(false));
-  app.post('/api/renji/public-separations', registerPublicOrder(true));
+  app.post('/api/renji/public-registrations', registerPublicOrder('paid'));
+  app.post('/api/renji/public-separations', registerPublicOrder('separation'));
+  app.post('/api/renji/public-orders', registerPublicOrder('whatsapp'));
+
+  app.post('/api/renji/payments/payphone/prepare', async (req, res) => {
+    try {
+      const establishment = getRenjiEstablishment(db);
+      const registrationId = Number(req.body.registration_id);
+      const registration = establishment && Number.isSafeInteger(registrationId)
+        ? db.prepare(`SELECT * FROM renji_registrations WHERE id = ? AND establishment_id = ? AND status = 'pending'`)
+          .get(registrationId, establishment.id)
+        : null;
+      if (!registration) throw catalogError('No encontramos el pedido que deseas pagar.', 404);
+      if (registration.payment_status === 'paid') throw catalogError('Este pedido ya está pagado.');
+      if (Number(registration.total_amount || 0) <= 0) throw catalogError('Este producto aún no tiene un precio habilitado para pago en línea.', 400);
+      const { storeId } = renjiPayPhoneCredentials();
+      const clientTransactionId = `RENJI-${registration.id}`;
+      const total = moneyCents(registration.total_amount);
+      const response = await renjiPayPhoneRequest(
+        process.env.RENJI_PAYPHONE_PREPARE_URL || process.env.PAYPHONE_PREPARE_URL || 'https://pay.payphonetodoesposible.com/api/button/Prepare',
+        {
+          amount: total, amountWithoutTax: total, amountWithTax: 0, tax: 0, service: 0, tip: 0,
+          clientTransactionId,
+          reference: `Pedido RENJI #${registration.id}`,
+          storeId, currency: 'USD', timeZone: -5,
+          responseUrl: `${renjiPublicUrl()}/api/renji/payments/payphone/response`,
+          cancellationUrl: `${renjiPublicUrl()}/renji?payment=cancelled&order=${registration.id}`
+        }
+      );
+      const paymentUrl = cleanText(response.payWithCard || response.payWithPayPhone);
+      const providerReference = cleanText(response.paymentId);
+      if (!paymentUrl || !providerReference) throw catalogError('PayPhone no devolvió el enlace de pago.', 502);
+      db.prepare(`UPDATE renji_registrations SET payphone_provider_reference = ?, sales_origin = 'payphone' WHERE id = ?`)
+        .run(providerReference, registration.id);
+      res.json({ ok: true, payment_url: paymentUrl });
+    } catch (error) {
+      res.status(error.status || 500).json({ message: error.message || 'No se pudo iniciar el pago' });
+    }
+  });
+
+  app.all('/api/renji/payments/payphone/response', async (req, res) => {
+    const data = { ...(req.query || {}), ...(req.body || {}) };
+    const clientTransactionId = cleanText(data.clientTransactionId || data.clientTransactionID || data.clientTxId);
+    const paymentId = data.id || data.transactionId;
+    const registrationId = Number(clientTransactionId.replace(/^RENJI-/, ''));
+    const finish = (status) => res.redirect(303, `${renjiPublicUrl()}/renji?payment=${status}&order=${Number.isSafeInteger(registrationId) ? registrationId : ''}`);
+    const establishment = getRenjiEstablishment(db);
+    const registration = establishment && Number.isSafeInteger(registrationId)
+      ? db.prepare(`SELECT * FROM renji_registrations WHERE id = ? AND establishment_id = ?`).get(registrationId, establishment.id)
+      : null;
+    if (!registration || !paymentId) return finish('failed');
+    if (registration.payment_status === 'paid') return finish('success');
+    try {
+      const payment = await renjiPayPhoneRequest(
+        process.env.RENJI_PAYPHONE_CONFIRM_URL || process.env.PAYPHONE_CONFIRM_URL || 'https://pay.payphonetodoesposible.com/api/button/V2/Confirm',
+        { id: Number(paymentId), clientTxId: clientTransactionId }
+      );
+      const confirmedId = cleanText(payment.clientTransactionId || payment.ClientTransactionId);
+      const statusCode = Number(payment.statusCode ?? payment.StatusCode);
+      const transactionStatus = cleanText(payment.transactionStatus || payment.TransactionStatus).toLowerCase();
+      const amount = Number(payment.amount ?? payment.Amount);
+      if (confirmedId !== clientTransactionId || amount !== moneyCents(registration.total_amount)
+        || statusCode !== 3 || transactionStatus !== 'approved') return finish('failed');
+      db.prepare(`UPDATE renji_registrations SET payment_status = 'paid', paid_at = datetime('now', 'localtime'),
+        payphone_provider_reference = ? WHERE id = ?`).run(cleanText(payment.transactionId || payment.TransactionId || paymentId), registration.id);
+      return finish('success');
+    } catch (error) {
+      console.error('PayPhone RENJI:', error.message);
+      return finish('failed');
+    }
+  });
 
   app.get('/api/renji/overview', requireAdmin, (req, res) => {
     try {
@@ -942,11 +1142,13 @@ export function registerRenjiRoutes(app, db, getRequestEstablishmentId) {
         return res.status(404).json({ message: 'Registro no encontrado o ya procesado' });
       }
       const isSeparation = registration.registration_type === 'separation';
+      const registrationIsPaid = (registration.payment_status || (isSeparation ? 'pending' : 'paid')) === 'paid';
       const payload = readOrderPayload(registration, {
-        paidByDefault: !isSeparation,
+        paidByDefault: registrationIsPaid,
         registrationType: registration.registration_type || 'paid',
-        requireDeposit: isSeparation
+        requireDeposit: isSeparation && Number(registration.deposit_amount || 0) > 0
       });
+      payload.paymentStatus = registrationIsPaid ? 'paid' : 'pending';
       payload.catalogItems = parseJsonArray(registration.catalog_items_json);
       const transaction = db.transaction(() => {
         const orderId = insertRenjiOrder(db, establishmentId, payload, { alreadyReserved: Boolean(registration.product_id && registration.stock_reserved) });

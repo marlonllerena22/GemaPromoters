@@ -86,6 +86,12 @@ const emptyStockItem = {
   quantity: ''
 };
 
+const emptyProduct = {
+  id: '', name: '', item_type: 'hoodie', color: 'Negro', description: '', image_url: '',
+  price: '', compare_at_price: '', launch_id: '', launch_name: '', active: true, featured: false,
+  sort_order: 100, stock: { S: 0, M: 0, L: 0, XL: 0 }
+};
+
 function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = false, onLogout }) {
   const establishmentId = forcedEstablishmentId || user?.establishment_id || '';
   const [overview, setOverview] = useState({ stock: [], orders: [], summary: {} });
@@ -98,6 +104,9 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
   const [editingRegistrationId, setEditingRegistrationId] = useState(null);
   const [salePanelOpen, setSalePanelOpen] = useState(false);
   const [stockPanelOpen, setStockPanelOpen] = useState(false);
+  const [productPanelOpen, setProductPanelOpen] = useState(false);
+  const [editingProductId, setEditingProductId] = useState(null);
+  const [productForm, setProductForm] = useState(emptyProduct);
   const [orderLaunchFilter, setOrderLaunchFilter] = useState('all');
   const [orderShippingFilter, setOrderShippingFilter] = useState('all');
   const [guideLaunchFilter, setGuideLaunchFilter] = useState('all');
@@ -107,6 +116,7 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
   const [loading, setLoading] = useState(true);
   const publicLink = `${window.location.origin}/renji-registro`;
   const separationLink = `${window.location.origin}/renji-separar`;
+  const storeLink = `${window.location.origin}/renji`;
 
   async function loadOverview(message = '') {
     setError('');
@@ -227,6 +237,44 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
     } catch (err) {
       setError(err.message);
     }
+  }
+
+  async function submitProduct(event) {
+    event.preventDefault();
+    setError('');
+    try {
+      await api(scoped(editingProductId ? `/renji/catalog/products/${editingProductId}` : '/renji/catalog/products', establishmentId), {
+        method: editingProductId ? 'PUT' : 'POST',
+        body: JSON.stringify(productForm)
+      });
+      setProductForm(emptyProduct);
+      setEditingProductId(null);
+      setProductPanelOpen(false);
+      await loadOverview(editingProductId ? 'Producto actualizado' : 'Producto creado con su stock');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  function editProduct(product) {
+    setProductForm({
+      id: product.id, name: product.name, item_type: product.item_type || 'pants', color: product.color,
+      description: product.description || '', image_url: product.image_url, price: product.price || '',
+      compare_at_price: product.compare_at_price || '', launch_id: product.launch_id, launch_name: product.launch_name,
+      active: Boolean(product.active), featured: Boolean(product.featured), sort_order: product.sort_order ?? 100,
+      stock: Object.fromEntries(sizes.map((size) => [size, Number(product.sizes.find((row) => row.size === size)?.quantity || 0)]))
+    });
+    setEditingProductId(product.id);
+    setProductPanelOpen(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function readProductImage(file) {
+    if (!file) return;
+    if (file.size > 6 * 1024 * 1024) return setError('La foto debe pesar menos de 6 MB');
+    const reader = new FileReader();
+    reader.onload = () => setProductForm((current) => ({ ...current, image_url: String(reader.result || '') }));
+    reader.readAsDataURL(file);
   }
 
   async function markPaid(order) {
@@ -435,6 +483,13 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
 
           <section className="renji-panel renji-link-card">
             <div>
+              <strong>Tienda y catálogo público</strong>
+              <span>{storeLink}</span>
+            </div>
+            <button className="renji-secondary" onClick={() => navigator.clipboard.writeText(storeLink).then(() => loadOverview('Enlace de la tienda copiado'))}><Copy size={16} />Copiar enlace</button>
+          </section>
+          <section className="renji-panel renji-link-card">
+            <div>
               <strong>Enlace para clientes cancelados</strong>
               <span>{publicLink}</span>
             </div>
@@ -449,6 +504,31 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
           </section>
 
           <section className="renji-grid">
+            <article className={`renji-panel renji-collapsible renji-product-manager ${productPanelOpen ? 'open' : ''}`}>
+              <button className="renji-collapsible-trigger" type="button" onClick={() => setProductPanelOpen(!productPanelOpen)}>
+                <span><Shirt size={18} />{editingProductId ? 'Editar producto' : 'Crear producto'}</span>
+                <small>Foto, precio, lanzamiento y stock de todas las tallas en un solo lugar.</small>
+                <ChevronDown className={`renji-chevron ${productPanelOpen ? 'rotated' : ''}`} size={20} />
+              </button>
+              {productPanelOpen && <form className="renji-form renji-collapsible-body" onSubmit={submitProduct}>
+                <label>Nombre del producto<input value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} required /></label>
+                <label>Tipo<select value={productForm.item_type} onChange={(e) => setProductForm({ ...productForm, item_type: e.target.value })}><option value="hoodie">Hoodie</option><option value="pants">Pantalón</option></select></label>
+                <label>Color<input value={productForm.color} onChange={(e) => setProductForm({ ...productForm, color: e.target.value })} required /></label>
+                <label>Identificador interno<input value={productForm.id} disabled={Boolean(editingProductId)} onChange={(e) => setProductForm({ ...productForm, id: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') })} placeholder="Se genera si lo dejas vacío" /></label>
+                <label>Precio actual<input type="number" min="0" step="0.01" value={productForm.price} onChange={(e) => setProductForm({ ...productForm, price: e.target.value })} /></label>
+                <label>Precio anterior<input type="number" min="0" step="0.01" value={productForm.compare_at_price} onChange={(e) => setProductForm({ ...productForm, compare_at_price: e.target.value })} /></label>
+                <label>Lanzamiento<input value={productForm.launch_name} onChange={(e) => setProductForm({ ...productForm, launch_name: e.target.value })} placeholder="Ej. Lanzamiento 4 · Hoodies" required /></label>
+                <label>Orden en catálogo<input type="number" value={productForm.sort_order} onChange={(e) => setProductForm({ ...productForm, sort_order: Number(e.target.value) })} /></label>
+                <label className="span-2">Descripción<input value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} placeholder="Material, corte y detalles importantes" /></label>
+                <label className="span-2">Foto del producto<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => readProductImage(e.target.files?.[0])} required={!productForm.image_url} /></label>
+                {productForm.image_url && <img className="renji-product-form-preview span-2" src={productForm.image_url} alt="Vista previa" />}
+                <div className="renji-product-stock-editor span-2"><strong>Stock inicial / actual por talla</strong><div>{sizes.map((size) => <label key={size}>Talla {size}<input type="number" min="0" step="1" value={productForm.stock[size]} onChange={(e) => setProductForm({ ...productForm, stock: { ...productForm.stock, [size]: Number(e.target.value) } })} /></label>)}</div></div>
+                <label className="renji-check-label"><input type="checkbox" checked={productForm.featured} onChange={(e) => setProductForm({ ...productForm, featured: e.target.checked })} />Destacar como nuevo</label>
+                <label className="renji-check-label"><input type="checkbox" checked={productForm.active} onChange={(e) => setProductForm({ ...productForm, active: e.target.checked })} />Visible y disponible</label>
+                <button className="renji-primary span-2" type="submit">{editingProductId ? 'Guardar producto' : 'Crear producto y cargar stock'}</button>
+                {editingProductId && <button className="renji-secondary span-2" type="button" onClick={() => { setEditingProductId(null); setProductForm(emptyProduct); }}>Cancelar edición</button>}
+              </form>}
+            </article>
             <article className={`renji-panel renji-collapsible ${salePanelOpen ? 'open' : ''}`}>
               <button className="renji-collapsible-trigger" type="button" onClick={() => setSalePanelOpen(!salePanelOpen)}>
                 <span><Edit3 size={18} />{editingRegistrationId ? 'Editar registro por confirmar' : editingOrderId ? 'Editar venta' : 'Registrar venta'}</span>
@@ -473,8 +553,11 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                 <label>Prenda y color
                   <select value={orderForm.product_id || orderForm.selection_type} onChange={(e) => {
                     const product = overview.catalog?.find((entry) => entry.id === e.target.value);
-                    setOrderForm({ ...orderForm, product_id: product?.id || '', selection_type: product ? 'pants' : e.target.value,
-                      size: product || e.target.value === 'pants' ? orderForm.pants_size : orderForm.hoodie_size });
+                    const productType = product?.item_type || e.target.value;
+                    const nextSize = productType === 'pants' ? orderForm.pants_size : orderForm.hoodie_size;
+                    setOrderForm({ ...orderForm, product_id: product?.id || '', selection_type: productType,
+                      size: nextSize, pants_size: productType === 'pants' ? nextSize : orderForm.pants_size,
+                      hoodie_size: productType === 'hoodie' ? nextSize : orderForm.hoodie_size });
                   }}>
                     {(overview.catalog || []).map((product) => <option key={product.id} value={product.id}>{product.name} - {product.color}</option>)}
                     {(editingOrderId || editingRegistrationId) && !orderForm.product_id && <>
@@ -533,7 +616,7 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
                     <select value={item.product_id || item.item_type} onChange={(e) => {
                       const product = overview.catalog?.find((entry) => entry.id === e.target.value);
                       const items = [...stockForm.items];
-                      items[index] = { ...item, product_id: product?.id || '', item_type: product ? 'pants' : e.target.value };
+                      items[index] = { ...item, product_id: product?.id || '', item_type: product?.item_type || e.target.value };
                       setStockForm({ ...stockForm, items });
                     }}>
                       {(overview.catalog || []).map((product) => <option key={product.id} value={product.id}>{product.name} - {product.color}</option>)}
@@ -567,7 +650,9 @@ function RenjiApp({ user, establishmentId: forcedEstablishmentId, embedded = fal
               {(overview.catalog || []).map((product) => <article key={product.id}>
                 <img src={product.image_url} alt={`${product.name} ${product.color}`} />
                 <strong>{product.name} - {product.color}</strong>
+                <small>{product.item_type === 'hoodie' ? 'Hoodie' : 'Pantalón'} · {Number(product.price) > 0 ? money(product.price) : 'Precio pendiente'} · {product.active ? 'Visible' : 'Oculto'}</small>
                 <div>{product.sizes.map((variant) => <span key={variant.size}>{variant.size}: <b>{variant.quantity}</b></span>)}</div>
+                <button className="renji-secondary" type="button" onClick={() => editProduct(product)}><Edit3 size={15} />Editar producto</button>
               </article>)}
             </div>
             <p>Conjunto Sukuna: agotado para nuevos pedidos. Inventario historico:</p>
